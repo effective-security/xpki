@@ -1,6 +1,8 @@
 package certutil_test
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"strings"
 	"testing"
 
@@ -82,4 +84,15 @@ uo2YIfCNG9Tloo9mNMjmhNl2Z8VsshqFqoHEk0N9CTMgjPkazaeE2UkcJQ==
 	_, err = certutil.ParseRSAPublicKeyFromPEM([]byte(pvk))
 	require.Error(t, err)
 	assert.Equal(t, `unable to parse RSA Public Key`, err.Error())
+}
+
+func Test_EncodePublicKeyToPEM(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
+
+	p, err := certutil.EncodePublicKeyToPEM(key.Public())
+	require.NoError(t, err)
+
+	_, err = certutil.ParseRSAPublicKeyFromPEM(p)
+	require.NoError(t, err)
 }
