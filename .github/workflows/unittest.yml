@@ -53,8 +53,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
+    - name: Install softhsm2
+      run: sudo apt-get install softhsm2 opensc
+
     - name: Prepare
-      run: make vars tools generate start-local-kms hsmconfig
+      run: make vars tools generate hsmconfig # start-local-kms
 
     - name: UnitTest
       run: make build covtest
