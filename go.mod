@@ -3,12 +3,16 @@ module github.com/effective-security/xpki
 go 1.17
 
 require (
+	github.com/aws/aws-sdk-go v1.27.0
 	github.com/cloudflare/cfssl v1.6.1
 	github.com/effective-security/xlog v0.0.0-20220119145654-f9e93d59bf04
 	github.com/go-phorce/cov-report v1.1.1-0.20200622030546-3fb510c4b1ba
 	github.com/mattn/goveralls v0.0.11
+	github.com/miekg/pkcs11 v1.0.3
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.7.0
+	go.starlark.net v0.0.0-20211203141949-70c0e40ae128
+	golang.org/x/crypto v0.0.0-20210506145944-38f3c27a63bf
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
 	golang.org/x/tools v0.1.9
 )
@@ -43,6 +47,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jhump/protoreflect v1.8.2 // indirect
+	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
 	github.com/jonboulle/clockwork v0.2.2 // indirect
 	github.com/json-iterator/go v1.1.11 // indirect
 	github.com/mattn/go-runewidth v0.0.12 // indirect
@@ -79,7 +84,6 @@ require (
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
 	go.uber.org/zap v1.16.0 // indirect
-	golang.org/x/crypto v0.0.0-20210506145944-38f3c27a63bf // indirect
 	golang.org/x/mod v0.5.1 // indirect
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f // indirect
 	golang.org/x/oauth2 v0.0.0-20210427180440-81ed05c6b58c // indirect

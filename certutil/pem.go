@@ -2,6 +2,7 @@ package certutil
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/asn1"
@@ -31,8 +32,7 @@ func LoadFromPEM(certFile string) (*x509.Certificate, error) {
 
 // ParseFromPEM returns Certificate parsed from PEM
 func ParseFromPEM(bytes []byte) (*x509.Certificate, error) {
-	var block *pem.Block
-	block, bytes = pem.Decode(bytes)
+	block, _ := pem.Decode(bytes)
 	if block == nil || block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
 		return nil, errors.Errorf("unable to parse PEM")
 	}
@@ -207,4 +207,25 @@ func ParseRSAPublicKeyFromPEM(key []byte) (*rsa.PublicKey, error) {
 	}
 
 	return pkey, nil
+}
+
+// EncodePublicKeyToPEM returns PEM encoded public key
+func EncodePublicKeyToPEM(pubKey crypto.PublicKey) ([]byte, error) {
+	asn1Bytes, err := x509.MarshalPKIXPublicKey(pubKey)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	var pemkey = &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: asn1Bytes,
+	}
+
+	b := bytes.NewBuffer([]byte{})
+
+	err = pem.Encode(b, pemkey)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return b.Bytes(), nil
 }
