@@ -3,6 +3,7 @@ module github.com/effective-security/xpki
 go 1.17
 
 require (
+	github.com/alecthomas/kong v0.4.0
 	github.com/aws/aws-sdk-go v1.27.0
 	github.com/cloudflare/cfssl v1.6.1
 	github.com/effective-security/xlog v0.0.0-20220119145654-f9e93d59bf04
@@ -10,10 +11,12 @@ require (
 	github.com/mattn/goveralls v0.0.11
 	github.com/miekg/pkcs11 v1.0.3
 	github.com/pkg/errors v0.9.1
+	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
-	go.starlark.net v0.0.0-20211203141949-70c0e40ae128
+	github.com/ugorji/go/codec v1.2.6
 	golang.org/x/crypto v0.0.0-20210506145944-38f3c27a63bf
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
+	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/tools v0.1.9
 )
 
@@ -63,10 +66,10 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.8.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/cobra v1.1.3 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/urfave/cli v1.22.5 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
@@ -85,7 +88,6 @@ require (
 	go.uber.org/multierr v1.7.0 // indirect
 	go.uber.org/zap v1.16.0 // indirect
 	golang.org/x/mod v0.5.1 // indirect
-	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f // indirect
 	golang.org/x/oauth2 v0.0.0-20210427180440-81ed05c6b58c // indirect
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
 	golang.org/x/text v0.3.7 // indirect

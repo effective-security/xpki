@@ -26,7 +26,9 @@ tools:
 	go install github.com/mattn/goveralls
 
 build:
-	echo "nothing to build yet"
+	echo "*** Building hsm-tool"
+	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/hsm-tool ./cmd/hsm-tool
+
 
 coveralls-github:
 	echo "Running coveralls"
