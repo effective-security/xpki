@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/testprov"
 	"github.com/pkg/errors"
@@ -25,7 +26,7 @@ func Test_LoadProvider(t *testing.T) {
 	_, err := cryptoprov.LoadProvider(SoftHSMConfig)
 	assert.Error(t, err)
 
-	err = cryptoprov.Register("SoftHSM", cryptoprov.Crypto11Loader)
+	err = cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
 	assert.NoError(t, err)
 	defer cryptoprov.Unregister("SoftHSM")
 
@@ -36,7 +37,7 @@ func Test_LoadProvider(t *testing.T) {
 }
 
 func Test_Load(t *testing.T) {
-	_ = cryptoprov.Register("SoftHSM", cryptoprov.Crypto11Loader)
+	_ = cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
 	defer cryptoprov.Unregister("SoftHSM")
 	_ = cryptoprov.Register("inmem", inmemloader)
 	defer cryptoprov.Unregister("inmem")

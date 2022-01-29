@@ -3,11 +3,12 @@ package cli
 import (
 	"crypto"
 	"crypto/elliptic"
-	"strings"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/x/guid"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
@@ -31,33 +32,33 @@ func (s *testSuite) TestLsKeyFlags() {
 	// with keys and creationTime
 	creationTime := time.Now()
 	mocked := &mockedFull{
-		tokens: []slot{
+		tokens: []cryptoprov.TokenInfo{
 			{
-				slotID:       uint(1),
-				description:  "d123",
-				label:        "label123",
-				manufacturer: "man123",
-				model:        "model123",
-				serial:       "serial123-30589673",
+				SlotID:       uint(1),
+				Description:  "d123",
+				Label:        "label123",
+				Manufacturer: "man123",
+				Model:        "model123",
+				Serial:       "serial123-30589673",
 			},
 		},
-		keys: map[uint][]keyInfo{
+		keys: map[uint][]cryptoprov.KeyInfo{
 			uint(1): {
 				{
-					id:               "123",
-					label:            "label123",
-					typ:              "RSA",
-					class:            "class",
-					currentVersionID: "v124",
-					creationTime:     &creationTime,
+					ID:               "123",
+					Label:            "label123",
+					Type:             "RSA",
+					Class:            "class",
+					CurrentVersionID: "v124",
+					CreationTime:     &creationTime,
 				},
 				{
-					id:               "with_error",
-					label:            "with_error",
-					typ:              "ECDSA",
-					class:            "class",
-					currentVersionID: "v1235",
-					creationTime:     &creationTime,
+					ID:               "with_error",
+					Label:            "with_error",
+					Type:             "ECDSA",
+					Class:            "class",
+					CurrentVersionID: "v1235",
+					CreationTime:     &creationTime,
 				},
 			},
 		},
@@ -84,6 +85,188 @@ func (s *testSuite) TestLsKeyFlags() {
 	cmd = HsmLsKeyCmd{}
 	err = cmd.Run(s.ctl)
 	s.Require().Error(err)
+
+	// assert that the expectations were met
+	mocked.AssertExpectations(s.T())
+}
+
+func (s *testSuite) Test_KeyInfo() {
+	cmd := HsmKeyInfoCmd{
+		ID:     "123",
+		Public: true,
+	}
+
+	// without KeyManager interface
+	c, _ := cryptoprov.New(&mockedProvider{}, nil)
+	s.ctl.crypto = c
+
+	err := cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal("unsupported command for this crypto provider", err.Error())
+
+	// with keys and creationTime
+	creationTime := time.Now()
+	mocked := &mockedFull{
+		tokens: []cryptoprov.TokenInfo{
+			{
+				SlotID:       uint(1),
+				Description:  "d123",
+				Label:        "label123",
+				Manufacturer: "man123",
+				Model:        "model123",
+				Serial:       "serial123-30589673",
+			},
+		},
+		keys: map[uint][]cryptoprov.KeyInfo{
+			uint(1): {
+				{
+					ID:               "123",
+					Label:            "label123",
+					Type:             "RSA",
+					Class:            "class",
+					CurrentVersionID: "v124",
+					CreationTime:     &creationTime,
+				},
+			},
+		},
+	}
+
+	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
+	//mocked.On("EnumKeys", mock.Anything, mock.Anything, mock.Anything).Times(1).Return(nil)
+	mocked.On("KeyInfo", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	c, _ = cryptoprov.New(mocked, nil)
+	s.ctl.crypto = c
+
+	err = cmd.Run(s.ctl)
+	s.Require().NoError(err)
+
+	// no flags
+	cmd.Public = false
+	err = cmd.Run(s.ctl)
+	s.Require().NoError(err)
+
+	// assert that the expectations were met
+	mocked.AssertExpectations(s.T())
+}
+
+func (s *testSuite) Test_GenKey() {
+	cmd := HsmGenKeyCmd{
+		Algo:    "RSA",
+		Size:    1024,
+		Purpose: "sign",
+		Label:   "label123",
+		Output:  "",
+		Force:   false,
+	}
+
+	mocked := &mockedFull{
+		tokens: []cryptoprov.TokenInfo{
+			{
+				SlotID:       uint(1),
+				Description:  "d123",
+				Label:        "label123",
+				Manufacturer: "man123",
+				Model:        "model123",
+				Serial:       "serial123-30589673",
+			},
+		},
+		keys: map[uint][]cryptoprov.KeyInfo{},
+	}
+
+	c, _ := cryptoprov.New(mocked, nil)
+	s.ctl.crypto = c
+
+	var pvk crypto.PrivateKey = struct{}{}
+	mocked.On("GenerateRSAKey", mock.Anything, mock.Anything, mock.Anything).Return(pvk, nil)
+	mocked.On("IdentifyKey", mock.Anything).Times(2).Return("keyID123", "label123", nil)
+	mocked.On("ExportKey", "keyID123").Times(1).Return("pkcs11:keyID123", []byte{1, 2, 3}, nil)
+	mocked.On("ExportKey", "keyID123").Times(1).Return("", []byte{}, errors.Errorf("not exportable"))
+	mocked.On("IdentifyKey", mock.Anything).Times(1).Return("", "", errors.Errorf("key not found"))
+
+	err := cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal("validate RSA key: RSA key is too weak: 1024", err.Error())
+
+	cmd.Size = 2048
+	cmd.Output = filepath.Join(s.tmpdir, guid.MustCreate())
+
+	err = cmd.Run(s.ctl)
+	s.Require().NoError(err)
+
+	cmd.Force = true
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal("not exportable", err.Error())
+
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal("key not found", err.Error())
+
+	// assert that the expectations were met
+	mocked.AssertExpectations(s.T())
+}
+
+func (s *testSuite) Test_RmKey() {
+	cmd := HsmRmKeyCmd{}
+
+	// without KeyManager interface
+	c, _ := cryptoprov.New(&mockedProvider{}, nil)
+	s.ctl.crypto = c
+
+	err := cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal("unsupported command for this crypto provider", err.Error())
+
+	// with keys and creationTime
+	creationTime := time.Now()
+	mocked := &mockedFull{
+		tokens: []cryptoprov.TokenInfo{
+			{
+				SlotID:       uint(1),
+				Description:  "d123",
+				Label:        "label123",
+				Manufacturer: "man123",
+				Model:        "model123",
+				Serial:       "serial123-30589673",
+			},
+		},
+		keys: map[uint][]cryptoprov.KeyInfo{
+			uint(1): {
+				{
+					ID:               "123",
+					Label:            "label123",
+					Type:             "RSA",
+					Class:            "class",
+					CurrentVersionID: "v124",
+					CreationTime:     &creationTime,
+				},
+				{
+					ID:               "with_error",
+					Label:            "with_error",
+					Type:             "ECDSA",
+					Class:            "class",
+					CurrentVersionID: "v1235",
+					CreationTime:     &creationTime,
+				},
+			},
+		},
+	}
+	c, _ = cryptoprov.New(mocked, nil)
+	s.ctl.crypto = c
+
+	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
+	mocked.On("DestroyKeyPairOnSlot", mock.Anything, "with_error").Return(errors.New("access denied"))
+	mocked.On("DestroyKeyPairOnSlot", mock.Anything, mock.Anything).Return(nil)
+
+	cmd.ID = "with_error"
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal(`unable to destroy key "with_error" on slot 1: access denied`, err.Error())
+
+	cmd.ID = "123"
+	err = cmd.Run(s.ctl)
+	s.Require().NoError(err)
 
 	// assert that the expectations were met
 	mocked.AssertExpectations(s.T())
@@ -131,28 +314,11 @@ func (m *mockedProvider) Model() string {
 	return args.String(0)
 }
 
-type slot struct {
-	slotID       uint
-	description  string
-	label        string
-	manufacturer string
-	model        string
-	serial       string
-}
-
-type keyInfo struct {
-	id               string
-	label            string
-	typ              string
-	class            string
-	currentVersionID string
-	creationTime     *time.Time
-}
 type mockedFull struct {
 	mockedProvider
 
-	tokens []slot
-	keys   map[uint][]keyInfo
+	tokens []cryptoprov.TokenInfo
+	keys   map[uint][]cryptoprov.KeyInfo
 }
 
 func (m *mockedFull) CurrentSlotID() uint {
@@ -160,34 +326,22 @@ func (m *mockedFull) CurrentSlotID() uint {
 	return uint(args.Int(0))
 }
 
-func (m *mockedFull) EnumTokens(currentSlotOnly bool, slotInfoFunc func(slotID uint, description, label, manufacturer, model, serial string) error) error {
-	args := m.Called(currentSlotOnly, slotInfoFunc)
+func (m *mockedFull) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error) {
+	args := m.Called(currentSlotOnly)
 	err := args.Error(0)
-	if err == nil {
-		for _, token := range m.tokens {
-			err = slotInfoFunc(token.slotID, token.description, token.label, token.manufacturer, token.model, token.serial)
-			if err != nil {
-				return err
-			}
-		}
+	if err != nil {
+		return nil, err
 	}
-	return err
+	return m.tokens, nil
 }
 
-func (m *mockedFull) EnumKeys(slotID uint, prefix string, keyInfoFunc func(id, label, typ, class, currentVersionID string, creationTime *time.Time) error) error {
-	args := m.Called(slotID, prefix, keyInfoFunc)
+func (m *mockedFull) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
+	args := m.Called(slotID, prefix)
 	err := args.Error(0)
-	if err == nil {
-		for _, key := range m.keys[slotID] {
-			if prefix == "" || strings.HasPrefix(key.label, prefix) {
-				err = keyInfoFunc(key.id, key.label, key.typ, key.class, key.currentVersionID, key.creationTime)
-				if err != nil {
-					return err
-				}
-			}
-		}
+	if err != nil {
+		return nil, err
 	}
-	return err
+	return m.keys[slotID], err
 }
 
 func (m *mockedFull) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
@@ -200,7 +354,17 @@ func (m *mockedFull) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto
 	return args.Get(0).(crypto.PrivateKey), args.Error(1)
 }
 
-func (m *mockedFull) KeyInfo(slotID uint, keyID string, includePublic bool, keyInfoFunc func(id, label, typ, class, currentVersionID, pubKey string, creationTime *time.Time) error) error {
-	args := m.Called(slotID, keyID, includePublic, keyInfoFunc)
-	return args.Error(0)
+func (m *mockedFull) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
+	args := m.Called(slotID, keyID, includePublic)
+	err := args.Error(0)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, key := range m.keys[slotID] {
+		if key.ID == keyID {
+			return &key, nil
+		}
+	}
+	return nil, args.Error(0)
 }

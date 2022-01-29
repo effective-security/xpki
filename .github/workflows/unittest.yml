@@ -57,7 +57,7 @@ jobs:
       run: sudo apt-get install softhsm2 opensc
 
     - name: Prepare
-      run: make vars tools generate hsmconfig # start-local-kms
+      run: make vars tools generate hsmconfig start-local-kms
 
     - name: UnitTest
       run: make build covtest

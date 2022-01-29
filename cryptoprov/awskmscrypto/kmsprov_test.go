@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
@@ -33,20 +32,18 @@ func Test_KmsProvider(t *testing.T) {
 	assert.Equal(t, awskmscrypto.ProviderName, prov.Manufacturer())
 	assert.Equal(t, "KMS", prov.Model())
 
-	count := 0
 	mgr := prov.(cryptoprov.KeyManager)
 
-	mgr.EnumTokens(false, func(slotID uint, description, label, manufacturer, model, serial string) error {
-		assert.Equal(t, awskmscrypto.ProviderName, manufacturer)
-		assert.Equal(t, "KMS", model)
-		return nil
-	})
-
-	err = mgr.EnumKeys(mgr.CurrentSlotID(), "", func(id, label, typ, class, currentVersionID string, creationTime *time.Time) error {
-		count++
-		return nil
-	})
+	list, err := mgr.EnumTokens(false)
 	require.NoError(t, err)
+	require.NotEmpty(t, list)
+
+	assert.Equal(t, awskmscrypto.ProviderName, list[0].Manufacturer)
+	assert.Equal(t, "KMS", list[0].Model)
+
+	_, err = mgr.EnumKeys(mgr.CurrentSlotID(), "")
+	require.NoError(t, err)
+	//require.Empty(t, keys)
 
 	rsacases := []struct {
 		size int
@@ -57,7 +54,7 @@ func Test_KmsProvider(t *testing.T) {
 	}
 
 	for _, tc := range rsacases {
-		pvk, err := prov.GenerateRSAKey(fmt.Sprintf("RSA_%d_%s", tc.size, guid.MustCreate()), tc.size, 1)
+		pvk, err := prov.GenerateRSAKey(fmt.Sprintf("test_RSA_%d_%s", tc.size, guid.MustCreate()), tc.size, 1)
 		require.NoError(t, err)
 
 		keyID, _, err := prov.IdentifyKey(pvk)
@@ -86,7 +83,7 @@ func Test_KmsProvider(t *testing.T) {
 	}
 
 	for _, tc := range eccases {
-		pvk, err := prov.GenerateECDSAKey(fmt.Sprintf("ECC_%s", guid.MustCreate()), tc.curve)
+		pvk, err := prov.GenerateECDSAKey(fmt.Sprintf("test_ECC_%s", guid.MustCreate()), tc.curve)
 		require.NoError(t, err)
 
 		keyID, _, err := prov.IdentifyKey(pvk)
@@ -103,20 +100,18 @@ func Test_KmsProvider(t *testing.T) {
 		_, err = signer.Sign(rand.Reader, digest[:hash.Size()], tc.hash)
 		require.NoError(t, err)
 
-		err = mgr.KeyInfo(mgr.CurrentSlotID(), keyID, true, func(id, label, typ, class, currentVersionID, publey string, creationTime *time.Time) error {
-			return nil
-		})
+		ki, err := mgr.KeyInfo(mgr.CurrentSlotID(), keyID, true)
 		require.NoError(t, err)
+		require.NotEmpty(t, ki)
 	}
 
-	addedCount := 0
-	err = mgr.EnumKeys(mgr.CurrentSlotID(), "", func(id, label, typ, class, currentVersionID string, creationTime *time.Time) error {
-		addedCount++
-
-		mgr.DestroyKeyPairOnSlot(mgr.CurrentSlotID(), id)
-		return nil
-	})
+	keys, err := mgr.EnumKeys(mgr.CurrentSlotID(), "test_")
 	require.NoError(t, err)
+	require.NotEmpty(t, keys)
+	for _, key := range keys {
+		err = mgr.DestroyKeyPairOnSlot(mgr.CurrentSlotID(), key.ID)
+		require.NoError(t, err)
+	}
 
 	_, err = mgr.FindKeyPairOnSlot(0, "123412", "")
 	require.Error(t, err)
