@@ -3,7 +3,6 @@ package cryptoprov
 import (
 	"sync"
 
-	"github.com/effective-security/xpki/crypto11"
 	"github.com/pkg/errors"
 )
 
@@ -90,13 +89,4 @@ func Load(defaultConfig string, providersConfigs []string) (*Crypto, error) {
 		}
 	}
 	return c, nil
-}
-
-// Crypto11Loader provides loader for crypto11 provider
-func Crypto11Loader(cfg TokenConfig) (Provider, error) {
-	p, err := crypto11.Init(cfg)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	return p, nil
 }

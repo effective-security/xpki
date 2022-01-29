@@ -24,6 +24,10 @@ func loadP11Provider(t *testing.T) cryptoprov.Provider {
 	prov, supported := interface{}(p11).(cryptoprov.Provider)
 	require.True(t, supported)
 
+	mgr, supported := interface{}(p11).(cryptoprov.KeyManager)
+	require.True(t, supported)
+	assert.NotNil(t, mgr.EnumKeys)
+
 	return prov
 }
 
@@ -39,8 +43,7 @@ func Test_P11(t *testing.T) {
 	err = cp.Add(prov)
 	assert.NoError(t, err)
 	err = cp.Add(prov)
-	require.Error(t, err)
-	assert.Equal(t, "duplicate provider specified for manufacturer: SoftHSM", err.Error())
+	assert.NoError(t, err)
 
 	d := cp.Default()
 	assert.NotEmpty(t, d.Manufacturer())
@@ -157,4 +160,7 @@ func Test_P11(t *testing.T) {
 		_, _, err = cp.LoadPrivateKey([]byte(keyURI))
 		require.NoError(t, err)
 	})
+}
+
+func Test_Aws(t *testing.T) {
 }

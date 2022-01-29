@@ -17,14 +17,36 @@ var ErrInvalidURI = errors.New("invalid URI")
 // ErrInvalidPrivateKeyURI is returned if the PKCS #11 URI is invalid for the private key object
 var ErrInvalidPrivateKeyURI = errors.New("invalid URI for private key object")
 
+// TokenInfo provides PKCS #11 token info
+type TokenInfo struct {
+	SlotID       uint
+	Description  string
+	Label        string
+	Manufacturer string
+	Model        string
+	Serial       string
+}
+
+// KeyInfo provides key information
+type KeyInfo struct {
+	ID               string
+	Label            string
+	Type             string
+	Class            string
+	CurrentVersionID string
+	CreationTime     *time.Time
+	PublicKey        string
+	Meta             map[string]string
+}
+
 // KeyManager defines interface for key management operations
 type KeyManager interface {
 	CurrentSlotID() uint
-	EnumTokens(currentSlotOnly bool, slotInfoFunc func(slotID uint, description, label, manufacturer, model, serial string) error) error
-	EnumKeys(slotID uint, prefix string, keyInfoFunc func(id, label, typ, class, currentVersionID string, creationTime *time.Time) error) error
+	EnumTokens(currentSlotOnly bool) ([]TokenInfo, error)
+	EnumKeys(slotID uint, prefix string) ([]KeyInfo, error)
 	DestroyKeyPairOnSlot(slotID uint, keyID string) error
 	FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.PrivateKey, error)
-	KeyInfo(slotID uint, keyID string, includePublic bool, keyInfoFunc func(id, label, typ, class, currentVersionID, pubKey string, creationTime *time.Time) error) error
+	KeyInfo(slotID uint, keyID string, includePublic bool) (*KeyInfo, error)
 }
 
 // KeyGenerator defines interface for key generation operations
@@ -57,11 +79,9 @@ func New(defaultProvider Provider, providers []Provider) (*Crypto, error) {
 		byManufacturer: map[string]Provider{},
 	}
 
-	if providers != nil {
-		for _, p := range providers {
-			if err := c.Add(p); err != nil {
-				return nil, errors.WithStack(err)
-			}
+	for _, p := range providers {
+		if err := c.Add(p); err != nil {
+			return nil, errors.WithStack(err)
 		}
 	}
 	return c, nil
@@ -75,9 +95,11 @@ func (c *Crypto) Default() Provider {
 // Add will add new provider
 func (c *Crypto) Add(p Provider) error {
 	m := p.Manufacturer()
-	if _, ok := c.byManufacturer[m]; ok {
-		return errors.Errorf("duplicate provider specified for manufacturer: %s", m)
-
+	if existing, ok := c.byManufacturer[m]; ok {
+		if existing.Manufacturer() != p.Manufacturer() ||
+			existing.Model() != p.Model() {
+			return errors.Errorf("duplicate provider specified for manufacturer: %s", m)
+		}
 	}
 	c.byManufacturer[m] = p
 	return nil

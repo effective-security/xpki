@@ -105,3 +105,22 @@ func mustNew(t *testing.T, cli interface{}, options ...kong.Option) *kong.Kong {
 
 	return parser
 }
+
+func Test_FileExists(t *testing.T) {
+	assert.Error(t, FileExists(""))
+	assert.NoError(t, FileExists("ctl.go"))
+
+	err := FileExists("../ctl")
+	require.Error(t, err)
+	assert.EqualError(t, err, "not a file: ../ctl")
+
+	err = FileExists("./a")
+	assert.EqualError(t, err, "stat ./a: no such file or directory")
+}
+
+func TestWriteCert(t *testing.T) {
+	w := bytes.NewBuffer([]byte{})
+	WriteCert(w, []byte("key"), []byte("csr"), []byte("cert"))
+	out := w.String()
+	assert.Equal(t, "{\"cert\":\"cert\",\"csr\":\"csr\",\"key\":\"key\"}\n", out)
+}

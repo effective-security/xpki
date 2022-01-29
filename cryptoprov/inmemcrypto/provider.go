@@ -12,6 +12,7 @@ import (
 	"io"
 
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/x/guid"
 	"github.com/pkg/errors"
 )
@@ -259,3 +260,6 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 
 	return "", key, nil
 }
+
+// Ensure compiles
+var _ cryptoprov.Provider = (*Provider)(nil)

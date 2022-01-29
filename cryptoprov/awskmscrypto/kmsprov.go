@@ -230,49 +230,56 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
 }
 
 // EnumTokens lists tokens. For KMS currentSlotOnly is ignored and only one slot is assumed to be available.
-func (p *Provider) EnumTokens(currentSlotOnly bool, slotInfoFunc func(slotID uint, description, label, manufacturer, model, serial string) error) error {
-	return slotInfoFunc(p.CurrentSlotID(),
-		"",
-		"",
-		p.Manufacturer(),
-		p.Model(),
-		"")
+func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error) {
+	return []cryptoprov.TokenInfo{
+		{
+			SlotID:       p.CurrentSlotID(),
+			Manufacturer: p.Manufacturer(),
+			Model:        p.Model(),
+		},
+	}, nil
+}
+
+func keyMeta(ki *kms.DescribeKeyOutput) map[string]string {
+	return map[string]string{
+		"description": aws.StringValue(ki.KeyMetadata.Description),
+		"usage":       aws.StringValue(ki.KeyMetadata.KeyUsage),
+		"origin":      aws.StringValue(ki.KeyMetadata.Origin),
+		"state":       aws.StringValue(ki.KeyMetadata.KeyState),
+		"enabled":     fmt.Sprintf("%t", aws.BoolValue(ki.KeyMetadata.Enabled)),
+		"algo":        strings.Join(aws.StringValueSlice(ki.KeyMetadata.SigningAlgorithms), ","),
+	}
 }
 
 // EnumKeys returns list of keys on the slot. For KMS slotID is ignored.
-func (p *Provider) EnumKeys(slotID uint, prefix string, keyInfoFunc func(id, label, typ, class, currentVersionID string, creationTime *time.Time) error) error {
-	logger.Tracef("api=EnumKeys, host=%s, slotID=%d, prefix=%q", p.endpoint, slotID, prefix)
+func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
+	logger.Tracef("endpoit=%s, slotID=%d, prefix=%q", p.endpoint, slotID, prefix)
 
 	opts := &kms.ListKeysInput{}
 
 	resp, err := p.kmsClient.ListKeys(opts)
 	if err != nil {
-		return errors.WithStack(err)
+		return nil, errors.WithStack(err)
 	}
 
 	keys := resp.Keys
+	res := make([]cryptoprov.KeyInfo, 0, len(keys))
 	for _, k := range keys {
 		ki, err := p.kmsClient.DescribeKey(&kms.DescribeKeyInput{KeyId: k.KeyId})
 		if err != nil {
-			return errors.WithMessagef(err, "failed to describe key, id=%s", *k.KeyId)
+			return nil, errors.WithMessagef(err, "failed to describe key, id=%s", *k.KeyId)
 		}
 		if aws.StringValue(ki.KeyMetadata.KeyState) == "PendingDeletion" {
 			continue
 		}
 
-		err = keyInfoFunc(
-			aws.StringValue(k.KeyId),
-			aws.StringValue(ki.KeyMetadata.Description),
-			aws.StringValue(ki.KeyMetadata.KeyUsage),
-			aws.StringValue(ki.KeyMetadata.Origin),
-			aws.StringValue(ki.KeyMetadata.KeyState),
-			ki.KeyMetadata.CreationDate,
-		)
-		if err != nil {
-			return errors.WithStack(err)
-		}
+		res = append(res, cryptoprov.KeyInfo{
+			ID:           aws.StringValue(k.KeyId),
+			Meta:         keyMeta(ki),
+			CreationTime: ki.KeyMetadata.CreationDate,
+		})
 	}
-	return nil
+	return res, nil
 }
 
 // DestroyKeyPairOnSlot destroys key pair on slot. For KMS slotID is ignored and KMS retire API is used to destroy the key.
@@ -290,35 +297,32 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 }
 
 // KeyInfo retrieves info about key with the specified id
-func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool, keyInfoFunc func(id, label, typ, class, currentVersionID, pubKey string, creationTime *time.Time) error) error {
+func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
 	resp, err := p.kmsClient.DescribeKey(&kms.DescribeKeyInput{KeyId: &keyID})
 	if err != nil {
-		return errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
+		return nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
 	}
 
 	pubKey := ""
 	if includePublic {
 		pub, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
 		if err != nil {
-			return errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
+			return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 		}
 		pubKey = base64.StdEncoding.EncodeToString(pub.PublicKey)
 	}
 
-	err = keyInfoFunc(
-		keyID,
-		aws.StringValue(resp.KeyMetadata.Description),
-		aws.StringValue(resp.KeyMetadata.KeyUsage),
-		aws.StringValue(resp.KeyMetadata.Origin),
-		aws.StringValue(resp.KeyMetadata.KeyState),
-		pubKey,
-		nil,
-	)
+	res := &cryptoprov.KeyInfo{
+		ID:           keyID,
+		PublicKey:    pubKey,
+		Meta:         keyMeta(resp),
+		CreationTime: resp.KeyMetadata.CreationDate,
+	}
 	if err != nil {
-		return errors.WithStack(err)
+		return nil, errors.WithStack(err)
 	}
 
-	return nil
+	return res, nil
 }
 
 // ExportKey returns PKCS#11 URI for specified key ID.
@@ -356,3 +360,7 @@ func KmsLoader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	}
 	return p, nil
 }
+
+// Ensure compiles
+var _ cryptoprov.Provider = (*Provider)(nil)
+var _ cryptoprov.KeyManager = (*Provider)(nil)

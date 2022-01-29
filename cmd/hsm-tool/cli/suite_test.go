@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/xpki/x/ctl"
@@ -10,13 +12,16 @@ import (
 
 type testSuite struct {
 	suite.Suite
-
-	ctl *Cli
+	tmpdir string
+	ctl    *Cli
 	// Out is the outpub buffer
 	Out bytes.Buffer
 }
 
 func (s *testSuite) SetupTest() {
+	s.tmpdir = filepath.Join(os.TempDir(), "/tests/xpki", "mockhsm")
+	err := os.MkdirAll(s.tmpdir, 0777)
+	s.Require().NoError(err)
 
 	s.ctl = &Cli{}
 
@@ -44,6 +49,7 @@ func (s *testSuite) SetupTest() {
 }
 
 func (s *testSuite) TearDownTest() {
+	os.RemoveAll(s.tmpdir)
 }
 
 // HasText is a helper method to assert that the out stream contains the supplied
