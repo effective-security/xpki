@@ -6,9 +6,6 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/xpki/cmd/hsm-tool/cli"
-	"github.com/effective-security/xpki/crypto11"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 	"github.com/effective-security/xpki/x/ctl"
 	logger "github.com/sirupsen/logrus"
 )
@@ -17,6 +14,7 @@ type app struct {
 	cli.Cli
 
 	Hsm cli.HsmCmd `cmd:"" help:"HSM commands"`
+	Csr cli.CsrCmd `cmd:"" help:"Csr commands"`
 }
 
 func main() {
@@ -27,9 +25,6 @@ func main() {
 }
 
 func realMain(args []string, out io.Writer, errout io.Writer, exit func(int)) {
-	cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
-	cryptoprov.Register("AWSKMS", awskmscrypto.KmsLoader)
-
 	cl := app{
 		Cli: cli.Cli{},
 	}

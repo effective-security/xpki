@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -16,9 +17,14 @@ type testSuite struct {
 	ctl    *Cli
 	// Out is the outpub buffer
 	Out bytes.Buffer
+
+	appFlags []string
+
+	rootCert string
+	rootKey  string
 }
 
-func (s *testSuite) SetupTest() {
+func (s *testSuite) SetupSuite() {
 	s.tmpdir = filepath.Join(os.TempDir(), "/tests/xpki", "mockhsm")
 	err := os.MkdirAll(s.tmpdir, 0777)
 	s.Require().NoError(err)
@@ -42,13 +48,17 @@ func (s *testSuite) SetupTest() {
 		s.FailNow("unexpected error constructing Kong: %+v", err)
 	}
 
-	_, err = parser.Parse([]string{"--cfg=inmem"})
+	flags := s.appFlags
+	if len(flags) == 0 {
+		flags = []string{"--cfg", "inmem"}
+	}
+	_, err = parser.Parse(flags)
 	if err != nil {
 		s.FailNow("unexpected error parsing: %+v", err)
 	}
 }
 
-func (s *testSuite) TearDownTest() {
+func (s *testSuite) TearDownSuite() {
 	os.RemoveAll(s.tmpdir)
 }
 
@@ -67,5 +77,15 @@ func (s *testSuite) HasNoText(texts ...string) {
 	outStr := s.Out.String()
 	for _, t := range texts {
 		s.Contains(outStr, t)
+	}
+}
+
+// HasTextInFile is a helper method to assert that file contains the supplied text
+func (s *testSuite) HasTextInFile(file string, texts ...string) {
+	f, err := ioutil.ReadFile(file)
+	s.Require().NoError(err, "unable to read: %s", file)
+	outStr := string(f)
+	for _, t := range texts {
+		s.Contains(outStr, t, "expecting to find text %q in file %q", t, file)
 	}
 }

@@ -29,8 +29,9 @@ type HsmLsKeyCmd struct {
 }
 
 // Run the command
-func (a *HsmLsKeyCmd) Run(ctl *Cli) error {
-	keyProv, ok := ctl.CryptoProv().Default().(cryptoprov.KeyManager)
+func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
+	_, defprov := ctx.CryptoProv()
+	keyProv, ok := defprov.(cryptoprov.KeyManager)
 	if !ok {
 		return errors.Errorf("unsupported command for this crypto provider")
 	}
@@ -45,7 +46,7 @@ func (a *HsmLsKeyCmd) Run(ctl *Cli) error {
 		filterLabel = "--@--"
 	}
 
-	out := ctl.Writer()
+	out := ctx.Writer()
 
 	tokens, err := keyProv.EnumTokens(isDefaultSlot)
 	if err != nil {
@@ -96,15 +97,16 @@ func (a *HsmLsKeyCmd) Run(ctl *Cli) error {
 
 // HsmKeyInfoCmd prints the key info
 type HsmKeyInfoCmd struct {
-	ID     string `kong:"arg" required:"" help:"specifies key ID"`
-	Token  string `help:"specifies slot token (optional)"`
-	Serial string `help:"specifies slot serial (optional)"`
-	Public bool   `help:"specifies to print Public Key"`
+	ID     string `kong:"arg" required:"" help:"key ID"`
+	Token  string `help:"slot token (optional)"`
+	Serial string `help:"slot serial (optional)"`
+	Public bool   `help:"print Public Key"`
 }
 
 // Run the command
-func (a *HsmKeyInfoCmd) Run(ctl *Cli) error {
-	keyProv, ok := ctl.CryptoProv().Default().(cryptoprov.KeyManager)
+func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
+	_, defprov := ctx.CryptoProv()
+	keyProv, ok := defprov.(cryptoprov.KeyManager)
 	if !ok {
 		return errors.Errorf("unsupported command for this crypto provider")
 	}
@@ -116,7 +118,7 @@ func (a *HsmKeyInfoCmd) Run(ctl *Cli) error {
 		filterSerial = "--@--"
 	}
 
-	out := ctl.Writer()
+	out := ctx.Writer()
 
 	tokens, err := keyProv.EnumTokens(isDefaultSlot)
 	if err != nil {
@@ -177,8 +179,7 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error {
 		return errors.Errorf("%q file exists, specify --force flag to override", a.Output)
 	}
 
-	cryptoprov := ctx.CryptoProv()
-	crypto := cryptoprov.Default()
+	_, crypto := ctx.CryptoProv()
 	prov := csr.NewProvider(crypto)
 
 	purpose := csr.SigningKey
@@ -231,8 +232,9 @@ type HsmRmKeyCmd struct {
 }
 
 // Run the command
-func (a *HsmRmKeyCmd) Run(ctl *Cli) error {
-	keyProv, ok := ctl.CryptoProv().Default().(cryptoprov.KeyManager)
+func (a *HsmRmKeyCmd) Run(ctx *Cli) error {
+	_, defprov := ctx.CryptoProv()
+	keyProv, ok := defprov.(cryptoprov.KeyManager)
 	if !ok {
 		return errors.Errorf("unsupported command for this crypto provider")
 	}
@@ -255,7 +257,7 @@ func (a *HsmRmKeyCmd) Run(ctl *Cli) error {
 			if err != nil {
 				return errors.WithMessagef(err, "unable to destroy key %q on slot %d", a.ID, token.SlotID)
 			}
-			fmt.Fprintf(ctl.Writer(), "destroyed key: %s\n", a.ID)
+			fmt.Fprintf(ctx.Writer(), "destroyed key: %s\n", a.ID)
 			return nil
 		}
 	}

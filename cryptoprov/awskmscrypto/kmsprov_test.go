@@ -37,7 +37,6 @@ func Test_KmsProvider(t *testing.T) {
 	list, err := mgr.EnumTokens(false)
 	require.NoError(t, err)
 	require.NotEmpty(t, list)
-
 	assert.Equal(t, awskmscrypto.ProviderName, list[0].Manufacturer)
 	assert.Equal(t, "KMS", list[0].Model)
 

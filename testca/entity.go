@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/x509"
+	"os"
+
+	"github.com/effective-security/xpki/certutil"
 )
 
 // Entity is a certificate and private key.
@@ -97,4 +100,25 @@ func (id *Entity) KeyAndCertChain() *KeyAndCertChain {
 	}
 
 	return s
+}
+
+// SaveCertAndKey stores the cert and key to provided locations
+func (id *Entity) SaveCertAndKey(certFile string, keyFile string) (err error) {
+	if keyFile != "" {
+		fkey, err := os.Create(keyFile)
+		if err != nil {
+			return err
+		}
+		fkey.Write(PrivKeyToPEM(id.PrivateKey))
+		fkey.Close()
+	}
+	if certFile != "" {
+		fcert, err := os.Create(certFile)
+		if err != nil {
+			return err
+		}
+		certutil.EncodeToPEM(fcert, true, id.Certificate)
+		fcert.Close()
+	}
+	return nil
 }
