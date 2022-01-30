@@ -296,6 +296,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 
 		if key.Primary != nil &&
 			key.Primary.State != kmspb.CryptoKeyVersion_ENABLED {
+			logger.Tracef("skip_key=%q, state=%v", key.Name, key.Primary.State.String())
 			continue
 		}
 
@@ -366,7 +367,7 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 
 func keyInfo(key *kmspb.CryptoKey) *cryptoprov.KeyInfo {
 	createdAt := key.CreateTime.AsTime()
-	return &cryptoprov.KeyInfo{
+	ki := &cryptoprov.KeyInfo{
 		ID:               path.Base(key.Name),
 		Label:            keyLabelInfo(key),
 		CurrentVersionID: "1",
@@ -378,6 +379,11 @@ func keyInfo(key *kmspb.CryptoKey) *cryptoprov.KeyInfo {
 			"purpose":    key.Purpose.String(),
 		},
 	}
+	if key.Primary != nil {
+		ki.Meta["state"] = key.Primary.State.String()
+	}
+
+	return ki
 }
 
 // ExportKey returns PKCS#11 URI for specified key ID.

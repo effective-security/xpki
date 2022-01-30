@@ -79,7 +79,7 @@ func (s *hsmSuite) TestLsKeyFlags() {
 
 	err = cmd.Run(s.ctl)
 	s.Require().NoError(err)
-	s.HasText("Slot: 1\n  Description:  d123\n  Token serial: serial123-30589673\n  Token label:  label123\n")
+	s.HasText("Slot: 1\n  Manufacturer:  man123\n  Model:  model123\n  Description:  d123\n  Token serial:  serial123-30589673\n  Token label:  label123\n")
 	s.HasText("Created: ")
 
 	cmd.Prefix = "with_error"

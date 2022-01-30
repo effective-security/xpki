@@ -53,12 +53,20 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 		return errors.WithMessagef(err, "failed to list tokens")
 	}
 
+	printIfNotEmpty := func(label, val string) {
+		if val != "" {
+			fmt.Fprintf(out, "  %s:  %s\n", label, val)
+		}
+	}
+
 	for _, token := range tokens {
 		if isDefaultSlot || token.Serial == filterSerial || token.Label == filterLabel {
 			fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
-			fmt.Fprintf(out, "  Description:  %s\n", token.Description)
-			fmt.Fprintf(out, "  Token serial: %s\n", token.Serial)
-			fmt.Fprintf(out, "  Token label:  %s\n", token.Label)
+			printIfNotEmpty("Manufacturer", token.Manufacturer)
+			printIfNotEmpty("Model", token.Model)
+			printIfNotEmpty("Description", token.Description)
+			printIfNotEmpty("Token serial", token.Serial)
+			printIfNotEmpty("Token label", token.Label)
 
 			keys, err := keyProv.EnumKeys(token.SlotID, a.Prefix)
 			if err != nil {
@@ -70,25 +78,16 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 			for i, key := range keys {
 				fmt.Fprintf(out, "[%d]\n", i)
 				fmt.Fprintf(out, "  Id:    %s\n", key.ID)
-				if key.Label != "" {
-					fmt.Fprintf(out, "  Label: %s\n", key.Label)
-				}
-				if key.Type != "" {
-					fmt.Fprintf(out, "  Type:  %s\n", key.Type)
-				}
-				if key.Class != "" {
-					fmt.Fprintf(out, "  Class: %s\n", key.Class)
-				}
-				if key.CurrentVersionID != "" {
-					fmt.Fprintf(out, "  Version: %s\n", key.CurrentVersionID)
-				}
+				printIfNotEmpty("Label", key.Label)
+				printIfNotEmpty("Type", key.Type)
+				printIfNotEmpty("Class", key.Class)
+				printIfNotEmpty("Version", key.CurrentVersionID)
 				if key.CreationTime != nil {
 					fmt.Fprintf(out, "  Created: %s\n", key.CreationTime.Format(time.RFC3339))
 				}
 				for k, v := range key.Meta {
 					fmt.Fprintf(out, "  %s: %s\n", k, v)
 				}
-				return nil
 			}
 		}
 	}
