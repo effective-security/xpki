@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/elliptic"
 	"crypto/x509"
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/kms"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/pkg/errors"
 )
@@ -305,11 +305,20 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 
 	pubKey := ""
 	if includePublic {
-		pub, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
+		pubKeyResp, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 		}
-		pubKey = base64.StdEncoding.EncodeToString(pub.PublicKey)
+		pub, err := x509.ParsePKIXPublicKey(pubKeyResp.PublicKey)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "failed to parse public key, id=%s", keyID)
+		}
+		pemKey, err := certutil.EncodePublicKeyToPEM(pub)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		pubKey = string(pemKey)
+		//		pubKey = base64.StdEncoding.EncodeToString(pub.PublicKey)
 	}
 
 	res := &cryptoprov.KeyInfo{
