@@ -60,6 +60,10 @@ jobs:
       run: make vars tools generate hsmconfig start-local-kms
 
     - name: UnitTest
+      env:
+        AWS_ACCESS_KEY_ID: notusedbyemulator
+        AWS_SECRET_ACCESS_KEY: notusedbyemulator
+        AWS_DEFAULT_REGION: us-west-2
       run: make build covtest
 
     - name: Generate covarege Status

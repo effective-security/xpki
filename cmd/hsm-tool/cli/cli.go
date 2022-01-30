@@ -2,12 +2,17 @@ package cli
 
 import (
 	"io"
+	"io/ioutil"
 	"os"
 	"strings"
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/x/ctl"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
@@ -17,9 +22,11 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "cli")
 
 // Cli provides CLI context to run commands
 type Cli struct {
-	Cfg      string `help:"Location of HSM config file" required:"" type:"path"`
-	Debug    bool   `short:"D" help:"Enable debug mode"`
-	LogLevel string `short:"l" help:"Set the logging level (debug|info|warn|error)" default:"error"`
+	Cfg      string   `help:"Location of HSM config file, as default crypto provider" required:"" type:"path"`
+	Crypto   []string `help:"Location of additional HSM config files" type:"path"`
+	PlainKey bool     `help:"Generate plain key"`
+	Debug    bool     `short:"D" help:"Enable debug mode"`
+	LogLevel string   `short:"l" help:"Set the logging level (debug|info|warn|error)" default:"error"`
 
 	// Stdin is the source to read from, typically set to os.Stdin
 	stdin io.Reader
@@ -29,8 +36,9 @@ type Cli struct {
 	// If not set, errors will be written to os.StdError
 	errOutput io.Writer
 
-	ctx    context.Context
-	crypto *cryptoprov.Crypto
+	ctx               context.Context
+	crypto            *cryptoprov.Crypto
+	defaultCryptoProv cryptoprov.Provider
 }
 
 // Context for requests
@@ -95,6 +103,9 @@ func (c *Cli) AfterApply(app *kong.Kong, vars kong.Vars) error {
 		}
 		xlog.SetGlobalLogLevel(l)
 	}
+	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
+	cryptoprov.Register(gcpkmscrypto.ProviderName, gcpkmscrypto.KmsLoader)
+	cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
 
 	return nil
 }
@@ -105,18 +116,40 @@ func (c *Cli) WriteJSON(value interface{}) error {
 }
 
 // CryptoProv loads Crypto provider
-func (c *Cli) CryptoProv() *cryptoprov.Crypto {
-	if c.crypto != nil {
-		return c.crypto
-	}
-	if c.Cfg == "" {
-		logger.Panicf("use --cfg flag to specify PKCS11 config file")
-	}
-	var err error
-	c.crypto, err = cryptoprov.Load(c.Cfg, nil)
-	if err != nil {
-		logger.Panicf("unable to initialize crypto providers: [%v]", err)
+func (c *Cli) CryptoProv() (*cryptoprov.Crypto, cryptoprov.Provider) {
+	if c.crypto == nil {
+		if c.Cfg == "" {
+			logger.Panicf("use --cfg flag to specify PKCS11 config file")
+		}
+		var err error
+		if c.Cfg == "inmem" || c.Cfg == "plain" {
+			c.crypto, err = cryptoprov.New(inmemcrypto.NewProvider(), nil)
+		} else {
+			c.crypto, err = cryptoprov.Load(c.Cfg, c.Crypto)
+		}
+		if err != nil {
+			logger.Panicf("unable to initialize crypto providers: [%v]", err)
+		}
 	}
 
-	return c.crypto
+	if c.defaultCryptoProv == nil {
+		if c.PlainKey {
+			c.defaultCryptoProv = inmemcrypto.NewProvider()
+		} else {
+			c.defaultCryptoProv = c.crypto.Default()
+		}
+	}
+
+	return c.crypto, c.defaultCryptoProv
+}
+
+// ReadFile reads from stdin if the file is "-"
+func (c *Cli) ReadFile(filename string) ([]byte, error) {
+	if filename == "" {
+		return nil, errors.New("empty file name")
+	}
+	if filename == "-" {
+		return ioutil.ReadAll(c.stdin)
+	}
+	return ioutil.ReadFile(filename)
 }

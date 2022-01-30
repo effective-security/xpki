@@ -33,8 +33,8 @@ const (
 	EncryptionKey KeyPurpose = 2
 )
 
-// KeyRequest contains the algorithm and key size for a new private key.
-type KeyRequest interface {
+// KeyRequestGen contains the algorithm and key size for a new private key.
+type KeyRequestGen interface {
 	Algo() string
 	Label() string
 	Size() int
@@ -43,44 +43,45 @@ type KeyRequest interface {
 	Purpose() int
 }
 
-// keyRequest contains the algorithm and key size for a new private key.
-type keyRequest struct {
-	L    string     `json:"label"`
-	A    string     `json:"algo"`
-	S    int        `json:"size"`
-	P    KeyPurpose `json:"purpose"`
-	prov cryptoprov.Provider
+// KeyRequest contains the algorithm and key size for a new private key.
+type KeyRequest struct {
+	L string     `json:"label" yaml:"label"`
+	A string     `json:"algo"  yaml:"algo"`
+	S int        `json:"size"  yaml:"size"`
+	P KeyPurpose `json:"purpose"  yaml:"purpose"`
+
+	prov cryptoprov.Provider `json:"-"  yaml:"-"`
 }
 
 // Label returns the requested key label.
-func (kr *keyRequest) Label() string {
+func (kr *KeyRequest) Label() string {
 	return kr.L
 }
 
 // Algo returns the requested key algorithm represented as a string.
-func (kr *keyRequest) Algo() string {
+func (kr *KeyRequest) Algo() string {
 	return kr.A
 }
 
 // Size returns the requested key size.
-func (kr *keyRequest) Size() int {
+func (kr *KeyRequest) Size() int {
 	return kr.S
 }
 
 // Purpose returns the purpose of the key .
-func (kr *keyRequest) Purpose() int {
+func (kr *KeyRequest) Purpose() int {
 	return int(kr.P)
 }
 
 // SigAlgo returns an appropriate X.509 signature algorithm given the
 // key request's type and size.
-func (kr *keyRequest) SigAlgo() x509.SignatureAlgorithm {
+func (kr *KeyRequest) SigAlgo() x509.SignatureAlgorithm {
 	return SigAlgo(kr.Algo(), kr.Size())
 }
 
 // Generate generates a key as specified in the request. Currently,
 // only ECDSA and RSA are supported.
-func (kr *keyRequest) Generate() (crypto.PrivateKey, error) {
+func (kr *KeyRequest) Generate() (crypto.PrivateKey, error) {
 	switch algo := kr.Algo(); strings.ToUpper(algo) {
 	case "RSA":
 		err := validateRSAKeyPairInfoHandler(kr.Size())
@@ -120,8 +121,8 @@ func (kr *keyRequest) Generate() (crypto.PrivateKey, error) {
 }
 
 // NewKeyRequest returns KeyRequest from given parameters
-func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPurpose) KeyRequest {
-	return &keyRequest{
+func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPurpose) *KeyRequest {
+	return &KeyRequest{
 		L:    label,
 		A:    algo,
 		S:    keySize,
@@ -131,8 +132,8 @@ func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPur
 }
 
 // NewKeyRequest returns KeyRequest from given parameters
-func NewKeyRequest(prov cryptoprov.Provider, label, algo string, keySize int, purpose KeyPurpose) KeyRequest {
-	return &keyRequest{
+func NewKeyRequest(prov cryptoprov.Provider, label, algo string, keySize int, purpose KeyPurpose) *KeyRequest {
+	return &KeyRequest{
 		L:    label,
 		A:    algo,
 		S:    keySize,

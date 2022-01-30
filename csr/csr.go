@@ -121,7 +121,7 @@ type CertificateRequest struct {
 	// SAN is Subject Alt Names
 	SAN []string `json:"san" yaml:"san"`
 	// KeyRequest for generated key
-	KeyRequest KeyRequest `json:"key,omitempty" yaml:"key,omitempty"`
+	KeyRequest *KeyRequest `json:"key,omitempty" yaml:"key,omitempty"`
 	// Extensions for the cert
 	Extensions []X509Extension `json:"extensions,omitempty" yaml:"extensions,omitempty"`
 }

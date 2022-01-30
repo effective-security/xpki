@@ -2,6 +2,10 @@ include .project/gomod-project.mk
 export GO111MODULE=on
 BUILD_FLAGS=
 
+export AWS_ACCESS_KEY_ID=notusedbyemulator
+export AWS_SECRET_ACCESS_KEY=notusedbyemulator
+export AWS_DEFAULT_REGION=us-west-2
+
 .PHONY: *
 
 .SILENT:

@@ -14,16 +14,21 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func Test_CliSuite(t *testing.T) {
-	suite.Run(t, new(testSuite))
+type hsmSuite struct {
+	testSuite
 }
 
-func (s *testSuite) TestLsKeyFlags() {
+func TestHsmSuite(t *testing.T) {
+	suite.Run(t, new(hsmSuite))
+}
+
+func (s *hsmSuite) TestLsKeyFlags() {
 	cmd := HsmLsKeyCmd{}
 
 	// without KeyManager interface
 	c, _ := cryptoprov.New(&mockedProvider{}, nil)
 	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	err := cmd.Run(s.ctl)
 	s.Require().Error(err)
@@ -65,6 +70,7 @@ func (s *testSuite) TestLsKeyFlags() {
 	}
 	c, _ = cryptoprov.New(mocked, nil)
 	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
 	mocked.On("EnumKeys", mock.Anything, mock.Anything, mock.Anything).Times(1).Return(nil)
@@ -90,7 +96,7 @@ func (s *testSuite) TestLsKeyFlags() {
 	mocked.AssertExpectations(s.T())
 }
 
-func (s *testSuite) Test_KeyInfo() {
+func (s *hsmSuite) Test_KeyInfo() {
 	cmd := HsmKeyInfoCmd{
 		ID:     "123",
 		Public: true,
@@ -99,6 +105,7 @@ func (s *testSuite) Test_KeyInfo() {
 	// without KeyManager interface
 	c, _ := cryptoprov.New(&mockedProvider{}, nil)
 	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	err := cmd.Run(s.ctl)
 	s.Require().Error(err)
@@ -137,6 +144,7 @@ func (s *testSuite) Test_KeyInfo() {
 
 	c, _ = cryptoprov.New(mocked, nil)
 	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	err = cmd.Run(s.ctl)
 	s.Require().NoError(err)
@@ -150,7 +158,7 @@ func (s *testSuite) Test_KeyInfo() {
 	mocked.AssertExpectations(s.T())
 }
 
-func (s *testSuite) Test_GenKey() {
+func (s *hsmSuite) Test_GenKey() {
 	cmd := HsmGenKeyCmd{
 		Algo:    "RSA",
 		Size:    1024,
@@ -176,6 +184,7 @@ func (s *testSuite) Test_GenKey() {
 
 	c, _ := cryptoprov.New(mocked, nil)
 	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	var pvk crypto.PrivateKey = struct{}{}
 	mocked.On("GenerateRSAKey", mock.Anything, mock.Anything, mock.Anything).Return(pvk, nil)
@@ -207,12 +216,13 @@ func (s *testSuite) Test_GenKey() {
 	mocked.AssertExpectations(s.T())
 }
 
-func (s *testSuite) Test_RmKey() {
+func (s *hsmSuite) Test_RmKey() {
 	cmd := HsmRmKeyCmd{}
 
 	// without KeyManager interface
 	c, _ := cryptoprov.New(&mockedProvider{}, nil)
 	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	err := cmd.Run(s.ctl)
 	s.Require().Error(err)
@@ -254,6 +264,7 @@ func (s *testSuite) Test_RmKey() {
 	}
 	c, _ = cryptoprov.New(mocked, nil)
 	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
 	mocked.On("DestroyKeyPairOnSlot", mock.Anything, "with_error").Return(errors.New("access denied"))
