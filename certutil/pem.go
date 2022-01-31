@@ -3,6 +3,7 @@ package certutil
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/asn1"
@@ -228,4 +229,31 @@ func EncodePublicKeyToPEM(pubKey crypto.PublicKey) ([]byte, error) {
 		return nil, errors.WithStack(err)
 	}
 	return b.Bytes(), nil
+}
+
+// EncodePrivateKeyToPEM returns PEM encoded private key
+func EncodePrivateKeyToPEM(priv crypto.PrivateKey) (key []byte, err error) {
+	switch priv := priv.(type) {
+	case *rsa.PrivateKey:
+		key = x509.MarshalPKCS1PrivateKey(priv)
+		block := pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: key,
+		}
+		key = pem.EncodeToMemory(&block)
+	case *ecdsa.PrivateKey:
+		key, err = x509.MarshalECPrivateKey(priv)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		block := pem.Block{
+			Type:  "EC PRIVATE KEY",
+			Bytes: key,
+		}
+		key = pem.EncodeToMemory(&block)
+	default:
+		return nil, errors.Errorf("unsupported key: %T", priv)
+	}
+
+	return
 }

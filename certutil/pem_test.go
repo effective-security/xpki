@@ -1,12 +1,15 @@
 package certutil_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"strings"
 	"testing"
 
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,5 +97,27 @@ func Test_EncodePublicKeyToPEM(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = certutil.ParseRSAPublicKeyFromPEM(p)
+	require.NoError(t, err)
+}
+
+func Test_EncodePrivateKeyToPEM_RSA(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
+
+	p, err := certutil.EncodePrivateKeyToPEM(key)
+	require.NoError(t, err)
+
+	_, err = cryptoprov.ParsePrivateKeyPEM(p)
+	require.NoError(t, err)
+}
+
+func Test_EncodePrivateKeyToPEM_EC(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	p, err := certutil.EncodePrivateKeyToPEM(key)
+	require.NoError(t, err)
+
+	_, err = cryptoprov.ParsePrivateKeyPEM(p)
 	require.NoError(t, err)
 }
