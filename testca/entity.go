@@ -118,11 +118,16 @@ func (id *Entity) SaveCertAndKey(certFile string, keyFile string, withChain bool
 		if err != nil {
 			return err
 		}
-		if withChain {
-			certutil.EncodeToPEM(fcert, true, id.KeyAndCertChain().Chain...)
-		} else {
-			certutil.EncodeToPEM(fcert, true, id.Certificate)
+
+		certs := []*x509.Certificate{
+			id.Certificate,
 		}
+		if withChain {
+			certs = append(certs, id.KeyAndCertChain().Chain...)
+		}
+
+		certutil.EncodeToPEM(fcert, true, certs...)
+
 		fcert.Close()
 	}
 	return nil
