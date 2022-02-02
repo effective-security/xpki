@@ -7,9 +7,12 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/effective-security/xpki/certutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -239,4 +242,42 @@ func TestSetSAN(t *testing.T) {
 			"https://effective-security.pt",
 		})
 	})
+}
+
+func TestSaveCertAndKey(t *testing.T) {
+	ca1 := NewEntity(
+		Authority,
+		Subject(pkix.Name{
+			CommonName: "[TEST] Root CA One",
+		}),
+		KeyUsage(x509.KeyUsageCertSign|x509.KeyUsageCRLSign|x509.KeyUsageDigitalSignature),
+	)
+	inter1 := ca1.Issue(
+		Authority,
+		Subject(pkix.Name{
+			CommonName: "[TEST] Issuing CA One Level 1",
+		}),
+		KeyUsage(x509.KeyUsageCertSign|x509.KeyUsageCRLSign|x509.KeyUsageDigitalSignature),
+	)
+	srv := inter1.Issue(
+		Subject(pkix.Name{
+			CommonName: "localhost",
+		}),
+		ExtKeyUsage(x509.ExtKeyUsageServerAuth),
+		DNSName("localhost", "127.0.0.1"),
+	)
+
+	tmpDir := filepath.Join(os.TempDir(), "testca")
+	os.MkdirAll(tmpDir, os.ModePerm)
+	defer os.RemoveAll(tmpDir)
+
+	serverCertFile := filepath.Join(tmpDir, "test-server.pem")
+	serverKeyFile := filepath.Join(tmpDir, "test-server-key.pem")
+
+	err := srv.SaveCertAndKey(serverCertFile, serverKeyFile, true)
+	require.NoError(t, err)
+
+	chain, err := certutil.LoadChainFromPEM(serverCertFile)
+	require.NoError(t, err)
+	assert.Len(t, chain, 2)
 }
