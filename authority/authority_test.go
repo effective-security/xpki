@@ -74,15 +74,15 @@ func (s *testSuite) SetupSuite() {
 	os.MkdirAll(tmpDir, os.ModePerm)
 
 	rootBundleFile = filepath.Join(tmpDir, "root_ca.pem")
-	s.Require().NoError(rootCA.SaveCertAndKey(rootBundleFile, ""))
+	s.Require().NoError(rootCA.SaveCertAndKey(rootBundleFile, "", false))
 
 	ca1CertFile = filepath.Join(tmpDir, "l1_ca.pem")
 	ca1KeyFile = filepath.Join(tmpDir, "l1_ca.key")
-	s.Require().NoError(inter1.SaveCertAndKey(ca1CertFile, ca1KeyFile))
+	s.Require().NoError(inter1.SaveCertAndKey(ca1CertFile, ca1KeyFile, false))
 
 	ca2CertFile = filepath.Join(tmpDir, "l2_ca.pem")
 	ca2KeyFile = filepath.Join(tmpDir, "l2_ca.key")
-	s.Require().NoError(inter2.SaveCertAndKey(ca2CertFile, ca2KeyFile))
+	s.Require().NoError(inter2.SaveCertAndKey(ca2CertFile, ca2KeyFile, false))
 }
 
 func (s *testSuite) TearDownSuite() {

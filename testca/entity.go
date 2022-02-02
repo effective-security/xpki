@@ -103,7 +103,8 @@ func (id *Entity) KeyAndCertChain() *KeyAndCertChain {
 }
 
 // SaveCertAndKey stores the cert and key to provided locations
-func (id *Entity) SaveCertAndKey(certFile string, keyFile string) (err error) {
+// withChain specifies to store entire chain up to the root in cert's pem file
+func (id *Entity) SaveCertAndKey(certFile string, keyFile string, withChain bool) (err error) {
 	if keyFile != "" {
 		fkey, err := os.Create(keyFile)
 		if err != nil {
@@ -117,7 +118,11 @@ func (id *Entity) SaveCertAndKey(certFile string, keyFile string) (err error) {
 		if err != nil {
 			return err
 		}
-		certutil.EncodeToPEM(fcert, true, id.Certificate)
+		if withChain {
+			certutil.EncodeToPEM(fcert, true, id.KeyAndCertChain().Chain...)
+		} else {
+			certutil.EncodeToPEM(fcert, true, id.Certificate)
+		}
 		fcert.Close()
 	}
 	return nil
