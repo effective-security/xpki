@@ -13,19 +13,17 @@ func TestWriteJSON(t *testing.T) {
 	var cl struct {
 		Version VersionFlag
 	}
-	cl.Version.Version = "1.2.3"
+	cl.Version = "1.2.3"
 	w := bytes.NewBuffer([]byte{})
 
 	err := WriteJSON(w, cl)
 	require.NoError(t, err)
 
-	assert.Equal(t, "{\n\t\"Version\": {\n\t\t\"Version\": \"1.2.3\"\n\t}\n}\n", w.String())
+	assert.Equal(t, "{\n\t\"Version\": \"1.2.3\"\n}\n", w.String())
 }
 
 func TestVersionVal(t *testing.T) {
-	v := VersionFlag{
-		Version: "1.2.3",
-	}
+	v := VersionFlag("1.2.3")
 	assert.True(t, v.IsBool())
 	assert.NoError(t, v.Decode(nil))
 }
@@ -73,7 +71,7 @@ func TestVersionFlag(t *testing.T) {
 	var cl struct {
 		Version VersionFlag
 	}
-	cl.Version.Version = "1.2.3"
+	cl.Version = "1.2.3"
 
 	options := []kong.Option{
 		kong.Name("test"),

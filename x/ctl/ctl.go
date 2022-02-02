@@ -12,9 +12,7 @@ import (
 )
 
 // VersionFlag is a flag to print version
-type VersionFlag struct {
-	Version string
-}
+type VersionFlag string
 
 // Decode the flag
 func (v VersionFlag) Decode(ctx *kong.DecodeContext) error { return nil }
@@ -24,7 +22,7 @@ func (v VersionFlag) IsBool() bool { return true }
 
 // BeforeApply is executed before context is applied
 func (v VersionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
-	fmt.Fprintln(app.Stdout, v.Version)
+	fmt.Fprintln(app.Stdout, v)
 	app.Exit(0)
 	return nil
 }
