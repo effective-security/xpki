@@ -31,7 +31,7 @@ func TestContext(t *testing.T) {
 	c.WithWriter(out)
 	err := c.WriteJSON(struct{}{})
 	require.NoError(t, err)
-	assert.Equal(t, `{}`, out.String())
+	assert.Equal(t, "{}\n", out.String())
 }
 
 func TestParse(t *testing.T) {
