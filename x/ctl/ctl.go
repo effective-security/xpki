@@ -40,6 +40,8 @@ func init() {
 	jsonEncPPHandle.Indent = -1
 }
 
+var newLine = []byte("\n")
+
 // WriteJSON prints response to out
 func WriteJSON(out io.Writer, value interface{}) error {
 	var json []byte
@@ -49,6 +51,7 @@ func WriteJSON(out io.Writer, value interface{}) error {
 	}
 
 	out.Write(json)
+	out.Write(newLine)
 
 	return nil
 }

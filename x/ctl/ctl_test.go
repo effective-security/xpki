@@ -19,7 +19,7 @@ func TestWriteJSON(t *testing.T) {
 	err := WriteJSON(w, cl)
 	require.NoError(t, err)
 
-	assert.Equal(t, "{\n\t\"Version\": {\n\t\t\"Version\": \"1.2.3\"\n\t}\n}", w.String())
+	assert.Equal(t, "{\n\t\"Version\": {\n\t\t\"Version\": \"1.2.3\"\n\t}\n}\n", w.String())
 }
 
 func TestVersionVal(t *testing.T) {
