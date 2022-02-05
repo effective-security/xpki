@@ -36,3 +36,13 @@ Optionally run golang race detector with test targets by setting RACE flag:
 Review coverage report:
 
     make covtest coverage
+
+## Environment 
+
+To work with keys on AWK KMS simulator container, set AWS environment to test values:
+
+```
+export AWS_ACCESS_KEY_ID=notusedbyemulator
+export AWS_SECRET_ACCESS_KEY=notusedbyemulator
+export AWS_DEFAULT_REGION=us-west-2
+```

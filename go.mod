@@ -25,6 +25,7 @@ require (
 	google.golang.org/api v0.58.0
 	google.golang.org/genproto v0.0.0-20211018162055-cf77aa76bad2
 	google.golang.org/protobuf v1.27.1
+	gopkg.in/square/go-jose.v2 v2.6.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
