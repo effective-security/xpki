@@ -10,6 +10,7 @@ import (
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/jwt"
 	"github.com/stretchr/testify/assert"
@@ -89,7 +90,7 @@ func Test_SignSym(t *testing.T) {
 	p2, err := jwt.Load("testdata/jwtprov.2.json", nil)
 	require.NoError(t, err)
 
-	token, std, err := p.SignToken("", "denis@ekspand.com", "trusty.com", time.Minute)
+	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
 	require.NoError(t, err)
 
 	cfg := &jwt.VerifyConfig{
@@ -108,7 +109,7 @@ func Test_SignSym(t *testing.T) {
 
 	cfg.ExpectedAudience = "aud"
 	_, err = p.ParseToken(token, cfg)
-	assert.EqualError(t, err, "invalid audience: trusty.com")
+	assert.EqualError(t, err, "invalid audience: [trusty.com]")
 
 	cfg.ExpectedAudience = "trusty.com"
 	cfg.ExpectedSubject = "subj"
@@ -134,7 +135,7 @@ func Test_SignPrivateRSA(t *testing.T) {
 		}, crypto)
 		require.NoError(t, err)
 
-		token, std, err := p.SignToken("", "denis@ekspand.com", "trusty.com", time.Minute)
+		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
 		require.NoError(t, err)
 
 		cfg := &jwt.VerifyConfig{
@@ -165,7 +166,7 @@ func Test_SignPrivateEC(t *testing.T) {
 		}, crypto)
 		require.NoError(t, err)
 
-		token, std, err := p.SignToken("", "denis@ekspand.com", "trusty.com", time.Minute)
+		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
 		require.NoError(t, err)
 
 		cfg := &jwt.VerifyConfig{
@@ -176,4 +177,42 @@ func Test_SignPrivateEC(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, std, claims)
 	}
+}
+
+func Test_SignPrivateKMS(t *testing.T) {
+	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
+	crypto, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
+	require.NoError(t, err)
+
+	prov := crypto.Default()
+	pvk, err := prov.GenerateECDSAKey("Test_SignPrivateKMS", elliptic.P256())
+	require.NoError(t, err)
+
+	id, _, err := prov.IdentifyKey(pvk)
+	require.NoError(t, err)
+	url, _, err := prov.ExportKey(id)
+	require.NoError(t, err)
+	/*
+		assert.NotEmpty(t, url)
+		assert.NotEmpty(t, b)
+
+		prov, pvk, err = crypto.LoadPrivateKey([]byte(url))
+	*/
+
+	p, err := jwt.New(&jwt.Config{
+		Issuer:     "trusty.com",
+		PrivateKey: url,
+	}, crypto)
+	require.NoError(t, err)
+
+	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
+	require.NoError(t, err)
+
+	cfg := &jwt.VerifyConfig{
+		ExpectedSubject:  "denis@ekspand.com",
+		ExpectedAudience: "trusty.com",
+	}
+	claims, err := p.ParseToken(token, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, std, claims)
 }

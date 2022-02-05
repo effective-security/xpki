@@ -2,9 +2,6 @@ package jwt
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rsa"
 	"encoding/json"
 	"io/ioutil"
 	"strconv"
@@ -15,8 +12,11 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/x/fileutil"
-	"github.com/golang-jwt/jwt"
+	"github.com/effective-security/xpki/x/slices"
+	gojwt "github.com/golang-jwt/jwt"
 	"github.com/pkg/errors"
+	"gopkg.in/square/go-jose.v2"
+	"gopkg.in/square/go-jose.v2/jwt"
 	"gopkg.in/yaml.v2"
 )
 
@@ -33,7 +33,7 @@ type VerifyConfig struct {
 // Signer specifies JWT signer interface
 type Signer interface {
 	// SignToken returns signed JWT token
-	SignToken(id, subject, audience string, expiry time.Duration) (string, Claims, error)
+	SignToken(id, subject string, audience []string, expiry time.Duration) (string, Claims, error)
 }
 
 // Parser specifies JWT parser interface
@@ -69,11 +69,12 @@ type Config struct {
 
 // provider for JWT
 type provider struct {
-	issuer        string
-	kid           string
-	keys          map[string][]byte
-	signingMethod jwt.SigningMethod
-	signer        crypto.Signer
+	issuer     string
+	kid        string
+	keys       map[string][]byte
+	signerInfo *signerInfo
+	verifyKey  crypto.PublicKey
+	headers    map[string]interface{}
 }
 
 // LoadConfig returns configuration loaded from a file
@@ -154,10 +155,15 @@ func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
 		if err != nil {
 			return nil, errors.Errorf("failed to load private key: " + err.Error())
 		}
-		p.signer = signer
-		p.signingMethod, err = getSigningMethod(signer.Public())
+		p.signerInfo, err = newSignerInfo(signer)
 		if err != nil {
 			return nil, errors.WithStack(err)
+		}
+		p.verifyKey = signer.Public()
+		p.headers = map[string]interface{}{
+			"jwk": &jose.JSONWebKey{
+				Key: p.verifyKey,
+			},
 		}
 	} else {
 		if len(cfg.Keys) == 0 {
@@ -175,7 +181,20 @@ func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
 		if p.kid == "" {
 			p.kid = cfg.Keys[len(cfg.Keys)-1].ID
 		}
-		p.signingMethod = jwt.SigningMethodHS256
+
+		kid, key := p.currentKey()
+		p.headers = map[string]interface{}{
+			"kid": kid,
+		}
+
+		si, err := newSymmetricSigner("HS256", key)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		p.signerInfo, err = newSignerInfo(si)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 	return p, nil
 }
@@ -189,76 +208,37 @@ func (p *provider) currentKey() (string, []byte) {
 }
 
 // SignToken returns signed JWT token with custom claims
-func (p *provider) SignToken(id, subject, audience string, expiry time.Duration) (string, Claims, error) {
+func (p *provider) SignToken(jti, subject string, audience []string, expiry time.Duration) (string, Claims, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(expiry)
-	claims := &jwt.StandardClaims{
-		Id:        id,
-		ExpiresAt: expiresAt.Unix(),
-		Issuer:    p.issuer,
-		IssuedAt:  now.Unix(),
-		Audience:  audience,
-		Subject:   subject,
+
+	claims := &jwt.Claims{
+		ID:       jti,
+		Expiry:   jwt.NewNumericDate(expiresAt),
+		Issuer:   p.issuer,
+		IssuedAt: jwt.NewNumericDate(now),
+		Audience: audience,
+		Subject:  subject,
 	}
 
-	var key interface{}
-
-	token := jwt.NewWithClaims(p.signingMethod, claims)
-	if p.signer != nil {
-		key = p.signer
-	} else {
-		var kid string
-		kid, key = p.currentKey()
-		token.Header["kid"] = kid
-	}
-
-	// Sign and get the complete encoded token as a string using the secret
-	tokenString, err := token.SignedString(key)
+	tokenString, err := p.signerInfo.signJWT(claims, p.headers)
 	if err != nil {
-		return "", nil, errors.WithMessagef(err, "failed to sign token")
+		return "", nil, errors.WithStack(err)
 	}
-
 	c := Claims{}
 	c.Add(claims)
 	return tokenString, c, nil
 }
 
-func getSigningMethod(pub crypto.PublicKey) (jwt.SigningMethod, error) {
-	switch typ := pub.(type) {
-	case *rsa.PublicKey:
-		keySize := typ.N.BitLen()
-		switch {
-		case keySize >= 4096:
-			return jwt.SigningMethodRS512, nil
-		case keySize >= 3072:
-			return jwt.SigningMethodRS384, nil
-		default:
-			return jwt.SigningMethodRS256, nil
-		}
-	case *ecdsa.PublicKey:
-		switch typ.Curve {
-		case elliptic.P521():
-			return jwt.SigningMethodES512, nil
-		case elliptic.P384():
-			return jwt.SigningMethodES384, nil
-		default:
-			return jwt.SigningMethodES256, nil
-		}
-	default:
-		return nil, errors.Errorf("public key not supported: %T", typ)
-	}
-}
-
 // ParseToken returns jwt.StandardClaims
 func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, error) {
-	claims := jwt.MapClaims{}
+	claims := gojwt.MapClaims{}
 
-	parser := new(jwt.Parser)
+	parser := new(gojwt.Parser)
 	parser.UseJSONNumber = true
-	token, err := parser.ParseWithClaims(authorization, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := parser.ParseWithClaims(authorization, claims, func(token *gojwt.Token) (interface{}, error) {
 		logger.KV(xlog.TRACE, "alg", token.Header["alg"])
-
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); ok {
+		if _, ok := token.Method.(*gojwt.SigningMethodHMAC); ok {
 			if kid, ok := token.Header["kid"]; ok {
 				var id string
 				switch t := kid.(type) {
@@ -275,29 +255,32 @@ func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, 
 			}
 			return nil, errors.Errorf("missing kid")
 		}
-		if p.signer == nil {
+		if p.signerInfo == nil {
 			return nil, errors.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return p.signer.Public(), nil
+		return p.verifyKey, nil
 	})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to verify token")
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		var std jwt.StandardClaims
-		Claims(claims).To(&std)
+	if claims, ok := token.Claims.(gojwt.MapClaims); ok && token.Valid {
+		var std jwt.Claims
+		err = Claims(claims).To(&std)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "failed to parse claims")
+		}
 
 		if std.Issuer != p.issuer {
 			return nil, errors.Errorf("invalid issuer: %s", std.Issuer)
-		}
-		if cfg.ExpectedAudience != "" && std.Audience != cfg.ExpectedAudience {
-			return nil, errors.Errorf("invalid audience: %s", std.Audience)
 		}
 		if cfg.ExpectedSubject != "" && std.Subject != cfg.ExpectedSubject {
 			return nil, errors.Errorf("invalid subject: %s", std.Subject)
 		}
 
+		if cfg.ExpectedAudience != "" && !slices.ContainsString(std.Audience, cfg.ExpectedAudience) {
+			return nil, errors.Errorf("invalid audience: %s", std.Audience)
+		}
 		return Claims(claims), nil
 	}
 

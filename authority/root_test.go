@@ -54,13 +54,13 @@ func (s *testSuite) TestNewRoot() {
 func TestNewRootEx(t *testing.T) {
 	csrCA := `
 	{
-		"common_name": "[TEST] Dolly Root CA",
+		"common_name": "[TEST] One Root CA",
 		"names": [
 			{
 				"C": "US",
 				"L": "CA",
 				"O": "ekspand.com",
-				"OU": "dolly-dev"
+				"OU": "dev"
 			}
 		]
 	}`
@@ -96,8 +96,8 @@ func TestNewRootEx(t *testing.T) {
 	cert, err := x509.ParseCertificate(block.Bytes)
 	require.NoError(t, err, "failed to parse certificate")
 	assert.True(t, cert.IsCA)
-	assert.Equal(t, "[TEST] Dolly Root CA", cert.Subject.CommonName)
-	assert.Equal(t, []string{"dolly-dev"}, cert.Subject.OrganizationalUnit)
+	assert.Equal(t, "[TEST] One Root CA", cert.Subject.CommonName)
+	assert.Equal(t, []string{"dev"}, cert.Subject.OrganizationalUnit)
 	assert.Equal(t, []string{"ekspand.com"}, cert.Subject.Organization)
 	assert.Equal(t, cert.KeyUsage, x509.KeyUsageCRLSign|x509.KeyUsageCertSign)
 	assert.Equal(t, -1, cert.MaxPathLen)
