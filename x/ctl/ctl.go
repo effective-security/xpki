@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
+	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
 	"github.com/ugorji/go/codec"
 )
@@ -22,7 +23,7 @@ func (v VersionFlag) IsBool() bool { return true }
 
 // BeforeApply is executed before context is applied
 func (v VersionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
-	fmt.Fprintln(app.Stdout, v)
+	fmt.Fprintln(app.Stdout, slices.StringsCoalesce(vars["version"], string(v)))
 	app.Exit(0)
 	return nil
 }
