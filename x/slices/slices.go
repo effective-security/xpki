@@ -123,6 +123,16 @@ func MapStringSlice(items []string, mapFn func(in string) string) []string {
 	return res
 }
 
+// StringsCoalesce returns the first non-empty string value
+func StringsCoalesce(str ...string) string {
+	for _, s := range str {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 // BoolSlicesEqual returns true only if the contents of the 2 slices are the same
 func BoolSlicesEqual(a, b []bool) bool {
 	if len(a) != len(b) {
