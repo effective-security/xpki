@@ -346,6 +346,7 @@ func testSlicesEquals(t *testing.T, funcName string, vals []interface{}, goodVal
 }
 
 func TestSlices_StringsCoalesce(t *testing.T) {
+	assert.Equal(t, "", StringsCoalesce())
 	assert.Equal(t, "1", StringsCoalesce("1", "2", "3"))
 	assert.Equal(t, "2", StringsCoalesce("", "2", "3"))
 	assert.Equal(t, "3", StringsCoalesce("", "", "3"))
