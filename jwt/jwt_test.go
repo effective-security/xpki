@@ -90,8 +90,12 @@ func Test_SignSym(t *testing.T) {
 	p2, err := jwt.Load("testdata/jwtprov.2.json", nil)
 	require.NoError(t, err)
 
-	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
+	extra := jwt.Claims{
+		"cnf": "{}",
+	}
+	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, extra)
 	require.NoError(t, err)
+	assert.Equal(t, extra["cnf"], std["cnf"])
 
 	cfg := &jwt.VerifyConfig{
 		ExpectedSubject:  "denis@ekspand.com",
@@ -135,7 +139,10 @@ func Test_SignPrivateRSA(t *testing.T) {
 		}, crypto)
 		require.NoError(t, err)
 
-		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
+		extra := jwt.Claims{
+			"resource": "provenid.org",
+		}
+		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, extra)
 		require.NoError(t, err)
 
 		cfg := &jwt.VerifyConfig{
@@ -166,7 +173,7 @@ func Test_SignPrivateEC(t *testing.T) {
 		}, crypto)
 		require.NoError(t, err)
 
-		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
+		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
 		require.NoError(t, err)
 
 		cfg := &jwt.VerifyConfig{
@@ -205,7 +212,7 @@ func Test_SignPrivateKMS(t *testing.T) {
 	}, crypto)
 	require.NoError(t, err)
 
-	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute)
+	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
 	require.NoError(t, err)
 
 	cfg := &jwt.VerifyConfig{
