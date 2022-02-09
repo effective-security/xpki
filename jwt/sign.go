@@ -94,15 +94,17 @@ func (h hasher) HashFunc() crypto.Hash {
 	return h.hash
 }
 
-type signerInfo struct {
+// SignerInfo represents JWT signer
+type SignerInfo struct {
 	hasher  hasher
 	keySize int
 	algo    string
 	signer  crypto.Signer
 }
 
-func newSignerInfo(signer crypto.Signer) (*signerInfo, error) {
-	si := &signerInfo{
+// NewSignerInfo returns *SignerInfo
+func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error) {
+	si := &SignerInfo{
 		signer: signer,
 	}
 
@@ -145,14 +147,14 @@ func newSignerInfo(signer crypto.Signer) (*signerInfo, error) {
 
 // sign returns signed segment
 func sign(signingString string, signer crypto.Signer) (string, error) {
-	si, err := newSignerInfo(signer)
+	si, err := NewSignerInfo(signer)
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
 	return si.sign(signingString)
 }
 
-func (si *signerInfo) sign(signingString string) (string, error) {
+func (si *SignerInfo) sign(signingString string) (string, error) {
 	if strings.HasPrefix(si.algo, "HS") {
 		sig, err := si.signer.Sign(nil, []byte(signingString), nil)
 		if err != nil {
@@ -206,7 +208,7 @@ func (si *signerInfo) sign(signingString string) (string, error) {
 	return "", errors.Errorf("unsupported: " + si.algo)
 }
 
-func (si *signerInfo) signJWT(claims interface{}, headers map[string]interface{}) (string, error) {
+func (si *SignerInfo) signJWT(claims interface{}, headers map[string]interface{}) (string, error) {
 	header := map[string]interface{}{
 		"typ": "JWT",
 		"alg": si.algo,

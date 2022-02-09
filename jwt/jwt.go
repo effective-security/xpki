@@ -33,7 +33,7 @@ type VerifyConfig struct {
 // Signer specifies JWT signer interface
 type Signer interface {
 	// SignToken returns signed JWT token
-	SignToken(id, subject string, audience []string, expiry time.Duration) (string, Claims, error)
+	SignToken(id, subject string, audience []string, expiry time.Duration, extraClaims Claims) (string, Claims, error)
 }
 
 // Parser specifies JWT parser interface
@@ -72,7 +72,7 @@ type provider struct {
 	issuer     string
 	kid        string
 	keys       map[string][]byte
-	signerInfo *signerInfo
+	signerInfo *SignerInfo
 	verifyKey  crypto.PublicKey
 	headers    map[string]interface{}
 }
@@ -155,7 +155,7 @@ func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
 		if err != nil {
 			return nil, errors.Errorf("failed to load private key: " + err.Error())
 		}
-		p.signerInfo, err = newSignerInfo(signer)
+		p.signerInfo, err = NewSignerInfo(signer)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -191,7 +191,7 @@ func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		p.signerInfo, err = newSignerInfo(si)
+		p.signerInfo, err = NewSignerInfo(si)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -208,7 +208,7 @@ func (p *provider) currentKey() (string, []byte) {
 }
 
 // SignToken returns signed JWT token with custom claims
-func (p *provider) SignToken(jti, subject string, audience []string, expiry time.Duration) (string, Claims, error) {
+func (p *provider) SignToken(jti, subject string, audience []string, expiry time.Duration, extraClaims Claims) (string, Claims, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(expiry)
 
@@ -220,13 +220,16 @@ func (p *provider) SignToken(jti, subject string, audience []string, expiry time
 		Audience: audience,
 		Subject:  subject,
 	}
+	c := Claims{}
+	c.Add(claims)
+	if len(extraClaims) > 0 {
+		c.Add(extraClaims)
+	}
 
-	tokenString, err := p.signerInfo.signJWT(claims, p.headers)
+	tokenString, err := p.signerInfo.signJWT(c, p.headers)
 	if err != nil {
 		return "", nil, errors.WithStack(err)
 	}
-	c := Claims{}
-	c.Add(claims)
 	return tokenString, c, nil
 }
 
