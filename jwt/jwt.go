@@ -22,6 +22,11 @@ import (
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "jwt")
 
+const (
+	// DefaultNotBefore offset for NotBefore
+	DefaultNotBefore = -2 * time.Minute
+)
+
 // VerifyConfig expreses the possible options for validating a JWT
 type VerifyConfig struct {
 	// ExpectedSubject validates the sub claim of a JWT matches this value
@@ -244,20 +249,19 @@ func (p *provider) currentKey() (string, []byte) {
 func (p *provider) SignToken(jti, subject string, audience []string, expiry time.Duration, extraClaims Claims) (string, Claims, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(expiry)
+	notBefore := now.Add(DefaultNotBefore)
 
 	claims := &jwt.Claims{
-		ID:       jti,
-		Expiry:   jwt.NewNumericDate(expiresAt),
-		Issuer:   p.issuer,
-		IssuedAt: jwt.NewNumericDate(now),
-		Audience: audience,
-		Subject:  subject,
+		ID:        jti,
+		Expiry:    jwt.NewNumericDate(expiresAt),
+		IssuedAt:  jwt.NewNumericDate(now),
+		NotBefore: jwt.NewNumericDate(notBefore),
+		Issuer:    p.issuer,
+		Audience:  audience,
+		Subject:   subject,
 	}
 	c := Claims{}
-	c.Add(claims)
-	if len(extraClaims) > 0 {
-		c.Add(extraClaims)
-	}
+	c.Add(claims, extraClaims)
 
 	tokenString, err := p.signerInfo.signJWT(c, p.headers)
 	if err != nil {
