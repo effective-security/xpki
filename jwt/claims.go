@@ -13,26 +13,30 @@ import (
 type Claims jwt.MapClaims
 
 // Add new claims to the map
-func (c Claims) Add(i interface{}) error {
-	switch m := i.(type) {
-	case map[string]interface{}:
-		c.merge(m)
-	case Claims:
-		c.merge(m)
-	case jwt.MapClaims:
-		c.merge(m)
-	default:
-		if reflect.Indirect(reflect.ValueOf(i)).Kind() == reflect.Struct {
-			m, err := normalize(i)
-			if err != nil {
-				return errors.WithStack(err)
-			}
+func (c Claims) Add(val ...interface{}) error {
+	for _, i := range val {
+		if i == nil {
+			continue
+		}
+		switch m := i.(type) {
+		case map[string]interface{}:
 			c.merge(m)
-		} else {
-			return errors.Errorf("unsupported claims interface")
+		case Claims:
+			c.merge(m)
+		case jwt.MapClaims:
+			c.merge(m)
+		default:
+			if reflect.Indirect(reflect.ValueOf(i)).Kind() == reflect.Struct {
+				m, err := normalize(i)
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				c.merge(m)
+			} else {
+				return errors.Errorf("unsupported claims interface")
+			}
 		}
 	}
-
 	return nil
 }
 
@@ -50,7 +54,7 @@ func (c Claims) To(val interface{}) error {
 	return nil
 }
 
-// Valid returns error if the standard claims are imvalid
+// Valid returns error if the standard claims are invalid
 func (c Claims) Valid() error {
 	return jwt.MapClaims(c).Valid()
 }
