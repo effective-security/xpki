@@ -135,7 +135,7 @@ func MustNew(cfg *Config, crypto *cryptoprov.Crypto) Provider {
 	return p
 }
 
-// New returns new provider
+// New returns new provider that supports, both Signer and Parser
 func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
 	p := &provider{
 		issuer: cfg.Issuer,
@@ -195,6 +195,23 @@ func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
+	}
+	return p, nil
+}
+
+// NewFromCryptoSigner returns new from Signer
+func NewFromCryptoSigner(signer crypto.Signer) (Provider, error) {
+	p := &provider{}
+	var err error
+	p.signerInfo, err = NewSignerInfo(signer)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	p.verifyKey = signer.Public()
+	p.headers = map[string]interface{}{
+		"jwk": &jose.JSONWebKey{
+			Key: p.verifyKey,
+		},
 	}
 	return p, nil
 }
