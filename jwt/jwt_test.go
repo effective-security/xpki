@@ -1,6 +1,7 @@
 package jwt_test
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -188,10 +189,10 @@ func Test_SignPrivateEC(t *testing.T) {
 
 func Test_SignPrivateKMS(t *testing.T) {
 	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
-	crypto, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
+	cryptoProv, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
 	require.NoError(t, err)
 
-	prov := crypto.Default()
+	prov := cryptoProv.Default()
 	pvk, err := prov.GenerateECDSAKey("Test_SignPrivateKMS", elliptic.P256())
 	require.NoError(t, err)
 
@@ -209,7 +210,7 @@ func Test_SignPrivateKMS(t *testing.T) {
 	p, err := jwt.New(&jwt.Config{
 		Issuer:     "trusty.com",
 		PrivateKey: url,
-	}, crypto)
+	}, cryptoProv)
 	require.NoError(t, err)
 
 	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
@@ -220,6 +221,14 @@ func Test_SignPrivateKMS(t *testing.T) {
 		ExpectedAudience: "trusty.com",
 	}
 	claims, err := p.ParseToken(token, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, std, claims)
+
+	p, err = jwt.NewFromCryptoSigner(pvk.(crypto.Signer))
+	token, std, err = p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
+	require.NoError(t, err)
+
+	claims, err = p.ParseToken(token, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, std, claims)
 }
