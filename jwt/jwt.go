@@ -67,6 +67,15 @@ type Config struct {
 	PrivateKey string `json:"private_key" yaml:"private_key"`
 }
 
+// WithHeaders allows to specify extra headers or override defaults
+func WithHeaders(headers map[string]interface{}) Option {
+	return optionFunc(func(c *provider) {
+		for k, v := range headers {
+			c.headers[k] = v
+		}
+	})
+}
+
 // provider for JWT
 type provider struct {
 	issuer     string
@@ -127,8 +136,8 @@ func Load(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error) {
 }
 
 // MustNew returns new provider
-func MustNew(cfg *Config, crypto *cryptoprov.Crypto) Provider {
-	p, err := New(cfg, crypto)
+func MustNew(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) Provider {
+	p, err := New(cfg, crypto, ops...)
 	if err != nil {
 		logger.Panicf("unable to create provider: %+v", err)
 	}
@@ -136,7 +145,7 @@ func MustNew(cfg *Config, crypto *cryptoprov.Crypto) Provider {
 }
 
 // New returns new provider that supports, both Signer and Parser
-func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
+func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error) {
 	p := &provider{
 		issuer: cfg.Issuer,
 		kid:    cfg.KeyID,
@@ -196,11 +205,15 @@ func New(cfg *Config, crypto *cryptoprov.Crypto) (Provider, error) {
 			return nil, errors.WithStack(err)
 		}
 	}
+
+	for _, opt := range ops {
+		opt.applyOption(p)
+	}
 	return p, nil
 }
 
 // NewFromCryptoSigner returns new from Signer
-func NewFromCryptoSigner(signer crypto.Signer) (Provider, error) {
+func NewFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error) {
 	p := &provider{}
 	var err error
 	p.signerInfo, err = NewSignerInfo(signer)
@@ -212,6 +225,9 @@ func NewFromCryptoSigner(signer crypto.Signer) (Provider, error) {
 		"jwk": &jose.JSONWebKey{
 			Key: p.verifyKey,
 		},
+	}
+	for _, opt := range ops {
+		opt.applyOption(p)
 	}
 	return p, nil
 }
@@ -306,3 +322,12 @@ func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, 
 
 	return nil, errors.Errorf("invalid token")
 }
+
+// A Option modifies the default behavior of Provider.
+type Option interface {
+	applyOption(*provider)
+}
+
+type optionFunc func(*provider)
+
+func (f optionFunc) applyOption(opts *provider) { f(opts) }

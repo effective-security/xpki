@@ -224,7 +224,10 @@ func Test_SignPrivateKMS(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, std, claims)
 
-	p, err = jwt.NewFromCryptoSigner(pvk.(crypto.Signer))
+	opt := jwt.WithHeaders(map[string]interface{}{
+		"typ": "custom",
+	})
+	p, err = jwt.NewFromCryptoSigner(pvk.(crypto.Signer), opt)
 	token, std, err = p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
 	require.NoError(t, err)
 
