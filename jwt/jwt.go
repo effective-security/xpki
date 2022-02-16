@@ -39,6 +39,8 @@ type VerifyConfig struct {
 type Signer interface {
 	// SignToken returns signed JWT token
 	SignToken(id, subject string, audience []string, expiry time.Duration, extraClaims Claims) (string, Claims, error)
+	// PublicKey is returned for assymetric signer
+	PublicKey() crypto.PublicKey
 }
 
 // Parser specifies JWT parser interface
@@ -235,6 +237,11 @@ func NewFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error) 
 		opt.applyOption(p)
 	}
 	return p, nil
+}
+
+// PublicKey is returned for assymetric signer
+func (p *provider) PublicKey() crypto.PublicKey {
+	return p.verifyKey
 }
 
 // CurrentKey returns the key currently being used to sign tokens.
