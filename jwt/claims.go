@@ -3,11 +3,11 @@ package jwt
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strconv"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"github.com/golang-jwt/jwt"
 	"github.com/pkg/errors"
 )
@@ -104,7 +104,7 @@ func (c Claims) String(k string) string {
 	case string:
 		return tv
 	default:
-		return fmt.Sprintf("%v", v)
+		return xlog.String(v)
 	}
 }
 

@@ -60,11 +60,24 @@ func TestClaims_String(t *testing.T) {
 		act := o.String(k)
 		assert.Equal(t, act, exp)
 	}
-	o := Claims{"foo": "bar", "blank": "", "count": uint64(1)}
+
+	stru := struct {
+		Foo string
+		B   bool
+		I   int
+	}{Foo: "foo", B: true, I: -1}
+
+	o := Claims{
+		"foo":    "bar",
+		"blank":  "",
+		"count":  uint64(1),
+		"struct": stru,
+	}
 	c(o, "foo", "bar")
 	c(o, "blank", "")
 	c(o, "unknown", "")
 	c(o, "count", "1")
+	c(o, "struct", `{"Foo":"foo","B":true,"I":-1}`)
 }
 
 func TestClaims_Int(t *testing.T) {
