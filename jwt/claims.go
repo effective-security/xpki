@@ -3,7 +3,10 @@ package jwt
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"strconv"
+	"time"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/pkg/errors"
@@ -87,4 +90,95 @@ func normalize(i interface{}) (map[string]interface{}, error) {
 	}
 
 	return m, nil
+}
+
+// String will return the named claim as a string,
+// if the underlying type is not a string,
+// it will try and co-oerce it to a string.
+func (c Claims) String(k string) string {
+	v := c[k]
+	if v == nil {
+		return ""
+	}
+	switch tv := v.(type) {
+	case string:
+		return tv
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// Bool will return the named claim as Bool
+func (c Claims) Bool(k string) bool {
+	v := c[k]
+	if v == nil {
+		return false
+	}
+	switch tv := v.(type) {
+	case bool:
+		return tv
+	default:
+		return false
+	}
+}
+
+// Time will return the named claim as Time
+func (c Claims) Time(k string) *time.Time {
+	v := c[k]
+	if v == nil {
+		return nil
+	}
+	switch tv := v.(type) {
+	case time.Time:
+		return &tv
+	case *time.Time:
+		return tv
+	case int64:
+		t := time.Unix(tv, 0)
+		return &t
+	case uint64:
+		t := time.Unix(int64(tv), 0)
+		return &t
+	case int:
+		t := time.Unix(int64(tv), 0)
+		return &t
+	case string:
+		t, err := time.Parse("2006-01-02T15:04:05.000-0700", tv)
+		if err != nil {
+			return nil
+		}
+		return &t
+	default:
+		return nil
+	}
+}
+
+// Int will return the named claim as an int
+func (c Claims) Int(k string) int {
+	v := c[k]
+	if v == nil {
+		return 0
+	}
+	switch tv := v.(type) {
+	case int:
+		return tv
+	case int32:
+		return int(tv)
+	case int64:
+		return int(tv)
+	case uint:
+		return int(tv)
+	case uint32:
+		return int(tv)
+	case uint64:
+		return int(tv)
+	case string:
+		i, err := strconv.Atoi(tv)
+		if err != nil {
+			return 0
+		}
+		return i
+	default:
+		return 0
+	}
 }
