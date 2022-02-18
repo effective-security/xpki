@@ -143,10 +143,18 @@ func (c Claims) Time(k string) *time.Time {
 		t := time.Unix(int64(tv), 0)
 		return &t
 	case string:
-		t, err := time.Parse("2006-01-02T15:04:05.000-0700", tv)
+		if len(tv) > 20 {
+			t, err := time.Parse("2006-01-02T15:04:05.000-0700", tv)
+			if err != nil {
+				return nil
+			}
+			return &t
+		}
+		unix, err := strconv.ParseInt(tv, 10, 64)
 		if err != nil {
 			return nil
 		}
+		t := time.Unix(unix, 0)
 		return &t
 	default:
 		return nil

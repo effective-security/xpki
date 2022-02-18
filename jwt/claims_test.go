@@ -139,6 +139,7 @@ func TestClaims_Time(t *testing.T) {
 		"tnil":   1,
 		"tnil2":  "notime",
 		"unix":   1645187555,
+		"unixs":  "1645187555",
 		"uint64": uint64(1645187555),
 		"int64":  int64(1645187555),
 	}
@@ -147,6 +148,7 @@ func TestClaims_Time(t *testing.T) {
 	c(o, "t3", &t2)
 	c(o, "tnil2", nil)
 	c(o, "unix", &t3)
+	c(o, "unixs", &t3)
 	c(o, "uint64", &t3)
 	c(o, "int64", &t3)
 }
