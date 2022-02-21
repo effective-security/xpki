@@ -165,13 +165,13 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	//	return nil, nil, errors.Errorf("dpop: http_uri claim mismatch in scheme: %s", claimUrl.Scheme)
 	//}
 
-	now := timeNowFn()
+	now := TimeNowFn()
 	iat := claims.IssuedAt.Time()
 	if now.Sub(iat) > DefaultExpiration {
 		return nil, errors.Errorf("dpop: iat claim expired: %s", iat.String())
 	}
 
-	jwtgo.TimeFunc = timeNowFn
+	jwtgo.TimeFunc = TimeNowFn
 	_, err = jwtgo.Parse(phdr, func(token *jwtgo.Token) (interface{}, error) {
 		return pjwk.Public().Key, nil
 	})
