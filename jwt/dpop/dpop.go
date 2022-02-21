@@ -47,5 +47,5 @@ type Claims struct {
 	HTTPUri    string `json:"htu,omitempty"`
 }
 
-// override in unit tests
-var timeNowFn = time.Now
+// TimeNowFn to override in unit tests
+var TimeNowFn = time.Now

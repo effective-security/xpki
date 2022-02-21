@@ -51,7 +51,7 @@ func (p *signer) JWKThumbprint() string {
 }
 
 func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, error) {
-	now := timeNowFn()
+	now := TimeNowFn()
 	notBefore := now.Add(DefaultNotBefore)
 	exp := now.Add(DefaultExpiration)
 	claims := &hjwt.Claims{
