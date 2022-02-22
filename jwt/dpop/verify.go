@@ -198,7 +198,7 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	res := &Result{
 		Claims:     claims,
 		Key:        pjwk,
-		Thumbprint: base64.URLEncoding.EncodeToString(tb),
+		Thumbprint: base64.RawURLEncoding.EncodeToString(tb),
 	}
 	return res, nil
 }
