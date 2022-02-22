@@ -41,7 +41,7 @@ func NewSigner(s crypto.Signer) (Signer, error) {
 
 	return &signer{
 		prov: prov,
-		tp:   base64.URLEncoding.EncodeToString(tb),
+		tp:   base64.RawURLEncoding.EncodeToString(tb),
 	}, nil
 }
 
