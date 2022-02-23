@@ -4,8 +4,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"gopkg.in/square/go-jose.v2/jwt"
 )
+
+var logger = xlog.NewPackageLogger("github.com/effective-security/xpki/jwt", "dpop")
 
 const (
 	// HTTPHeader header name for DPoP

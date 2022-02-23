@@ -1,12 +1,11 @@
 package dpop
 
 import (
-	"crypto"
-	"encoding/base64"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/effective-security/xlog"
 	jwtgo "github.com/golang-jwt/jwt"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
@@ -190,16 +189,22 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	if cfg.ExpectedNonce != "" && claims.Nonce != cfg.ExpectedNonce {
 		return nil, errors.Errorf("dpop: invalid nonce: '%s'", claims.Nonce)
 	}
-	tb, err := pjwk.Thumbprint(crypto.SHA256)
+	tb, err := Thumbprint(pjwk)
 	if err != nil {
-		return nil, errors.Errorf("dpop: unable to get thumprint")
+		return nil, errors.WithStack(err)
 	}
 
 	res := &Result{
 		Claims:     claims,
 		Key:        pjwk,
-		Thumbprint: base64.RawURLEncoding.EncodeToString(tb),
+		Thumbprint: tb,
 	}
+
+	logger.KV(xlog.TRACE,
+		"key", res.Thumbprint,
+		"claims", claims,
+	)
+
 	return res, nil
 }
 

@@ -53,6 +53,19 @@ func TestSigner(t *testing.T) {
 	assert.EqualError(t, err, "dpop: invalid audience: []")
 	_, err = dpop.VerifyClaims(dpop.VerifyConfig{ExpectedNonce: "tqwueytr35r"}, rsReq)
 	assert.EqualError(t, err, "dpop: invalid nonce: ''")
+
+	// test dpop via query
+	rsReq.URL.RawQuery += "&dpop=" + token
+	rsReq.Header.Set(dpop.HTTPHeader, "")
+	res, err = dpop.VerifyClaims(dpop.VerifyConfig{EnableQuery: true}, rsReq)
+	require.NoError(t, err)
+	assert.NotNil(t, res.Key)
+	require.NotNil(t, res.Claims)
+	assert.Empty(t, res.Claims.Issuer)
+	assert.Empty(t, res.Claims.Subject)
+	assert.Empty(t, res.Claims.Audience)
+	assert.Equal(t, "https://cisco.com/api/signer", res.Claims.HTTPUri)
+	assert.Equal(t, http.MethodGet, res.Claims.HTTPMethod)
 }
 
 func TestVerifyClaims(t *testing.T) {
