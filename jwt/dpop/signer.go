@@ -2,7 +2,6 @@ package dpop
 
 import (
 	"crypto"
-	"encoding/base64"
 	"net/http"
 	"net/url"
 
@@ -34,14 +33,14 @@ func NewSigner(s crypto.Signer) (Signer, error) {
 	jk := jose.JSONWebKey{
 		Key: s.Public(),
 	}
-	tb, err := jk.Thumbprint(crypto.SHA256)
+	tp, err := Thumbprint(&jk)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
 	return &signer{
 		prov: prov,
-		tp:   base64.RawURLEncoding.EncodeToString(tb),
+		tp:   tp,
 	}, nil
 }
 
