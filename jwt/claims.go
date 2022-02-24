@@ -5,15 +5,24 @@ import (
 	"encoding/json"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/effective-security/xlog"
-	"github.com/golang-jwt/jwt"
+	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
 )
 
+var (
+	// TimeNowFn to override in unit tests
+	TimeNowFn = time.Now
+
+	// DefaultTimeSkew is an interval for allowed time skew
+	DefaultTimeSkew = 5 * time.Minute
+)
+
 // Claims provides generic claims on map
-type Claims jwt.MapClaims
+type Claims map[string]interface{}
 
 // Add new claims to the map
 func (c Claims) Add(val ...interface{}) error {
@@ -25,8 +34,6 @@ func (c Claims) Add(val ...interface{}) error {
 		case map[string]interface{}:
 			c.merge(m)
 		case Claims:
-			c.merge(m)
-		case jwt.MapClaims:
 			c.merge(m)
 		default:
 			if reflect.Indirect(reflect.ValueOf(i)).Kind() == reflect.Struct {
@@ -55,11 +62,6 @@ func (c Claims) To(val interface{}) error {
 		return errors.WithStack(err)
 	}
 	return nil
-}
-
-// Valid returns error if the standard claims are invalid
-func (c Claims) Valid() error {
-	return jwt.MapClaims(c).Valid()
 }
 
 // Marshal returns JSON encoded string
@@ -189,4 +191,119 @@ func (c Claims) Int(k string) int {
 	default:
 		return 0
 	}
+}
+
+// VerifyAudience compares the aud claim against cmp.
+// If required is false, this method will return true if the value matches or is unset
+func (c Claims) VerifyAudience(cmp []string, req bool) error {
+	var aud []string
+	switch v := c["aud"].(type) {
+	case string:
+		aud = append(aud, v)
+	case []string:
+		aud = v
+	case []interface{}:
+		for _, a := range v {
+			vs, ok := a.(string)
+			if !ok {
+				return errors.Errorf("invalid aud claim with unsupported value")
+			}
+			aud = append(aud, vs)
+		}
+	}
+
+	if len(aud) == 0 && req {
+		return errors.Errorf("aud claim not found")
+	}
+
+	for _, a := range cmp {
+		if !slices.ContainsString(aud, a) {
+			return errors.Errorf("token missing audience: %s", a)
+		}
+	}
+
+	return nil
+}
+
+// VerifyExpiresAt returns true issued at is valid.
+func (c Claims) VerifyExpiresAt(now time.Time, req bool) error {
+	exp := c.Time("exp")
+	if exp == nil {
+		if req {
+			return errors.Errorf("exp claim not found")
+		}
+		return nil
+	}
+	if now.After(*exp) {
+		return errors.Errorf("token expired at: %s, now: %s",
+			exp.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+// VerifyIssuedAt verifies the iat claim.
+func (c Claims) VerifyIssuedAt(now time.Time, req bool) error {
+	iat := c.Time("iat")
+	if iat == nil {
+		if req {
+			return errors.Errorf("iat claim not found")
+		}
+		return nil
+	}
+	if iat.After(now) {
+		return errors.Errorf("token issued after now: %s, now: %s",
+			iat.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+// VerifyNotBefore verifies the nbf claim.
+func (c Claims) VerifyNotBefore(now time.Time, req bool) error {
+	nbf := c.Time("nbf")
+	if nbf == nil {
+		if req {
+			return errors.Errorf("nbf claim not found")
+		}
+		return nil
+	}
+	if nbf.After(now) {
+		return errors.Errorf("token not valid yet, not before: %s, now: %s",
+			nbf.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+// VerifyIssuer compares the iss claim against cmp.
+// If required is false, this method will return nil if the value matches or is unset
+func (c Claims) VerifyIssuer(cmp string, req bool) error {
+	iss := c.String("iss")
+	if iss == "" && req {
+		return errors.Errorf("iss claim not found")
+	}
+	if !strings.EqualFold(iss, cmp) {
+		return errors.Errorf("invalid issuer: %s, expected: %s", iss, cmp)
+	}
+	return nil
+}
+
+// Valid returns error if the standard claims are invalid
+func (c Claims) Valid() error {
+	now := TimeNowFn()
+
+	err := c.VerifyExpiresAt(now.Add(-DefaultTimeSkew), false)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifyIssuedAt(now.Add(DefaultTimeSkew), false)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifyNotBefore(now.Add(DefaultTimeSkew), false)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	return nil
 }

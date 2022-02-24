@@ -107,7 +107,7 @@ func Test_SignSym(t *testing.T) {
 	assert.Equal(t, std, claims)
 
 	_, err = p2.ParseToken(token, cfg)
-	assert.EqualError(t, err, "failed to verify token: signature is invalid")
+	assert.EqualError(t, err, "failed to verify token: invalid signature")
 
 	_, err = p1.ParseToken(token, cfg)
 	assert.EqualError(t, err, "invalid issuer: trusty.com")
@@ -120,6 +120,12 @@ func Test_SignSym(t *testing.T) {
 	cfg.ExpectedSubject = "subj"
 	_, err = p.ParseToken(token, cfg)
 	assert.EqualError(t, err, "invalid subject: denis@ekspand.com")
+
+	parser := jwt.TokenParser{
+		ValidMethods: []string{"RS256"},
+	}
+	_, err = parser.Parse(token, nil)
+	assert.EqualError(t, err, "unsupported signing method: HS256")
 }
 
 func Test_SignPrivateRSA(t *testing.T) {
