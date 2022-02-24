@@ -4,55 +4,100 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+type standardClaims struct {
+	Audience  []string `json:"aud,omitempty"`
+	ExpiresAt int64    `json:"exp,omitempty"`
+	ID        string   `json:"jti,omitempty"`
+	IssuedAt  int64    `json:"iat,omitempty"`
+	Issuer    string   `json:"iss,omitempty"`
+	NotBefore int64    `json:"nbf,omitempty"`
+	Subject   string   `json:"sub,omitempty"`
+
+	valid bool
+}
+
+func (c standardClaims) Valid() error {
+	if !c.valid {
+		return errors.Errorf("invalid claims")
+	}
+	return nil
+}
+
 func TestClaims(t *testing.T) {
+	now := time.Now()
 	c := Claims{
 		"jti": "123",
+		"aud": []string{"t1"},
 	}
+
+	err := c.VerifyAudience([]string{"t2"}, true)
+	assert.EqualError(t, err, "token missing audience: t2")
+	err = c.VerifyIssuer("iss", true)
+	assert.EqualError(t, err, "iss claim not found")
+	err = c.VerifyExpiresAt(now, true)
+	assert.EqualError(t, err, "exp claim not found")
+	err = c.VerifyIssuedAt(now, true)
+	assert.EqualError(t, err, "iat claim not found")
+	err = c.VerifyNotBefore(now, true)
+	assert.EqualError(t, err, "nbf claim not found")
+
 	c2 := Claims{
 		"jti": "2",
+		"iss": "123",
+		"aud": "t1",
+		"nbf": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Add(time.Hour).Unix(),
 	}
-	c3 := jwt.MapClaims{
-		"c3": 333,
-	}
+	err = c2.VerifyIssuer("iss", true)
+	assert.EqualError(t, err, "invalid issuer: 123, expected: iss")
+	err = c2.VerifyAudience([]string{"t2"}, true)
+	assert.EqualError(t, err, "token missing audience: t2")
+	err = c2.VerifyIssuedAt(now, true)
+	assert.Contains(t, err.Error(), "token issued after now")
+	err = c2.VerifyNotBefore(now, true)
+	assert.Contains(t, err.Error(), "token not valid yet")
+
 	c4 := map[string]interface{}{
-		"c4": "444",
+		"c4":  "444",
+		"aud": []string{"t1", "t2"},
 	}
-	err := c.Add(c2)
+	err = c.Add(c2)
 	require.NoError(t, err)
 	assert.Equal(t, "2", c["jti"])
-
-	err = c.Add(c3)
-	require.NoError(t, err)
-	assert.Equal(t, 333, c["c3"])
 
 	err = c.Add(c4)
 	require.NoError(t, err)
 	assert.Equal(t, "444", c["c4"])
 
-	std := jwt.StandardClaims{
+	std := standardClaims{
 		IssuedAt: time.Now().Unix(),
 	}
 	err = c.Add(std)
 	require.NoError(t, err)
-	assert.Len(t, c, 4)
+	assert.Len(t, c, 6)
 
 	err = c.Add(3)
 	assert.EqualError(t, err, "unsupported claims interface")
-	assert.NoError(t, c.Valid())
 
-	var std2 jwt.StandardClaims
+	err = c.Valid()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token not valid yet, not before")
+
+	c["nbf"] = time.Now().Add(-2 * time.Hour).Unix()
+	c["exp"] = time.Now().Add(-time.Hour).Unix()
+	err = c.Valid()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token expired at")
+
+	var std2 standardClaims
 	err = c.To(&std2)
 	require.NoError(t, err)
-	assert.NoError(t, std2.Valid())
-
-	std2.NotBefore = time.Now().Add(time.Hour).Unix()
-	std2.ExpiresAt = time.Now().Add(-time.Hour).Unix()
-	assert.EqualError(t, std2.Valid(), "token is not valid yet")
+	assert.EqualError(t, std2.Valid(), "invalid claims")
 }
 
 func TestClaims_String(t *testing.T) {

@@ -13,7 +13,6 @@ import (
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/slices"
-	gojwt "github.com/golang-jwt/jwt"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
@@ -91,6 +90,7 @@ type provider struct {
 	signerInfo *SignerInfo
 	verifyKey  crypto.PublicKey
 	headers    map[string]interface{}
+	parser     TokenParser
 }
 
 // LoadConfig returns configuration loaded from a file
@@ -157,6 +157,9 @@ func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error
 		issuer: cfg.Issuer,
 		kid:    cfg.KeyID,
 		keys:   map[string][]byte{},
+		parser: TokenParser{
+			UseJSONNumber: true,
+		},
 	}
 
 	if p.issuer == "" {
@@ -221,7 +224,11 @@ func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error
 
 // NewFromCryptoSigner returns new from Signer
 func NewFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error) {
-	p := &provider{}
+	p := &provider{
+		parser: TokenParser{
+			UseJSONNumber: true,
+		},
+	}
 	var err error
 	p.signerInfo, err = NewSignerInfo(signer)
 	if err != nil {
@@ -279,13 +286,10 @@ func (p *provider) SignToken(jti, subject string, audience []string, expiry time
 
 // ParseToken returns jwt.StandardClaims
 func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, error) {
-	claims := gojwt.MapClaims{}
-
-	parser := new(gojwt.Parser)
-	parser.UseJSONNumber = true
-	token, err := parser.ParseWithClaims(authorization, claims, func(token *gojwt.Token) (interface{}, error) {
+	claims := Claims{}
+	token, err := p.parser.ParseWithClaims(authorization, claims, func(token *Token) (interface{}, error) {
 		logger.KV(xlog.TRACE, "alg", token.Header["alg"])
-		if _, ok := token.Method.(*gojwt.SigningMethodHMAC); ok {
+		if strings.HasPrefix(token.SigningMethod, "HS") {
 			if kid, ok := token.Header["kid"]; ok {
 				var id string
 				switch t := kid.(type) {
@@ -311,7 +315,7 @@ func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, 
 		return nil, errors.WithMessagef(err, "failed to verify token")
 	}
 
-	if claims, ok := token.Claims.(gojwt.MapClaims); ok && token.Valid {
+	if claims, ok := token.Claims.(Claims); ok && token.Valid {
 		var std jwt.Claims
 		err = Claims(claims).To(&std)
 		if err != nil {

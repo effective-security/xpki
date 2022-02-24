@@ -32,7 +32,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"math/big"
@@ -234,7 +233,88 @@ func (si *SignerInfo) signJWT(claims interface{}, headers map[string]interface{}
 	return sstr + "." + sig, nil
 }
 
-// EncodeSegment returns JWT specific base64url encoding with padding stripped
-func EncodeSegment(seg []byte) string {
-	return base64.RawURLEncoding.EncodeToString(seg)
+var hashMap = map[string]crypto.Hash{
+	"ES256": crypto.SHA256,
+	"ES384": crypto.SHA384,
+	"ES512": crypto.SHA512,
+	"RS256": crypto.SHA256,
+	"RS384": crypto.SHA384,
+	"RS512": crypto.SHA512,
+}
+
+var curveMap = map[string]elliptic.Curve{
+	"ES256": elliptic.P256(),
+	"ES384": elliptic.P384(),
+	"ES512": elliptic.P521(),
+}
+
+// VerifySignature returns error if JWT signature is invalid
+func VerifySignature(algo, signingString, signature string, key interface{}) error {
+	if strings.HasPrefix(algo, "HS") {
+		bytes, ok := key.([]byte)
+		if !ok {
+			return errors.Errorf("invalid key type %T for %s signature", key, algo)
+		}
+
+		signer, err := newSymmetricSigner(algo, bytes)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		sig, err := signer.Sign(nil, []byte(signingString), nil)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		if EncodeSegment(sig) != signature {
+			return errors.Errorf("invalid signature")
+		}
+		return nil
+	}
+
+	// Decode the signature
+	var sig []byte
+	var err error
+	if sig, err = DecodeSegment(signature); err != nil {
+		return errors.Errorf("invalid signature")
+	}
+
+	h := hashMap[algo]
+	if h == 0 {
+		return errors.Errorf("unsupported algorithm")
+	}
+
+	hasher := h.New()
+	hasher.Write([]byte(signingString))
+
+	switch algo {
+	case "ES256", "ES384", "ES512":
+		curve := curveMap[algo]
+		curveBits := curve.Params().BitSize
+		keySize := curveBits / 8
+		if curveBits%8 > 0 {
+			keySize++
+		}
+		if len(sig) != 2*keySize {
+			return errors.Errorf("invalid ECDSA signature length: %s", algo)
+		}
+		r := big.NewInt(0).SetBytes(sig[:keySize])
+		s := big.NewInt(0).SetBytes(sig[keySize:])
+		if ecdsaKey, ok := key.(*ecdsa.PublicKey); ok {
+			if !ecdsa.Verify(ecdsaKey, hasher.Sum(nil), r, s) {
+				return errors.Errorf("ecdsa: invalid signature")
+			}
+			return nil
+		}
+		return errors.Errorf("invalid key type for ECDSA signature: %T", key)
+	case "RS256", "RS384", "RS512":
+		if rsaKey, ok := key.(*rsa.PublicKey); ok {
+			// Verify the signature
+			err = rsa.VerifyPKCS1v15(rsaKey, h, hasher.Sum(nil), sig)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			return nil
+		}
+		return errors.Errorf("invalid key type for RSA signature: %T", key)
+	}
+	return errors.Errorf("unsupported: %s" + algo)
 }
