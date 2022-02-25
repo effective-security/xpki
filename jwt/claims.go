@@ -106,6 +106,7 @@ func (c Claims) String(k string) string {
 	case string:
 		return tv
 	default:
+		logger.Debugf("reason=unsupported, type='%T'", tv)
 		return xlog.String(v)
 	}
 }
@@ -120,6 +121,7 @@ func (c Claims) Bool(k string) bool {
 	case bool:
 		return tv
 	default:
+		logger.Debugf("reason=unsupported, type='%T'", tv)
 		return false
 	}
 }
@@ -144,6 +146,13 @@ func (c Claims) Time(k string) *time.Time {
 	case int:
 		t := time.Unix(int64(tv), 0)
 		return &t
+	case json.Number:
+		unix, err := tv.Int64()
+		if err != nil {
+			return nil
+		}
+		t := time.Unix(unix, 0)
+		return &t
 	case string:
 		if len(tv) > 20 {
 			t, err := time.Parse("2006-01-02T15:04:05.000-0700", tv)
@@ -159,6 +168,7 @@ func (c Claims) Time(k string) *time.Time {
 		t := time.Unix(unix, 0)
 		return &t
 	default:
+		logger.Debugf("reason=unsupported, type='%T'", tv)
 		return nil
 	}
 }
@@ -189,6 +199,7 @@ func (c Claims) Int(k string) int {
 		}
 		return i
 	default:
+		logger.Debugf("reason=unsupported, type='%T'", tv)
 		return 0
 	}
 }
@@ -290,7 +301,7 @@ func (c Claims) VerifyIssuer(cmp string, req bool) error {
 func (c Claims) Valid() error {
 	now := TimeNowFn()
 
-	err := c.VerifyExpiresAt(now.Add(-DefaultTimeSkew), false)
+	err := c.VerifyExpiresAt(now, false)
 	if err != nil {
 		return errors.WithStack(err)
 	}

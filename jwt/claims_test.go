@@ -1,9 +1,12 @@
 package jwt
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,6 +24,12 @@ type standardClaims struct {
 	valid bool
 }
 
+func TestMain(m *testing.M) {
+	xlog.SetGlobalLogLevel(xlog.DEBUG)
+	retCode := m.Run()
+	os.Exit(retCode)
+}
+
 func (c standardClaims) Valid() error {
 	if !c.valid {
 		return errors.Errorf("invalid claims")
@@ -34,6 +43,7 @@ func TestClaims(t *testing.T) {
 		"jti": "123",
 		"aud": []string{"t1"},
 	}
+	assert.Equal(t, `{"aud":["t1"],"jti":"123"}`, c.Marshal())
 
 	err := c.VerifyAudience([]string{"t2"}, true)
 	assert.EqualError(t, err, "token missing audience: t2")
@@ -53,6 +63,7 @@ func TestClaims(t *testing.T) {
 		"nbf": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Add(time.Hour).Unix(),
 	}
+
 	err = c2.VerifyIssuer("iss", true)
 	assert.EqualError(t, err, "invalid issuer: 123, expected: iss")
 	err = c2.VerifyAudience([]string{"t2"}, true)
@@ -65,6 +76,7 @@ func TestClaims(t *testing.T) {
 	c4 := map[string]interface{}{
 		"c4":  "444",
 		"aud": []string{"t1", "t2"},
+		"exp": time.Now().Add(-time.Hour).Unix(),
 	}
 	err = c.Add(c2)
 	require.NoError(t, err)
@@ -73,17 +85,20 @@ func TestClaims(t *testing.T) {
 	err = c.Add(c4)
 	require.NoError(t, err)
 	assert.Equal(t, "444", c["c4"])
+	err = c.VerifyExpiresAt(now, true)
+	assert.Contains(t, err.Error(), "token expired at:")
 
 	std := standardClaims{
 		IssuedAt: time.Now().Unix(),
 	}
 	err = c.Add(std)
 	require.NoError(t, err)
-	assert.Len(t, c, 6)
+	assert.Len(t, c, 7)
 
 	err = c.Add(3)
 	assert.EqualError(t, err, "unsupported claims interface")
 
+	c["exp"] = time.Now().Add(time.Hour).Unix()
 	err = c.Valid()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token not valid yet, not before")
@@ -194,10 +209,12 @@ func TestClaims_Time(t *testing.T) {
 		"t1":     "2007-02-03T15:05:06.123-0701",
 		"t2":     t2,
 		"t3":     &t2,
+		"struct": struct{}{},
 		"tnil":   1,
 		"tnil2":  "notime",
 		"unix":   1645187555,
 		"unixs":  "1645187555",
+		"json":   json.Number("1645187555"),
 		"uint64": uint64(1645187555),
 		"int64":  int64(1645187555),
 	}
@@ -205,8 +222,10 @@ func TestClaims_Time(t *testing.T) {
 	c(o, "t2", &t2)
 	c(o, "t3", &t2)
 	c(o, "tnil2", nil)
+	c(o, "struct", nil)
 	c(o, "unix", &t3)
 	c(o, "unixs", &t3)
 	c(o, "uint64", &t3)
 	c(o, "int64", &t3)
+	c(o, "json", &t3)
 }
