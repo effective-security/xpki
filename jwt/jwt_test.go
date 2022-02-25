@@ -159,6 +159,14 @@ func Test_SignPrivateRSA(t *testing.T) {
 		claims, err := p.ParseToken(token, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, std, claims)
+
+		jwt.TimeNowFn = func() time.Time {
+			return time.Now().Add(24 * time.Hour)
+		}
+		_, err = p.ParseToken(token, cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to verify token: token expired at:")
+		jwt.TimeNowFn = time.Now
 	}
 }
 
