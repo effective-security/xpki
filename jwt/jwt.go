@@ -288,7 +288,11 @@ func (p *provider) SignToken(jti, subject string, audience []string, expiry time
 func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, error) {
 	claims := Claims{}
 	token, err := p.parser.ParseWithClaims(authorization, claims, func(token *Token) (interface{}, error) {
-		logger.KV(xlog.TRACE, "alg", token.Header["alg"])
+		logger.KV(xlog.DEBUG,
+			"src", "ParseToken",
+			"headers", token.Header,
+			"claims", token.Claims,
+		)
 		if strings.HasPrefix(token.SigningMethod, "HS") {
 			if kid, ok := token.Header["kid"]; ok {
 				var id string
