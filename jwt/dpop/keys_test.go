@@ -1,9 +1,6 @@
 package dpop_test
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"os"
 	"path"
 	"testing"
@@ -11,7 +8,6 @@ import (
 	"github.com/effective-security/xpki/jwt/dpop"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/square/go-jose.v2"
 )
 
 func TestKeys(t *testing.T) {
@@ -21,12 +17,8 @@ func TestKeys(t *testing.T) {
 	_, _, err := dpop.LoadKey("TestKeys")
 	assert.EqualError(t, err, "open TestKeys: no such file or directory")
 
-	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	jk, err := dpop.GenerateKey("")
 	require.NoError(t, err)
-
-	jk := &jose.JSONWebKey{
-		Key: ecKey,
-	}
 
 	fn, err := dpop.SaveKey(folder, jk)
 	require.NoError(t, err)
@@ -36,4 +28,5 @@ func TestKeys(t *testing.T) {
 	tb2, err := dpop.Thumbprint(jk2)
 	require.NoError(t, err)
 	assert.Equal(t, tb, tb2)
+	assert.Equal(t, jk2.KeyID, tb2)
 }

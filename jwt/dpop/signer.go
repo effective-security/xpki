@@ -67,7 +67,7 @@ func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, e
 		Path:   r.URL.Path,
 	}
 
-	c := jwt.Claims{
+	c := jwt.MapClaims{
 		claimNameForHTTPMethod: r.Method,
 		claimNameForHTTPURL:    coreURL.String(),
 	}

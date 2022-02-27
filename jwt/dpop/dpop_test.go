@@ -268,14 +268,53 @@ func TestVerifyClaims(t *testing.T) {
 	})
 }
 
+func TestGetCnfClaim(t *testing.T) {
+	claims := map[string]interface{}{}
+	tb, err := dpop.GetCnfClaim(claims)
+	require.NoError(t, err)
+	assert.Empty(t, tb)
+
+	dpop.SetCnfClaim(claims, "abc123")
+	tb, err = dpop.GetCnfClaim(claims)
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", tb)
+
+	claims["cnf"] = "wrong"
+	_, err = dpop.GetCnfClaim(claims)
+	assert.EqualError(t, err, "dpop: invalid cnf claim")
+
+	claims["cnf"] = map[string]interface{}{
+		dpop.CnfThumbprint: 123,
+	}
+	_, err = dpop.GetCnfClaim(claims)
+	assert.EqualError(t, err, "dpop: invalid cnf claim")
+
+}
+
 func TestParse(t *testing.T) {
-	dp := `eyJhbGciOiAiRVMyNTYiLCAidHlwIjogImRwb3Arand0IiwgImp3ayI6IHsia3R5IjogIkVDIiwgImNydiI6ICJQLTI1NiIsICJ4IjogIk1wTmlIR1RkXzNYY240NDVVR0FlN09KY1NTekFXU2JSUWFXdWlZcW5kYzQiLCAieSI6ICJlOUMzWVAwMkdHOHVhUE5fZEUzOUNESEs3cDFyQm1HZXVUcXptNEZSMGI4In19.eyJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkudGVzdC5wcm92ZWlkLmRldi92MS9kcG9wL3Rva2VuIiwiaWF0IjoxNjQ1MjA0OTI3LCJqdGkiOiIxQlJNbUZHSkVZX01MN3pLZjEwaWhxVTJuRjk0Wk01clhyUnlET1g0Rk0wIn0.mMUL2A-TE1L7i8J9cbxLAiuDOT0OpnATcaoyQKpq_ji7FO8WsFV_rf2TIFugA9NV4lk-QfBJAse5Ny5pRtHVLg`
+	dproof := `eyJhbGciOiAiRVMyNTYiLCAidHlwIjogImRwb3Arand0IiwgImp3ayI6IHsia3R5IjogIkVDIiwgImNydiI6ICJQLTI1NiIsICJ4IjogIk1wTmlIR1RkXzNYY240NDVVR0FlN09KY1NTekFXU2JSUWFXdWlZcW5kYzQiLCAieSI6ICJlOUMzWVAwMkdHOHVhUE5fZEUzOUNESEs3cDFyQm1HZXVUcXptNEZSMGI4In19.eyJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9hcGkudGVzdC5wcm92ZWlkLmRldi92MS9kcG9wL3Rva2VuIiwiaWF0IjoxNjQ1MjA0OTI3LCJqdGkiOiIxQlJNbUZHSkVZX01MN3pLZjEwaWhxVTJuRjk0Wk01clhyUnlET1g0Rk0wIn0.mMUL2A-TE1L7i8J9cbxLAiuDOT0OpnATcaoyQKpq_ji7FO8WsFV_rf2TIFugA9NV4lk-QfBJAse5Ny5pRtHVLg`
 	r, _ := http.NewRequest(http.MethodPost, "https://api.test.proveid.dev/v1/dpop/token", nil)
-	r.Header.Set(dpop.HTTPHeader, dp)
+	r.Header.Set(dpop.HTTPHeader, dproof)
 
 	_, err := dpop.VerifyClaims(dpop.VerifyConfig{}, r)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expired")
+
+	ti := dpop.GetTokenInfo(dproof)
+	require.NotNil(t, ti)
+	assert.False(t, ti.IsFresh)
+	assert.True(t, ti.IsPublicKey)
+	assert.Empty(t, ti.CnfJkt)
+
+	// this is DPoP token
+	dpToken := `eyJhbGciOiJFUzI1NiIsImp3ayI6eyJrdHkiOiJFQyIsImNydiI6IlAtMjU2IiwieCI6Il9TRVdHR0hLVGY2YmFvYWRZdEMycmdBVGJZUGh6Yjd1eWt0c3FIeHZ4YmciLCJ5IjoieExfMFktdXFsU0lsZm1Md3NwbXpiSTJmRWxYcF9YS0Q1Tm1xd2c5aXZFUSJ9LCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsicHJvdmVuaWQub3JnIl0sImNuZiI6eyJqa3QiOiJHNHZOc2xQalFJUk56OVQwS2pfZGk0bVR2dl95bW9UMmxRbWJLcVM4Y1M4In0sImVtYWlsIjoiZGVuaXNAZWtzcGFuZC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZXhwIjoxNjQ1ODE3MzE0LCJpYXQiOjE2NDU4MTM3MTYsImlzcyI6ImRldi5kcG9wc3J2IiwianRpIjoiRHBuRU5Cd00iLCJuYW1lIjoiRGVuaXMgSXNzb3Vwb3YiLCJuYmYiOjE2NDU4MTM1OTYsIm5vbmNlIjoiYk5RMU9xVXAiLCJwcm92aWRlciI6Imdvb2dsZSIsInByb3ZpZGVyX3VpZCI6IjExNTE4MjMyODY0MzY2NjAwMjAxMSIsInN1YiI6ImRlbmlzQGVrc3BhbmQuY29tIn0.9snAEIjXTfEopOxJUoBlSZbiQ9TtWeDKL4mYj3M_XT2MEEa5dtfH8uV5KSj48Ej9RkBoUbBfgFuhz8_0CvJTkA`
+	ti = dpop.GetTokenInfo(dpToken)
+	require.NotNil(t, ti)
+	assert.False(t, ti.IsFresh)
+	assert.True(t, ti.IsPublicKey)
+	assert.Equal(t, "G4vNslPjQIRNz9T0Kj_di4mTvv_ymoT2lQmbKqS8cS8", ti.CnfJkt)
+	// Thumbprint of the token signer
+	assert.Equal(t, "G0eEey0k6Qx9Y0ZADjZ0djTgiF7KXp7QGf6sP2QJ-sw", ti.Thumbprint)
 }
 
 type testSigner struct {

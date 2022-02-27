@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/effective-security/xlog"
-	"gopkg.in/square/go-jose.v2/jwt"
+	"github.com/pkg/errors"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki/jwt", "dpop")
@@ -42,13 +42,29 @@ type Signer interface {
 	JWKThumbprint() string
 }
 
-// Claims are common claims in the DPoP proof JWT.
-type Claims struct {
-	jwt.Claims
-	Nonce      string `json:"nonce,omitempty"`
-	HTTPMethod string `json:"htm,omitempty"`
-	HTTPUri    string `json:"htu,omitempty"`
-}
-
 // TimeNowFn to override in unit tests
 var TimeNowFn = time.Now
+
+// SetCnfClaim sets DPoP `cnf` claim
+func SetCnfClaim(claims map[string]interface{}, thumprint string) {
+	claims["cnf"] = map[string]interface{}{
+		CnfThumbprint: thumprint,
+	}
+}
+
+// GetCnfClaim gets DPoP `cnf` claim
+func GetCnfClaim(claims map[string]interface{}) (string, error) {
+	cnf := claims["cnf"]
+	if cnf == nil {
+		return "", nil
+	}
+	m, ok := cnf.(map[string]interface{})
+	if !ok {
+		return "", errors.Errorf("dpop: invalid cnf claim")
+	}
+	tb, ok := m[CnfThumbprint].(string)
+	if !ok {
+		return "", errors.Errorf("dpop: invalid cnf claim")
+	}
+	return tb, nil
+}

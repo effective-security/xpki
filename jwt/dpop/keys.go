@@ -2,6 +2,9 @@ package dpop
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -56,7 +59,7 @@ func SaveKey(folder string, k *jose.JSONWebKey) (string, error) {
 		return "", errors.WithStack(err)
 	}
 
-	fn := path.Join(folder, dpopThumbprint+".jwk.key")
+	fn := path.Join(folder, dpopThumbprint+".jwk")
 	fullData, err := json.MarshalIndent(k, "", "  ")
 	if err != nil {
 		return "", errors.WithStack(err)
@@ -66,4 +69,23 @@ func SaveKey(folder string, k *jose.JSONWebKey) (string, error) {
 		return "", errors.WithMessagef(err, "failed to save key")
 	}
 	return fn, nil
+}
+
+// GenerateKey returns JSONWebKey to sign JWT
+func GenerateKey(label string) (*jose.JSONWebKey, error) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	k := &jose.JSONWebKey{
+		Key:   privateKey,
+		KeyID: label,
+	}
+
+	if label == "" {
+		k.KeyID, _ = Thumbprint(k)
+	}
+
+	return k, nil
 }

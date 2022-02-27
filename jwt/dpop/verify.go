@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/effective-security/xlog"
-	jwtgo "github.com/golang-jwt/jwt"
+	jwtgo "github.com/effective-security/xpki/jwt"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
@@ -73,9 +73,13 @@ https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop-04#ref-IANA.MediaTyp
 
 // Result is returned from VerifyClaims
 type Result struct {
-	Claims     *Claims
+	Claims     *jwtgo.Claims
 	Key        *jose.JSONWebKey
 	Thumbprint string
+}
+
+var parser = jwtgo.TokenParser{
+	UseJSONNumber: true,
 }
 
 // VerifyClaims returns DPoP claims, raw claims, key; or error
@@ -119,7 +123,7 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 		return nil, errors.Errorf("dpop: alg not allowed: %s", algo)
 	}
 
-	claims := &Claims{}
+	claims := &jwtgo.Claims{}
 	err = pjwt.UnsafeClaimsWithoutVerification(claims)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "dpop: claims not found in DPoP header")
@@ -170,8 +174,8 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 		return nil, errors.Errorf("dpop: iat claim expired: %s", iat.String())
 	}
 
-	jwtgo.TimeFunc = TimeNowFn
-	_, err = jwtgo.Parse(phdr, func(token *jwtgo.Token) (interface{}, error) {
+	jwtgo.TimeNowFn = TimeNowFn
+	_, err = parser.Parse(phdr, jwtgo.VerifyConfig{}, func(token *jwtgo.Token) (interface{}, error) {
 		return pjwk.Public().Key, nil
 	})
 	if err != nil {
@@ -228,4 +232,47 @@ func queryString(u *url.URL, name string) string {
 		return ""
 	}
 	return vals[0]
+}
+
+// TokenInfo is returned from GetTokenInfo
+type TokenInfo struct {
+	Token       *jwt.JSONWebToken
+	Claims      jwtgo.Claims
+	Key         *jose.JSONWebKey
+	Thumbprint  string
+	CnfJkt      string
+	IsPublicKey bool
+	IsFresh     bool
+}
+
+// GetTokenInfo returns token info, if it's JWT or nil otherwise
+func GetTokenInfo(t string) *TokenInfo {
+	pjwt, err := jwt.ParseSigned(t)
+	if err != nil {
+		return nil
+	}
+
+	res := &TokenInfo{
+		Token: pjwt,
+	}
+
+	err = pjwt.UnsafeClaimsWithoutVerification(&res.Claims)
+	if err == nil {
+		now := TimeNowFn()
+		iat := res.Claims.IssuedAt.Time()
+		res.IsFresh = now.Sub(iat) < DefaultExpiration
+
+		cnf := res.Claims.CNF
+		if jkt, ok := cnf[CnfThumbprint].(string); ok {
+			res.CnfJkt = jkt
+		}
+	}
+
+	pjwk := pjwt.Headers[0].JSONWebKey
+	if pjwk != nil {
+		res.IsPublicKey = pjwk.IsPublic()
+		res.Thumbprint, _ = Thumbprint(pjwk)
+	}
+
+	return res
 }

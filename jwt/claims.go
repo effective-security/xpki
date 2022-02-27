@@ -21,11 +21,165 @@ var (
 	DefaultTimeSkew = 5 * time.Minute
 )
 
-// Claims provides generic claims on map
-type Claims map[string]interface{}
+// Claims represents public claim values (as specified in RFC 7519).
+type Claims struct {
+	Issuer    string       `json:"iss,omitempty"`
+	Subject   string       `json:"sub,omitempty"`
+	Audience  Audience     `json:"aud,omitempty"`
+	Expiry    *NumericDate `json:"exp,omitempty"`
+	NotBefore *NumericDate `json:"nbf,omitempty"`
+	IssuedAt  *NumericDate `json:"iat,omitempty"`
+	ID        string       `json:"jti,omitempty"`
+
+	// DPoP specific claims
+	CNF        map[string]interface{} `json:"cnf,omitempty"`
+	Nonce      string                 `json:"nonce,omitempty"`
+	HTTPMethod string                 `json:"htm,omitempty"`
+	HTTPUri    string                 `json:"htu,omitempty"`
+}
+
+// Marshal returns JSON encoded string
+func (c *Claims) Marshal() string {
+	raw, _ := json.Marshal(c)
+	return string(raw)
+}
+
+// VerifyAudience compares the aud claim against expected.
+func (c *Claims) VerifyAudience(expected []string) error {
+	if len(expected) == 0 {
+		return nil
+	}
+	if len(c.Audience) == 0 {
+		return errors.Errorf("aud claim not found")
+	}
+
+	for _, a := range expected {
+		if !c.Audience.Contains(a) {
+			return errors.Errorf("token missing audience: %s", a)
+		}
+	}
+
+	return nil
+}
+
+// VerifyExpiresAt returns true issued at is valid.
+func (c *Claims) VerifyExpiresAt(now time.Time, req bool) error {
+	if c.Expiry == nil {
+		if req {
+			return errors.Errorf("exp claim not found")
+		}
+		return nil
+	}
+	exp := c.Expiry.Time()
+	if now.After(exp) {
+		return errors.Errorf("token expired at: %s, now: %s",
+			exp.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+// VerifyIssuedAt verifies the iat claim.
+func (c *Claims) VerifyIssuedAt(now time.Time, req bool) error {
+	if c.IssuedAt == nil {
+		if req {
+			return errors.Errorf("iat claim not found")
+		}
+		return nil
+	}
+	iat := c.IssuedAt.Time()
+	if iat.After(now) {
+		return errors.Errorf("token issued after now: %s, now: %s",
+			iat.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+// VerifyNotBefore verifies the nbf claim.
+func (c *Claims) VerifyNotBefore(now time.Time, req bool) error {
+	if c.NotBefore == nil {
+		if req {
+			return errors.Errorf("nbf claim not found")
+		}
+		return nil
+	}
+	nbf := c.NotBefore.Time()
+	if nbf.After(now) {
+		return errors.Errorf("token not valid yet, not before: %s, now: %s",
+			nbf.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+// VerifyIssuer compares the iss claim against expected.
+func (c *Claims) VerifyIssuer(expected string) error {
+	if expected == "" {
+		return nil
+	}
+	if c.Issuer == "" {
+		return errors.Errorf("iss claim not found")
+	}
+	if !strings.EqualFold(c.Issuer, expected) {
+		return errors.Errorf("invalid issuer: %s, expected: %s", c.Issuer, expected)
+	}
+	return nil
+}
+
+// VerifySubject compares the sub claim against expected.
+func (c *Claims) VerifySubject(expected string) error {
+	if expected == "" {
+		return nil
+	}
+	if c.Subject == "" {
+		return errors.Errorf("sub claim not found")
+	}
+	if !strings.EqualFold(c.Subject, expected) {
+		return errors.Errorf("invalid subject: %s, expected: %s", c.Subject, expected)
+	}
+	return nil
+}
+
+// Valid returns error if the standard claims are invalid
+func (c *Claims) Valid(cfg VerifyConfig) error {
+	now := TimeNowFn()
+
+	err := c.VerifyExpiresAt(now, false)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifyIssuedAt(now.Add(DefaultTimeSkew), false)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifyNotBefore(now.Add(DefaultTimeSkew), false)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifyIssuer(cfg.ExpectedIssuer)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifySubject(cfg.ExpectedSubject)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifyAudience(cfg.ExpectedAudience)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	return nil
+}
+
+// MapClaims provides generic claims on map
+type MapClaims map[string]interface{}
 
 // Add new claims to the map
-func (c Claims) Add(val ...interface{}) error {
+func (c MapClaims) Add(val ...interface{}) error {
 	for _, i := range val {
 		if i == nil {
 			continue
@@ -33,7 +187,7 @@ func (c Claims) Add(val ...interface{}) error {
 		switch m := i.(type) {
 		case map[string]interface{}:
 			c.merge(m)
-		case Claims:
+		case MapClaims:
 			c.merge(m)
 		default:
 			if reflect.Indirect(reflect.ValueOf(i)).Kind() == reflect.Struct {
@@ -51,7 +205,7 @@ func (c Claims) Add(val ...interface{}) error {
 }
 
 // To converts the claims to the value pointed to by v.
-func (c Claims) To(val interface{}) error {
+func (c MapClaims) To(val interface{}) error {
 	raw, err := json.Marshal(c)
 	if err != nil {
 		return errors.WithStack(err)
@@ -65,12 +219,12 @@ func (c Claims) To(val interface{}) error {
 }
 
 // Marshal returns JSON encoded string
-func (c Claims) Marshal() string {
+func (c MapClaims) Marshal() string {
 	raw, _ := json.Marshal(c)
 	return string(raw)
 }
 
-func (c Claims) merge(m map[string]interface{}) {
+func (c MapClaims) merge(m map[string]interface{}) {
 	for k, v := range m {
 		c[k] = v
 	}
@@ -97,7 +251,7 @@ func normalize(i interface{}) (map[string]interface{}, error) {
 // String will return the named claim as a string,
 // if the underlying type is not a string,
 // it will try and co-oerce it to a string.
-func (c Claims) String(k string) string {
+func (c MapClaims) String(k string) string {
 	v := c[k]
 	if v == nil {
 		return ""
@@ -112,7 +266,7 @@ func (c Claims) String(k string) string {
 }
 
 // Bool will return the named claim as Bool
-func (c Claims) Bool(k string) bool {
+func (c MapClaims) Bool(k string) bool {
 	v := c[k]
 	if v == nil {
 		return false
@@ -127,7 +281,7 @@ func (c Claims) Bool(k string) bool {
 }
 
 // Time will return the named claim as Time
-func (c Claims) Time(k string) *time.Time {
+func (c MapClaims) Time(k string) *time.Time {
 	v := c[k]
 	if v == nil {
 		return nil
@@ -174,7 +328,7 @@ func (c Claims) Time(k string) *time.Time {
 }
 
 // Int will return the named claim as an int
-func (c Claims) Int(k string) int {
+func (c MapClaims) Int(k string) int {
 	v := c[k]
 	if v == nil {
 		return 0
@@ -204,9 +358,11 @@ func (c Claims) Int(k string) int {
 	}
 }
 
-// VerifyAudience compares the aud claim against cmp.
-// If required is false, this method will return true if the value matches or is unset
-func (c Claims) VerifyAudience(cmp []string, req bool) error {
+// VerifyAudience compares the aud claim against expected.
+func (c MapClaims) VerifyAudience(expected []string) error {
+	if len(expected) == 0 {
+		return nil
+	}
 	var aud []string
 	switch v := c["aud"].(type) {
 	case string:
@@ -223,11 +379,11 @@ func (c Claims) VerifyAudience(cmp []string, req bool) error {
 		}
 	}
 
-	if len(aud) == 0 && req {
+	if len(aud) == 0 {
 		return errors.Errorf("aud claim not found")
 	}
 
-	for _, a := range cmp {
+	for _, a := range expected {
 		if !slices.ContainsString(aud, a) {
 			return errors.Errorf("token missing audience: %s", a)
 		}
@@ -237,7 +393,7 @@ func (c Claims) VerifyAudience(cmp []string, req bool) error {
 }
 
 // VerifyExpiresAt returns true issued at is valid.
-func (c Claims) VerifyExpiresAt(now time.Time, req bool) error {
+func (c MapClaims) VerifyExpiresAt(now time.Time, req bool) error {
 	exp := c.Time("exp")
 	if exp == nil {
 		if req {
@@ -253,7 +409,7 @@ func (c Claims) VerifyExpiresAt(now time.Time, req bool) error {
 }
 
 // VerifyIssuedAt verifies the iat claim.
-func (c Claims) VerifyIssuedAt(now time.Time, req bool) error {
+func (c MapClaims) VerifyIssuedAt(now time.Time, req bool) error {
 	iat := c.Time("iat")
 	if iat == nil {
 		if req {
@@ -269,7 +425,7 @@ func (c Claims) VerifyIssuedAt(now time.Time, req bool) error {
 }
 
 // VerifyNotBefore verifies the nbf claim.
-func (c Claims) VerifyNotBefore(now time.Time, req bool) error {
+func (c MapClaims) VerifyNotBefore(now time.Time, req bool) error {
 	nbf := c.Time("nbf")
 	if nbf == nil {
 		if req {
@@ -284,21 +440,38 @@ func (c Claims) VerifyNotBefore(now time.Time, req bool) error {
 	return nil
 }
 
-// VerifyIssuer compares the iss claim against cmp.
-// If required is false, this method will return nil if the value matches or is unset
-func (c Claims) VerifyIssuer(cmp string, req bool) error {
+// VerifyIssuer compares the iss claim against expected.
+func (c MapClaims) VerifyIssuer(expected string) error {
+	if expected == "" {
+		return nil
+	}
 	iss := c.String("iss")
-	if iss == "" && req {
+	if iss == "" {
 		return errors.Errorf("iss claim not found")
 	}
-	if !strings.EqualFold(iss, cmp) {
-		return errors.Errorf("invalid issuer: %s, expected: %s", iss, cmp)
+	if !strings.EqualFold(iss, expected) {
+		return errors.Errorf("invalid issuer: %s, expected: %s", iss, expected)
+	}
+	return nil
+}
+
+// VerifySubject compares the sub claim against expected.
+func (c MapClaims) VerifySubject(expected string) error {
+	if expected == "" {
+		return nil
+	}
+	sub := c.String("sub")
+	if sub == "" {
+		return errors.Errorf("sub claim not found")
+	}
+	if !strings.EqualFold(sub, expected) {
+		return errors.Errorf("invalid subject: %s, expected: %s", sub, expected)
 	}
 	return nil
 }
 
 // Valid returns error if the standard claims are invalid
-func (c Claims) Valid() error {
+func (c MapClaims) Valid(cfg VerifyConfig) error {
 	now := TimeNowFn()
 
 	err := c.VerifyExpiresAt(now, false)
@@ -316,5 +489,101 @@ func (c Claims) Valid() error {
 		return errors.WithStack(err)
 	}
 
+	err = c.VerifyIssuer(cfg.ExpectedIssuer)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifySubject(cfg.ExpectedSubject)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	err = c.VerifyAudience(cfg.ExpectedAudience)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
 	return nil
+}
+
+// NumericDate represents date and time as the number of seconds since the
+// epoch, ignoring leap seconds. Non-integer values can be represented
+// in the serialized format, but we round to the nearest second.
+// See RFC7519 Section 2: https://tools.ietf.org/html/rfc7519#section-2
+type NumericDate int64
+
+// NewNumericDate constructs NumericDate from time.Time value.
+func NewNumericDate(t time.Time) *NumericDate {
+	if t.IsZero() {
+		return nil
+	}
+
+	// While RFC 7519 technically states that NumericDate values may be
+	// non-integer values, we don't bother serializing timestamps in
+	// claims with sub-second accurancy and just round to the nearest
+	// second instead. Not convined sub-second accuracy is useful here.
+	out := NumericDate(t.Unix())
+	return &out
+}
+
+// MarshalJSON serializes the given NumericDate into its JSON representation.
+func (n NumericDate) MarshalJSON() ([]byte, error) {
+	return []byte(strconv.FormatInt(int64(n), 10)), nil
+}
+
+// UnmarshalJSON reads a date from its JSON representation.
+func (n *NumericDate) UnmarshalJSON(b []byte) error {
+	s := string(b)
+
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return errors.Errorf("expected number value to unmarshal NumericDate")
+	}
+
+	*n = NumericDate(f)
+	return nil
+}
+
+// Time returns time.Time representation of NumericDate.
+func (n *NumericDate) Time() time.Time {
+	if n == nil {
+		return time.Time{}
+	}
+	return time.Unix(int64(*n), 0)
+}
+
+// Audience represents the recipients that the token is intended for.
+type Audience []string
+
+// UnmarshalJSON reads an audience from its JSON representation.
+func (s *Audience) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return errors.WithStack(err)
+	}
+
+	switch v := v.(type) {
+	case string:
+		*s = []string{v}
+	case []interface{}:
+		a := make([]string, len(v))
+		for i, e := range v {
+			s, ok := e.(string)
+			if !ok {
+				return errors.Errorf("audience: expected string or array value")
+			}
+			a[i] = s
+		}
+		*s = a
+	default:
+		return errors.Errorf("audience: unsupported type: '%T'", v)
+	}
+
+	return nil
+}
+
+// Contains returns true if audience contains expected value
+func (s Audience) Contains(expected string) bool {
+	return slices.ContainsString(s, expected)
 }

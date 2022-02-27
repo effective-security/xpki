@@ -12,7 +12,6 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/x/fileutil"
-	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
@@ -26,26 +25,20 @@ const (
 	DefaultNotBefore = -2 * time.Minute
 )
 
-// VerifyConfig expreses the possible options for validating a JWT
-type VerifyConfig struct {
-	// ExpectedSubject validates the sub claim of a JWT matches this value
-	ExpectedSubject string
-	// ExpectedAudience validates that the aud claim of a JWT contains this value
-	ExpectedAudience string
-}
-
 // Signer specifies JWT signer interface
 type Signer interface {
 	// SignToken returns signed JWT token
-	SignToken(id, subject string, audience []string, expiry time.Duration, extraClaims Claims) (string, Claims, error)
+	SignToken(id, subject string, audience []string, expiry time.Duration, extraClaims MapClaims) (string, MapClaims, error)
 	// PublicKey is returned for assymetric signer
 	PublicKey() crypto.PublicKey
+	// Issuer returns name of the issuer
+	Issuer() string
 }
 
 // Parser specifies JWT parser interface
 type Parser interface {
 	// ParseToken returns jwt.StandardClaims
-	ParseToken(authorization string, cfg *VerifyConfig) (Claims, error)
+	ParseToken(authorization string, cfg VerifyConfig) (MapClaims, error)
 }
 
 // Provider specifies JWT provider interface
@@ -251,6 +244,11 @@ func (p *provider) PublicKey() crypto.PublicKey {
 	return p.verifyKey
 }
 
+// Issuer returns issuer name
+func (p *provider) Issuer() string {
+	return p.issuer
+}
+
 // CurrentKey returns the key currently being used to sign tokens.
 func (p *provider) currentKey() (string, []byte) {
 	if key, ok := p.keys[p.kid]; ok {
@@ -260,7 +258,7 @@ func (p *provider) currentKey() (string, []byte) {
 }
 
 // SignToken returns signed JWT token with custom claims
-func (p *provider) SignToken(jti, subject string, audience []string, expiry time.Duration, extraClaims Claims) (string, Claims, error) {
+func (p *provider) SignToken(jti, subject string, audience []string, expiry time.Duration, extraClaims MapClaims) (string, MapClaims, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(expiry)
 	notBefore := now.Add(DefaultNotBefore)
@@ -274,7 +272,7 @@ func (p *provider) SignToken(jti, subject string, audience []string, expiry time
 		Audience:  audience,
 		Subject:   subject,
 	}
-	c := Claims{}
+	c := MapClaims{}
 	c.Add(claims, extraClaims)
 
 	tokenString, err := p.signerInfo.signJWT(c, p.headers)
@@ -285,9 +283,9 @@ func (p *provider) SignToken(jti, subject string, audience []string, expiry time
 }
 
 // ParseToken returns jwt.StandardClaims
-func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, error) {
-	claims := Claims{}
-	token, err := p.parser.ParseWithClaims(authorization, claims, func(token *Token) (interface{}, error) {
+func (p *provider) ParseToken(authorization string, cfg VerifyConfig) (MapClaims, error) {
+	claims := MapClaims{}
+	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (interface{}, error) {
 		logger.KV(xlog.DEBUG,
 			"src", "ParseToken",
 			"headers", token.Header,
@@ -319,24 +317,8 @@ func (p *provider) ParseToken(authorization string, cfg *VerifyConfig) (Claims, 
 		return nil, errors.WithMessagef(err, "failed to verify token")
 	}
 
-	if claims, ok := token.Claims.(Claims); ok && token.Valid {
-		var std jwt.Claims
-		err = Claims(claims).To(&std)
-		if err != nil {
-			return nil, errors.WithMessagef(err, "failed to parse claims")
-		}
-
-		if std.Issuer != p.issuer {
-			return nil, errors.Errorf("invalid issuer: %s", std.Issuer)
-		}
-		if cfg.ExpectedSubject != "" && std.Subject != cfg.ExpectedSubject {
-			return nil, errors.Errorf("invalid subject: %s", std.Subject)
-		}
-
-		if cfg.ExpectedAudience != "" && !slices.ContainsString(std.Audience, cfg.ExpectedAudience) {
-			return nil, errors.Errorf("invalid audience: %s", std.Audience)
-		}
-		return Claims(claims), nil
+	if claims, ok := token.Claims.(MapClaims); ok && token.Valid {
+		return claims, nil
 	}
 
 	return nil, errors.Errorf("invalid token")
