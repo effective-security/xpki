@@ -7,22 +7,9 @@ import (
 	"time"
 
 	"github.com/effective-security/xlog"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-type standardClaims struct {
-	Audience  []string `json:"aud,omitempty"`
-	ExpiresAt int64    `json:"exp,omitempty"`
-	ID        string   `json:"jti,omitempty"`
-	IssuedAt  int64    `json:"iat,omitempty"`
-	Issuer    string   `json:"iss,omitempty"`
-	NotBefore int64    `json:"nbf,omitempty"`
-	Subject   string   `json:"sub,omitempty"`
-
-	valid bool
-}
 
 func TestMain(m *testing.M) {
 	xlog.SetGlobalLogLevel(xlog.DEBUG)
@@ -30,24 +17,106 @@ func TestMain(m *testing.M) {
 	os.Exit(retCode)
 }
 
-func (c standardClaims) Valid() error {
-	if !c.valid {
-		return errors.Errorf("invalid claims")
-	}
-	return nil
-}
-
 func TestClaims(t *testing.T) {
 	now := time.Now()
-	c := Claims{
+	c := &Claims{
+		ID: "123",
+	}
+	assert.Equal(t, `{"jti":"123"}`, c.Marshal())
+	assert.EqualError(t, c.VerifyExpiresAt(now, true), "exp claim not found")
+	assert.EqualError(t, c.VerifyIssuedAt(now, true), "iat claim not found")
+	assert.EqualError(t, c.VerifyNotBefore(now, true), "nbf claim not found")
+	assert.EqualError(t, c.VerifyAudience([]string{"t2"}), "aud claim not found")
+	assert.EqualError(t, c.VerifyIssuer("iss"), "iss claim not found")
+	assert.EqualError(t, c.VerifySubject("sub"), "sub claim not found")
+
+	assert.NoError(t, c.VerifyExpiresAt(now, false))
+	assert.NoError(t, c.VerifyIssuedAt(now, false))
+	assert.NoError(t, c.VerifyNotBefore(now, false))
+
+	c.Issuer = "iss1"
+	c.Audience = []string{"aud1"}
+	c.Subject = "sub1"
+
+	assert.EqualError(t, c.VerifyAudience([]string{"t2"}), "token missing audience: t2")
+	assert.EqualError(t, c.VerifyIssuer("iss"), "invalid issuer: iss1, expected: iss")
+	assert.EqualError(t, c.VerifySubject("sub"), "invalid subject: sub1, expected: sub")
+
+	cfg := VerifyConfig{
+		ExpectedIssuer:   c.Issuer,
+		ExpectedAudience: c.Audience,
+		ExpectedSubject:  c.Subject,
+	}
+	assert.NoError(t, c.Valid(cfg))
+	cfg = VerifyConfig{}
+	assert.NoError(t, c.Valid(cfg))
+
+	c.IssuedAt = NewNumericDate(now.Add(time.Hour))
+	err := c.Valid(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token issued after now:")
+
+	c.IssuedAt = NewNumericDate(now.Add(-time.Hour))
+	c.NotBefore = NewNumericDate(now.Add(time.Hour))
+	err = c.Valid(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token not valid yet, not before:")
+
+	c.NotBefore = NewNumericDate(now.Add(-time.Hour))
+	c.Expiry = NewNumericDate(now.Add(-time.Hour))
+	err = c.Valid(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token expired at:")
+
+	c.Expiry = NewNumericDate(now.Add(time.Hour))
+	assert.NoError(t, c.Valid(cfg))
+}
+
+func TestAudience(t *testing.T) {
+	var a Audience
+	require.NoError(t, a.UnmarshalJSON([]byte(`"123"`)))
+	assert.Equal(t, Audience{"123"}, a)
+	require.NoError(t, a.UnmarshalJSON([]byte(`["123", "aaa"]`)))
+	assert.Equal(t, Audience{"123", "aaa"}, a)
+	assert.EqualError(t, a.UnmarshalJSON([]byte(`{"aud":"123"}`)), "audience: unsupported type: 'map[string]interface {}'")
+	assert.EqualError(t, a.UnmarshalJSON([]byte(`["1", 0.1]`)), "audience: expected string or array value")
+	assert.EqualError(t, a.UnmarshalJSON([]byte(`[}`)), "invalid character '}' looking for beginning of value")
+}
+
+func TestNumericDate(t *testing.T) {
+	var tim time.Time
+	assert.Nil(t, NewNumericDate(tim))
+	var val NumericDate
+	assert.EqualError(t, val.UnmarshalJSON([]byte(`"abc"`)), "expected number value to unmarshal NumericDate")
+
+	var nn *NumericDate
+	assert.True(t, nn.Time().IsZero())
+}
+
+func TestMapClaims(t *testing.T) {
+	now := time.Now()
+	cfg := VerifyConfig{}
+	c := MapClaims{}
+	assert.EqualError(t, c.VerifyExpiresAt(now, true), "exp claim not found")
+	assert.EqualError(t, c.VerifyIssuedAt(now, true), "iat claim not found")
+	assert.EqualError(t, c.VerifyNotBefore(now, true), "nbf claim not found")
+	assert.EqualError(t, c.VerifyAudience([]string{"t2"}), "aud claim not found")
+	assert.EqualError(t, c.VerifyIssuer("iss"), "iss claim not found")
+	assert.EqualError(t, c.VerifySubject("sub"), "sub claim not found")
+
+	assert.NoError(t, c.VerifyExpiresAt(now, false))
+	assert.NoError(t, c.VerifyIssuedAt(now, false))
+	assert.NoError(t, c.VerifyNotBefore(now, false))
+
+	c = MapClaims{
 		"jti": "123",
 		"aud": []string{"t1"},
 	}
 	assert.Equal(t, `{"aud":["t1"],"jti":"123"}`, c.Marshal())
 
-	err := c.VerifyAudience([]string{"t2"}, true)
+	err := c.VerifyAudience([]string{"t2"})
 	assert.EqualError(t, err, "token missing audience: t2")
-	err = c.VerifyIssuer("iss", true)
+	err = c.VerifyIssuer("iss")
 	assert.EqualError(t, err, "iss claim not found")
 	err = c.VerifyExpiresAt(now, true)
 	assert.EqualError(t, err, "exp claim not found")
@@ -56,67 +125,89 @@ func TestClaims(t *testing.T) {
 	err = c.VerifyNotBefore(now, true)
 	assert.EqualError(t, err, "nbf claim not found")
 
-	c2 := Claims{
+	c2 := MapClaims{
 		"jti": "2",
 		"iss": "123",
+		"sub": "sFX",
 		"aud": "t1",
 		"nbf": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Add(time.Hour).Unix(),
 	}
 
-	err = c2.VerifyIssuer("iss", true)
+	err = c2.VerifySubject("s")
+	assert.EqualError(t, err, "invalid subject: sFX, expected: s")
+	err = c2.VerifyIssuer("iss")
 	assert.EqualError(t, err, "invalid issuer: 123, expected: iss")
-	err = c2.VerifyAudience([]string{"t2"}, true)
+	err = c2.VerifyAudience([]string{"t2"})
 	assert.EqualError(t, err, "token missing audience: t2")
 	err = c2.VerifyIssuedAt(now, true)
 	assert.Contains(t, err.Error(), "token issued after now")
 	err = c2.VerifyNotBefore(now, true)
 	assert.Contains(t, err.Error(), "token not valid yet")
 
+	cfg = VerifyConfig{
+		ExpectedIssuer:   "123",
+		ExpectedAudience: []string{"t1"},
+		ExpectedSubject:  "sFX",
+	}
+	assert.Error(t, c2.Valid(cfg))
+	c2["nbf"] = time.Now().Add(-2 * time.Hour).Unix()
+	c2["iat"] = time.Now().Add(-2 * time.Hour).Unix()
+	c2["exp"] = time.Now().Add(time.Hour).Unix()
+	assert.NoError(t, c2.Valid(cfg))
+
 	c4 := map[string]interface{}{
 		"c4":  "444",
 		"aud": []string{"t1", "t2"},
 		"exp": time.Now().Add(-time.Hour).Unix(),
 	}
-	err = c.Add(c2)
+	err = c.Add(c2, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2", c["jti"])
 
-	err = c.Add(c4)
+	err = c.Add(nil, c4)
 	require.NoError(t, err)
 	assert.Equal(t, "444", c["c4"])
 	err = c.VerifyExpiresAt(now, true)
 	assert.Contains(t, err.Error(), "token expired at:")
 
-	std := standardClaims{
-		IssuedAt: time.Now().Unix(),
+	std := Claims{
+		IssuedAt: NewNumericDate(time.Now()),
 	}
 	err = c.Add(std)
 	require.NoError(t, err)
-	assert.Len(t, c, 7)
+	assert.Len(t, c, 8)
 
 	err = c.Add(3)
 	assert.EqualError(t, err, "unsupported claims interface")
 
 	c["exp"] = time.Now().Add(time.Hour).Unix()
-	err = c.Valid()
+	c["nbf"] = time.Now().Add(time.Hour).Unix()
+	err = c.Valid(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token not valid yet, not before")
 
 	c["nbf"] = time.Now().Add(-2 * time.Hour).Unix()
 	c["exp"] = time.Now().Add(-time.Hour).Unix()
-	err = c.Valid()
+	err = c.Valid(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token expired at")
 
-	var std2 standardClaims
+	var std2 Claims
 	err = c.To(&std2)
 	require.NoError(t, err)
-	assert.EqualError(t, std2.Valid(), "invalid claims")
+	err = c.Valid(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token expired at")
+
+	c3 := MapClaims{
+		"aud": []interface{}{time.Now()},
+	}
+	assert.EqualError(t, c3.VerifyAudience([]string{"t2"}), "invalid aud claim with unsupported value")
 }
 
 func TestClaims_String(t *testing.T) {
-	c := func(o Claims, k, exp string) {
+	c := func(o MapClaims, k, exp string) {
 		act := o.String(k)
 		assert.Equal(t, act, exp)
 	}
@@ -127,7 +218,7 @@ func TestClaims_String(t *testing.T) {
 		I   int
 	}{Foo: "foo", B: true, I: -1}
 
-	o := Claims{
+	o := MapClaims{
 		"foo":    "bar",
 		"blank":  "",
 		"count":  uint64(1),
@@ -141,12 +232,12 @@ func TestClaims_String(t *testing.T) {
 }
 
 func TestClaims_Int(t *testing.T) {
-	c := func(o Claims, k string, exp int) {
+	c := func(o MapClaims, k string, exp int) {
 		act := o.Int(k)
 		assert.Equal(t, act, exp)
 	}
 
-	o := Claims{
+	o := MapClaims{
 		"nil":    nil,
 		"struct": struct{}{},
 		"z":      "123",
@@ -173,12 +264,12 @@ func TestClaims_Int(t *testing.T) {
 }
 
 func TestClaims_Bool(t *testing.T) {
-	c := func(o Claims, k string, exp bool) {
+	c := func(o MapClaims, k string, exp bool) {
 		act := o.Bool(k)
 		assert.Equal(t, act, exp)
 	}
 
-	o := Claims{
+	o := MapClaims{
 		"nil":    nil,
 		"struct": struct{}{},
 		"true":   true,
@@ -191,7 +282,7 @@ func TestClaims_Bool(t *testing.T) {
 }
 
 func TestClaims_Time(t *testing.T) {
-	c := func(o Claims, k string, exp *time.Time) {
+	c := func(o MapClaims, k string, exp *time.Time) {
 		act := o.Time(k)
 		if exp != nil {
 			require.NotNil(t, act)
@@ -205,10 +296,11 @@ func TestClaims_Time(t *testing.T) {
 
 	t3 := time.Unix(1645187555, 0)
 
-	o := Claims{
+	o := MapClaims{
 		"t1":     "2007-02-03T15:05:06.123-0701",
 		"t2":     t2,
 		"t3":     &t2,
+		"err":    "11111111111111111111111111111",
 		"struct": struct{}{},
 		"tnil":   1,
 		"tnil2":  "notime",
@@ -221,6 +313,7 @@ func TestClaims_Time(t *testing.T) {
 	c(o, "t1", &t2)
 	c(o, "t2", &t2)
 	c(o, "t3", &t2)
+	c(o, "err", nil)
 	c(o, "tnil2", nil)
 	c(o, "struct", nil)
 	c(o, "unix", &t3)

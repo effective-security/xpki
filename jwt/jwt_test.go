@@ -91,16 +91,17 @@ func Test_SignSym(t *testing.T) {
 	p2, err := jwt.Load("testdata/jwtprov.2.json", nil)
 	require.NoError(t, err)
 
-	extra := jwt.Claims{
+	extra := jwt.MapClaims{
 		"cnf": "{}",
 	}
 	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, extra)
 	require.NoError(t, err)
 	assert.Equal(t, extra["cnf"], std["cnf"])
 
-	cfg := &jwt.VerifyConfig{
+	cfg := jwt.VerifyConfig{
+		ExpectedIssuer:   p.Issuer(),
 		ExpectedSubject:  "denis@ekspand.com",
-		ExpectedAudience: "trusty.com",
+		ExpectedAudience: []string{"trusty.com"},
 	}
 	claims, err := p.ParseToken(token, cfg)
 	require.NoError(t, err)
@@ -109,22 +110,24 @@ func Test_SignSym(t *testing.T) {
 	_, err = p2.ParseToken(token, cfg)
 	assert.EqualError(t, err, "failed to verify token: invalid signature")
 
-	_, err = p1.ParseToken(token, cfg)
-	assert.EqualError(t, err, "invalid issuer: trusty.com")
+	cfg2 := cfg
+	cfg2.ExpectedIssuer = p1.Issuer()
+	_, err = p1.ParseToken(token, cfg2)
+	assert.EqualError(t, err, "failed to verify token: invalid issuer: trusty.com, expected: trusty1.com")
 
-	cfg.ExpectedAudience = "aud"
+	cfg.ExpectedAudience = []string{"aud"}
 	_, err = p.ParseToken(token, cfg)
-	assert.EqualError(t, err, "invalid audience: [trusty.com]")
+	assert.EqualError(t, err, "failed to verify token: token missing audience: aud")
 
-	cfg.ExpectedAudience = "trusty.com"
+	cfg.ExpectedAudience = []string{"trusty.com"}
 	cfg.ExpectedSubject = "subj"
 	_, err = p.ParseToken(token, cfg)
-	assert.EqualError(t, err, "invalid subject: denis@ekspand.com")
+	assert.EqualError(t, err, "failed to verify token: invalid subject: denis@ekspand.com, expected: subj")
 
 	parser := jwt.TokenParser{
 		ValidMethods: []string{"RS256"},
 	}
-	_, err = parser.Parse(token, nil)
+	_, err = parser.Parse(token, jwt.VerifyConfig{}, nil)
 	assert.EqualError(t, err, "unsupported signing method: HS256")
 }
 
@@ -146,15 +149,15 @@ func Test_SignPrivateRSA(t *testing.T) {
 		}, crypto)
 		require.NoError(t, err)
 
-		extra := jwt.Claims{
+		extra := jwt.MapClaims{
 			"resource": "provenid.org",
 		}
 		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, extra)
 		require.NoError(t, err)
 
-		cfg := &jwt.VerifyConfig{
+		cfg := jwt.VerifyConfig{
 			ExpectedSubject:  "denis@ekspand.com",
-			ExpectedAudience: "trusty.com",
+			ExpectedAudience: []string{"trusty.com"},
 		}
 		claims, err := p.ParseToken(token, cfg)
 		require.NoError(t, err)
@@ -191,9 +194,9 @@ func Test_SignPrivateEC(t *testing.T) {
 		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
 		require.NoError(t, err)
 
-		cfg := &jwt.VerifyConfig{
+		cfg := jwt.VerifyConfig{
 			ExpectedSubject:  "denis@ekspand.com",
-			ExpectedAudience: "trusty.com",
+			ExpectedAudience: []string{"trusty.com"},
 		}
 		claims, err := p.ParseToken(token, cfg)
 		require.NoError(t, err)
@@ -230,9 +233,9 @@ func Test_SignPrivateKMS(t *testing.T) {
 	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
 	require.NoError(t, err)
 
-	cfg := &jwt.VerifyConfig{
+	cfg := jwt.VerifyConfig{
 		ExpectedSubject:  "denis@ekspand.com",
-		ExpectedAudience: "trusty.com",
+		ExpectedAudience: []string{"trusty.com"},
 	}
 	claims, err := p.ParseToken(token, cfg)
 	require.NoError(t, err)

@@ -4,7 +4,19 @@ import "encoding/base64"
 
 // ValidClaims interface for Claims validation
 type ValidClaims interface {
-	Valid() error
+	Valid(cfg VerifyConfig) error
+}
+
+// VerifyConfig expreses the possible options for validating a JWT
+type VerifyConfig struct {
+	// ExpectedIssuer validates the iss claim of a JWT matches this value
+	ExpectedIssuer string
+	// ExpectedSubject validates the sub claim of a JWT matches this value
+	ExpectedSubject string
+	// ExpectedAudience validates that the aud claim of a JWT contains this value
+	ExpectedAudience []string
+	// ExpectedNonce validates that the nonce claim of a JWT contains this value
+	//ExpectedNonce string
 }
 
 // Token for JWT

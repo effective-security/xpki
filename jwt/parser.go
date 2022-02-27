@@ -24,12 +24,12 @@ type TokenParser struct {
 // Parse parses and validates JWT, and return a token.
 // keyFunc will receive the parsed token and should return the key for validating.
 // If everything is kosher, err will be nil
-func (p *TokenParser) Parse(tokenString string, keyFunc Keyfunc) (*Token, error) {
-	return p.ParseWithClaims(tokenString, Claims{}, keyFunc)
+func (p *TokenParser) Parse(tokenString string, cfg VerifyConfig, keyFunc Keyfunc) (*Token, error) {
+	return p.ParseWithClaims(tokenString, cfg, MapClaims{}, keyFunc)
 }
 
 // ParseWithClaims parses token with a specified Claims
-func (p *TokenParser) ParseWithClaims(tokenString string, claims Claims, keyFunc Keyfunc) (*Token, error) {
+func (p *TokenParser) ParseWithClaims(tokenString string, cfg VerifyConfig, claims MapClaims, keyFunc Keyfunc) (*Token, error) {
 	token, parts, err := p.ParseUnverified(tokenString, claims)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -58,7 +58,7 @@ func (p *TokenParser) ParseWithClaims(tokenString string, claims Claims, keyFunc
 
 	// Validate Claims
 	if !p.SkipClaimsValidation {
-		if err := token.Claims.Valid(); err != nil {
+		if err := token.Claims.Valid(cfg); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}
@@ -78,7 +78,7 @@ func (p *TokenParser) ParseWithClaims(tokenString string, claims Claims, keyFunc
 // been checked previously in the stack) and you want to extract values from
 // it.
 // WARNING: Don't use this method unless you know what you're doing
-func (p *TokenParser) ParseUnverified(tokenString string, claims Claims) (token *Token, parts []string, err error) {
+func (p *TokenParser) ParseUnverified(tokenString string, claims MapClaims) (token *Token, parts []string, err error) {
 	parts = strings.Split(tokenString, ".")
 	if len(parts) != 3 {
 		return nil, parts, errors.Errorf("malformed token")
@@ -109,7 +109,7 @@ func (p *TokenParser) ParseUnverified(tokenString string, claims Claims) (token 
 		dec.UseNumber()
 	}
 	// JSON Decode.  Special case for map type to avoid weird pointer behavior
-	if c, ok := token.Claims.(Claims); ok {
+	if c, ok := token.Claims.(MapClaims); ok {
 		err = dec.Decode(&c)
 	} else {
 		err = dec.Decode(&claims)
