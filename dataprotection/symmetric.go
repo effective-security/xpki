@@ -22,13 +22,7 @@ func NewSymmetric(secret []byte) (Provider, error) {
 	// Underlying hash function for HMAC.
 	hash := sha256.New
 
-	// Non-secret salt
-	salt := make([]byte, hash().Size())
-	if _, err := rand.Read(salt); err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	hkdf := hkdf.New(hash, secret, salt, nil)
+	hkdf := hkdf.New(hash, secret, nil, nil)
 
 	// AES-256
 	key := make([]byte, 32)
