@@ -87,7 +87,7 @@ func TestNumericDate(t *testing.T) {
 	var tim time.Time
 	assert.Nil(t, NewNumericDate(tim))
 	var val NumericDate
-	assert.EqualError(t, val.UnmarshalJSON([]byte(`"abc"`)), "expected number value to unmarshal NumericDate")
+	assert.EqualError(t, val.UnmarshalJSON([]byte(`"abc"`)), "expected number value to unmarshal NumericDate: \"abc\"")
 
 	var nn *NumericDate
 	assert.True(t, nn.Time().IsZero())
