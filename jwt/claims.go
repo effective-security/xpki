@@ -299,6 +299,9 @@ func (c MapClaims) Time(k string) *time.Time {
 	case uint64:
 		t := time.Unix(int64(tv), 0)
 		return &t
+	case float64:
+		t := time.Unix(int64(tv), 0)
+		return &t
 	case int:
 		t := time.Unix(int64(tv), 0)
 		return &t
@@ -609,9 +612,9 @@ func SetClaimsExpiration(claims MapClaims, expiry time.Duration) {
 	expiresAt := now.Add(expiry)
 	notBefore := now.Add(DefaultNotBefore)
 
-	claims["iat"] = NewNumericDate(now)
-	claims["nbf"] = NewNumericDate(notBefore)
-	claims["exp"] = NewNumericDate(expiresAt)
+	claims["iat"] = json.Number(strconv.FormatInt(now.Unix(), 10))
+	claims["nbf"] = json.Number(strconv.FormatInt(notBefore.Unix(), 10))
+	claims["exp"] = json.Number(strconv.FormatInt(expiresAt.Unix(), 10))
 }
 
 // CreateClaims returns claims
