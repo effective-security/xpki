@@ -538,7 +538,7 @@ func (n *NumericDate) UnmarshalJSON(b []byte) error {
 
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return errors.Errorf("expected number value to unmarshal NumericDate")
+		return errors.Errorf("expected number value to unmarshal NumericDate: %s", s)
 	}
 
 	*n = NumericDate(f)
@@ -607,9 +607,9 @@ func SetClaimsExpiration(claims MapClaims, expiry time.Duration) {
 	expiresAt := now.Add(expiry)
 	notBefore := now.Add(DefaultNotBefore)
 
-	claims["iat"] = now.Unix()
-	claims["nbf"] = notBefore.Unix()
-	claims["exp"] = expiresAt.Unix()
+	claims["iat"] = NewNumericDate(now)
+	claims["nbf"] = NewNumericDate(notBefore)
+	claims["exp"] = NewNumericDate(expiresAt)
 }
 
 // CreateClaims returns claims
