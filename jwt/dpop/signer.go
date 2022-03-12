@@ -76,13 +76,15 @@ func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, e
 		return "", errors.WithStack(err)
 	}
 
-	token, _, err := p.prov.SignToken(
+	std := jwt.CreateClaims(
 		certutil.RandomString(8),
 		"",
+		p.prov.Issuer(),
 		nil,
 		DefaultExpiration,
 		c,
 	)
+	token, err := p.prov.Sign(std)
 	if err != nil {
 		return "", errors.WithStack(err)
 	}

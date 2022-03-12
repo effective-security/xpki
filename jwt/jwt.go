@@ -14,7 +14,6 @@ import (
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
 	"gopkg.in/yaml.v2"
 )
 
@@ -27,8 +26,8 @@ const (
 
 // Signer specifies JWT signer interface
 type Signer interface {
-	// SignToken returns signed JWT token
-	SignToken(id, subject string, audience []string, expiry time.Duration, extraClaims MapClaims) (string, MapClaims, error)
+	// SignClaims returns signed JWT token
+	Sign(claims MapClaims) (string, error)
 	// PublicKey is returned for assymetric signer
 	PublicKey() crypto.PublicKey
 	// Issuer returns name of the issuer
@@ -257,29 +256,13 @@ func (p *provider) currentKey() (string, []byte) {
 	return "", nil
 }
 
-// SignToken returns signed JWT token with custom claims
-func (p *provider) SignToken(jti, subject string, audience []string, expiry time.Duration, extraClaims MapClaims) (string, MapClaims, error) {
-	now := time.Now().UTC()
-	expiresAt := now.Add(expiry)
-	notBefore := now.Add(DefaultNotBefore)
-
-	claims := &jwt.Claims{
-		ID:        jti,
-		Expiry:    jwt.NewNumericDate(expiresAt),
-		IssuedAt:  jwt.NewNumericDate(now),
-		NotBefore: jwt.NewNumericDate(notBefore),
-		Issuer:    p.issuer,
-		Audience:  audience,
-		Subject:   subject,
-	}
-	c := MapClaims{}
-	c.Add(claims, extraClaims)
-
-	tokenString, err := p.signerInfo.signJWT(c, p.headers)
+// Sign returns signed JWT token
+func (p *provider) Sign(claims MapClaims) (string, error) {
+	tokenString, err := p.signerInfo.signJWT(claims, p.headers)
 	if err != nil {
-		return "", nil, errors.WithStack(err)
+		return "", errors.WithStack(err)
 	}
-	return tokenString, c, nil
+	return tokenString, nil
 }
 
 // ParseToken returns jwt.StandardClaims

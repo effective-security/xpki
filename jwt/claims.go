@@ -587,3 +587,47 @@ func (s *Audience) UnmarshalJSON(b []byte) error {
 func (s Audience) Contains(expected string) bool {
 	return slices.ContainsString(s, expected)
 }
+
+var userInfoClaims = []string{
+	"sub", "email", "email_verified", "name", "family_name", "given_name", "locale", "picture", "nonce",
+}
+
+// CopyUserInfoClaims from source to destination
+func CopyUserInfoClaims(src, dst MapClaims) {
+	for _, c := range userInfoClaims {
+		if v := src[c]; v != nil {
+			dst[c] = v
+		}
+	}
+}
+
+// SetClaimsExpiration sets expiration claims
+func SetClaimsExpiration(claims MapClaims, expiry time.Duration) {
+	now := time.Now().UTC()
+	expiresAt := now.Add(expiry)
+	notBefore := now.Add(DefaultNotBefore)
+
+	claims["iat"] = now.Unix()
+	claims["nbf"] = notBefore.Unix()
+	claims["exp"] = expiresAt.Unix()
+}
+
+// CreateClaims returns claims
+func CreateClaims(jti, subject, issuer string, audience []string, expiry time.Duration, extraClaims MapClaims) MapClaims {
+	now := time.Now().UTC()
+	expiresAt := now.Add(expiry)
+	notBefore := now.Add(DefaultNotBefore)
+
+	claims := &Claims{
+		ID:        jti,
+		Expiry:    NewNumericDate(expiresAt),
+		IssuedAt:  NewNumericDate(now),
+		NotBefore: NewNumericDate(notBefore),
+		Issuer:    issuer,
+		Audience:  audience,
+		Subject:   subject,
+	}
+	c := MapClaims{}
+	c.Add(claims, extraClaims)
+	return c
+}
