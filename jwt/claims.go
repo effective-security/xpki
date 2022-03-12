@@ -260,7 +260,7 @@ func (c MapClaims) String(k string) string {
 	case string:
 		return tv
 	default:
-		logger.Debugf("reason=unsupported, type='%T'", tv)
+		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
 		return xlog.String(v)
 	}
 }
@@ -274,8 +274,10 @@ func (c MapClaims) Bool(k string) bool {
 	switch tv := v.(type) {
 	case bool:
 		return tv
+	case string:
+		return tv == "true"
 	default:
-		logger.Debugf("reason=unsupported, type='%T'", tv)
+		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
 		return false
 	}
 }
@@ -322,7 +324,7 @@ func (c MapClaims) Time(k string) *time.Time {
 		t := time.Unix(unix, 0)
 		return &t
 	default:
-		logger.Debugf("reason=unsupported, type='%T'", tv)
+		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
 		return nil
 	}
 }
@@ -353,7 +355,7 @@ func (c MapClaims) Int(k string) int {
 		}
 		return i
 	default:
-		logger.Debugf("reason=unsupported, type='%T'", tv)
+		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
 		return 0
 	}
 }
