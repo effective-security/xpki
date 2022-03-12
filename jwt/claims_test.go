@@ -278,10 +278,12 @@ func TestClaims_Bool(t *testing.T) {
 		"struct": struct{}{},
 		"true":   true,
 		"false":  false,
+		"strue":  "true",
 	}
 	c(o, "nil", false)
 	c(o, "struct", false)
 	c(o, "true", true)
+	c(o, "strue", true)
 	c(o, "false", false)
 }
 
