@@ -133,6 +133,9 @@ func TestMapClaims(t *testing.T) {
 		"nbf": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Add(time.Hour).Unix(),
 	}
+	c2c := MapClaims{}
+	CopyUserInfoClaims(c2, c2c)
+	assert.NotEqual(t, c2, c2c)
 
 	err = c2.VerifySubject("s")
 	assert.EqualError(t, err, "invalid subject: sFX, expected: s")
@@ -177,6 +180,7 @@ func TestMapClaims(t *testing.T) {
 	err = c.Add(std)
 	require.NoError(t, err)
 	assert.Len(t, c, 8)
+	SetClaimsExpiration(c, 60*time.Minute)
 
 	err = c.Add(3)
 	assert.EqualError(t, err, "unsupported claims interface")

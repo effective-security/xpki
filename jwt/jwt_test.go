@@ -94,7 +94,8 @@ func Test_SignSym(t *testing.T) {
 	extra := jwt.MapClaims{
 		"cnf": "{}",
 	}
-	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, extra)
+	std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, extra)
+	token, err := p.Sign(std)
 	require.NoError(t, err)
 	assert.Equal(t, extra["cnf"], std["cnf"])
 
@@ -152,7 +153,9 @@ func Test_SignPrivateRSA(t *testing.T) {
 		extra := jwt.MapClaims{
 			"resource": "provenid.org",
 		}
-		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, extra)
+		std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, extra)
+		token, err := p.Sign(std)
+
 		require.NoError(t, err)
 
 		cfg := jwt.VerifyConfig{
@@ -191,7 +194,8 @@ func Test_SignPrivateEC(t *testing.T) {
 		}, crypto)
 		require.NoError(t, err)
 
-		token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
+		std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, nil)
+		token, err := p.Sign(std)
 		require.NoError(t, err)
 
 		cfg := jwt.VerifyConfig{
@@ -230,7 +234,8 @@ func Test_SignPrivateKMS(t *testing.T) {
 	}, cryptoProv)
 	require.NoError(t, err)
 
-	token, std, err := p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
+	std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, nil)
+	token, err := p.Sign(std)
 	require.NoError(t, err)
 
 	cfg := jwt.VerifyConfig{
@@ -246,7 +251,9 @@ func Test_SignPrivateKMS(t *testing.T) {
 	})
 	p, err = jwt.NewFromCryptoSigner(pvk.(crypto.Signer), opt)
 	require.NoError(t, err)
-	token, std, err = p.SignToken("", "denis@ekspand.com", []string{"trusty.com"}, time.Minute, nil)
+
+	std = jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, nil)
+	token, err = p.Sign(std)
 	require.NoError(t, err)
 	assert.NotNil(t, p.PublicKey())
 
