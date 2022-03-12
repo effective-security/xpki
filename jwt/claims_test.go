@@ -287,6 +287,13 @@ func TestClaims_Bool(t *testing.T) {
 	c(o, "false", false)
 }
 
+func TestCreateClaims(t *testing.T) {
+	cl := CreateClaims("123", "subj", "issuer", []string{"aud"}, 60*time.Minute, nil)
+	assert.NotNil(t, cl.Time("iat"))
+	assert.NotNil(t, cl.Time("nbf"))
+	assert.NotNil(t, cl.Time("exp"))
+}
+
 func TestClaims_Time(t *testing.T) {
 	c := func(o MapClaims, k string, exp *time.Time) {
 		act := o.Time(k)
@@ -303,18 +310,19 @@ func TestClaims_Time(t *testing.T) {
 	t3 := time.Unix(1645187555, 0)
 
 	o := MapClaims{
-		"t1":     "2007-02-03T15:05:06.123-0701",
-		"t2":     t2,
-		"t3":     &t2,
-		"err":    "11111111111111111111111111111",
-		"struct": struct{}{},
-		"tnil":   1,
-		"tnil2":  "notime",
-		"unix":   1645187555,
-		"unixs":  "1645187555",
-		"json":   json.Number("1645187555"),
-		"uint64": uint64(1645187555),
-		"int64":  int64(1645187555),
+		"t1":      "2007-02-03T15:05:06.123-0701",
+		"t2":      t2,
+		"t3":      &t2,
+		"err":     "11111111111111111111111111111",
+		"struct":  struct{}{},
+		"tnil":    1,
+		"tnil2":   "notime",
+		"unix":    1645187555,
+		"float64": float64(1645187555),
+		"unixs":   "1645187555",
+		"json":    json.Number("1645187555"),
+		"uint64":  uint64(1645187555),
+		"int64":   int64(1645187555),
 	}
 	c(o, "t1", &t2)
 	c(o, "t2", &t2)
@@ -324,6 +332,7 @@ func TestClaims_Time(t *testing.T) {
 	c(o, "struct", nil)
 	c(o, "unix", &t3)
 	c(o, "unixs", &t3)
+	c(o, "float64", &t3)
 	c(o, "uint64", &t3)
 	c(o, "int64", &t3)
 	c(o, "json", &t3)
