@@ -76,8 +76,8 @@ func (a *CsrCreateCmd) Run(ctx *Cli) error {
 // GenCertCmd specifies flags for GenCert command
 type GenCertCmd struct {
 	SelfSign   bool     `help:"generate self-signed cert"`
-	CACert     string   `required:"" help:"file name of the signing CA cert"`
-	CAKey      string   `required:"" help:"file name of the signing CA key"`
+	CACert     string   `help:"file name of the signing CA cert"`
+	CAKey      string   `help:"file name of the signing CA key"`
 	CAConfig   string   `required:"" help:"file name with ca-config"`
 	CsrProfile string   `required:"" help:"file name with CSR profile"`
 	Profile    string   `required:"" help:"certificate profile name from CA config"`
@@ -100,7 +100,7 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 			return errors.Errorf("--self-sign can not be used with --ca-key")
 		}
 	} else {
-		if a.CAKey == "" {
+		if a.CAKey == "" || a.CACert == "" {
 			return errors.Errorf("CA certificate and key are required")
 		}
 		isscfg.CertFile = a.CACert
