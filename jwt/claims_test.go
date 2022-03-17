@@ -337,3 +337,19 @@ func TestClaims_Time(t *testing.T) {
 	c(o, "int64", &t3)
 	c(o, "json", &t3)
 }
+
+func TestExpired(t *testing.T) {
+	auth := `eyJhbGciOiJFUzI1NiIsImp3ayI6eyJrdHkiOiJFQyIsImNydiI6IlAtMjU2IiwieCI6Il9TRVdHR0hLVGY2YmFvYWRZdEMycmdBVGJZUGh6Yjd1eWt0c3FIeHZ4YmciLCJ5IjoieExfMFktdXFsU0lsZm1Md3NwbXpiSTJmRWxYcF9YS0Q1Tm1xd2c5aXZFUSJ9LCJ0eXAiOiJKV1QifQ.eyJjbmYiOnsiamt0IjoidTJBa1VNQjFzaHBfYTVtSldFODFrMFdGSEhGLVlJNTJWajByQUl5dmdHRSJ9LCJlbWFpbCI6ImRlbmlzQGVrc3BhbmQuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTY0NzExMDU3OCwiaWF0IjoxNjQ3MTA2OTc5LCJuYW1lIjoiRGVuaXMgSXNzb3Vwb3YiLCJuYmYiOjE2NDcxMDY4NTksInByb3ZpZGVyIjoiZ29vZ2xlIiwic3ViIjoiMTE1MTgyMzI4NjQzNjY2MDAyMDExIn0.dp42oVGjbAoPb8WiRqWLHU9p_sW0kgjK0NktfunIbm_FJAGdoEsxkeigs3wvWdCNxXrgAuujK9jJhfBwvrjC7g`
+
+	parser := TokenParser{
+		UseJSONNumber: true,
+	}
+
+	claims := MapClaims{}
+	token, _, err := parser.ParseUnverified(auth, claims)
+	require.NoError(t, err)
+	assert.False(t, token.Valid)
+	err = claims.VerifyExpiresAt(time.Now(), true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token expired at:")
+}
