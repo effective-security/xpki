@@ -22,7 +22,7 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "cli")
 
 // Cli provides CLI context to run commands
 type Cli struct {
-	Cfg      string   `help:"Location of HSM config file, as default crypto provider" required:"" type:"path"`
+	Cfg      string   `help:"Location of HSM config file, as default crypto provider" required:""`
 	Crypto   []string `help:"Location of additional HSM config files" type:"path"`
 	PlainKey bool     `help:"Generate plain key"`
 	Debug    bool     `short:"D" help:"Enable debug mode"`
@@ -128,7 +128,8 @@ func (c *Cli) CryptoProv() (*cryptoprov.Crypto, cryptoprov.Provider) {
 			c.crypto, err = cryptoprov.Load(c.Cfg, c.Crypto)
 		}
 		if err != nil {
-			logger.Panicf("unable to initialize crypto providers: [%v]", err)
+			logger.Panicf("unable to initialize crypto providers: %s, %v: [%v]",
+				c.Cfg, c.Crypto, err)
 		}
 	}
 
