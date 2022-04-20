@@ -124,6 +124,12 @@ func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
 		return errors.WithMessagef(err, "failed to list tokens")
 	}
 
+	printIfNotEmpty := func(label, val string) {
+		if val != "" {
+			fmt.Fprintf(out, "  %s:  %s\n", label, val)
+		}
+	}
+
 	for _, token := range tokens {
 		if isDefaultSlot || token.Serial == filterSerial {
 			fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
@@ -135,21 +141,12 @@ func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
 				return errors.WithMessagef(err, "failed to get key on slot %d", token.SlotID)
 			}
 			fmt.Fprintf(out, "  Id:    %s\n", key.ID)
-			if key.Label != "" {
-				fmt.Fprintf(out, "  Label: %s\n", key.Label)
-			}
-			if key.Type != "" {
-				fmt.Fprintf(out, "  Type:  %s\n", key.Type)
-			}
-			if key.Class != "" {
-				fmt.Fprintf(out, "  Class: %s\n", key.Class)
-			}
-			if key.CurrentVersionID != "" {
-				fmt.Fprintf(out, "  Version: %s\n", key.CurrentVersionID)
-			}
-			if key.CreationTime != nil {
-				fmt.Fprintf(out, "  Created: %s\n", key.CreationTime.Format(time.RFC3339))
-			}
+			printIfNotEmpty("  Label: %s\n", key.Label)
+			printIfNotEmpty("  Type:  %s\n", key.Type)
+			printIfNotEmpty("  Class: %s\n", key.Class)
+			printIfNotEmpty("  Version: %s\n", key.CurrentVersionID)
+			printIfNotEmpty("  Created: %s\n", key.CreationTime.Format(time.RFC3339))
+
 			for k, v := range key.Meta {
 				fmt.Fprintf(out, "  %s: %s\n", k, v)
 			}
