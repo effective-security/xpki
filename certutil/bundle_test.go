@@ -39,7 +39,7 @@ var pemTests = []pemTest{
 		cert:         GoDaddyIntermediateCert,
 		caBundleFile: testIntCaBundle,
 		rootCaFile:   testCaBundle,
-		expValid:     true,
+		expErr:       "failed to bundle: {\"code\":1220,\"message\":\"x509: certificate signed by unknown authority (possibly because of \\\"x509: cannot verify signature: insecure algorithm SHA1-RSA (temporarily override with GODEBUG=x509sha1=1)\\\" while trying to verify candidate authority certificate \\\"The Go Daddy Group, Inc.\\\")\"}",
 	},
 	{
 		name:         "empty",
