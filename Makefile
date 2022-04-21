@@ -32,7 +32,8 @@ tools:
 build:
 	echo "*** Building hsm-tool"
 	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/hsm-tool ./cmd/hsm-tool
-
+	echo "*** Building xpki-tool"
+	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/xpki-tool ./cmd/xpki-tool
 
 coveralls-github:
 	echo "Running coveralls"
