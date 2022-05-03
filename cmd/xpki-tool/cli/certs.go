@@ -20,10 +20,11 @@ type CertsCmd struct {
 
 // CertInfoCmd specifies flags for CertInfo action
 type CertInfoCmd struct {
-	In        string `kong:"arg" required:"" help:"certificate file name"`
-	Out       string `help:"optional, output file to save parsed certificates"`
-	NotAfter  string `help:"optional, filter certificates by NotAfter time"`
-	NoExpired *bool  `help:"optional, filter non-expired certificates"`
+	In         string `kong:"arg" required:"" help:"certificate file name"`
+	Out        string `help:"optional, output file to save parsed certificates"`
+	NotAfter   string `help:"optional, filter certificates by NotAfter time"`
+	NoExpired  *bool  `help:"optional, filter non-expired certificates"`
+	Extensions bool   `help:"optional, print extensions values"`
 }
 
 // Run the command
@@ -52,7 +53,7 @@ func (a *CertInfoCmd) Run(ctx *Cli) error {
 		list = filterByAfter(list, now.Add(d))
 	}
 
-	print.Certificates(ctx.Writer(), list)
+	print.Certificates(ctx.Writer(), list, a.Extensions)
 
 	if a.Out != "" {
 		f, err := os.OpenFile(a.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0664)
@@ -125,7 +126,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	bundle, bundleStatus, err := certutil.VerifyBundleFromPEM(certBytes, cas, roots)
 	if err != nil {
 		if crt, err2 := certutil.ParseFromPEM(certBytes); err2 == nil {
-			print.Certificate(w, crt)
+			print.Certificate(w, crt, false)
 		}
 		return errors.WithMessage(err, "unable to verify certificate")
 	}
@@ -139,7 +140,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 		chain = append(chain, bundle.RootCert)
 	}
 
-	print.Certificates(w, chain)
+	print.Certificates(w, chain, false)
 
 	if len(bundleStatus.ExpiringSKIs) > 0 {
 		fmt.Fprintf(w, "WARNING: Expiring SKI:\n")
