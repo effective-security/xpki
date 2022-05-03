@@ -29,7 +29,7 @@ func Test_PrintCerts(t *testing.T) {
 	require.NoError(t, err)
 
 	w := bytes.NewBuffer([]byte{})
-	print.Certificates(w, certs)
+	print.Certificates(w, certs, true)
 
 	out := w.String()
 	assert.NotContains(t, out, "ERROR:")

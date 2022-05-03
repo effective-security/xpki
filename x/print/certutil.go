@@ -13,15 +13,15 @@ import (
 )
 
 // Certificates prints list of cert details
-func Certificates(w io.Writer, list []*x509.Certificate) {
+func Certificates(w io.Writer, list []*x509.Certificate, verboseExtensions bool) {
 	for idx, crt := range list {
 		fmt.Fprintf(w, "==================================== %d ====================================\n", 1+idx)
-		Certificate(w, crt)
+		Certificate(w, crt, verboseExtensions)
 	}
 }
 
 // Certificate prints cert details
-func Certificate(w io.Writer, crt *x509.Certificate) {
+func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool) {
 	now := time.Now()
 	issuedIn := now.Sub(crt.NotBefore.Local()) / time.Minute * time.Minute
 	expiresIn := crt.NotAfter.Local().Sub(now) / time.Minute * time.Minute
@@ -79,6 +79,13 @@ func Certificate(w io.Writer, crt *x509.Certificate) {
 		fmt.Fprintf(w, "CA: true\n")
 		fmt.Fprintf(w, "  Basic Constraints Valid: %t\n", crt.BasicConstraintsValid)
 		fmt.Fprintf(w, "  Max Path: %d\n", crt.MaxPathLen)
+	}
+	if verboseExtensions {
+		fmt.Fprintf(w, "Extensions:\n")
+		for _, ex := range crt.Extensions {
+			fmt.Fprintf(w, "  id: %s, critical: %t\n", ex.Id, ex.Critical)
+			fmt.Fprintf(w, "  val: %x\n\n", ex.Value)
+		}
 	}
 }
 

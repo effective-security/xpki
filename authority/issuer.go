@@ -417,6 +417,7 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
+	//logger.KV(xlog.DEBUG, "signed", string(signedCertPEM))
 
 	crt, err := certutil.ParseFromPEM(signedCertPEM)
 	if err != nil {
