@@ -353,3 +353,11 @@ func TestExpired(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token expired at:")
 }
+
+func TestNil(t *testing.T) {
+	var c MapClaims
+	assert.Empty(t, c.String("123"))
+	assert.Equal(t, 0, c.Int("123"))
+	assert.Nil(t, c.Time("123"))
+	assert.False(t, c.Bool("123"))
+}
