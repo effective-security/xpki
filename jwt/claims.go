@@ -252,6 +252,9 @@ func normalize(i interface{}) (map[string]interface{}, error) {
 // if the underlying type is not a string,
 // it will try and co-oerce it to a string.
 func (c MapClaims) String(k string) string {
+	if c == nil {
+		return ""
+	}
 	v := c[k]
 	if v == nil {
 		return ""
@@ -267,6 +270,9 @@ func (c MapClaims) String(k string) string {
 
 // Bool will return the named claim as Bool
 func (c MapClaims) Bool(k string) bool {
+	if c == nil {
+		return false
+	}
 	v := c[k]
 	if v == nil {
 		return false
@@ -284,6 +290,9 @@ func (c MapClaims) Bool(k string) bool {
 
 // Time will return the named claim as Time
 func (c MapClaims) Time(k string) *time.Time {
+	if c == nil {
+		return nil
+	}
 	v := c[k]
 	if v == nil {
 		return nil
@@ -334,6 +343,9 @@ func (c MapClaims) Time(k string) *time.Time {
 
 // Int will return the named claim as an int
 func (c MapClaims) Int(k string) int {
+	if c == nil {
+		return 0
+	}
 	v := c[k]
 	if v == nil {
 		return 0
