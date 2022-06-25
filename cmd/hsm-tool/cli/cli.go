@@ -22,11 +22,12 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "cli")
 
 // Cli provides CLI context to run commands
 type Cli struct {
-	Cfg      string   `help:"Location of HSM config file, as default crypto provider" required:""`
-	Crypto   []string `help:"Location of additional HSM config files" type:"path"`
-	PlainKey bool     `help:"Generate plain key"`
-	Debug    bool     `short:"D" help:"Enable debug mode"`
-	LogLevel string   `short:"l" help:"Set the logging level (debug|info|warn|error)" default:"error"`
+	Version  ctl.VersionFlag `name:"version" help:"Print version information and quit" hidden:""`
+	Cfg      string          `help:"Location of HSM config file, as default crypto provider" required:""`
+	Crypto   []string        `help:"Location of additional HSM config files" type:"path"`
+	PlainKey bool            `help:"Generate plain key"`
+	Debug    bool            `short:"D" help:"Enable debug mode"`
+	LogLevel string          `short:"l" help:"Set the logging level (debug|info|warn|error)" default:"error"`
 
 	// Stdin is the source to read from, typically set to os.Stdin
 	stdin io.Reader
