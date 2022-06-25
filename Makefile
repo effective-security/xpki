@@ -29,6 +29,10 @@ tools:
 	go install golang.org/x/lint/golint
 	go install github.com/mattn/goveralls
 
+version:
+	echo "*** building version"
+	gofmt -r '"GIT_VERSION" -> "$(GIT_VERSION)"' internal/version/current.template > internal/version/current.go
+
 build:
 	echo "*** Building hsm-tool"
 	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/hsm-tool ./cmd/hsm-tool

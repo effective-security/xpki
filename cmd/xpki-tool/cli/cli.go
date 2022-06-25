@@ -16,6 +16,8 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "cli")
 
 // Cli provides CLI context to run commands
 type Cli struct {
+	Version ctl.VersionFlag `name:"version" help:"Print version information and quit" hidden:""`
+
 	// Stdin is the source to read from, typically set to os.Stdin
 	stdin io.Reader
 	// Output is the destination for all output from the command, typically set to os.Stdout
