@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/asn1"
@@ -256,4 +257,82 @@ func EncodePrivateKeyToPEM(priv crypto.PrivateKey) (key []byte, err error) {
 	}
 
 	return
+}
+
+// ParsePrivateKeyPEM parses and returns a PEM-encoded private
+// key. The private key may be either an unencrypted PKCS#8, PKCS#1,
+// or elliptic private key.
+func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error) {
+	return ParsePrivateKeyPEMWithPassword(keyPEM, nil)
+}
+
+// ParsePrivateKeyPEMWithPassword parses and returns a PEM-encoded private
+// key. The private key may be a potentially encrypted PKCS#8, PKCS#1,
+// or elliptic private key.
+func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.Signer, err error) {
+	keyDER, err := GetKeyDERFromPEM(keyPEM, password)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParsePrivateKeyDER(keyDER)
+}
+
+// GetKeyDERFromPEM parses a PEM-encoded private key and returns DER-format key bytes.
+func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
+	// Ignore any EC PARAMETERS blocks when looking for a key (openssl includes
+	// them by default).
+	var keyDER *pem.Block
+	for {
+		keyDER, in = pem.Decode(in)
+		if keyDER == nil || keyDER.Type != "EC PARAMETERS" {
+			break
+		}
+	}
+	if keyDER != nil {
+		if procType, ok := keyDER.Headers["Proc-Type"]; ok {
+			if strings.Contains(procType, "ENCRYPTED") {
+				if password != nil {
+					return x509.DecryptPEMBlock(keyDER, password)
+				}
+				return nil, errors.Errorf("encrypted private key")
+			}
+		}
+		return keyDER.Bytes, nil
+	}
+
+	return nil, errors.Errorf("unable to decode private key")
+}
+
+// ParsePrivateKeyDER parses a PKCS #1, PKCS #8, ECDSA, or Ed25519 DER-encoded
+// private key. The key must not be in PEM format.
+func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error) {
+	generalKey, err := x509.ParsePKCS8PrivateKey(keyDER)
+	if err != nil {
+		generalKey, err = x509.ParsePKCS1PrivateKey(keyDER)
+		if err != nil {
+			generalKey, err = x509.ParseECPrivateKey(keyDER)
+			// TODO:
+			//generalKey, err = ParseEd25519PrivateKey(keyDER)
+			if err != nil {
+				// We don't include the actual error into
+				// the final error. The reason might be
+				// we don't want to leak any info about
+				// the private key.
+				return nil, errors.Errorf("unable to parse private key")
+			}
+		}
+	}
+
+	switch generalKey.(type) {
+	case *rsa.PrivateKey:
+		return generalKey.(*rsa.PrivateKey), nil
+	case *ecdsa.PrivateKey:
+		return generalKey.(*ecdsa.PrivateKey), nil
+	case ed25519.PrivateKey:
+		return generalKey.(ed25519.PrivateKey), nil
+	}
+
+	// should never reach here
+	return nil, errors.Errorf("unable to parse private key")
 }
