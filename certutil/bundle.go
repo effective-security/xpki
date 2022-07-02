@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudflare/cfssl/bundler"
 	"github.com/pkg/errors"
 )
 
@@ -21,6 +20,8 @@ type BundleStatus struct {
 	Untrusted []string `json:"untrusted_root_stores"`
 	// A list of human readable warning messages based on the bundle status.
 	Messages []string `json:"messages"`
+
+	Code int `json:"code"`
 }
 
 // IsExpiring returns true if bundle is expiring in less than 30 days
@@ -60,14 +61,14 @@ func (b *Bundle) ExpiresInHours() time.Duration {
 
 // VerifyBundleFromPEM constructs and verifies the cert chain
 func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte) (bundle *Bundle, status *BundleStatus, err error) {
-	b, err := bundler.NewBundlerFromPEM(rootPEM, intCAPEM)
+	b, err := NewBundlerFromPEM(rootPEM, intCAPEM)
 	if err != nil {
 		err = errors.WithMessage(err, "failed to create bundler")
 		return
 	}
-	flavor := bundler.Force
+	flavor := Force
 	if len(rootPEM) > 0 {
-		flavor = bundler.Optimal
+		flavor = Optimal
 	}
 	c, err := b.BundleFromPEMorDER(certPEM, nil, flavor, "")
 	if err != nil {
