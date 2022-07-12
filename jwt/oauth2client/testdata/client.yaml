@@ -1,0 +1,9 @@
+provider_id: github
+client_id: "client5678"
+client_secret: "secret6789"
+scopes:
+- "user"
+- "repo"
+auth_url: "https://github.com/login/oauth/authorize"
+redirect_url: "https://localhost:8080/auth/callback"
+
