@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/xpki/cmd/hsm-tool/cli"
@@ -53,6 +55,10 @@ func realMain(args []string, out io.Writer, errout io.Writer, exit func(int)) {
 	parser.FatalIfErrorf(err)
 
 	if ctx != nil {
+		if cl.Cli.Debug {
+			// in DEBUG more print command line
+			fmt.Fprintf(ctx.Stdout, "#\n# %s\n#\n", strings.Join(args, " "))
+		}
 		err = ctx.Run(&cl.Cli)
 		ctx.FatalIfErrorf(err)
 	}
