@@ -9,6 +9,7 @@ import (
 	"github.com/effective-security/xlog"
 	pkcs11 "github.com/miekg/pkcs11"
 	"github.com/pkg/errors"
+	"gopkg.in/yaml.v3"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "crypto11")
@@ -46,13 +47,13 @@ type TokenConfig interface {
 }
 
 type config struct {
-	Man    string `json:"Manufacturer"`
-	Mod    string `json:"Model"`
-	Dir    string `json:"Path"`
-	Serial string `json:"TokenSerial"`
-	Label  string `json:"TokenLabel"`
-	Pwd    string `json:"Pin"`
-	Attrs  string `json:"Attributes"`
+	Man    string `json:"Manufacturer" yaml:"manufacturer"`
+	Mod    string `json:"Model"        yaml:"model"`
+	Dir    string `json:"Path"         yaml:"path"`
+	Serial string `json:"TokenSerial"  yaml:"token_serial"`
+	Label  string `json:"TokenLabel"   yaml:"token_label"`
+	Pwd    string `json:"Pin"          yaml:"pin"`
+	Attrs  string `json:"Attributes"   yaml:"attributes"`
 }
 
 // Manufacturer name of the manufacturer
@@ -173,9 +174,17 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 	}
 	defer cfr.Close()
 	tokenConfig := new(config)
-	err = json.NewDecoder(cfr).Decode(tokenConfig)
-	if err != nil {
-		return nil, errors.WithStack(err)
+
+	if strings.HasSuffix(filename, ".json") {
+		err = json.NewDecoder(cfr).Decode(tokenConfig)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+	} else {
+		err = yaml.NewDecoder(cfr).Decode(tokenConfig)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 
 	pin := tokenConfig.Pin()

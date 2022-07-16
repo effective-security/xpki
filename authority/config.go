@@ -2,6 +2,7 @@ package authority
 
 import (
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/json"
 	"io/ioutil"
 	"regexp"
@@ -167,6 +168,8 @@ type CertProfile struct {
 	Expiry   csr.Duration `json:"expiry" yaml:"expiry"`
 	Backdate csr.Duration `json:"backdate" yaml:"backdate"`
 
+	Extensions []csr.X509Extension `json:"extensions" yaml:"extensions"`
+
 	AllowedExtensions []csr.OID `json:"allowed_extensions" yaml:"allowed_extensions"`
 
 	// AllowedNames specifies a RegExp to check for allowed names.
@@ -321,7 +324,7 @@ func (p *CertProfile) Validate() error {
 		return errors.New("no expiry set")
 	}
 
-	if len(p.Usage) == 0 {
+	if len(p.Usage) == 0 && p.FindExtension(csr.OidExtensionKeyUsage) == nil {
 		return errors.New("no usages specified")
 	} else if _, _, unk := p.Usages(); len(unk) > 0 {
 		return errors.Errorf("unknown usage: %s", strings.Join(unk, ","))
@@ -377,6 +380,17 @@ func (p *CertProfile) IsAllowedExtention(oid csr.OID) bool {
 		}
 	}
 	return false
+}
+
+// FindExtension returns extension, or nil
+func (p *CertProfile) FindExtension(oid asn1.ObjectIdentifier) *csr.X509Extension {
+	other := csr.OID(oid)
+	for idx, e := range p.Extensions {
+		if e.ID.Equal(other) {
+			return &p.Extensions[idx]
+		}
+	}
+	return nil
 }
 
 // Validate returns an error if the configuration is invalid

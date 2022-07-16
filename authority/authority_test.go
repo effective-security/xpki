@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/effective-security/xpki/authority"
+	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
@@ -186,6 +187,32 @@ func (s *testSuite) TestNewAuthority() {
 	_, err = a.GetIssuerByProfile("wrong_profile")
 	s.Error(err)
 	s.Equal("issuer not found for profile: wrong_profile", err.Error())
+}
+
+func (s *testSuite) TestShakenRoot() {
+	cfg, err := authority.LoadConfig("testdata/ca-config.bootstrap.yaml")
+	s.Require().NoError(err)
+
+	shaken := cfg.Profiles["SHAKEN_ROOT"]
+	s.Require().NotNil(shaken)
+	s.Require().NotEmpty(shaken.Extensions)
+
+	crypto := s.crypto.Default()
+	kr := csr.NewKeyRequest(crypto, "TestShakenRoot"+guid.MustCreate(), "ECDSA", 256, csr.SigningKey)
+	rootReq := csr.CertificateRequest{
+		CommonName: "[TEST] SHAKEN Root CA",
+		KeyRequest: kr,
+	}
+	rootPEM, _, _, err := authority.NewRoot("SHAKEN_ROOT", cfg, crypto, &rootReq)
+	s.Require().NoError(err)
+
+	cert, err := certutil.ParseFromPEM(rootPEM)
+	s.Require().NoError(err)
+
+	s.Equal(x509.KeyUsageCertSign, cert.KeyUsage)
+	ext := certutil.FindExtension(cert.Extensions, csr.OidExtensionKeyUsage)
+	s.Require().NotNil(ext)
+	s.False(ext.Critical)
 }
 
 func (s *testSuite) TestIssuerSign() {
