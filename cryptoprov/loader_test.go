@@ -47,4 +47,14 @@ func Test_Load(t *testing.T) {
 		[]string{filepath.Join(projFolder, "xpki/cryptoprov/testdata/inmem_testprov.json")})
 	require.NoError(t, err)
 	assert.Equal(t, "SoftHSM", cp.Default().Manufacturer())
+
+	cp, err = cryptoprov.Load(
+		SoftHSMConfig,
+		[]string{filepath.Join(projFolder, "xpki/cryptoprov/testdata/inmem_testprov.yaml")})
+	require.NoError(t, err)
+	assert.Equal(t, "SoftHSM", cp.Default().Manufacturer())
+	im, err := cp.ByManufacturer("testprov")
+	require.NoError(t, err)
+	assert.Equal(t, "testprov", im.Manufacturer())
+	assert.Equal(t, "inmem", im.Model())
 }
