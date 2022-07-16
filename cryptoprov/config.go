@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"gopkg.in/yaml.v2"
 )
 
 // TokenConfig holds PKCS#11 configuration information.
@@ -41,13 +42,13 @@ type TokenConfig interface {
 }
 
 type tokenConfig struct {
-	Man    string `json:"Manufacturer"`
-	Mod    string `json:"Model"`
-	Dir    string `json:"Path"`
-	Serial string `json:"TokenSerial"`
-	Label  string `json:"TokenLabel"`
-	Pwd    string `json:"Pin"`
-	Attrs  string `json:"Attributes"`
+	Man    string `json:"Manufacturer" yaml:"manufacturer"`
+	Mod    string `json:"Model"        yaml:"model"`
+	Dir    string `json:"Path"         yaml:"path"`
+	Serial string `json:"TokenSerial"  yaml:"token_serial"`
+	Label  string `json:"TokenLabel"   yaml:"token_label"`
+	Pwd    string `json:"Pin"          yaml:"pin"`
+	Attrs  string `json:"Attributes"   yaml:"attributes"`
 }
 
 // Manufacturer name of the manufacturer
@@ -94,9 +95,17 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 	}
 	defer cfr.Close()
 	tokenConfig := new(tokenConfig)
-	err = json.NewDecoder(cfr).Decode(tokenConfig)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "failed to decode file: %s", filename)
+
+	if strings.HasSuffix(filename, ".json") {
+		err = json.NewDecoder(cfr).Decode(tokenConfig)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "failed to decode file: %s", filename)
+		}
+	} else {
+		err = yaml.NewDecoder(cfr).Decode(tokenConfig)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "failed to decode file: %s", filename)
+		}
 	}
 
 	pin := tokenConfig.Pin()

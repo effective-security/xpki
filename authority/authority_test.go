@@ -44,7 +44,7 @@ func (s *testSuite) SetupSuite() {
 	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
 	//cryptoprov.Register(gcpkmscrypto.ProviderName, gcpkmscrypto.KmsLoader)
 	cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
-	s.crypto, err = cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
+	s.crypto, err = cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml", nil)
 	s.Require().NoError(err)
 
 	rootCA := testca.NewEntity(

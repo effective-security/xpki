@@ -33,7 +33,9 @@ func TestKeyInfoRSA(t *testing.T) {
 
 func TestKeyInfoKMS(t *testing.T) {
 	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
-	prov, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
+	_, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
+	require.NoError(t, err)
+	prov, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml", nil)
 	require.NoError(t, err)
 
 	kms := prov.Default()
