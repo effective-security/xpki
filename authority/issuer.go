@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"io"
@@ -377,32 +376,57 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 		safeTemplate.SerialNumber = new(big.Int).SetBytes(serialNumber)
 	}
 
-	for _, ext := range req.Extensions {
-		if !profile.IsAllowedExtention(ext.ID) {
-			return nil, nil, errors.Errorf("extension not allowed: %s", ext.ID.String())
-		}
-
-		rawValue, err := hex.DecodeString(ext.Value)
+	for _, ext := range profile.Extensions {
+		raw, err := ext.GetValue()
 		if err != nil {
-			rawValue, err = base64.StdEncoding.DecodeString(ext.Value)
-			if err != nil {
-				return nil, nil, errors.WithMessagef(err, "failed to decode extension: %s", ext.Value)
-			}
+			return nil, nil, errors.WithMessagef(err, "failed to decode extension: %s", ext.Value)
 		}
 
 		safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{
 			Id:       asn1.ObjectIdentifier(ext.ID),
 			Critical: ext.Critical,
-			Value:    rawValue,
+			Value:    raw,
 		})
+	}
+
+	for _, ext := range req.Extensions {
+		if !profile.IsAllowedExtention(ext.ID) {
+			return nil, nil, errors.Errorf("extension not allowed: %s", ext.ID.String())
+		}
+		id := asn1.ObjectIdentifier(ext.ID)
+		if certutil.FindExtension(safeTemplate.ExtraExtensions, id) == nil {
+			raw, err := ext.GetValue()
+			if err != nil {
+				return nil, nil, errors.WithMessagef(err, "failed to decode extension: %s", ext.Value)
+			}
+
+			safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{
+				Id:       asn1.ObjectIdentifier(ext.ID),
+				Critical: ext.Critical,
+				Value:    raw,
+			})
+		} else {
+			logger.KV(xlog.TRACE,
+				"reason", "skipped_from_sign_request",
+				"used", "profile_extension",
+				"profile", profileName,
+				"ext", id.String(),
+			)
+		}
 	}
 
 	for _, ext := range csrTemplate.ExtraExtensions {
 		if !profile.IsAllowedExtention(csr.OID(ext.Id)) {
 			return nil, nil, errors.New("extension not allowed: " + ext.Id.String())
 		}
-		if findExtension(safeTemplate.ExtraExtensions, ext.Id) == nil {
+		if certutil.FindExtension(safeTemplate.ExtraExtensions, ext.Id) == nil {
 			safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, ext)
+		} else {
+			logger.KV(xlog.TRACE,
+				"reason", "skipped_from_csr",
+				"profile", profileName,
+				"ext", ext.Id.String(),
+			)
 		}
 	}
 
@@ -427,15 +451,6 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 	// TODO: register issued cert
 
 	return crt, signedCertPEM, nil
-}
-
-func findExtension(list []pkix.Extension, oid asn1.ObjectIdentifier) []byte {
-	for _, e := range list {
-		if e.Id.Equal(oid) {
-			return e.Value
-		}
-	}
-	return nil
 }
 
 func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
@@ -493,7 +508,7 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	// This should be used when validating the profile at load, and isn't used
 	// here.
 	ku, eku, _ = profile.Usages()
-	if ku == 0 && len(eku) == 0 {
+	if ku == 0 && len(eku) == 0 && profile.FindExtension(csr.OidExtensionKeyUsage) == nil {
 		return errors.Errorf("invalid profile: no key usages")
 	}
 

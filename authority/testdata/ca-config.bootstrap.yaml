@@ -4,39 +4,39 @@ profiles:
     expiry: 168h
     backdate: 30m
     usages:
-    - signing
-    - key encipherment
-    - server auth
-    - client auth
-    - ipsec user
-    - ipsec end system
+      - signing
+      - key encipherment
+      - server auth
+      - client auth
+      - ipsec user
+      - ipsec end system
     allowed_extensions:
-    - 1.3.6.1.5.5.7.1.1
-    - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1
+      - 2.5.29.17
 
   server:
     expiry: 168h
     backdate: 30m
     usages:
-    - signing
-    - key encipherment
-    - server auth
-    - ipsec end system
+      - signing
+      - key encipherment
+      - server auth
+      - ipsec end system
     allowed_extensions:
-    - 1.3.6.1.5.5.7.1.1
-    - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1
+      - 2.5.29.17
 
   client:
     expiry: 168h
     backdate: 30m
     usages:
-    - signing
-    - key encipherment
-    - client auth
-    - ipsec user
+      - signing
+      - key encipherment
+      - client auth
+      - ipsec user
     allowed_extensions:
-    - 1.3.6.1.5.5.7.1.1
-    - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1
+      - 2.5.29.17
 
   ROOT:
     expiry: 43800h
@@ -44,6 +44,20 @@ profiles:
     usages:
       - cert sign
       - crl sign
+    ca_constraint:
+      is_ca: true
+      max_path_len: -1
+
+  SHAKEN_ROOT:
+    expiry: 219150h
+    backdate: 30m
+    # SHAKEN requires EKU to be non critial
+    #usages:
+    #  - cert sign
+    extensions:
+      - id: 2.5.29.15 # EKU
+        critical: false
+        value: hex:03020204 # cert sign
     ca_constraint:
       is_ca: true
       max_path_len: -1

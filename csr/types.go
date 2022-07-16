@@ -64,6 +64,23 @@ var ExtKeyUsage = map[string]x509.ExtKeyUsage{
 	"netscape sgc":     x509.ExtKeyUsageNetscapeServerGatedCrypto,
 }
 
+// well-known OIDs
+var (
+	OidExtensionSubjectKeyID          = asn1.ObjectIdentifier{2, 5, 29, 14}
+	OidExtensionKeyUsage              = asn1.ObjectIdentifier{2, 5, 29, 15}
+	OidExtensionExtendedKeyUsage      = asn1.ObjectIdentifier{2, 5, 29, 37}
+	OidExtensionAuthorityKeyID        = asn1.ObjectIdentifier{2, 5, 29, 35}
+	OidExtensionBasicConstraints      = asn1.ObjectIdentifier{2, 5, 29, 19}
+	OidExtensionSubjectAltName        = asn1.ObjectIdentifier{2, 5, 29, 17}
+	OidExtensionCertificatePolicies   = asn1.ObjectIdentifier{2, 5, 29, 32}
+	OidExtensionNameConstraints       = asn1.ObjectIdentifier{2, 5, 29, 30}
+	OidExtensionCRLDistributionPoints = asn1.ObjectIdentifier{2, 5, 29, 31}
+	OidExtensionAuthorityInfoAccess   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
+	OidExtensionCRLNumber             = asn1.ObjectIdentifier{2, 5, 29, 20}
+	OidAuthorityInfoAccessOcsp        = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1}
+	OidAuthorityInfoAccessIssuers     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}
+)
+
 // OID is the asn1's ObjectIdentifier, provide a custom
 // JSON marshal / unmarshal.
 type OID asn1.ObjectIdentifier

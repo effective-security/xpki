@@ -4,6 +4,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"math/big"
 	"net"
@@ -78,6 +80,28 @@ type X509Extension struct {
 	ID       OID    `json:"id" yaml:"id"`
 	Critical bool   `json:"critical" yaml:"critical"`
 	Value    string `json:"value" yaml:"value"`
+}
+
+// GetValue returns raw value.
+// if prefix is hex or base64, then it's decoded,
+// otherwise hex decoding is tried first then base64
+func (ext X509Extension) GetValue() ([]byte, error) {
+	var rawValue []byte
+	var err error
+	if strings.HasPrefix(ext.Value, "hex:") {
+		rawValue, err = hex.DecodeString(ext.Value[4:])
+	} else if strings.HasPrefix(ext.Value, "base64:") {
+		rawValue, err = base64.StdEncoding.DecodeString(ext.Value[7:])
+	} else {
+		rawValue, err = hex.DecodeString(ext.Value)
+		if err != nil {
+			rawValue, err = base64.StdEncoding.DecodeString(ext.Value)
+		}
+	}
+	if err != nil {
+		return nil, errors.WithMessagef(err, "failed to decode extension: %s", ext.Value)
+	}
+	return rawValue, nil
 }
 
 // SignRequest stores a signature request, which contains the SAN,
