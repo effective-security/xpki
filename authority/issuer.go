@@ -379,7 +379,7 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 	for _, ext := range profile.Extensions {
 		raw, err := ext.GetValue()
 		if err != nil {
-			return nil, nil, errors.WithMessagef(err, "failed to decode extension: %s", ext.Value)
+			return nil, nil, errors.WithStack(err)
 		}
 
 		safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{
@@ -397,7 +397,7 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 		if certutil.FindExtension(safeTemplate.ExtraExtensions, id) == nil {
 			raw, err := ext.GetValue()
 			if err != nil {
-				return nil, nil, errors.WithMessagef(err, "failed to decode extension: %s", ext.Value)
+				return nil, nil, errors.WithStack(err)
 			}
 
 			safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{

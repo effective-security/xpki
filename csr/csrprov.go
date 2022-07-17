@@ -124,7 +124,7 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 	for _, ext := range req.Extensions {
 		val, derr := ext.GetValue()
 		if derr != nil {
-			err = errors.WithMessagef(derr, "failed to decode extension: %s", ext.Value)
+			err = errors.WithStack(derr)
 			return
 		}
 
