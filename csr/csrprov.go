@@ -9,8 +9,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/pem"
 	"net"
 	"net/mail"
@@ -124,13 +122,10 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 	}
 
 	for _, ext := range req.Extensions {
-		val, derr := hex.DecodeString(ext.Value)
+		val, derr := ext.GetValue()
 		if derr != nil {
-			val, derr = base64.StdEncoding.DecodeString(ext.Value)
-			if derr != nil {
-				err = errors.WithMessagef(derr, "failed to decode extension: %s", ext.Value)
-				return
-			}
+			err = errors.WithMessagef(derr, "failed to decode extension: %s", ext.Value)
+			return
 		}
 
 		template.ExtraExtensions = append(template.Extensions, pkix.Extension{
