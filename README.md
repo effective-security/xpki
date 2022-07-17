@@ -6,7 +6,7 @@ Library for working with certificates and keys
 
 ## Requirements
 
-1. GoLang 1.17+
+1. GoLang 1.18+
 
 ## Contribution
 
@@ -46,3 +46,8 @@ export AWS_ACCESS_KEY_ID=notusedbyemulator
 export AWS_SECRET_ACCESS_KEY=notusedbyemulator
 export AWS_DEFAULT_REGION=us-west-2
 ```
+
+## Tools
+
+- [hsm-tool](cmd/hsm-tool/README.md)
+- [xpki-tool](cmd/xpki-tool/README.md)
