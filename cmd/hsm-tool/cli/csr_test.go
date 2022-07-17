@@ -67,7 +67,7 @@ func (s *csrSuite) TestSignCert() {
 	s.createRootCA()
 
 	createCSR := CsrCreateCmd{
-		CsrProfile: "../../../authority/testdata/csrprofiles/trusty_server.yaml",
+		CsrProfile: "../../../authority/testdata/csrprofiles/delegated_l1_ca.yaml",
 		KeyLabel:   "*",
 		Output:     filepath.Join(s.tmpdir, "server"+guid.MustCreate()),
 	}
@@ -84,7 +84,7 @@ func (s *csrSuite) TestSignCert() {
 		CAConfig: "../../../authority/testdata/ca-config.dev.yaml",
 		Csr:      req,
 		San:      []string{"ekspand.com", "ca@ekspand.com", "10.1.1.12"},
-		Profile:  "server",
+		Profile:  "DELEGATED_L1_CA",
 		Output:   createCSR.Output,
 	}
 
