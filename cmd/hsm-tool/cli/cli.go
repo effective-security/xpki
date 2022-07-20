@@ -8,14 +8,16 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/x/ctl"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
+
+	// register supported
+	_ "github.com/effective-security/xpki/crypto11"
+	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	_ "github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "cli")
@@ -104,15 +106,6 @@ func (c *Cli) AfterApply(app *kong.Kong, vars kong.Vars) error {
 		}
 		xlog.SetGlobalLogLevel(l)
 	}
-	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
-	cryptoprov.Register(awskmscrypto.ProviderName+"-1", awskmscrypto.KmsLoader)
-	cryptoprov.Register(awskmscrypto.ProviderName+"-2", awskmscrypto.KmsLoader)
-
-	cryptoprov.Register(gcpkmscrypto.ProviderName, gcpkmscrypto.KmsLoader)
-	cryptoprov.Register(gcpkmscrypto.ProviderName+"-1", gcpkmscrypto.KmsLoader)
-	cryptoprov.Register(gcpkmscrypto.ProviderName+"-2", gcpkmscrypto.KmsLoader)
-
-	cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
 
 	return nil
 }

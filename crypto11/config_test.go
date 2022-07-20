@@ -25,11 +25,11 @@ func Test_LoadConfigTwice(t *testing.T) {
 }
 
 func TestLoadConfigYaml(t *testing.T) {
-	c, err := LoadTokenConfig("testdata/aws-dev-kms.yaml")
+	c, err := LoadTokenConfig("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml")
 	require.NoError(t, err)
 
-	c2, err := LoadTokenConfig("testdata/aws-dev-kms.json")
+	c2, err := LoadTokenConfig("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json")
 	require.NoError(t, err)
 
-	assert.Equal(t, c, c2)
+	assert.NotEqual(t, c, c2)
 }

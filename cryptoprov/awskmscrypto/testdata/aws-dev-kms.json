@@ -1,4 +1,5 @@
 {
-    "Manufacturer" : "AWSKMS",
-    "Attributes": "Endpoint=http://localhost:4599,Region=us-west-2"
+    "Manufacturer": "AWSKMS",
+    "Model": "14555",
+    "Attributes": "Endpoint=http://localhost:14555,Region=us-west-2"
 }

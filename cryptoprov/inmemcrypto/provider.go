@@ -19,6 +19,13 @@ import (
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "inmemcrypto")
 
+// ProviderName specifies a provider name
+const ProviderName = "inmem"
+
+func init() {
+	cryptoprov.Register(ProviderName, Loader)
+}
+
 // inMemProv stores keyID to signer mapping in memory.
 // Private keys are exportable.
 type inMemProv struct {
@@ -128,6 +135,7 @@ type Provider struct {
 	rsaKeyGenerator
 	ecdsaKeyGenerator
 	inMemProv *inMemProv
+	tc        cryptoprov.TokenConfig
 }
 
 // NewProvider creates new provider for exportable RSA and ECDSA keys.
@@ -147,16 +155,25 @@ func NewProvider() *Provider {
 
 // Manufacturer return manufacturer for the provider
 func (p *Provider) Manufacturer() string {
-	return "trusty"
+	if p.tc != nil {
+		return p.tc.Manufacturer()
+	}
+	return ProviderName
 }
 
 // Model return model for the provider
 func (p *Provider) Model() string {
-	return "inmem"
+	if p.tc != nil {
+		return p.tc.Model()
+	}
+	return ProviderName
 }
 
 // Serial return serial number for the provider
 func (p *Provider) Serial() string {
+	if p.tc != nil {
+		return p.tc.TokenSerial()
+	}
 	return "23948570247520345"
 }
 
@@ -263,3 +280,10 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 
 // Ensure compiles
 var _ cryptoprov.Provider = (*Provider)(nil)
+
+// Loader provides loader for Provider
+func Loader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
+	p := NewProvider()
+	p.tc = tc
+	return p, nil
+}

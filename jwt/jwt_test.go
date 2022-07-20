@@ -11,11 +11,12 @@ import (
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 )
 
 func Test_Config(t *testing.T) {
@@ -209,7 +210,6 @@ func Test_SignPrivateEC(t *testing.T) {
 }
 
 func Test_SignPrivateKMS(t *testing.T) {
-	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
 	cryptoProv, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
 	require.NoError(t, err)
 

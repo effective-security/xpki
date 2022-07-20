@@ -29,7 +29,7 @@ func (c *Crypto) LoadGPGPrivateKey(creationTime time.Time, key []byte) (*packet.
 			return nil, errors.WithStack(err)
 		}
 
-		provider, err := c.ByManufacturer(pkuri.Manufacturer())
+		provider, err := c.ByManufacturer(pkuri.Manufacturer(), pkuri.Model())
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -67,7 +67,7 @@ func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
 			return nil, nil, errors.WithStack(err)
 		}
 
-		provider, err = c.ByManufacturer(pkuri.Manufacturer())
+		provider, err = c.ByManufacturer(pkuri.Manufacturer(), pkuri.Model())
 		if err != nil {
 			return nil, nil, errors.WithStack(err)
 		}

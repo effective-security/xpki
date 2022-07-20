@@ -23,6 +23,10 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "awskms
 // ProviderName specifies a provider name
 const ProviderName = "AWSKMS"
 
+func init() {
+	cryptoprov.Register(ProviderName, KmsLoader)
+}
+
 // KmsClient interface
 type KmsClient interface {
 	CreateKey(input *kms.CreateKeyInput) (*kms.CreateKeyOutput, error)
@@ -342,8 +346,9 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 		return "", nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
 	}
 
-	uri := fmt.Sprintf("pkcs11:manufacturer=%s;id=%s;serial=%s;type=private",
-		ProviderName,
+	uri := fmt.Sprintf("pkcs11:manufacturer=%s;model=%s;id=%s;serial=%s;type=private",
+		p.Manufacturer(),
+		p.Model(),
 		keyID,
 		aws.StringValue(resp.KeyMetadata.Arn),
 	)

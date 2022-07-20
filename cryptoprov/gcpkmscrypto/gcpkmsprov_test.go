@@ -135,7 +135,7 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpSwQTzpTI9LFgLtdHAMHl0oEIgwf
 
 		uri, _, err := prov.ExportKey(keyID)
 		require.NoError(t, err)
-		assert.Equal(t, "pkcs11:manufacturer=GCPKMS;id=key1;serial=1;type=private", uri)
+		assert.Equal(t, "pkcs11:manufacturer=GCPKMS;model=KMS;id=key1;serial=1;type=private", uri)
 
 		signer := pvk.(crypto.Signer)
 		require.NotNil(t, signer)

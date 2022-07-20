@@ -49,11 +49,11 @@ func Test_P11(t *testing.T) {
 	assert.NotEmpty(t, d.Manufacturer())
 	assert.NotNil(t, d.Model())
 
-	_, err = cp.ByManufacturer("SoftHSM")
+	_, err = cp.ByManufacturer(prov.Manufacturer(), prov.Model())
 	assert.NoError(t, err)
-	_, err = cp.ByManufacturer("NetHSM")
+	_, err = cp.ByManufacturer("NetHSM", "")
 	assert.Error(t, err)
-	assert.Equal(t, "provider for manufacturer \"NetHSM\" not found", err.Error())
+	assert.Equal(t, "provider for \"NetHSM\" and model \"\" not found", err.Error())
 
 	keyURI, keyBytes, err := d.ExportKey("test")
 	assert.Error(t, err)

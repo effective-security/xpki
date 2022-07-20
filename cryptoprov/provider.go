@@ -79,6 +79,11 @@ func New(defaultProvider Provider, providers []Provider) (*Crypto, error) {
 		byManufacturer: map[string]Provider{},
 	}
 
+	logger.KV(xlog.NOTICE,
+		"manufacturer", defaultProvider.Manufacturer(),
+		"model", defaultProvider.Model(),
+	)
+
 	for _, p := range providers {
 		if err := c.Add(p); err != nil {
 			return nil, errors.WithStack(err)
@@ -95,25 +100,34 @@ func (c *Crypto) Default() Provider {
 // Add will add new provider
 func (c *Crypto) Add(p Provider) error {
 	m := p.Manufacturer()
-	if existing, ok := c.byManufacturer[m]; ok {
+	model := p.Model()
+	key := m + "@" + model
+	if existing, ok := c.byManufacturer[key]; ok {
 		if existing.Manufacturer() != p.Manufacturer() ||
 			existing.Model() != p.Model() {
 			return errors.Errorf("duplicate provider specified for manufacturer: %s", m)
 		}
 	}
-	c.byManufacturer[m] = p
+	c.byManufacturer[key] = p
+	logger.KV(xlog.NOTICE,
+		"manufacturer", m,
+		"model", model,
+	)
 	return nil
 }
 
 // ByManufacturer returns a provider by manufacturer
-func (c *Crypto) ByManufacturer(manufacturer string) (Provider, error) {
-	if c.provider != nil && c.provider.Manufacturer() == manufacturer {
+func (c *Crypto) ByManufacturer(manufacturer, model string) (Provider, error) {
+	if c.provider != nil &&
+		c.provider.Manufacturer() == manufacturer &&
+		c.provider.Model() == model {
 		return c.provider, nil
 	}
 
-	p, ok := c.byManufacturer[manufacturer]
+	key := manufacturer + "@" + model
+	p, ok := c.byManufacturer[key]
 	if !ok {
-		return nil, errors.Errorf("provider for manufacturer %q not found", manufacturer)
+		return nil, errors.Errorf("provider for %q and model %q not found", manufacturer, model)
 	}
 	return p, nil
 }

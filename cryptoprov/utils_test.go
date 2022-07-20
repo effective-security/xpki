@@ -62,7 +62,7 @@ func Test_LoadSigner(t *testing.T) {
 
 	t.Run("PEM key", func(t *testing.T) {
 		pem, err := testca.GenerateRSAKeyInPEM(nil, 1024)
-
+		require.NoError(t, err)
 		_, pvk, err := cp.LoadPrivateKey(pem)
 		require.NoError(t, err)
 		signer := pvk.(crypto.Signer)
