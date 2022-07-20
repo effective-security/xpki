@@ -218,13 +218,8 @@ func (lib *PKCS11Lib) GetKey(keyID string) (crypto.PrivateKey, error) {
 // ExportKey returns PKCS#11 URI for specified key ID.
 // It does not return key bytes.
 func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error) {
-	hi, err := lib.Ctx.GetInfo()
-	if err != nil {
-		return "", nil, errors.WithMessage(err, "module info")
-	}
-
 	// ensure that key exists
-	_, err = lib.FindKeyPair(keyID, "")
+	_, err := lib.FindKeyPair(keyID, "")
 	if err != nil {
 		return "", nil, errors.WithMessagef(err, "unable to find key %q", keyID)
 	}
@@ -234,10 +229,9 @@ func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error) {
 		return "", nil, errors.WithMessage(err, "token info")
 	}
 
-	var uri string
-	uri = fmt.Sprintf("pkcs11:manufacturer=%s;model=%s;serial=%s;token=%s;id=%s;type=private",
-		strings.TrimSpace(strings.TrimRight(hi.ManufacturerID, "\x00")),
-		strings.TrimSpace(ti.Model),
+	uri := fmt.Sprintf("pkcs11:manufacturer=%s;model=%s;serial=%s;token=%s;id=%s;type=private",
+		lib.Config.Manufacturer(),
+		lib.Config.Model(),
 		strings.TrimSpace(ti.SerialNumber),
 		strings.TrimSpace(ti.Label),
 		strings.TrimSpace(keyID),

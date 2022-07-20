@@ -10,6 +10,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	// register providers
+	_ "github.com/effective-security/xpki/crypto11"
 )
 
 func inmemloader(_ cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
@@ -53,7 +56,7 @@ func Test_Load(t *testing.T) {
 		[]string{filepath.Join(projFolder, "xpki/cryptoprov/testdata/inmem_testprov.yaml")})
 	require.NoError(t, err)
 	assert.Equal(t, "SoftHSM", cp.Default().Manufacturer())
-	im, err := cp.ByManufacturer("testprov")
+	im, err := cp.ByManufacturer("testprov", "inmem")
 	require.NoError(t, err)
 	assert.Equal(t, "testprov", im.Manufacturer())
 	assert.Equal(t, "inmem", im.Model())

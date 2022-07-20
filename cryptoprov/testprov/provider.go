@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/x/guid"
 	"github.com/pkg/errors"
 )
@@ -113,12 +114,23 @@ func (g *defaultIDGenerator) Generate() string {
 	return guid.MustCreate()
 }
 
+// Loader for Provider
+func Loader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
+	p, err := Init()
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	p.tc = tc
+	return p, nil
+}
+
 // Provider defines an interface to work with crypto providers
 type Provider struct {
 	idGenerator
 	rsaKeyGenerator
 	ecdsaKeyGenerator
 	inMemProv *inMemProv
+	tc        cryptoprov.TokenConfig
 }
 
 // Init creates new provider for in memory based HSM
@@ -137,11 +149,17 @@ func Init() (*Provider, error) {
 
 // Manufacturer return manufacturer for the provider
 func (p *Provider) Manufacturer() string {
+	if p.tc != nil {
+		return p.tc.Manufacturer()
+	}
 	return "testprov"
 }
 
 // Model return model for the provider
 func (p *Provider) Model() string {
+	if p.tc != nil {
+		return p.tc.Model()
+	}
 	return "inmem"
 }
 

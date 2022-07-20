@@ -26,7 +26,12 @@ func (s *hsmSuite) TestLsKeyFlags() {
 	cmd := HsmLsKeyCmd{}
 
 	// without KeyManager interface
-	c, _ := cryptoprov.New(&mockedProvider{}, nil)
+	mockedProv := &mockedProvider{}
+	mockedProv.On("Manufacturer").Return("man123")
+	mockedProv.On("Model").Return("model123")
+
+	c, _ := cryptoprov.New(mockedProv, nil)
+
 	s.ctl.crypto = c
 	s.ctl.defaultCryptoProv = c.Default()
 
@@ -68,14 +73,17 @@ func (s *hsmSuite) TestLsKeyFlags() {
 			},
 		},
 	}
-	c, _ = cryptoprov.New(mocked, nil)
-	s.ctl.crypto = c
-	s.ctl.defaultCryptoProv = c.Default()
 
 	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
 	mocked.On("EnumKeys", mock.Anything, mock.Anything, mock.Anything).Times(1).Return(nil)
 	mocked.On("EnumKeys", mock.Anything, "with_error", mock.Anything).Times(1).Return(errors.New("unexpected error"))
 	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(1).Return(errors.New("token not found"))
+	mocked.On("Manufacturer").Return("man123")
+	mocked.On("Model").Return("model123")
+
+	c, _ = cryptoprov.New(mocked, nil)
+	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	err = cmd.Run(s.ctl)
 	s.Require().NoError(err)
@@ -103,7 +111,11 @@ func (s *hsmSuite) Test_KeyInfo() {
 	}
 
 	// without KeyManager interface
-	c, _ := cryptoprov.New(&mockedProvider{}, nil)
+	mockedProv := &mockedProvider{}
+	mockedProv.On("Manufacturer").Return("man123")
+	mockedProv.On("Model").Return("model123")
+
+	c, _ := cryptoprov.New(mockedProv, nil)
 	s.ctl.crypto = c
 	s.ctl.defaultCryptoProv = c.Default()
 
@@ -141,6 +153,8 @@ func (s *hsmSuite) Test_KeyInfo() {
 	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
 	//mocked.On("EnumKeys", mock.Anything, mock.Anything, mock.Anything).Times(1).Return(nil)
 	mocked.On("KeyInfo", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocked.On("Manufacturer").Return("man123")
+	mocked.On("Model").Return("model123")
 
 	c, _ = cryptoprov.New(mocked, nil)
 	s.ctl.crypto = c
@@ -182,16 +196,18 @@ func (s *hsmSuite) Test_GenKey() {
 		keys: map[uint][]cryptoprov.KeyInfo{},
 	}
 
-	c, _ := cryptoprov.New(mocked, nil)
-	s.ctl.crypto = c
-	s.ctl.defaultCryptoProv = c.Default()
-
 	var pvk crypto.PrivateKey = struct{}{}
 	mocked.On("GenerateRSAKey", mock.Anything, mock.Anything, mock.Anything).Return(pvk, nil)
 	mocked.On("IdentifyKey", mock.Anything).Times(2).Return("keyID123", "label123", nil)
 	mocked.On("ExportKey", "keyID123").Times(1).Return("pkcs11:keyID123", []byte{1, 2, 3}, nil)
 	mocked.On("ExportKey", "keyID123").Times(1).Return("", []byte{}, errors.Errorf("not exportable"))
 	mocked.On("IdentifyKey", mock.Anything).Times(1).Return("", "", errors.Errorf("key not found"))
+	mocked.On("Manufacturer").Return("man123")
+	mocked.On("Model").Return("model123")
+
+	c, _ := cryptoprov.New(mocked, nil)
+	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	err := cmd.Run(s.ctl)
 	s.Require().Error(err)
@@ -220,7 +236,11 @@ func (s *hsmSuite) Test_RmKey() {
 	cmd := HsmRmKeyCmd{}
 
 	// without KeyManager interface
-	c, _ := cryptoprov.New(&mockedProvider{}, nil)
+	mockedProv := &mockedProvider{}
+	mockedProv.On("Manufacturer").Return("man123")
+	mockedProv.On("Model").Return("model123")
+
+	c, _ := cryptoprov.New(mockedProv, nil)
 	s.ctl.crypto = c
 	s.ctl.defaultCryptoProv = c.Default()
 
@@ -262,13 +282,16 @@ func (s *hsmSuite) Test_RmKey() {
 			},
 		},
 	}
-	c, _ = cryptoprov.New(mocked, nil)
-	s.ctl.crypto = c
-	s.ctl.defaultCryptoProv = c.Default()
 
 	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
 	mocked.On("DestroyKeyPairOnSlot", mock.Anything, "with_error").Return(errors.New("access denied"))
 	mocked.On("DestroyKeyPairOnSlot", mock.Anything, mock.Anything).Return(nil)
+	mocked.On("Manufacturer").Return("man123")
+	mocked.On("Model").Return("model123")
+
+	c, _ = cryptoprov.New(mocked, nil)
+	s.ctl.crypto = c
+	s.ctl.defaultCryptoProv = c.Default()
 
 	cmd.ID = "with_error"
 	err = cmd.Run(s.ctl)

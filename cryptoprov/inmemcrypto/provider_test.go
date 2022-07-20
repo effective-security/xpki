@@ -18,7 +18,7 @@ func Test_InitProvider(t *testing.T) {
 	assert.NotNil(t, p.rsaKeyGenerator)
 	assert.NotNil(t, p.ecdsaKeyGenerator)
 
-	assert.Equal(t, "trusty", p.Manufacturer())
+	assert.Equal(t, ProviderName, p.Manufacturer())
 	assert.Equal(t, "inmem", p.Model())
 	assert.Equal(t, "23948570247520345", p.Serial())
 }

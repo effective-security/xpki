@@ -10,10 +10,12 @@ import (
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/square/go-jose.v2"
+
+	// register providers
+	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 )
 
 func TestKeyInfoRSA(t *testing.T) {
@@ -32,7 +34,6 @@ func TestKeyInfoRSA(t *testing.T) {
 }
 
 func TestKeyInfoKMS(t *testing.T) {
-	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
 	_, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
 	require.NoError(t, err)
 	prov, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml", nil)

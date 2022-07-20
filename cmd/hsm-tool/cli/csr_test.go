@@ -14,7 +14,10 @@ type csrSuite struct {
 
 func TestCsrSuite(t *testing.T) {
 	s := new(csrSuite)
-	s.appFlags = []string{"--cfg", "../../../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json"}
+	s.appFlags = []string{
+		"--cfg", "../../../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json",
+		"--crypto", "../../../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml",
+	}
 	suite.Run(t, s)
 }
 

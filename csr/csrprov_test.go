@@ -4,20 +4,18 @@ import (
 	"crypto"
 	"testing"
 
-	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	// register supported
+	_ "github.com/effective-security/xpki/crypto11"
 )
 
 const softHSMConfig = "/tmp/xpki/softhsm_unittest.json"
 
 func loadProvider(t *testing.T) cryptoprov.Provider {
-	err := cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
-	assert.NoError(t, err)
-	defer cryptoprov.Unregister("SoftHSM")
-
 	p, err := cryptoprov.LoadProvider(softHSMConfig)
 	require.NoError(t, err)
 

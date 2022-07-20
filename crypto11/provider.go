@@ -8,6 +8,10 @@ import (
 	"github.com/pkg/errors"
 )
 
+func init() {
+	cryptoprov.Register("SoftHSM", LoadProvider)
+}
+
 // LoadProvider provides loader for crypto11 provider
 func LoadProvider(cfg cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	p, err := Init(cfg)

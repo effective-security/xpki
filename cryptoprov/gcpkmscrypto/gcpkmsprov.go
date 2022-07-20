@@ -26,6 +26,10 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki/cryptopro
 // ProviderName specifies a provider name
 const ProviderName = "GCPKMS"
 
+func init() {
+	cryptoprov.Register(ProviderName, KmsLoader)
+}
+
 // KmsClient interface
 type KmsClient interface {
 	ListCryptoKeys(context.Context, *kmspb.ListCryptoKeysRequest, ...gax.CallOption) *kms.CryptoKeyIterator
@@ -389,8 +393,9 @@ func keyInfo(key *kmspb.CryptoKey) *cryptoprov.KeyInfo {
 // ExportKey returns PKCS#11 URI for specified key ID.
 // It does not return key bytes
 func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
-	uri := fmt.Sprintf("pkcs11:manufacturer=%s;id=%s;serial=1;type=private",
+	uri := fmt.Sprintf("pkcs11:manufacturer=%s;model=%s;id=%s;serial=1;type=private",
 		p.Manufacturer(),
+		p.Model(),
 		keyID,
 	)
 

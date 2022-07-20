@@ -22,7 +22,7 @@ func Test_KmsProvider(t *testing.T) {
 	cfg := &mockTokenCfg{
 		manufacturer: awskmscrypto.ProviderName,
 		model:        "KMS",
-		atts:         "Endpoint=http://localhost:4599,Region=eu-west-2",
+		atts:         "Endpoint=http://localhost:14556,Region=eu-west-2",
 	}
 
 	prov, err := awskmscrypto.KmsLoader(cfg)
@@ -62,6 +62,7 @@ func Test_KmsProvider(t *testing.T) {
 		uri, _, err := prov.ExportKey(keyID)
 		require.NoError(t, err)
 		assert.Contains(t, uri, "pkcs11:manufacturer=")
+		assert.Contains(t, uri, "model=")
 
 		signer := pvk.(crypto.Signer)
 		require.NotNil(t, signer)

@@ -10,13 +10,15 @@ import (
 
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/testca"
 	"github.com/effective-security/xpki/x/guid"
 	"github.com/stretchr/testify/suite"
+
+	// register providers
+	_ "github.com/effective-security/xpki/crypto11"
+	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 )
 
 var (
@@ -41,9 +43,6 @@ type testSuite struct {
 
 func (s *testSuite) SetupSuite() {
 	var err error
-	cryptoprov.Register(awskmscrypto.ProviderName, awskmscrypto.KmsLoader)
-	//cryptoprov.Register(gcpkmscrypto.ProviderName, gcpkmscrypto.KmsLoader)
-	cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
 	s.crypto, err = cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml", nil)
 	s.Require().NoError(err)
 
