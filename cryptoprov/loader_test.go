@@ -42,8 +42,9 @@ func Test_LoadProvider(t *testing.T) {
 func Test_Load(t *testing.T) {
 	_ = cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
 	defer cryptoprov.Unregister("SoftHSM")
-	_ = cryptoprov.Register("inmem", inmemloader)
-	defer cryptoprov.Unregister("inmem")
+
+	//_ = cryptoprov.Register("testprov", inmemloader)
+	//defer cryptoprov.Unregister("testprov")
 
 	cp, err := cryptoprov.Load(
 		SoftHSMConfig,
@@ -56,8 +57,8 @@ func Test_Load(t *testing.T) {
 		[]string{filepath.Join(projFolder, "xpki/cryptoprov/testdata/inmem_testprov.yaml")})
 	require.NoError(t, err)
 	assert.Equal(t, "SoftHSM", cp.Default().Manufacturer())
-	im, err := cp.ByManufacturer("testprov", "inmem")
+
+	im, err := cp.ByManufacturer("inmem", "")
 	require.NoError(t, err)
-	assert.Equal(t, "testprov", im.Manufacturer())
-	assert.Equal(t, "inmem", im.Model())
+	assert.Equal(t, "inmem", im.Manufacturer())
 }
