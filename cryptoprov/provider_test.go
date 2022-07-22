@@ -11,9 +11,12 @@ import (
 
 	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/cryptoprov/testprov"
 	"github.com/effective-security/xpki/x/guid"
+	"github.com/effective-security/xpki/x/slices"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +33,15 @@ func loadP11Provider(t *testing.T) cryptoprov.Provider {
 	assert.NotNil(t, mgr.EnumKeys)
 
 	return prov
+}
+
+func TestRegistered(t *testing.T) {
+	l := cryptoprov.Registered()
+	require.NotEmpty(t, l)
+
+	assert.True(t, slices.ContainsString(l, inmemcrypto.ProviderName))
+	assert.True(t, slices.ContainsString(l, awskmscrypto.ProviderName))
+	assert.True(t, slices.ContainsString(l, gcpkmscrypto.ProviderName))
 }
 
 func TestInmem(t *testing.T) {

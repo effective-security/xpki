@@ -41,6 +41,18 @@ func Unregister(manufacturer string) (ProviderLoader, error) {
 	return nil, errors.Errorf("not registered: %s", manufacturer)
 }
 
+// Registered returns registered providers
+func Registered() []string {
+	lockLoaders.Lock()
+	defer lockLoaders.Unlock()
+
+	list := []string{}
+	for m := range loaders {
+		list = append(list, m)
+	}
+	return list
+}
+
 // LoadProvider load a single provider
 func LoadProvider(configLocation string) (Provider, error) {
 	tc, err := LoadTokenConfig(configLocation)
