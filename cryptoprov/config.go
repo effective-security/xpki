@@ -89,6 +89,10 @@ func (c *tokenConfig) Attributes() string {
 
 // LoadTokenConfig loads PKCS#11 token configuration
 func LoadTokenConfig(filename string) (TokenConfig, error) {
+	if filename == "" || filename == "inmem" {
+		return &tokenConfig{Man: "inmem"}, nil
+	}
+
 	cfr, err := os.Open(filename)
 	if err != nil {
 		return nil, errors.WithStack(err)

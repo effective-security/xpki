@@ -64,22 +64,23 @@ func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
 	if strings.HasPrefix(keyPem, "pkcs11") {
 		pkuri, err := ParsePrivateKeyURI(keyPem)
 		if err != nil {
-			return nil, nil, errors.WithStack(err)
+			return nil, nil, errors.WithMessage(err, "failed to parse key")
 		}
 
 		provider, err = c.ByManufacturer(pkuri.Manufacturer(), pkuri.Model())
 		if err != nil {
-			return nil, nil, errors.WithStack(err)
+			return nil, nil, errors.WithMessagef(err, "provider not found: %s model: %s",
+				pkuri.Manufacturer(), pkuri.Model())
 		}
 
 		pvk, err = provider.GetKey(pkuri.ID())
 		if err != nil {
-			return nil, nil, errors.WithStack(err)
+			return nil, nil, errors.WithMessagef(err, "unable to get key: %s", pkuri.ID())
 		}
 	} else {
 		pvk, err = ParsePrivateKeyPEM(key)
 		if err != nil {
-			return nil, nil, errors.WithStack(err)
+			return nil, nil, errors.WithMessage(err, "failed to parse key")
 		}
 	}
 

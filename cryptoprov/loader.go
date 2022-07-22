@@ -77,7 +77,6 @@ func Load(defaultConfig string, providersConfigs []string) (*Crypto, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-
 	for _, configLocation := range providersConfigs {
 		p, err := LoadProvider(configLocation)
 		if err != nil {
