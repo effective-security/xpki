@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/x509"
-	"os"
 
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/x/fileutil"
+	"github.com/spf13/afero"
 )
 
 // Entity is a certificate and private key.
@@ -106,15 +107,13 @@ func (id *Entity) KeyAndCertChain() *KeyAndCertChain {
 // withChain specifies to store entire chain up to the root in cert's pem file
 func (id *Entity) SaveCertAndKey(certFile string, keyFile string, withChain bool) (err error) {
 	if keyFile != "" {
-		fkey, err := os.Create(keyFile)
+		err = afero.WriteFile(fileutil.Vfs, keyFile, PrivKeyToPEM(id.PrivateKey), 0600)
 		if err != nil {
 			return err
 		}
-		fkey.Write(PrivKeyToPEM(id.PrivateKey))
-		fkey.Close()
 	}
 	if certFile != "" {
-		fcert, err := os.Create(certFile)
+		fcert, err := fileutil.Vfs.Create(certFile)
 		if err != nil {
 			return err
 		}

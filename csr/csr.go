@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
 )
 
@@ -187,6 +188,13 @@ func (r *CertificateRequest) Name() pkix.Name {
 	}
 
 	return name
+}
+
+// AddSAN adds a SAN value to the request
+func (r *CertificateRequest) AddSAN(s string) {
+	if found := slices.ContainsString(r.SAN, s); !found {
+		r.SAN = append(r.SAN, s)
+	}
 }
 
 // isNameEmpty returns true if the name has no identifying information in it.

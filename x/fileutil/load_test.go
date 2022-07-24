@@ -26,8 +26,8 @@ func Test_LoadConfigWithSchema_file(t *testing.T) {
 
 func Test_SaveConfigWithSchema_file(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "cfg-test")
-	os.MkdirAll(tmpDir, os.ModePerm)
-	defer os.RemoveAll(tmpDir)
+	fileutil.Vfs.MkdirAll(tmpDir, os.ModePerm)
+	defer fileutil.Vfs.RemoveAll(tmpDir)
 
 	cfg := "file://" + path.Join(tmpDir, guid.MustCreate())
 	err := fileutil.SaveConfigWithSchema(cfg, "test")

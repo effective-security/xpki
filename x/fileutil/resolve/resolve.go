@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
 )
 
@@ -18,9 +19,9 @@ func Directory(dir string, baseDir string, create bool) (resolved string, err er
 	} else {
 		resolved = filepath.Join(baseDir, dir)
 	}
-	if _, err := os.Stat(resolved); os.IsNotExist(err) {
+	if _, err := fileutil.Vfs.Stat(resolved); os.IsNotExist(err) {
 		if create {
-			if err = os.MkdirAll(resolved, 0744); err != nil {
+			if err = fileutil.Vfs.MkdirAll(resolved, 0744); err != nil {
 				return "", errors.WithMessagef(err, "crerate dir: %q", resolved)
 			}
 		} else {
@@ -41,7 +42,7 @@ func File(file string, baseDir string) (resolved string, err error) {
 	} else if baseDir != "" {
 		resolved = filepath.Join(baseDir, file)
 	}
-	if _, err := os.Stat(resolved); os.IsNotExist(err) {
+	if _, err := fileutil.Vfs.Stat(resolved); os.IsNotExist(err) {
 		return resolved, errors.WithMessagef(err, "not found: %v", resolved)
 	}
 	return resolved, nil

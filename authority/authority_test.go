@@ -13,6 +13,7 @@ import (
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/guid"
 	"github.com/stretchr/testify/suite"
 
@@ -37,7 +38,6 @@ var (
 
 type testSuite struct {
 	suite.Suite
-
 	crypto *cryptoprov.Crypto
 }
 
@@ -71,24 +71,28 @@ func (s *testSuite) SetupSuite() {
 	)
 
 	tmpDir := filepath.Join(os.TempDir(), "xpki", "certs")
-	os.MkdirAll(tmpDir, os.ModePerm)
+	fileutil.Vfs.MkdirAll(tmpDir, os.ModePerm)
 
 	rootBundleFile = filepath.Join(tmpDir, "root_ca.pem")
 	s.Require().NoError(rootCA.SaveCertAndKey(rootBundleFile, "", false))
+	s.NoError(fileutil.FileExists(rootBundleFile))
 
 	ca1CertFile = filepath.Join(tmpDir, "l1_ca.pem")
 	ca1KeyFile = filepath.Join(tmpDir, "l1_ca.key")
 	s.Require().NoError(inter1.SaveCertAndKey(ca1CertFile, ca1KeyFile, false))
+	s.NoError(fileutil.FileExists(ca1CertFile))
 
 	ca2CertFile = filepath.Join(tmpDir, "l2_ca.pem")
 	ca2KeyFile = filepath.Join(tmpDir, "l2_ca.key")
 	s.Require().NoError(inter2.SaveCertAndKey(ca2CertFile, ca2KeyFile, false))
+	s.NoError(fileutil.FileExists(ca2CertFile))
 }
 
 func (s *testSuite) TearDownSuite() {
 }
 
 func TestAuthority(t *testing.T) {
+	fileutil.SetMemMapFs()
 	suite.Run(t, new(testSuite))
 }
 
@@ -121,7 +125,7 @@ func (s *testSuite) TestNewAuthority() {
 
 	_, err = authority.NewAuthority(cfg3, s.crypto)
 	s.Require().Error(err)
-	s.Equal("unable to create issuer: \"badkey\": unable to create signer: load key file: open not_found: no such file or directory", err.Error())
+	s.Equal("unable to create issuer: \"badkey\": unable to create signer: load key file: open not_found: file does not exist", err.Error())
 
 	//
 	// test default Expiry and Renewal from Authority config
@@ -560,5 +564,44 @@ func (s *testSuite) TestIssuerSign() {
 		s.Contains(crt.DNSNames, "www.trusty.com")
 		s.Contains(crt.EmailAddresses, "ca@trusty.com")
 		s.NotEmpty(crt.IPAddresses)
+	})
+
+	s.Run("GenFile", func() {
+		req := csr.CertificateRequest{
+			CommonName: "trusty.com",
+			KeyRequest: kr,
+			SAN:        []string{"ca@trusty.com", "www.trusty.com", "127.0.0.1"},
+			Names: []csr.X509Name{
+				{
+					O: "trusty",
+					C: "US",
+				},
+			},
+		}
+		crt, _, err := rootCA.GenCert(
+			crypto,
+			&req,
+			"RestrictedServer",
+			"/tmp/gencert/cert.pem",
+			"/tmp/gencert/cert.key")
+		s.Require().NoError(err)
+		s.Equal(req.CommonName, crt.Subject.CommonName)
+		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
+
+		s.NoError(fileutil.FileExists("/tmp/gencert/cert.pem"))
+		s.NoError(fileutil.FileExists("/tmp/gencert/cert.key"))
+
+		crt, _, err = rootCA.GenCert(
+			crypto,
+			&req,
+			"RestrictedServer",
+			"/tmp/gencert/cert.pem",
+			"/tmp/gencert/cert.key")
+		s.Require().NoError(err)
+		s.Equal(req.CommonName, crt.Subject.CommonName)
+		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
+
+		s.NoError(fileutil.FileExists("/tmp/gencert/cert.pem.bak"))
+		s.NoError(fileutil.FileExists("/tmp/gencert/cert.key.bak"))
 	})
 }

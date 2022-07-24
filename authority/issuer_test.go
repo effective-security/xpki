@@ -46,7 +46,7 @@ func (s *testSuite) TestNewIssuerErrors() {
 	}
 	_, err := authority.NewIssuer(cfg, s.crypto)
 	s.Require().Error(err)
-	s.Equal("unable to create signer: load key file: open not_found: no such file or directory", err.Error())
+	s.Equal("unable to create signer: load key file: open not_found: file does not exist", err.Error())
 
 	cfg = &authority.IssuerConfig{
 		KeyFile:  ca2KeyFile,
@@ -54,7 +54,7 @@ func (s *testSuite) TestNewIssuerErrors() {
 	}
 	_, err = authority.NewIssuer(cfg, s.crypto)
 	s.Require().Error(err)
-	s.Equal("failed to load cert: open not_found: no such file or directory", err.Error())
+	s.Equal("failed to load cert: open not_found: file does not exist", err.Error())
 
 	cfg = &authority.IssuerConfig{
 		CertFile:       ca2CertFile,
@@ -64,7 +64,7 @@ func (s *testSuite) TestNewIssuerErrors() {
 	}
 	_, err = authority.NewIssuer(cfg, s.crypto)
 	s.Require().Error(err)
-	s.Equal("failed to load root-bundle: open not_found: no such file or directory", err.Error())
+	s.Equal("failed to load root-bundle: open not_found: file does not exist", err.Error())
 
 	cfg = &authority.IssuerConfig{
 		CertFile:       ca2CertFile,
@@ -74,5 +74,5 @@ func (s *testSuite) TestNewIssuerErrors() {
 	}
 	_, err = authority.NewIssuer(cfg, s.crypto)
 	s.Require().Error(err)
-	s.Equal("failed to load ca-bundle: open not_found: no such file or directory", err.Error())
+	s.Equal("failed to load ca-bundle: open not_found: file does not exist", err.Error())
 }

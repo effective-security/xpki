@@ -155,3 +155,14 @@ func TestSetSAN(t *testing.T) {
 	assert.Len(t, template.EmailAddresses, 1)
 	assert.Len(t, template.IPAddresses, 2)
 }
+
+func TestAddSAN(t *testing.T) {
+	r := csr.CertificateRequest{
+		SAN: []string{"localhost"},
+	}
+
+	r.AddSAN("localhost")
+	r.AddSAN("127.0.0.1")
+
+	assert.Len(t, r.SAN, 2)
+}

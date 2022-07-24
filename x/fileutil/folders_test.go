@@ -2,13 +2,13 @@ package fileutil_test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"testing"
 
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/guid"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,10 +16,10 @@ import (
 func Test_FolderExists(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "fileutil-test", guid.MustCreate())
 
-	err := os.MkdirAll(tmpDir, os.ModePerm)
+	err := fileutil.Vfs.MkdirAll(tmpDir, os.ModePerm)
 	require.NoError(t, err)
 
-	defer os.RemoveAll(tmpDir)
+	defer fileutil.Vfs.RemoveAll(tmpDir)
 
 	assert.Error(t, fileutil.FolderExists(""))
 	assert.NoError(t, fileutil.FolderExists(tmpDir))
@@ -36,12 +36,12 @@ func Test_FolderExists(t *testing.T) {
 func Test_FileExists(t *testing.T) {
 	tmpDir := path.Join(os.TempDir(), "fileutil-test", guid.MustCreate())
 
-	err := os.MkdirAll(tmpDir, os.ModePerm)
+	err := fileutil.Vfs.MkdirAll(tmpDir, os.ModePerm)
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer fileutil.Vfs.RemoveAll(tmpDir)
 
 	file := path.Join(tmpDir, "file.txt")
-	err = ioutil.WriteFile(file, []byte("FileExists"), 0644)
+	err = afero.WriteFile(fileutil.Vfs, file, []byte("FileExists"), 0644)
 	require.NoError(t, err)
 
 	assert.Error(t, fileutil.FileExists(""))

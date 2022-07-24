@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -268,8 +269,8 @@ func TestSaveCertAndKey(t *testing.T) {
 	)
 
 	tmpDir := filepath.Join(os.TempDir(), "testca")
-	os.MkdirAll(tmpDir, os.ModePerm)
-	defer os.RemoveAll(tmpDir)
+	fileutil.Vfs.MkdirAll(tmpDir, os.ModePerm)
+	defer fileutil.Vfs.RemoveAll(tmpDir)
 
 	serverCertFile := filepath.Join(tmpDir, "test-server.pem")
 	serverKeyFile := filepath.Join(tmpDir, "test-server-key.pem")
