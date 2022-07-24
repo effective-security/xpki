@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
 )
 
@@ -101,9 +102,9 @@ func NewBundler(caBundleFile, intBundleFile string, opt ...Option) (*Bundler, er
 	}
 
 	if IntermediateStash != "" {
-		if _, err = os.Stat(IntermediateStash); err != nil && os.IsNotExist(err) {
+		if _, err = fileutil.Vfs.Stat(IntermediateStash); err != nil && os.IsNotExist(err) {
 			logger.KV(xlog.DEBUG, "stach_folder", IntermediateStash)
-			err = os.MkdirAll(IntermediateStash, 0755)
+			err = fileutil.Vfs.MkdirAll(IntermediateStash, 0755)
 			if err != nil {
 				return nil, errors.WithMessagef(err, "failed to create intermediate stash directory")
 			}
@@ -357,9 +358,9 @@ func constructCertFileName(cert *x509.Certificate) string {
 // that.
 func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 	if IntermediateStash != "" {
-		if _, err := os.Stat(IntermediateStash); err != nil && os.IsNotExist(err) {
+		if _, err := fileutil.Vfs.Stat(IntermediateStash); err != nil && os.IsNotExist(err) {
 			logger.Infof("intermediate stash directory %s doesn't exist, creating", IntermediateStash)
-			err = os.MkdirAll(IntermediateStash, 0755)
+			err = fileutil.Vfs.MkdirAll(IntermediateStash, 0755)
 			if err != nil {
 				logger.Errorf("failed to create intermediate stash directory %s: %v", IntermediateStash, err)
 				return err

@@ -9,6 +9,7 @@ import (
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/x/ctl"
+	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/guid"
 	"github.com/pkg/errors"
 )
@@ -173,7 +174,7 @@ type HsmGenKeyCmd struct {
 
 // Run the command
 func (a *HsmGenKeyCmd) Run(ctx *Cli) error {
-	if !a.Force && ctl.FileExists(a.Output) == nil {
+	if !a.Force && fileutil.FileExists(a.Output) == nil {
 		return errors.Errorf("%q file exists, specify --force flag to override", a.Output)
 	}
 

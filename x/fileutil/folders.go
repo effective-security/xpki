@@ -1,10 +1,17 @@
 package fileutil
 
 import (
-	"os"
-
 	"github.com/pkg/errors"
+	"github.com/spf13/afero"
 )
+
+// Vfs is virtual file system
+var Vfs = afero.NewOsFs()
+
+// SetMemMapFs changes Vfs to NewMemMapFs
+func SetMemMapFs() {
+	Vfs = afero.NewMemMapFs()
+}
 
 // FolderExists ensures that folder exists
 func FolderExists(dir string) error {
@@ -12,7 +19,7 @@ func FolderExists(dir string) error {
 		return errors.Errorf("invalid parameter: dir")
 	}
 
-	stat, err := os.Stat(dir)
+	stat, err := Vfs.Stat(dir)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -30,7 +37,7 @@ func FileExists(file string) error {
 		return errors.Errorf("invalid parameter: file")
 	}
 
-	stat, err := os.Stat(file)
+	stat, err := Vfs.Stat(file)
 	if err != nil {
 		return errors.WithStack(err)
 	}

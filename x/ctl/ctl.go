@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/xpki/x/slices"
@@ -51,24 +50,6 @@ func WriteJSON(out io.Writer, value interface{}) error {
 
 	out.Write(json)
 	out.Write(newLine)
-
-	return nil
-}
-
-// FileExists ensures that file exists
-func FileExists(file string) error {
-	if file == "" {
-		return errors.Errorf("invalid parameter: file")
-	}
-
-	stat, err := os.Stat(file)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	if stat.IsDir() {
-		return errors.Errorf("not a file: %s", file)
-	}
 
 	return nil
 }
