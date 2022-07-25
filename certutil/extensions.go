@@ -1,6 +1,7 @@
 package certutil
 
 import (
+	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 )
@@ -23,4 +24,21 @@ func FindExtension(list []pkix.Extension, oid asn1.ObjectIdentifier) *pkix.Exten
 		}
 	}
 	return nil
+}
+
+// IsOCSPSigner returns true for OCSP key usage
+func IsOCSPSigner(crt *x509.Certificate) bool {
+	for _, eku := range crt.ExtKeyUsage {
+		if eku == x509.ExtKeyUsageOCSPSigning {
+			return true
+		}
+	}
+	return false
+}
+
+var oidOCSPNoCheck = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5}
+
+// HasOCSPNoCheck returns true if certificate has ocsp-no-check
+func HasOCSPNoCheck(crt *x509.Certificate) bool {
+	return FindExtension(crt.Extensions, oidOCSPNoCheck) != nil
 }

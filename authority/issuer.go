@@ -549,9 +549,10 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	*/
 
 	var (
-		eku    []x509.ExtKeyUsage
-		ku     x509.KeyUsage
-		expiry time.Duration = profile.Expiry.TimeDuration()
+		eku             []x509.ExtKeyUsage
+		ku              x509.KeyUsage
+		expiry          time.Duration = profile.Expiry.TimeDuration()
+		isOCSPResponder bool          = false
 	)
 
 	if expiry == 0 && notAfter.IsZero() {
@@ -576,6 +577,7 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	if notAfter.IsZero() {
 		notAfter = notBefore.Add(expiry)
 	}
+
 	// TODO: ensure that time from CSR does no exceed allowed in profile
 	if template.NotBefore.IsZero() || template.NotBefore.Before(notBefore) {
 		template.NotBefore = notBefore.UTC()
@@ -595,17 +597,19 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 		template.IPAddresses = nil
 		template.EmailAddresses = nil
 		template.URIs = nil
+	} else {
+		// Do not include OCSP and CDP to delegated OCSP responder cert
+		isOCSPResponder = certutil.IsOCSPSigner(template) &&
+			(profile.OCSPNoCheck || certutil.HasOCSPNoCheck(template))
 	}
 	template.SubjectKeyId = ski
 
-	// TODO: check if profile allows OCSP and CRL
-
 	ocspURL := ca.OcspURL()
-	if ocspURL != "" {
+	if !isOCSPResponder && ocspURL != "" {
 		template.OCSPServer = []string{ocspURL}
 	}
 	crlURL := ca.CrlURL()
-	if crlURL != "" {
+	if !isOCSPResponder && crlURL != "" {
 		template.CRLDistributionPoints = []string{crlURL}
 	}
 	issuerURL := ca.AiaURL()
