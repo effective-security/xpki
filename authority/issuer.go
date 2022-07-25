@@ -2,10 +2,13 @@ package authority
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"io"
@@ -47,6 +50,7 @@ type Issuer struct {
 
 	keyHash  map[crypto.Hash][]byte
 	nameHash map[crypto.Hash][]byte
+	keyInfo  *certutil.KeyInfo
 }
 
 // Bundle returns certificates bundle
@@ -181,6 +185,11 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		cfg.Profiles = make(map[string]*CertProfile)
 	}
 
+	keyInfo, err := certutil.NewKeyInfo(signer)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get key info")
+	}
+
 	label := cfg.Label
 	bundle, status, err := certutil.VerifyBundleFromPEM(certBytes, intCAbytes, rootBytes)
 	if err != nil {
@@ -252,15 +261,55 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		crlRenewal:  crlRenewal,
 		crlExpiry:   crlExpiry,
 		ocspExpiry:  ocspExpiry,
+		keyInfo:     keyInfo,
 	}
 	logger.Noticef("issuer=%s, skid=%s, crl_url=%s, ocsp_url=%s", label, ca.skid, ca.crlURL, ca.ocspURL)
 	return ca, nil
 }
 
+// SignProof returns base64 URL encoded signature of the data
+func (ca *Issuer) SignProof(data []byte) (string, error) {
+	hasher := ca.keyInfo.Hash
+	h := hasher.New()
+	h.Write(data)
+	sig, err := ca.signer.Sign(rand.Reader, h.Sum(nil), hasher)
+	if err != nil {
+		return "", errors.WithMessagef(err, "unable to sign proof")
+	}
+
+	return base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+// VerifyProof verifies the signature
+func (ca *Issuer) VerifyProof(data []byte, proof string) error {
+	hasher := ca.keyInfo.Hash
+
+	signature, err := base64.RawURLEncoding.DecodeString(proof)
+	if err != nil {
+		return errors.WithMessagef(err, "unable to verify proof")
+	}
+	h := hasher.New()
+	h.Write(data)
+
+	if ca.keyInfo.Type == "RSA" {
+		err = rsa.VerifyPKCS1v15(ca.signer.Public().(*rsa.PublicKey), hasher, h.Sum(nil), signature)
+		if err != nil {
+			return errors.WithMessagef(err, "invalid rsa signature")
+		}
+		return nil
+	}
+
+	ecc := ca.signer.Public().(*ecdsa.PublicKey)
+	if !ecdsa.VerifyASN1(ecc, h.Sum(nil), signature) {
+		return errors.Errorf("ecdsa: invalid signature")
+	}
+	return nil
+}
+
 // Sign signs a new certificate based on the PEM-encoded
 // certificate request with the specified profile.
 func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
-	logger.KV(xlog.TRACE, "req", req)
+	//logger.KV(xlog.DEBUG, "req", req)
 
 	profileName := req.Profile
 	if profileName == "" {
@@ -468,6 +517,10 @@ func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
 		caCert = template
 	} else {
 		caCert = ca.bundle.Cert
+	}
+
+	if template.NotAfter.After(caCert.NotAfter) {
+		template.NotAfter = caCert.NotAfter
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, caCert, template.PublicKey, ca.signer)

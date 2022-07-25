@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/x/slices"
 	"github.com/jinzhu/copier"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
@@ -241,11 +242,11 @@ func (p *CertProfile) AllowedExtensionsStrings() []string {
 // IsAllowed returns true, if a role is allowed to request this profile
 func (p *CertProfile) IsAllowed(role string) bool {
 	if len(p.DeniedRoles) > 0 &&
-		(containsString(p.DeniedRoles, role) || containsString(p.DeniedRoles, "*")) {
+		(slices.ContainsString(p.DeniedRoles, role) || slices.ContainsString(p.DeniedRoles, "*")) {
 		return false
 	}
 	if len(p.AllowedRoles) > 0 &&
-		(containsString(p.AllowedRoles, role) || containsString(p.AllowedRoles, "*")) {
+		(slices.ContainsString(p.AllowedRoles, role) || slices.ContainsString(p.AllowedRoles, "*")) {
 		return true
 	}
 	return true
@@ -299,7 +300,7 @@ func LoadConfig(path string) (*Config, error) {
 				}
 
 				if profile.IssuerLabel == iss.Label ||
-					(profile.IssuerLabel == "*" && containsString(iss.AllowedProfiles, name)) {
+					(profile.IssuerLabel == "*" && slices.ContainsString(iss.AllowedProfiles, name)) {
 					iss.Profiles[name] = profile
 				}
 			}
@@ -439,16 +440,4 @@ func (p *CertProfile) Usages() (ku x509.KeyUsage, eku []x509.ExtKeyUsage, unk []
 		}
 	}
 	return
-}
-
-// containsString returns true if the items slice contains a value equal to item
-// Note that this can end up traversing the entire slice, and so is only really
-// suitable for small slices, for larger data sets, consider using a map instead.
-func containsString(items []string, item string) bool {
-	for _, x := range items {
-		if x == item {
-			return true
-		}
-	}
-	return false
 }

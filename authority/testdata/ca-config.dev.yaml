@@ -30,8 +30,8 @@ profiles:
       - server auth
       - ipsec end system
     allowed_extensions:
-      - 1.3.6.1.5.5.7.1.1
-      - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1 # AIA
+      - 2.5.29.17 # SAN
 
   test_client:
     description: test client profile
@@ -43,8 +43,8 @@ profiles:
       - client auth
       - ipsec user
     allowed_extensions:
-      - 1.3.6.1.5.5.7.1.1
-      - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1 # AIA
+      - 2.5.29.17 # SAN
 
   peer:
     expiry: 168h
@@ -57,8 +57,8 @@ profiles:
       - ipsec user
       - ipsec end system
     allowed_extensions:
-      - 1.3.6.1.5.5.7.1.1
-      - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1 # AIA
+      - 2.5.29.17 # SAN
 
   server:
     expiry: 168h
@@ -69,8 +69,8 @@ profiles:
       - server auth
       - ipsec end system
     allowed_extensions:
-      - 1.3.6.1.5.5.7.1.1
-      - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1 # AIA
+      - 2.5.29.17 # SAN
 
   client:
     expiry: 168h
@@ -81,8 +81,8 @@ profiles:
       - client auth
       - ipsec user
     allowed_extensions:
-      - 1.3.6.1.5.5.7.1.1
-      - 2.5.29.17
+      - 1.3.6.1.5.5.7.1.1 # AIA
+      - 2.5.29.17 # SAN
 
   ocsp:
     description: OCSP responder profile
@@ -92,7 +92,7 @@ profiles:
       - digital signature
       - ocsp signing
     allowed_extensions:
-      - 1.3.6.1.5.5.7.1.1
+      - 1.3.6.1.5.5.7.1.1 # AIA
 
   timestamp:
     description: Timestamp certificate profile
