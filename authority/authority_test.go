@@ -305,6 +305,22 @@ func (s *testSuite) TestIssuerSign() {
 					{2, 5, 29, 17},
 				},
 			},
+			"ocsp": {
+				Usage:        []string{"ocsp signing"},
+				Expiry:       1 * csr.OneYear,
+				Backdate:     0,
+				AllowedNames: "ocsp.trusty.com",
+				OCSPNoCheck:  true,
+				AllowedCSRFields: &csr.AllowedFields{
+					Subject:  true,
+					DNSNames: false,
+					URIs:     false,
+				},
+				AllowedExtensions: []csr.OID{
+					{1, 3, 6, 1, 5, 5, 7, 48, 1, 5},
+					{1, 3, 6, 1, 5, 5, 7, 1, 1},
+				},
+			},
 			"default": {
 				Usage:        []string{"server auth", "signing", "key encipherment"},
 				Expiry:       1 * csr.OneYear,
@@ -368,6 +384,36 @@ func (s *testSuite) TestIssuerSign() {
 		_, _, err = rootCA.Sign(sreq)
 		s.Require().Error(err)
 		s.Equal("unsupported profile: unknown", err.Error())
+	})
+
+	s.Run("ocsp", func() {
+		req := csr.CertificateRequest{
+			CommonName: "ocsp.trusty.com",
+			KeyRequest: kr,
+		}
+
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		s.Require().NoError(err)
+
+		sreq := csr.SignRequest{
+			Request: string(csrPEM),
+			Profile: "ocsp",
+		}
+
+		crt, _, err := rootCA.Sign(sreq)
+		s.Require().NoError(err)
+		s.Equal(req.CommonName, crt.Subject.CommonName)
+		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
+		s.False(crt.IsCA)
+		s.Equal(-1, crt.MaxPathLen)
+		s.Empty(crt.IPAddresses)
+		s.Empty(crt.EmailAddresses)
+		s.Empty(crt.DNSNames)
+		s.Empty(crt.URIs)
+		s.Empty(crt.CRLDistributionPoints)
+		s.Empty(crt.OCSPServer)
+		s.True(certutil.IsOCSPSigner(crt))
+		s.True(certutil.HasOCSPNoCheck(crt))
 	})
 
 	s.Run("Valid L1", func() {

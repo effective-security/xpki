@@ -78,6 +78,7 @@ var (
 	OidExtensionAuthorityInfoAccess   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
 	OidExtensionCRLNumber             = asn1.ObjectIdentifier{2, 5, 29, 20}
 	OidAuthorityInfoAccessOcsp        = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1}
+	OidOCSPNoCheck                    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5}
 	OidAuthorityInfoAccessIssuers     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}
 )
 
