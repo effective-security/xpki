@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/effective-security/xlog"
@@ -51,6 +52,9 @@ type Issuer struct {
 	keyHash  map[crypto.Hash][]byte
 	nameHash map[crypto.Hash][]byte
 	keyInfo  *certutil.KeyInfo
+
+	responder *responder
+	lock      sync.RWMutex
 }
 
 // Bundle returns certificates bundle
@@ -173,7 +177,10 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-
+	_, _, err = issuer.CreateDelegatedOCSPSigner()
+	if err != nil {
+		return nil, errors.WithMessage(err, "unable to create delegated OCSP responder")
+	}
 	return issuer, nil
 }
 

@@ -98,6 +98,9 @@ type AIAConfig struct {
 
 	// CRLRenewal specifies value in 8h format for duration of CRL renewal before next update time
 	CRLRenewal time.Duration `json:"crl_renewal,omitempty" yaml:"crl_renewal,omitempty"`
+
+	// DelegatedOCSPProfile specifies to use delegated OCSP responder
+	DelegatedOCSPProfile string `json:"delegated_ocsp_profile,omitempty" yaml:"delegated_ocsp_profile,omitempty"`
 }
 
 // Copy returns new copy
@@ -123,6 +126,7 @@ func (c *AIAConfig) Copy() *AIAConfig {
 		c.CRLExpiry,
 		c.OCSPExpiry,
 		c.CRLRenewal,
+		c.DelegatedOCSPProfile,
 	}
 }
 
