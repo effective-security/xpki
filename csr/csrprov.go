@@ -71,7 +71,7 @@ func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, k
 	s, ok := priv.(crypto.Signer)
 	if !ok {
 		key = nil
-		err = errors.WithMessage(err, "unable to convert key to crypto.Signer")
+		err = errors.Errorf("unable to convert key to crypto.Signer")
 		return
 	}
 	pub = s.Public()

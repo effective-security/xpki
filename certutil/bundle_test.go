@@ -1,6 +1,7 @@
 package certutil
 
 import (
+	"crypto"
 	"crypto/x509/pkix"
 	"fmt"
 	"io/ioutil"
@@ -129,6 +130,11 @@ func Test_LoadAndVerifyBundleFromPEM(t *testing.T) {
 	crt := FindIssuer(bundle.Cert, bundle.Chain, bundle.RootCert)
 	require.NotNil(t, crt)
 	assert.Equal(t, "[TEST] Issuing CA One Level 1", crt.Subject.CommonName)
+
+	_, err = CreateOCSPRequest(bundle.Cert, bundle.IssuerCert, crypto.SHA256)
+	require.NoError(t, err)
+	_, err = CreateOCSPRequest(bundle.Cert, bundle.Cert, crypto.SHA256)
+	assert.EqualError(t, err, "invalid chain: issuer does not match")
 }
 
 func Test_SortBundlesByExpiration(t *testing.T) {
