@@ -339,6 +339,15 @@ func SetSAN(template *x509.Certificate, SAN []string) {
 		template.EmailAddresses = []string{}
 		template.DNSNames = []string{}
 		template.URIs = []*url.URL{}
+		for i := range template.ExtraExtensions {
+			// remove SAN
+			if template.ExtraExtensions[i].Id.Equal(OidExtensionSubjectAltName) {
+				l := len(template.ExtraExtensions)
+				template.ExtraExtensions[i] = template.ExtraExtensions[l-1]
+				template.ExtraExtensions = template.ExtraExtensions[:l-1]
+				break
+			}
+		}
 	}
 
 	for _, san := range SAN {

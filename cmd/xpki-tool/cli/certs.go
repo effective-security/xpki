@@ -1,16 +1,22 @@
 package cli
 
 import (
+	"bytes"
+	"crypto"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/print"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/ocsp"
 )
 
 // CertsCmd provides certificates commands
@@ -91,10 +97,11 @@ func filterByAfter(list []*x509.Certificate, notAfter time.Time) []*x509.Certifi
 
 // CertValidateCmd specifies flags for Validate action
 type CertValidateCmd struct {
-	Cert string `kong:"arg" required:"" help:"certificate file name"`
-	CA   string `help:"optional, CA bundle file"`
-	Root string `help:"optional, Trusted Roots file"`
-	Out  string `help:"optional, output file to save certificate chain"`
+	Cert       string `kong:"arg" required:"" help:"certificate file name"`
+	CA         string `help:"optional, CA bundle file"`
+	Root       string `help:"optional, Trusted Roots file"`
+	Out        string `help:"optional, output file to save certificate chain"`
+	Revocation bool   `help:"optional, validate certificate revocation status"`
 }
 
 // Run the command
@@ -144,13 +151,13 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	print.Certificates(w, chain, false)
 
 	if len(bundleStatus.ExpiringSKIs) > 0 {
-		fmt.Fprintf(w, "WARNING: Expiring SKI:\n")
+		fmt.Fprintf(w, "\nWARNING: Expiring SKI:\n")
 		for _, ski := range bundleStatus.ExpiringSKIs {
 			fmt.Fprintf(w, "  -- %s\n", ski)
 		}
 	}
 	if len(bundleStatus.Untrusted) > 0 {
-		fmt.Fprintf(w, "WARNING: Untrusted SKI:\n")
+		fmt.Fprintf(w, "\nWARNING: Untrusted SKI:\n")
 		for _, ski := range bundleStatus.Untrusted {
 			fmt.Fprintf(w, "  -- %s\n", ski)
 		}
@@ -164,5 +171,167 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 		}
 	}
 
+	// revInfo stores all certificates statuses
+	var revInfo []*certRevInfo
+
+	// For Revocation Check
+	if len(chain) > 0 && a.Revocation {
+		var wg sync.WaitGroup
+
+		for _, crt := range chain {
+			if bytes.Equal(crt.RawIssuer, crt.RawSubject) {
+				// skip root
+				continue
+			}
+
+			issuer := certutil.FindIssuer(crt, chain, nil)
+			if issuer == nil {
+				continue
+			}
+
+			if len(crt.OCSPServer) == 0 {
+				revInfo = append(revInfo, &certRevInfo{crt: crt, status: ocsp.Unknown, revokedType: "OCSP", err: errors.New("OCSP server is not present")})
+				//				fmt.Fprintf(w, "OCSP server is not present: %s\n", crt.Subject.String())
+			}
+
+			for _, url := range crt.OCSPServer {
+				wg.Add(1)
+				go func(URL string) {
+					defer wg.Done()
+
+					status, err := OCSPValidation(crt, issuer, URL)
+					if err != nil || status == ocsp.Revoked {
+						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "OCSP"})
+					} else {
+						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, url: URL, revokedType: "OCSP"})
+					}
+				}(url)
+			}
+
+			if len(crt.CRLDistributionPoints) == 0 {
+				revInfo = append(revInfo, &certRevInfo{crt: crt, status: ocsp.Unknown, revokedType: "CRL", err: errors.New("CDP is not present")})
+				//				fmt.Fprintf(w, "CRL endpoint is not present: %s\n", crt.Subject.String())
+			}
+
+			for _, url := range crt.CRLDistributionPoints {
+				wg.Add(1)
+				go func(URL string) {
+					defer wg.Done()
+					status, err := CRLValidation(crt, issuer, URL)
+					if err != nil || status == ocsp.Revoked {
+						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "CRL"})
+					} else {
+						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, url: URL, revokedType: "CRL"})
+					}
+				}(url)
+			}
+			wg.Wait()
+		}
+	}
+
+	// Prints all the certificate stores in revokedCerts
+	if a.Revocation {
+
+		aggrStatus := ocsp.Unknown
+		fmt.Fprint(w, "\n============================= Revocation Info =============================\n")
+
+		for _, crtInfo := range revInfo {
+			if crtInfo.err != nil {
+				fmt.Fprintf(w, "%s : %s\n", crtInfo.crt.Subject.String(), crtInfo.err)
+			} else {
+				fmt.Fprintf(w, "%s: %s: %v\n", crtInfo.crt.Subject.String(), crtInfo.revokedType, statusMap[crtInfo.status])
+				if crtInfo.status == ocsp.Revoked {
+					aggrStatus = ocsp.Revoked
+				}
+			}
+		}
+
+		if aggrStatus == ocsp.Revoked {
+			fmt.Fprintf(w, "\nCertificate chain is revoked\n")
+		}
+	}
+
 	return nil
+}
+
+// OCSPValidation calls OCSP server and validate certificate
+func OCSPValidation(crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, error) {
+	req, err := certutil.CreateOCSPRequest(crt, issuer, crypto.SHA256)
+	if err != nil {
+		return ocsp.Unknown, errors.WithStack(err)
+	}
+
+	der, err := postHTTP(rawURL, "application/ocsp-request", bytes.NewReader(req))
+	if err != nil {
+		return ocsp.Unknown, errors.WithStack(err)
+	}
+
+	res, err := ocsp.ParseResponseForCert(der, crt, issuer)
+	if err != nil {
+		return ocsp.Unknown, errors.WithStack(err)
+	}
+
+	if res.NextUpdate.Before(time.Now()) {
+		return ocsp.Unknown, errors.New("OCSP response is expired")
+	}
+
+	return res.Status, nil
+}
+
+// CRLValidation calls CRL Endpoint and check certificate in CRL
+func CRLValidation(crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error) {
+	der, err := download(crlURL)
+	if err != nil {
+		return ocsp.Unknown, errors.WithStack(err)
+	}
+
+	// ensure the CRL is valid
+	certList, err := x509.ParseCRL(der)
+	if err != nil {
+		return ocsp.Unknown, errors.WithStack(err)
+	}
+
+	err = issuer.CheckCRLSignature(certList)
+	if err != nil {
+		return ocsp.Unknown, errors.WithMessage(err, "unable to verify CRL signature")
+	}
+
+	revokedList := (*certList).TBSCertList.RevokedCertificates
+	for _, cert := range revokedList {
+		if crt.SerialNumber.Cmp(cert.SerialNumber) == 0 {
+			return ocsp.Revoked, nil
+		}
+	}
+	return ocsp.Good, nil
+}
+
+// certRevInfo stores the information of revoked certificate
+type certRevInfo struct {
+	crt         *x509.Certificate
+	status      int
+	err         error
+	url         string
+	revokedType string
+}
+
+// statusMap maps status
+var statusMap map[int]string = map[int]string{
+	ocsp.Good:    "good",
+	ocsp.Revoked: "revoked",
+	ocsp.Unknown: "unknown",
+}
+
+func postHTTP(url string, contentType string, body io.Reader) ([]byte, error) {
+	resp, err := http.Post(url, contentType, body)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "unable to post to %s", url)
+	}
+	defer resp.Body.Close()
+
+	rbody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "unable to download from %s", url)
+	}
+
+	return rbody, nil
 }
