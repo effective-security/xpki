@@ -126,7 +126,10 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 	if err != nil {
 		return errors.WithMessage(err, "invalid CSR profile")
 	}
-	req.SAN = a.San
+
+	if len(a.San) > 0 {
+		req.SAN = a.San
+	}
 
 	// Load ca-config
 	cacfg, err := authority.LoadConfig(a.CAConfig)

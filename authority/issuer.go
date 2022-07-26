@@ -382,7 +382,6 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 			}
 	*/
 
-	csr.SetSAN(&safeTemplate, req.SAN)
 	safeTemplate.Subject = csr.PopulateName(req.Subject, safeTemplate.Subject)
 
 	// If there is a whitelist, ensure that both the Common Name, SAN DNSNames and Emails match
@@ -486,6 +485,7 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 			)
 		}
 	}
+	csr.SetSAN(&safeTemplate, req.SAN)
 
 	err = ca.fillTemplate(&safeTemplate, profile, req.NotBefore, req.NotAfter)
 	if err != nil {
@@ -594,10 +594,11 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	}
 	template.KeyUsage = ku
 	template.ExtKeyUsage = eku
-	template.BasicConstraintsValid = true
+
 	template.IsCA = profile.CAConstraint.IsCA
 	if template.IsCA {
 		logger.Noticef("subject=%q, is_ca=true, MaxPathLen=%d", template.Subject.String(), profile.CAConstraint.MaxPathLen)
+		template.BasicConstraintsValid = true
 		template.MaxPathLen = profile.CAConstraint.MaxPathLen
 		template.MaxPathLenZero = template.MaxPathLen == 0
 		template.DNSNames = nil

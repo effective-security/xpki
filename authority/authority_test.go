@@ -350,7 +350,7 @@ func (s *testSuite) TestIssuerSign() {
 	s.Run("default", func() {
 		req := csr.CertificateRequest{
 			CommonName: "trusty.com",
-			SAN:        []string{"www.trusty.com", "127.0.0.1", "server@trusty.com", "spiffe://trusty/test"},
+			SAN:        []string{"www.trusty.com", "trusty.com", "127.0.0.1", "server@trusty.com", "spiffe://trusty/test"},
 			KeyRequest: kr,
 		}
 
@@ -373,11 +373,12 @@ func (s *testSuite) TestIssuerSign() {
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
 		s.False(crt.IsCA)
-		s.Equal(-1, crt.MaxPathLen)
-		s.NotEmpty(crt.IPAddresses)
-		s.NotEmpty(crt.EmailAddresses)
-		s.NotEmpty(crt.DNSNames)
-		s.NotEmpty(crt.URIs)
+		s.Equal(0, crt.MaxPathLen)
+		s.False(crt.BasicConstraintsValid)
+		s.Len(crt.IPAddresses, 1)
+		s.Len(crt.EmailAddresses, 1)
+		s.Len(crt.DNSNames, 2)
+		s.Len(crt.URIs, 1)
 
 		// test unknown profile
 		sreq.Profile = "unknown"
@@ -405,7 +406,8 @@ func (s *testSuite) TestIssuerSign() {
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
 		s.False(crt.IsCA)
-		s.Equal(-1, crt.MaxPathLen)
+		s.Equal(0, crt.MaxPathLen)
+		s.False(crt.BasicConstraintsValid)
 		s.Empty(crt.IPAddresses)
 		s.Empty(crt.EmailAddresses)
 		s.Empty(crt.DNSNames)
