@@ -53,7 +53,7 @@ type Issuer struct {
 	nameHash map[crypto.Hash][]byte
 	keyInfo  *certutil.KeyInfo
 
-	responder *responder
+	responder *OCSPResponder
 	lock      sync.RWMutex
 }
 
@@ -177,7 +177,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	_, _, err = issuer.CreateDelegatedOCSPSigner()
+	_, err = issuer.CreateDelegatedOCSPSigner()
 	if err != nil {
 		return nil, errors.WithMessage(err, "unable to create delegated OCSP responder")
 	}
