@@ -14,10 +14,10 @@ import (
 type app struct {
 	cli.Cli
 
-	CsrInfo  cli.CsrInfoCmd  `cmd:"" help:"print CSR info"`
-	OcspInfo cli.OcspInfoCmd `cmd:"" help:"print OCSP info"`
-	Crl      cli.CrlCmd      `cmd:"" help:"CRL commands"`
-	Cert     cli.CertsCmd    `cmd:"" help:"Certificate commands"`
+	CsrInfo cli.CsrInfoCmd `cmd:"" help:"print CSR info"`
+	Crl     cli.CRLCmd     `cmd:"" help:"CRL commands"`
+	Cert    cli.CertsCmd   `cmd:"" help:"Certificate commands"`
+	Ocsp    cli.OCSPCmd    `cmd:"" help:"OCSP commands"`
 }
 
 func main() {

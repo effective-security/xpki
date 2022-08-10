@@ -4,7 +4,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"path"
 
 	"github.com/effective-security/xpki/certutil"
@@ -12,21 +11,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-// CrlCmd provides commands for CRL
-type CrlCmd struct {
-	Info  CrlInfoCmd  `cmd:"" help:"print CRL info"`
+// CRLCmd provides commands for CRL
+type CRLCmd struct {
+	Info  CRLInfoCmd  `cmd:"" help:"print CRL info"`
 	Fetch CRLFetchCmd `cmd:"" help:"fetch CRL"`
 }
 
-// CrlInfoCmd specifies flags for Info command
-type CrlInfoCmd struct {
-	Crl string `kong:"arg" required:"" help:"CSR file name"`
+// CRLInfoCmd prints crl info
+type CRLInfoCmd struct {
+	In string `kong:"arg" required:"" help:"DER-encoded CRL"`
 }
 
 // Run the command
-func (a *CrlInfoCmd) Run(ctx *Cli) error {
+func (a *CRLInfoCmd) Run(ctx *Cli) error {
 	// Load CRL
-	der, err := ctx.ReadFile(a.Crl)
+	der, err := ctx.ReadFile(a.In)
 	if err != nil {
 		return errors.WithMessage(err, "unable to load CRL file")
 	}
@@ -46,6 +45,7 @@ type CRLFetchCmd struct {
 	Cert   string `kong:"arg" required:"" help:"certificate file name"`
 	Output string `required:"" help:"output folder name"`
 	All    bool   `help:"fetch entire chain"`
+	Proxy  string `help:"optional, proxy address or DC name"`
 	Print  bool
 }
 
@@ -69,16 +69,20 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 		list = list[:1]
 	}
 
+	client, err := httpClient(a.Proxy)
+	if err != nil {
+		return errors.WithStack(err)
+	}
 	for _, crt := range list {
 		if len(crt.CRLDistributionPoints) < 1 {
-			logger.Infof("CRL DP is not present; CN=%q\n", crt.Subject.String())
+			logger.Infof("CRL DP is not present: CN=%q\n", crt.Subject.String())
 			continue
 		}
 
 		crldp := crt.CRLDistributionPoints[0]
 		logger.Infof("fetching CRL from %q\n", crldp)
 
-		body, err := download(crldp)
+		body, err := download(client, crldp)
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -101,19 +105,4 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 		}
 	}
 	return nil
-}
-
-func download(url string) ([]byte, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "unable to fetch from %s", url)
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "unable to download from %s", url)
-	}
-
-	return body, nil
 }
