@@ -80,7 +80,7 @@ func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool) {
 		fmt.Fprintf(w, "  Basic Constraints Valid: %t\n", crt.BasicConstraintsValid)
 		fmt.Fprintf(w, "  Max Path: %d\n", crt.MaxPathLen)
 	}
-	if verboseExtensions {
+	if verboseExtensions && len(crt.Extensions) > 0 {
 		fmt.Fprintf(w, "Extensions:\n")
 		for _, ex := range crt.Extensions {
 			fmt.Fprintf(w, "  id: %s, critical: %t\n", ex.Id, ex.Critical)
@@ -152,7 +152,7 @@ var ocspStatusCode = map[int]string{
 }
 
 // OCSPResponse prints OCSP response details
-func OCSPResponse(w io.Writer, res *ocsp.Response) {
+func OCSPResponse(w io.Writer, res *ocsp.Response, verboseExtensions bool) {
 	now := time.Now()
 	issuedIn := now.Sub(res.ProducedAt) / time.Minute * time.Minute
 	updatedIn := now.Sub(res.ThisUpdate) / time.Minute * time.Minute
@@ -165,6 +165,27 @@ func OCSPResponse(w io.Writer, res *ocsp.Response) {
 	fmt.Fprintf(w, "Status: %s\n", ocspStatusCode[res.Status])
 	if res.Status == ocsp.Revoked {
 		fmt.Fprintf(w, "Revocation reason: %d\n", res.RevocationReason)
+		revokedIn := now.Sub(res.RevokedAt) / time.Minute * time.Minute
+		fmt.Fprintf(w, "Revoked: %s (%s ago)\n", res.RevokedAt.Local().String(), revokedIn.String())
+	}
+	if verboseExtensions {
+		if len(res.RawResponderName) > 0 {
+			fmt.Fprintf(w, "Responder name hash: %x\n", res.RawResponderName)
+		}
+		if len(res.ResponderKeyHash) > 0 {
+			fmt.Fprintf(w, "Responder key hash: %x\n", res.ResponderKeyHash)
+		}
+	}
+	if verboseExtensions && len(res.Extensions) > 0 {
+		fmt.Fprintf(w, "Extensions:\n")
+		for _, ex := range res.Extensions {
+			fmt.Fprintf(w, "  id: %s, critical: %t\n", ex.Id, ex.Critical)
+			fmt.Fprintf(w, "  val: %x\n\n", ex.Value)
+		}
+	}
+	if res.Certificate != nil {
+		fmt.Fprintf(w, "Certificate:\n")
+		Certificate(w, res.Certificate, verboseExtensions)
 	}
 }
 

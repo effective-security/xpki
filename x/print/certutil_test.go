@@ -115,7 +115,7 @@ func Test_OCSPResponse(t *testing.T) {
 	}
 
 	w := bytes.NewBuffer([]byte{})
-	print.OCSPResponse(w, res)
+	print.OCSPResponse(w, res, true)
 	out := w.String()
 	assert.Contains(t, out, "Revocation reason: ")
 }
