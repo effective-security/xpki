@@ -1,6 +1,7 @@
 package authority
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -121,32 +122,47 @@ func (i *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 		template.RevocationReason = req.Reason
 	}
 
-	signer, crt, err := i.CreateDelegatedOCSPSigner()
+	issuer := i.bundle.Cert
+	responder, err := i.CreateDelegatedOCSPSigner()
 	if err != nil {
 		logger.KV(xlog.ERROR, "reason", "delegated_ocsp", "err", err)
-		signer = i.signer
+		responder = i.responder
 	}
 
-	template.Certificate = crt
-	res, err := ocsp.CreateResponse(i.bundle.Cert, i.bundle.Cert, template, signer)
+	if !bytes.Equal(issuer.RawSubject, responder.Cert.RawSubject) {
+		logger.KV(xlog.DEBUG,
+			"reason", "delegated_ocsp",
+			"responder", responder.Cert.Subject.CommonName,
+			"issuer", issuer.Subject.CommonName,
+		)
+		template.Certificate = responder.Cert
+	}
+	res, err := ocsp.CreateResponse(issuer, responder.Cert, template, responder.Signer)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 	return res, nil
 }
 
-type responder struct {
-	signer crypto.Signer
-	crt    *x509.Certificate
+// OCSPResponder provides responder
+type OCSPResponder struct {
+	Signer crypto.Signer
+	Cert   *x509.Certificate
 }
 
 // CreateDelegatedOCSPSigner create OCSP signing certificate,
 // if needed, or returns an existing one.
 // if the delegation is not allowed, the CA Signer is returned
-func (i *Issuer) CreateDelegatedOCSPSigner() (crypto.Signer, *x509.Certificate, error) {
+func (i *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
 	if i.cfg.AIA == nil ||
 		i.cfg.AIA.DelegatedOCSPProfile == "" {
-		return i.signer, nil, nil
+		if i.responder == nil {
+			i.responder = &OCSPResponder{
+				Signer: i.signer,
+				Cert:   i.bundle.Cert,
+			}
+		}
+		return i.responder, nil
 	}
 
 	i.lock.Lock()
@@ -157,14 +173,14 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (crypto.Signer, *x509.Certificate, 
 	// OCSP validity period
 	cutoff := time.Now().Add(i.ocspExpiry).UTC()
 	if ocsp != nil &&
-		ocsp.crt != nil &&
-		cutoff.Before(ocsp.crt.NotAfter.UTC()) {
+		ocsp.Cert != nil &&
+		cutoff.Before(ocsp.Cert.NotAfter.UTC()) {
 		logger.KV(xlog.DEBUG,
 			"reason", "valid_delegated",
-			"valid_for", time.Until(ocsp.crt.NotAfter).Truncate(time.Minute).String(),
-			"expires", ocsp.crt.NotAfter,
+			"valid_for", time.Until(ocsp.Cert.NotAfter).Truncate(time.Minute).String(),
+			"expires", ocsp.Cert.NotAfter,
 		)
-		return ocsp.signer, ocsp.crt, nil
+		return ocsp, nil
 	}
 
 	inmem := inmemcrypto.NewProvider()
@@ -180,12 +196,12 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (crypto.Signer, *x509.Certificate, 
 
 	csrPEM, priv, _, err := csr.NewProvider(inmem).GenerateKeyAndRequest(req)
 	if err != nil {
-		return nil, nil, errors.WithMessage(err, "failed to create CSR")
+		return nil, errors.WithMessage(err, "failed to create CSR")
 	}
 
 	s, ok := priv.(crypto.Signer)
 	if !ok {
-		return nil, nil, errors.Errorf("unable to convert key to crypto.Signer")
+		return nil, errors.Errorf("unable to convert key to crypto.Signer")
 	}
 
 	crt, _, err := i.Sign(csr.SignRequest{
@@ -198,7 +214,7 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (crypto.Signer, *x509.Certificate, 
 		},
 	})
 	if err != nil {
-		return nil, nil, errors.WithMessage(err, "failed to sign OCSP responder")
+		return nil, errors.WithMessage(err, "failed to sign OCSP responder")
 	}
 	logger.KV(xlog.NOTICE,
 		"reason", "cert_signed",
@@ -208,10 +224,11 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (crypto.Signer, *x509.Certificate, 
 		"expires", crt.NotAfter.UTC().Format(time.RFC3339),
 	)
 
-	i.responder = &responder{
-		signer: s,
-		crt:    crt,
+	r := &OCSPResponder{
+		Signer: s,
+		Cert:   crt,
 	}
 
-	return s, crt, nil
+	i.responder = r
+	return r, nil
 }
