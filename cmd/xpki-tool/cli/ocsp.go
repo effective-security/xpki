@@ -36,18 +36,18 @@ func (a *OCSPInfoCmd) Run(ctx *Cli) error {
 		return errors.WithMessage(err, "unable to prase OCSP")
 	}
 
-	print.OCSPResponse(ctx.Writer(), res)
+	print.OCSPResponse(ctx.Writer(), res, true)
 
 	return nil
 }
 
 // OCSPFetchCmd specifies flags to fetch OCSP
 type OCSPFetchCmd struct {
-	Cert   string `kong:"arg" required:"" help:"certificate file name"`
-	CA     string `help:"optional, CA bundle file"`
-	Output string `help:"output folder name"`
-	Proxy  string `help:"optional, proxy address or DC name"`
-	Print  bool
+	Cert  string `kong:"arg" required:"" help:"certificate file name"`
+	CA    string `help:"optional, CA bundle file"`
+	Out   string `help:"output folder name"`
+	Proxy string `help:"optional, proxy address or DC name"`
+	Print bool
 }
 
 // Run the command
@@ -100,8 +100,8 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 		} else {
 			fmt.Fprintf(w, "%s: %v\n", url, statusMap[status])
 
-			if a.Output != "" {
-				filename := path.Join(a.Output, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
+			if a.Out != "" {
+				filename := path.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
 				err = ioutil.WriteFile(filename, der, 0644)
 				if err != nil {
 					return errors.WithMessagef(err, "unable to write OCSP: %s", filename)
@@ -113,7 +113,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 					return errors.WithMessage(err, "unable to prase OCSP")
 				}
 
-				print.OCSPResponse(w, res)
+				print.OCSPResponse(w, res, true)
 			}
 		}
 	}
