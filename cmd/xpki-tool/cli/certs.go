@@ -8,10 +8,12 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/print"
@@ -48,7 +50,7 @@ func (a *CertInfoCmd) Run(ctx *Cli) error {
 	}
 
 	now := time.Now().UTC()
-	if a.NoExpired != nil && *a.NoExpired == true {
+	if a.NoExpired != nil && *a.NoExpired {
 		list = filterByNotAfter(list, now)
 	}
 
@@ -102,6 +104,7 @@ type CertValidateCmd struct {
 	Root       string `help:"optional, Trusted Roots file"`
 	Out        string `help:"optional, output file to save certificate chain"`
 	Revocation bool   `help:"optional, validate certificate revocation status"`
+	Proxy      string `help:"optional, proxy address or DC name"`
 }
 
 // Run the command
@@ -199,7 +202,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 				go func(URL string) {
 					defer wg.Done()
 
-					status, err := OCSPValidation(crt, issuer, URL)
+					status, _, err := OCSPValidation(crt, issuer, URL, a.Proxy)
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "OCSP"})
 					} else {
@@ -217,7 +220,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 				wg.Add(1)
 				go func(URL string) {
 					defer wg.Done()
-					status, err := CRLValidation(crt, issuer, URL)
+					status, err := CRLValidation(crt, issuer, URL, a.Proxy)
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "CRL"})
 					} else {
@@ -237,7 +240,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 
 		for _, crtInfo := range revInfo {
 			if crtInfo.err != nil {
-				fmt.Fprintf(w, "%s : %s\n", crtInfo.crt.Subject.String(), crtInfo.err)
+				fmt.Fprintf(w, "%s : ERROR: %s\n", crtInfo.crt.Subject.String(), crtInfo.err)
 			} else {
 				fmt.Fprintf(w, "%s: %s: %v\n", crtInfo.crt.Subject.String(), crtInfo.revokedType, statusMap[crtInfo.status])
 				if crtInfo.status == ocsp.Revoked {
@@ -255,32 +258,43 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 }
 
 // OCSPValidation calls OCSP server and validate certificate
-func OCSPValidation(crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, error) {
+func OCSPValidation(crt *x509.Certificate, issuer *x509.Certificate, rawURL, proxy string) (int, []byte, error) {
 	req, err := certutil.CreateOCSPRequest(crt, issuer, crypto.SHA256)
 	if err != nil {
-		return ocsp.Unknown, errors.WithStack(err)
+		return ocsp.Unknown, nil, errors.WithStack(err)
 	}
 
-	der, err := postHTTP(rawURL, "application/ocsp-request", bytes.NewReader(req))
+	client, err := httpClient(proxy)
 	if err != nil {
-		return ocsp.Unknown, errors.WithStack(err)
+		return ocsp.Unknown, nil, errors.WithStack(err)
+	}
+
+	der, err := postHTTP(client, rawURL, "application/ocsp-request", bytes.NewReader(req))
+	if err != nil {
+		return ocsp.Unknown, nil, errors.WithStack(err)
 	}
 
 	res, err := ocsp.ParseResponseForCert(der, crt, issuer)
 	if err != nil {
-		return ocsp.Unknown, errors.WithStack(err)
+		logger.KV(xlog.DEBUG, "ocsp", string(der))
+		return ocsp.Unknown, nil, errors.WithStack(err)
 	}
 
 	if res.NextUpdate.Before(time.Now()) {
-		return ocsp.Unknown, errors.New("OCSP response is expired")
+		return ocsp.Unknown, nil, errors.New("OCSP response is expired")
 	}
 
-	return res.Status, nil
+	return res.Status, der, nil
 }
 
 // CRLValidation calls CRL Endpoint and check certificate in CRL
-func CRLValidation(crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error) {
-	der, err := download(crlURL)
+func CRLValidation(crt *x509.Certificate, issuer *x509.Certificate, crlURL, proxy string) (int, error) {
+	client, err := httpClient(proxy)
+	if err != nil {
+		return ocsp.Unknown, errors.WithStack(err)
+	}
+
+	der, err := download(client, crlURL)
 	if err != nil {
 		return ocsp.Unknown, errors.WithStack(err)
 	}
@@ -288,6 +302,7 @@ func CRLValidation(crt *x509.Certificate, issuer *x509.Certificate, crlURL strin
 	// ensure the CRL is valid
 	certList, err := x509.ParseCRL(der)
 	if err != nil {
+		logger.KV(xlog.DEBUG, "crl", string(der))
 		return ocsp.Unknown, errors.WithStack(err)
 	}
 
@@ -321,8 +336,22 @@ var statusMap map[int]string = map[int]string{
 	ocsp.Unknown: "unknown",
 }
 
-func postHTTP(url string, contentType string, body io.Reader) ([]byte, error) {
-	resp, err := http.Post(url, contentType, body)
+func httpClient(proxyURL string) (*http.Client, error) {
+	c := &http.Client{}
+	if proxyURL != "" {
+		u, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, errors.Errorf("unable to parse proxy URL: %s", proxyURL)
+		}
+		c.Transport = &http.Transport{
+			Proxy: http.ProxyURL(u),
+		}
+	}
+	return c, nil
+}
+
+func postHTTP(client *http.Client, url string, contentType string, body io.Reader) ([]byte, error) {
+	resp, err := client.Post(url, contentType, body)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to post to %s", url)
 	}
@@ -334,4 +363,19 @@ func postHTTP(url string, contentType string, body io.Reader) ([]byte, error) {
 	}
 
 	return rbody, nil
+}
+
+func download(client *http.Client, url string) ([]byte, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "unable to fetch from %s", url)
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "unable to download from %s", url)
+	}
+
+	return body, nil
 }

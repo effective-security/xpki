@@ -100,8 +100,8 @@ func (s *testSuite) TestCrsInfo() {
 }
 
 func (s *testSuite) TestOcspInfo() {
-	cmd := OcspInfoCmd{
-		Ocsp: "testdata/ocsp1.res",
+	cmd := OCSPInfoCmd{
+		In: "testdata/ocsp1.res",
 	}
 	err := cmd.Run(s.ctl)
 	s.NoError(err)
