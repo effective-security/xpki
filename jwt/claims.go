@@ -264,7 +264,7 @@ func (c MapClaims) String(k string) string {
 		return tv
 	default:
 		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
-		return xlog.String(v)
+		return xlog.EscapedString(v)
 	}
 }
 
