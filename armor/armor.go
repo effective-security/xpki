@@ -83,13 +83,13 @@ func Decode(data []byte) (p *Block, rest []byte) {
 	} else if i := bytes.Index(data, pemStart); i >= 0 {
 		rest = rest[i+len(pemStart) : len(data)]
 	} else {
-		logger.Debug("reason=prefix_not_found")
+		logger.KV(xlog.DEBUG, "reason", "prefix_not_found")
 		return nil, data
 	}
 
 	typeLine, rest := getLine(rest)
 	if !bytes.HasSuffix(typeLine, pemEndOfLine) {
-		logger.Debug("reason=sufix_not_found")
+		logger.KV(xlog.DEBUG, "reason", "sufix_not_found")
 		return decodeError(data, rest)
 	}
 	typeLine = typeLine[0 : len(typeLine)-len(pemEndOfLine)]
@@ -133,7 +133,7 @@ func Decode(data []byte) (p *Block, rest []byte) {
 	}
 
 	if endIndex < 0 {
-		logger.Debug("reason=end_index, endIndex=%d", endIndex)
+		logger.KV(xlog.DEBUG, "reason", "end_index", "index", endIndex)
 		return decodeError(data, rest)
 	}
 
@@ -142,7 +142,7 @@ func Decode(data []byte) (p *Block, rest []byte) {
 	endTrailer := rest[endTrailerIndex:]
 	endTrailerLen := len(typeLine) + len(pemEndOfLine)
 	if len(endTrailer) < endTrailerLen {
-		logger.Debug("reason=end_trailer, endTrailerLen=%d", endTrailerLen)
+		logger.KV(xlog.DEBUG, "reason", "end_trailer", "trailerLen", endTrailerLen)
 		return decodeError(data, rest)
 	}
 
