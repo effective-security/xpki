@@ -243,8 +243,11 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		keyHash[h] = certutil.Digest(h, publicKeyInfo.PublicKey.RightAlign())
 		nameHash[h] = certutil.Digest(h, bundle.Cert.RawSubject)
 
-		logger.Infof("label=%s, alg=%s, keyHash=%s, nameHash=%s",
-			label, certutil.HashAlgoToStr(h), hex.EncodeToString(keyHash[h]), hex.EncodeToString(nameHash[h]))
+		logger.KV(xlog.INFO,
+			"label", label,
+			"alg", certutil.HashAlgoToStr(h),
+			"keyHash", hex.EncodeToString(keyHash[h]),
+			"nameHash", hex.EncodeToString(nameHash[h]))
 	}
 
 	cabundlePEM := strings.TrimSpace(bundle.CertPEM)
