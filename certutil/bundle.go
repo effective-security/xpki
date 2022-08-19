@@ -60,17 +60,14 @@ func (b *Bundle) ExpiresInHours() time.Duration {
 }
 
 // VerifyBundleFromPEM constructs and verifies the cert chain
-func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte) (bundle *Bundle, status *BundleStatus, err error) {
-	b, err := NewBundlerFromPEM(rootPEM, intCAPEM)
+func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte, opt ...Option) (bundle *Bundle, status *BundleStatus, err error) {
+	b, err := NewBundlerFromPEM(rootPEM, intCAPEM, opt...)
 	if err != nil {
 		err = errors.WithMessage(err, "failed to create bundler")
 		return
 	}
-	flavor := Force
-	if len(rootPEM) > 0 {
-		flavor = Optimal
-	}
-	c, err := b.BundleFromPEMorDER(certPEM, nil, flavor, "")
+
+	c, err := b.BundleFromPEMorDER(certPEM, nil, "")
 	if err != nil {
 		err = errors.WithMessage(err, "failed to bundle")
 		return
@@ -122,7 +119,7 @@ func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte) (bundle *Bundle, sta
 }
 
 // LoadAndVerifyBundleFromPEM constructs and verifies the cert chain
-func LoadAndVerifyBundleFromPEM(certFile, intCAFile, rootFile string) (*Bundle, *BundleStatus, error) {
+func LoadAndVerifyBundleFromPEM(certFile, intCAFile, rootFile string, opt ...Option) (*Bundle, *BundleStatus, error) {
 	var err error
 	var certPEM, intCAPEM, rootPEM []byte
 
@@ -145,7 +142,7 @@ func LoadAndVerifyBundleFromPEM(certFile, intCAFile, rootFile string) (*Bundle, 
 		}
 	}
 
-	return VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM)
+	return VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM, opt...)
 }
 
 // FindIssuer returns an issuer cert

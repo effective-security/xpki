@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path"
+	"time"
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
@@ -69,7 +70,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 		list = list[:1]
 	}
 
-	client, err := httpClient(a.Proxy)
+	client, err := httpClient(a.Proxy, 3*time.Duration(ctx.Timeout))
 	if err != nil {
 		return errors.WithStack(err)
 	}

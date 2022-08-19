@@ -59,12 +59,16 @@ type Bundler struct {
 
 type options struct {
 	keyUsages []x509.ExtKeyUsage
+	withAIA   bool
+	client    *http.Client
+	flavor    BundleFlavor
 }
 
 var defaultOptions = options{
 	keyUsages: []x509.ExtKeyUsage{
 		x509.ExtKeyUsageAny,
 	},
+	flavor: Optimal,
 }
 
 // An Option sets options such as allowed key usages, etc.
@@ -75,6 +79,28 @@ type Option func(*options)
 func WithKeyUsages(usages ...x509.ExtKeyUsage) Option {
 	return func(o *options) {
 		o.keyUsages = usages
+	}
+}
+
+// WithBundleFlavor lets to specify bundle build Optimal or Force.
+// Force is by default
+func WithBundleFlavor(flavor BundleFlavor) Option {
+	return func(o *options) {
+		o.flavor = flavor
+	}
+}
+
+// WithAIA lets to enable downloading issuers from AIA.
+func WithAIA(enable bool) Option {
+	return func(o *options) {
+		o.withAIA = enable
+	}
+}
+
+// WithHTTPClient lets to specify http.Client for downloading AIA.
+func WithHTTPClient(client *http.Client) Option {
+	return func(o *options) {
+		o.client = client
 	}
 }
 
@@ -119,6 +145,11 @@ func NewBundler(caBundleFile, intBundleFile string, opt ...Option) (*Bundler, er
 // If caBundlePEM is nil, the resulting Bundler can only do "Force" bundle.
 func NewBundlerFromPEM(caBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundler, error) {
 	opts := defaultOptions
+
+	if len(caBundlePEM) == 0 {
+		opts.flavor = Force
+	}
+
 	for _, o := range opt {
 		o(&opts)
 	}
@@ -172,7 +203,7 @@ func (b *Bundler) VerifyOptions() x509.VerifyOptions {
 // BundleFromFile takes a set of files containing the PEM-encoded leaf certificate
 // (optionally along with some intermediate certs), the PEM-encoded private key
 // and returns the bundle built from that key and the certificate(s).
-func (b *Bundler) BundleFromFile(bundleFile, keyFile string, flavor BundleFlavor, password string) (*Chain, error) {
+func (b *Bundler) BundleFromFile(bundleFile, keyFile string, password string) (*Chain, error) {
 	certsRaw, err := ioutil.ReadFile(bundleFile)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to load bundle")
@@ -190,12 +221,12 @@ func (b *Bundler) BundleFromFile(bundleFile, keyFile string, flavor BundleFlavor
 		}
 	}
 
-	return b.BundleFromPEMorDER(certsRaw, keyPEM, flavor, password)
+	return b.BundleFromPEMorDER(certsRaw, keyPEM, password)
 }
 
 // BundleFromPEMorDER builds a certificate bundle from the set of byte
 // slices containing the PEM or DER-encoded certificate(s), private key.
-func (b *Bundler) BundleFromPEMorDER(certsRaw, keyPEM []byte, flavor BundleFlavor, password string) (*Chain, error) {
+func (b *Bundler) BundleFromPEMorDER(certsRaw, keyPEM []byte, password string) (*Chain, error) {
 	var key crypto.Signer
 	var err error
 	if len(keyPEM) != 0 {
@@ -213,7 +244,7 @@ func (b *Bundler) BundleFromPEMorDER(certsRaw, keyPEM []byte, flavor BundleFlavo
 		return nil, errors.New("failed to parse certificates")
 	}
 
-	return b.Bundle(certs, key, flavor)
+	return b.Bundle(certs, key)
 }
 
 type fetchedIntermediate struct {
@@ -224,12 +255,12 @@ type fetchedIntermediate struct {
 // fetchRemoteCertificate retrieves a single URL pointing to a certificate
 // and attempts to first parse it as a DER-encoded certificate; if
 // this fails, it attempts to decode it as a PEM-encoded certificate.
-func fetchRemoteCertificate(certURL string) (fi *fetchedIntermediate, err error) {
+func fetchRemoteCertificate(client *http.Client, certURL string) (fi *fetchedIntermediate, err error) {
 	logger.Debugf("fetching remote certificate: %s", certURL)
 	var resp *http.Response
-	resp, err = HTTPClient.Get(certURL)
+	resp, err = client.Get(certURL)
 	if err != nil {
-		logger.KV(xlog.DEBUG, "status", "failed HTTP get", "err", err.Error())
+		logger.KV(xlog.DEBUG, "status", "failed HTTP get", "url", certURL, "err", err.Error())
 		return
 	}
 
@@ -237,12 +268,14 @@ func fetchRemoteCertificate(certURL string) (fi *fetchedIntermediate, err error)
 	var certData []byte
 	certData, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
-		logger.KV(xlog.DEBUG, "status", "failed read body", "err", err.Error())
+		logger.KV(xlog.DEBUG, "status", "failed read body", "url", certURL, "err", err.Error())
 		return
 	}
 
 	crt, err := x509.ParseCertificate(certData)
 	if err != nil {
+		logger.KV(xlog.DEBUG, "status", "failed to parse certificate", "data", string(certData), "err", err.Error())
+
 		crt, err = ParseFromPEM(certData)
 		if err != nil {
 			logger.KV(xlog.DEBUG, "status", "failed to parse certificate", "err", err.Error())
@@ -252,6 +285,16 @@ func fetchRemoteCertificate(certURL string) (fi *fetchedIntermediate, err error)
 
 	fi = &fetchedIntermediate{Cert: crt, Name: constructCertFileName(crt)}
 	return
+}
+
+func httpClient(timeout time.Duration) *http.Client {
+	if timeout == 0 {
+		timeout = 3 * time.Second
+	}
+	c := &http.Client{
+		Timeout: timeout,
+	}
+	return c
 }
 
 func reverse(certs []*x509.Certificate) []*x509.Certificate {
@@ -389,6 +432,11 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 		seen[string(cert.Signature)] = true
 	}
 
+	client := b.opts.client
+	if client == nil {
+		client = httpClient(time.Second * 3)
+	}
+
 	// Verify the chain and store valid intermediates in the chain.
 	// If it doesn't verify, fetch the intermediates and extend the chain
 	// in a DFS manner and verify each time we hit a root.
@@ -410,22 +458,29 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 				logger.Debugf("url %s has been seen", url)
 				continue
 			}
-			crt, err := fetchRemoteCertificate(url)
-			if err != nil {
-				continue
-			} else if seen[string(crt.Cert.Signature)] {
-				logger.Debugf("fetched certificate is known")
-				continue
+			var crt *fetchedIntermediate
+			if b.opts.withAIA {
+				crt, err = fetchRemoteCertificate(client, url)
+				if err != nil {
+					continue
+				}
+
+				if seen[string(crt.Cert.Signature)] {
+					logger.Debugf("fetched certificate is known")
+					continue
+				}
+				seen[url] = true
+				seen[string(crt.Cert.Signature)] = true
+				chain = append([]*fetchedIntermediate{crt}, chain...)
+				advanced = true
+				break
+			} else {
+				logger.Debugf("AIA fetch is disabled for url %s", url)
 			}
-			seen[url] = true
-			seen[string(crt.Cert.Signature)] = true
-			chain = append([]*fetchedIntermediate{crt}, chain...)
-			advanced = true
-			break
 		}
 
 		if !advanced {
-			logger.Debugf("didn't advance, stepping back")
+			//logger.Debugf("didn't advance, stepping back")
 			chain = chain[1:]
 		}
 	}
@@ -478,7 +533,7 @@ func (b *Chain) buildHostnames() {
 // Certificate structure), a private key as crypto.Signer in one of the appropriate
 // formats (i.e. *rsa.PrivateKey or *ecdsa.PrivateKey, or even a opaque key), using them to
 // build a certificate bundle.
-func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor BundleFlavor) (*Chain, error) {
+func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, error) {
 	if len(certs) == 0 {
 		return nil, nil
 	}
@@ -531,7 +586,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 
 	bundle.buildHostnames()
 
-	if flavor == Force {
+	if b.opts.flavor == Force {
 		// force bundle checks the certificates
 		// forms a verification chain.
 		if !partialVerify(certs) {
@@ -546,7 +601,9 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 
 		chains, err := cert.Verify(b.VerifyOptions())
 		if err != nil {
-			logger.Debugf("verification failed: %v", err)
+			logger.Debugf("first verification failed with default bundle, issuer=%q, subject=%q, aia=%q : %v",
+				cert.Issuer.CommonName, cert.Subject.CommonName, cert.IssuingCertificateURL, err)
+
 			// If the error was an unknown authority, try to fetch
 			// the intermediate specified in the AIA and add it to
 			// the intermediates bundle.
@@ -556,7 +613,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 
 			searchErr := b.fetchIntermediates(certs)
 			if searchErr != nil {
-				logger.Debugf("search failed: %v", searchErr)
+				logger.Debugf("issuer search failed: %v", searchErr)
 				return nil, errors.WithMessage(err, "unable to verify the certificate chain")
 			}
 
@@ -580,8 +637,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 
 	// when forcing a bundle, bundle ubiquity doesn't matter
 	// also we don't retrieve the anchoring root of the bundle
-	var untrusted []string
-	if flavor != Force {
+	if b.opts.flavor != Force {
 		// Add root store presence info
 		root := bundle.Chain[len(bundle.Chain)-1]
 		bundle.Root = root
@@ -600,11 +656,11 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 		ExpiringSKIs: getSKIs(bundle.Chain, expiringCerts),
 		Code:         statusCode,
 		Messages:     messages,
-		Untrusted:    untrusted,
+		Untrusted:    []string{},
 	}
 
 	// attempt to not to include the root certificate for optimization
-	if flavor != Force {
+	if b.opts.flavor != Force {
 		// Include at least one intermediate if the leaf has enabled OCSP and is not CA.
 		if bundle.Cert.OCSPServer != nil && !bundle.Cert.IsCA && len(bundle.Chain) <= 2 {
 			// No op. Return one intermediate if there is one.

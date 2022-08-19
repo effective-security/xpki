@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path"
+	"time"
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
@@ -91,9 +92,15 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 		return errors.Errorf("unable to find issuer")
 	}
 
+	timeout := time.Second * time.Duration(ctx.Timeout)
+	client, err := httpClient(a.Proxy, timeout)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
 	for _, url := range crt.OCSPServer {
 		logger.Infof("fetching OCSP from %q\n", url)
-		status, der, err := OCSPValidation(crt, issuer, url, a.Proxy)
+		status, der, err := OCSPValidation(client, crt, issuer, url)
 
 		if err != nil {
 			fmt.Fprintf(w, "%s : ERROR: %s\n", url, err.Error())
