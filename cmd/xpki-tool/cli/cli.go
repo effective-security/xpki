@@ -18,6 +18,8 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "cli")
 type Cli struct {
 	Version ctl.VersionFlag `name:"version" help:"Print version information and quit" hidden:""`
 
+	Timeout int `help:"HTTP timeout in seconds" default:"3"`
+
 	// Stdin is the source to read from, typically set to os.Stdin
 	stdin io.Reader
 	// Output is the destination for all output from the command, typically set to os.Stdout

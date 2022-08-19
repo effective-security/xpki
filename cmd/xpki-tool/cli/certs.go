@@ -105,6 +105,7 @@ type CertValidateCmd struct {
 	Out        string `help:"optional, output file to save certificate chain"`
 	Revocation bool   `help:"optional, validate certificate revocation status"`
 	Proxy      string `help:"optional, proxy address or DC name"`
+	WithAIA    bool   `help:"optional, enable AIA to fetch intermediates"`
 }
 
 // Run the command
@@ -133,8 +134,19 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 		}
 	}
 
+	timeout := time.Second * time.Duration(ctx.Timeout)
+	client, err := httpClient(a.Proxy, timeout)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	opts := []certutil.Option{
+		certutil.WithHTTPClient(client),
+		certutil.WithAIA(a.WithAIA),
+	}
+
 	w := ctx.Writer()
-	bundle, bundleStatus, err := certutil.VerifyBundleFromPEM(certBytes, cas, roots)
+	bundle, bundleStatus, err := certutil.VerifyBundleFromPEM(certBytes, cas, roots, opts...)
 	if err != nil {
 		if crt, err2 := certutil.ParseFromPEM(certBytes); err2 == nil {
 			print.Certificate(w, crt, false)
@@ -202,7 +214,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 				go func(URL string) {
 					defer wg.Done()
 
-					status, _, err := OCSPValidation(crt, issuer, URL, a.Proxy)
+					status, _, err := OCSPValidation(client, crt, issuer, URL)
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "OCSP"})
 					} else {
@@ -220,7 +232,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 				wg.Add(1)
 				go func(URL string) {
 					defer wg.Done()
-					status, err := CRLValidation(crt, issuer, URL, a.Proxy)
+					status, err := CRLValidation(client, crt, issuer, URL)
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "CRL"})
 					} else {
@@ -258,13 +270,10 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 }
 
 // OCSPValidation calls OCSP server and validate certificate
-func OCSPValidation(crt *x509.Certificate, issuer *x509.Certificate, rawURL, proxy string) (int, []byte, error) {
-	req, err := certutil.CreateOCSPRequest(crt, issuer, crypto.SHA256)
-	if err != nil {
-		return ocsp.Unknown, nil, errors.WithStack(err)
-	}
+func OCSPValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, []byte, error) {
+	logger.KV(xlog.DEBUG, "fetching", "ocsp", "url", rawURL)
 
-	client, err := httpClient(proxy)
+	req, err := certutil.CreateOCSPRequest(crt, issuer, crypto.SHA256)
 	if err != nil {
 		return ocsp.Unknown, nil, errors.WithStack(err)
 	}
@@ -277,22 +286,19 @@ func OCSPValidation(crt *x509.Certificate, issuer *x509.Certificate, rawURL, pro
 	res, err := ocsp.ParseResponseForCert(der, crt, issuer)
 	if err != nil {
 		logger.KV(xlog.DEBUG, "ocsp", string(der))
-		return ocsp.Unknown, nil, errors.WithStack(err)
+		return ocsp.Unknown, der, errors.WithMessagef(err, "failed to parse OCSP")
 	}
 
 	if res.NextUpdate.Before(time.Now()) {
-		return ocsp.Unknown, nil, errors.New("OCSP response is expired")
+		return ocsp.Unknown, der, errors.New("OCSP response is expired")
 	}
 
 	return res.Status, der, nil
 }
 
 // CRLValidation calls CRL Endpoint and check certificate in CRL
-func CRLValidation(crt *x509.Certificate, issuer *x509.Certificate, crlURL, proxy string) (int, error) {
-	client, err := httpClient(proxy)
-	if err != nil {
-		return ocsp.Unknown, errors.WithStack(err)
-	}
+func CRLValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error) {
+	logger.KV(xlog.DEBUG, "fetching", "crl", "url", crlURL)
 
 	der, err := download(client, crlURL)
 	if err != nil {
@@ -303,7 +309,7 @@ func CRLValidation(crt *x509.Certificate, issuer *x509.Certificate, crlURL, prox
 	certList, err := x509.ParseCRL(der)
 	if err != nil {
 		logger.KV(xlog.DEBUG, "crl", string(der))
-		return ocsp.Unknown, errors.WithStack(err)
+		return ocsp.Unknown, errors.WithMessagef(err, "failed to parse CRL")
 	}
 
 	err = issuer.CheckCRLSignature(certList)
@@ -336,12 +342,17 @@ var statusMap map[int]string = map[int]string{
 	ocsp.Unknown: "unknown",
 }
 
-func httpClient(proxyURL string) (*http.Client, error) {
-	c := &http.Client{}
-	if proxyURL != "" {
-		u, err := url.Parse(proxyURL)
+func httpClient(proxy string, timeout time.Duration) (*http.Client, error) {
+	if timeout == 0 {
+		timeout = 3 * time.Second
+	}
+	c := &http.Client{
+		Timeout: timeout,
+	}
+	if proxy != "" {
+		u, err := url.Parse(proxy)
 		if err != nil {
-			return nil, errors.Errorf("unable to parse proxy URL: %s", proxyURL)
+			return nil, errors.Errorf("unable to parse proxy URL: %s", proxy)
 		}
 		c.Transport = &http.Transport{
 			Proxy: http.ProxyURL(u),
