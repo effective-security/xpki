@@ -9,3 +9,5 @@ bin/
 
 debug
 debug.test
+
+*_log.txt

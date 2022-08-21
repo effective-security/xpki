@@ -1,0 +1,55 @@
+name: Golang with cache
+description: Setup requested Golang version with enabled module and build caching.
+
+inputs:
+  go-version:
+    description: Desired Golang version to use.
+    required: false
+  go-version-file:
+    description: Path to go.mod file, determines Golang version to use. Used in place of `go-version` input.
+    required: false
+  cache-key-suffix:
+    description: Optional cache key suffix.
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: ${{ inputs.go-version }}
+        go-version-file: ${{ inputs.go-version-file }}
+
+    - name: Find Go cache locations
+      id: go-cache-paths
+      shell: bash
+      run: |
+        echo "::set-output name=go-build::$(go env GOCACHE)"
+        echo "::set-output name=go-mod::$(go env GOMODCACHE)"
+
+    # Cache go build cache, used to speedup go test
+    - name: Go Build Cache
+      uses: actions/cache@v3.0.7
+      with:
+        path: ${{ steps.go-cache-paths.outputs.go-build }}
+        key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}-${{ env.GO_CACHE_BUSTER }}
+        restore-keys: ${{ runner.os }}-go-build$-{{ inputs.cache-key-suffix }}
+
+    # Cache go mod cache, used to speedup builds
+    - name: Go Mod Cache
+      uses: actions/cache@v3.0.7
+      with:
+        path: ${{ steps.go-cache-paths.outputs.go-mod }}
+        key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}-${{ env.GO_CACHE_BUSTER }}
+        restore-keys: ${{ runner.os }}-go-mod$-{{ inputs.cache-key-suffix }}
+
+    - name: Go Artifacts
+      shell: bash
+      run: |
+        go mod download
+        go mod tidy
+
+    - name: Tools
+      shell: bash
+      run: make tools

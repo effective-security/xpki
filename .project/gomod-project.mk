@@ -250,6 +250,12 @@ coveralls:
 	echo "Running coveralls"
 	goveralls -v -coverprofile=coverage.out -service=travis-ci -package ./...
 
+go.cache:
+	go env GOCACHE
+
+go.modcache:
+	go env GOMODCACHE
+
 help:
 	echo "make vars - print make variables"
 	echo "make env - pring GO environment"
