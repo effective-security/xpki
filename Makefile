@@ -12,7 +12,7 @@ export AWS_DEFAULT_REGION=us-west-2
 
 default: help
 
-all: clean tools generate start-local-kms hsmconfig covtest
+all: clean tools generate change_log start-local-kms hsmconfig covtest
 
 #
 # clean produced files
@@ -33,11 +33,23 @@ version:
 	echo "*** building version"
 	gofmt -r '"GIT_VERSION" -> "$(GIT_VERSION)"' internal/version/current.template > internal/version/current.go
 
-build:
+change_log:
+	echo "Recent changes" > ./change_log.txt
+	echo "Build Version: $(GIT_VERSION)" >> ./change_log.txt
+	echo "Commit: $(GIT_HASH)" >> ./change_log.txt
+	echo "==================================" >> ./change_log.txt
+	git log -n 20 --pretty=oneline --abbrev-commit >> ./change_log.txt
+
+hashbin:
+	mkdir -p bin && echo "hash:" > ./build_log.txt
+
+build: hashbin
 	echo "*** Building hsm-tool"
 	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/hsm-tool ./cmd/hsm-tool
+	md5sum ./bin/hsm-tool >> ./build_log.txt
 	echo "*** Building xpki-tool"
 	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/xpki-tool ./cmd/xpki-tool
+	md5sum ./bin/xpki-tool >> ./build_log.txt
 
 coveralls-github:
 	echo "Running coveralls"

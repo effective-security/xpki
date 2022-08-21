@@ -4,36 +4,98 @@ on:
   push:
     branches:
       - main
+      - release-*
     tags:
       - "v*"
   pull_request:
 
+env:
+  GO_CACHE_BUSTER: 2
+  ITEST_IMAGE_TAG: rc-${{ github.event.number }}
+  COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+  RUN_ID: ${{ github.run_id }}
+  PULL_NUMBER: ${{ github.event.pull_request.number }}
+  MIN_TESTCOV: 80
+
 jobs:
-  context-info:
+  detect-noop:
     runs-on: ubuntu-latest
+    outputs:
+      noop: ${{ steps.noop.outputs.should_skip }}
     steps:
-      - name: Dump GitHub context
-        env:
-          GITHUB_CONTEXT: ${{ toJSON(github) }}
-        run: echo "$GITHUB_CONTEXT"
-      - name: Repo info
+      - name: Detect No-op Changes
+        # https://github.com/fkirc/skip-duplicate-actions
+        id: noop
+        uses: fkirc/skip-duplicate-actions@v4.0.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          paths_ignore: '["**.md", "**.png", "**.jpg", "**/Documentation/**"]'
+          do_not_skip: '["push","schedule","release"]'
+          concurrent_skipping: false
+          paths_filter: |
+            go:
+              paths:
+                - '**/*.go'
+
+  GoCache:
+    runs-on: ubuntu-latest
+    needs:
+      - detect-noop
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        # with:
+        #   fetch-depth: 0
+        #   submodules: true
+
+      - name: Fetch History
+        run: git fetch --prune --unshallow
+
+      - name: Setup Golang with cache
+        uses: ./.github/actions/go-cache
+        with:
+          go-version-file: go.mod
+
+  Build:
+    runs-on: ubuntu-latest
+    needs:
+      - detect-noop
+      - GoCache
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        # with:
+        #   fetch-depth: 0
+        #   submodules: true
+
+      - name: Fetch History
+        run: git fetch --prune --unshallow
+
+      - name: Setup Golang with cache
+        uses: ./.github/actions/go-cache
+        with:
+          go-version-file: go.mod
+
+      - name: Prepage
+        run: make vars generate change_log version
+
+      - name: version
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: make version
+
+      - name: build
         run: |
-          curl -s \
-          --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-          --header "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/${{ github.repository }}
+          make build
+          # mark the cache changed
+          cp ./build_log.txt `go env GOCACHE`
+
   UnitTest:
-    strategy:
-      matrix:
-        go-version: [1.18.x]
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    env:
-      ITEST_IMAGE_TAG: rc-${{ github.event.number }}
-      COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-      RUN_ID: ${{ github.run_id }}
-      PULL_NUMBER: ${{ github.event.pull_request.number }}
-      MIN_TESTCOV: 80
+    needs:
+    - detect-noop
+    - GoCache
+    runs-on: ubuntu-latest
 
     steps:
       - name: Create code coverage status for the current commit
@@ -49,21 +111,36 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v3
+        # with:
+        #   fetch-depth: 0
+        #   submodules: true
+
+      - name: Fetch History
+        run: git fetch --prune --unshallow
+
+      - name: Setup Golang with cache
+        uses: ./.github/actions/go-cache
+        with:
+          go-version-file: go.mod
 
       - name: Install softhsm2
         run: sudo apt-get install softhsm2 opensc
 
       - name: Prepare
-        run: make vars tools generate  version hsmconfig start-local-kms
+        run: make vars tools generate hsmconfig start-local-kms
 
       - name: UnitTest
         env:
           AWS_ACCESS_KEY_ID: notusedbyemulator
           AWS_SECRET_ACCESS_KEY: notusedbyemulator
           AWS_DEFAULT_REGION: us-west-2
-        run: make build covtest
+        run: |
+          make covtest
+          # mark the cache changed
+          cp ./coverage.out `go env GOCACHE`
+
 
       - name: Generate covarege Status
         if: github.event_name == 'pull_request'
@@ -80,7 +157,7 @@ jobs:
           GIT_USER: ${{ secrets.GIT_USER }}
 
       - name: coveralls
-        #if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request'
         env:
           COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make coveralls-github

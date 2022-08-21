@@ -11,7 +11,7 @@ var currentVersion = Info{
 	Minor:   0,
 	Commit:  0,
 	Runtime: runtime.Version(),
-	Build:   "v0.1.52",
+	Build:   "v0.2.76",
 }
 
 func init() {
