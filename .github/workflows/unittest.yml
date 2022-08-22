@@ -10,7 +10,7 @@ on:
   pull_request:
 
 env:
-  GO_CACHE_BUSTER: 2
+  GO_CACHE_BUSTER: 3
   ITEST_IMAGE_TAG: rc-${{ github.event.number }}
   COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
   RUN_ID: ${{ github.run_id }}
@@ -37,64 +37,31 @@ jobs:
               paths:
                 - '**/*.go'
 
-  GoCache:
-    runs-on: ubuntu-latest
-    needs:
-      - detect-noop
-    steps:
+  # GoCache:
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - detect-noop
+  #   steps:
 
-      - name: Checkout
-        uses: actions/checkout@v3
-        # with:
-        #   fetch-depth: 0
-        #   submodules: true
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       # with:
+  #       #   fetch-depth: 0
+  #       #   submodules: true
 
-      - name: Fetch History
-        run: git fetch --prune --unshallow
+  #     - name: Fetch History
+  #       run: git fetch --prune --unshallow
 
-      - name: Setup Golang with cache
-        uses: ./.github/actions/go-cache
-        with:
-          go-version-file: go.mod
-
-  Build:
-    runs-on: ubuntu-latest
-    needs:
-      - detect-noop
-      - GoCache
-    steps:
-
-      - name: Checkout
-        uses: actions/checkout@v3
-        # with:
-        #   fetch-depth: 0
-        #   submodules: true
-
-      - name: Fetch History
-        run: git fetch --prune --unshallow
-
-      - name: Setup Golang with cache
-        uses: ./.github/actions/go-cache
-        with:
-          go-version-file: go.mod
-
-      - name: Prepage
-        run: make vars generate change_log version
-
-      - name: version
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: make version
-
-      - name: build
-        run: |
-          make build
-          # mark the cache changed
-          cp ./build_log.txt `go env GOCACHE`
+  #     - name: Setup Golang with cache
+  #       uses: ./.github/actions/go-cache
+  #       with:
+  #         go-version-file: go.mod
+  #         build-command: make -j vars generate change_log version build
 
   UnitTest:
     needs:
     - detect-noop
-    - GoCache
+    #- GoCache
     runs-on: ubuntu-latest
 
     steps:
@@ -106,11 +73,6 @@ jobs:
           GIT_TOKEN: ${{ secrets.BUILDER_PAT }}
           GIT_USER: ${{ secrets.GIT_USER }}
 
-      - name: Install Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: ${{ matrix.go-version }}
-
       - name: Checkout
         uses: actions/checkout@v3
         # with:
@@ -120,16 +82,54 @@ jobs:
       - name: Fetch History
         run: git fetch --prune --unshallow
 
-      - name: Setup Golang with cache
-        uses: ./.github/actions/go-cache
+      - name: Setup Go
+        uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
+
+      - name: Find Go cache locations
+        id: go-cache-paths
+        shell: bash
+        run: |
+          echo "::set-output name=go-build::$(go env GOCACHE)"
+          echo "::set-output name=go-mod::$(go env GOMODCACHE)"
+
+      # Cache go build cache, used to speedup go test
+      - name: Go Build Cache
+        id: go-build-cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go-cache-paths.outputs.go-build }}
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}-${{ env.GO_CACHE_BUSTER }}
+          restore-keys: ${{ runner.os }}-go-build-
+
+      # Cache go mod cache, used to speedup builds
+      - name: Go Mod Cache
+        id: go-mod-cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go-cache-paths.outputs.go-mod }}
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}-${{ env.GO_CACHE_BUSTER }}
+          restore-keys: ${{ runner.os }}-go-mod-
+
+      - name: Go Artifacts
+        if: steps.go-mod-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          go mod download
+          go mod tidy
+
+      - name: Go tools
+        if: steps.go-build-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          make tools
 
       - name: Install softhsm2
         run: sudo apt-get install softhsm2 opensc
 
       - name: Prepare
-        run: make vars tools generate hsmconfig start-local-kms
+        run: make vars generate hsmconfig start-local-kms
 
       - name: UnitTest
         env:
@@ -138,9 +138,6 @@ jobs:
           AWS_DEFAULT_REGION: us-west-2
         run: |
           make covtest
-          # mark the cache changed
-          cp ./coverage.out `go env GOCACHE`
-
 
       - name: Generate covarege Status
         if: github.event_name == 'pull_request'

@@ -11,6 +11,9 @@ inputs:
   cache-key-suffix:
     description: Optional cache key suffix.
     required: false
+  build-command:
+    description: Optional build.
+    required: false
 
 runs:
   using: composite
@@ -34,7 +37,7 @@ runs:
       with:
         path: ${{ steps.go-cache-paths.outputs.go-build }}
         key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}-${{ env.GO_CACHE_BUSTER }}
-        restore-keys: ${{ runner.os }}-go-build$-{{ inputs.cache-key-suffix }}
+        restore-keys: ${{ runner.os }}-go-build-${{ inputs.cache-key-suffix }}
 
     # Cache go mod cache, used to speedup builds
     - name: Go Mod Cache
@@ -42,7 +45,7 @@ runs:
       with:
         path: ${{ steps.go-cache-paths.outputs.go-mod }}
         key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}-${{ env.GO_CACHE_BUSTER }}
-        restore-keys: ${{ runner.os }}-go-mod$-{{ inputs.cache-key-suffix }}
+        restore-keys: ${{ runner.os }}-go-mod-${{ inputs.cache-key-suffix }}
 
     - name: Go Artifacts
       shell: bash
@@ -52,4 +55,10 @@ runs:
 
     - name: Tools
       shell: bash
-      run: make tools
+      run: make -j tools
+
+    - name: Build
+      if: inputs.build-command
+      shell: bash
+      run: ${{ inputs.build-command }}
+
