@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/x/guid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +23,7 @@ func TestCertificateRequestValidate(t *testing.T) {
 		},
 		{
 			r: &csr.CertificateRequest{
-				Names: []csr.X509Name{{O: "ekspand"}},
+				Names: []csr.X509Name{{Organization: "ekspand"}},
 			},
 			err: "",
 		},
@@ -45,18 +47,26 @@ func TestCertificateRequestValidate(t *testing.T) {
 func TestCertificateRequestName(t *testing.T) {
 	r := &csr.CertificateRequest{
 		CommonName:   "ekspand.com",
-		SerialNumber: "1234",
+		SerialNumber: "DN_SN_1234",
 		Names: []csr.X509Name{
 			{
-				O:  "ekspand",
-				ST: "WA",
-				C:  "US",
+				Organization: "ekspand",
+				Province:     "WA",
+				Country:      "US",
+				EmailAddress: "d@test.com",
+				SerialNumber: "namesSN_123",
 			},
 		},
 	}
 
 	n := r.Name()
-	assert.Equal(t, "SERIALNUMBER=1234,CN=ekspand.com,O=ekspand,ST=WA,C=US", n.String())
+	// GO does not recognize EmailAddress and skips SN in Names
+	assert.Equal(t, "SERIALNUMBER=DN_SN_1234,CN=ekspand.com,O=ekspand,ST=WA,C=US,1.2.840.113549.1.9.1=#0c0a6440746573742e636f6d", n.String())
+	assert.Equal(t, "DN_SN_1234", n.SerialNumber)
+	assert.Equal(t, "ekspand", n.Organization[0])
+	assert.Equal(t, "WA", n.Province[0])
+	assert.Equal(t, "US", n.Country[0])
+	assert.Len(t, n.Names, 7)
 }
 
 func TestX509SubjectName(t *testing.T) {
@@ -65,9 +75,9 @@ func TestX509SubjectName(t *testing.T) {
 		SerialNumber: "1234",
 		Names: []csr.X509Name{
 			{
-				O:  "ekspand",
-				ST: "WA",
-				C:  "US",
+				Organization: "ekspand",
+				Province:     "WA",
+				Country:      "US",
 			},
 		},
 	}
@@ -82,9 +92,9 @@ func TestPopulateName(t *testing.T) {
 		SerialNumber: "1234",
 		Names: []csr.X509Name{
 			{
-				O:  "ekspand",
-				ST: "CA",
-				C:  "USA",
+				Organization: "ekspand",
+				Province:     "CA",
+				Country:      "USA",
 			},
 		},
 	}
@@ -93,9 +103,9 @@ func TestPopulateName(t *testing.T) {
 	subj := &csr.X509Subject{
 		Names: []csr.X509Name{
 			{
-				O:  "ekspand.com",
-				ST: "WA",
-				C:  "US",
+				Organization: "ekspand.com",
+				Province:     "WA",
+				Country:      "US",
 			},
 		},
 	}
@@ -154,6 +164,55 @@ func TestSetSAN(t *testing.T) {
 	assert.Len(t, template.DNSNames, 2)
 	assert.Len(t, template.EmailAddresses, 1)
 	assert.Len(t, template.IPAddresses, 2)
+}
+
+func TestEmailCSR(t *testing.T) {
+	pem := `-----BEGIN CERTIFICATE REQUEST-----
+MIIDJTCCAg0CAQAwgaYxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlh
+MRYwFAYDVQQHEw1TYW4gRnJhbmNpc2NvMR0wGwYDVQQKExRzYWxlc2ZvcmNlLmNv
+bSwgaW5jLjEkMCIGA1UEAxMbc2Jha2tlci5naWEyaC51c2VyLnNmZGMubmV0MSUw
+IwYJKoZIhvcNAQkBFhZzYmFra2VyQHNhbGVzZm9yY2UuY29tMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7iSk1EcfgnVm0eLfM7wLWIGd+OSo6n/zPqCt
+BWbalUuyQJ2qgWpx/aZBKgGEubqdCB+CFm9n2oKGRDFoYF4GDuER+8tzvOQURHj1
+GsJl9Iv7osdxQUkWEwX5aiXDV+UQ7sxaVe59ztLMwrxl9FoQD3lf8vnRaJKknBqe
+pez0GalFGUd8s4vva0Ysl8H+myeeK6yra/QChSA5+CgdmLgt57uXjL9Fh6Z7cdei
+oIuRAwc7xQ11PAyBaka3+p+lt6aUimvGmz5hxetPDA8Rnv1We4JrqUNH+Bk/IIZf
+cGR/Q7oYhsJCXj+bbW+0GHpHwPTEwwQSkfvTU282IIzQlf7wHwIDAQABoDkwNwYJ
+KoZIhvcNAQkOMSowKDAmBgNVHREEHzAdghtzYmFra2VyLmdpYTJoLnVzZXIuc2Zk
+Yy5uZXQwDQYJKoZIhvcNAQELBQADggEBAI8qULnJQaslLaOUINS5vjsKRLym+4kj
+/u3PAD2Bj77d9yYDYmNIY9W3msyI3IhNm6ORg4QTU7yReGqJKRe748b4dv80sAY9
+NvXzUszyAHVb49tmlgWZXT5DxfYqVp0LaE8DqIaaioEWhjI4lLUsLso+aZ0Q7WWm
+0wlPxCI7+vmccVlh4dr5oyCsbZMOSatlZ/VAbBVTu7XDmNDkvoaI5EC9bZUxhpbc
+JQVA916hrGX210aBpqKJKAcrCRINSFFOe980oyHLd7/ZaYIdHuJPuft7bxh+9xN4
+Zc4ZwfH06sPhMqldBjjIfn8CseykrozZkgH1DzvsRhl510xvXovA7Qs=
+-----END CERTIFICATE REQUEST-----`
+
+	csr, err := csr.ParsePEM([]byte(pem))
+	require.NoError(t, err)
+	assert.NotEmpty(t, csr.Subject.Names)
+}
+
+// TODO:
+func TestCSR(t *testing.T) {
+	crypto := inmemcrypto.NewProvider()
+	kr := csr.NewKeyRequest(crypto, "TestCSR"+guid.MustCreate(), "ECDSA", 256, csr.SigningKey)
+
+	req := csr.CertificateRequest{
+		CommonName: "trusty.com",
+		SAN:        []string{"www.trusty.com", "127.0.0.1", "server@trusty.com", "spiffe://trusty/test"},
+		//KeyRequest: kr,
+		Names: []csr.X509Name{
+			{EmailAddress: "csra@test.com"},
+		},
+		KeyRequest: kr,
+	}
+
+	csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+	require.NoError(t, err)
+
+	crt, err := csr.ParsePEM(csrPEM)
+	require.NoError(t, err)
+	assert.NotEmpty(t, crt.Subject.Names)
 }
 
 func TestAddSAN(t *testing.T) {

@@ -66,6 +66,10 @@ type IssuerConfig struct {
 	// RootBundleFile specifies location of the Root CA file
 	RootBundleFile string `json:"root_bundle,omitempty" yaml:"root_bundle,omitempty"`
 
+	// OmitDisabledExtensions specifies to not fail a request,
+	// but omit not allowed extentions
+	OmitDisabledExtensions bool `json:"omit_disabled_extensions,omitempty" yaml:"omit_disabled_extensions,omitempty"`
+
 	// AIA specifies AIA configuration
 	AIA *AIAConfig `json:"aia,omitempty" yaml:"aia,omitempty"`
 
@@ -379,6 +383,10 @@ func (p *CertProfile) Validate() error {
 
 // IsAllowedExtention returns true of the extension is allowed
 func (p *CertProfile) IsAllowedExtention(oid csr.OID) bool {
+	if len(p.AllowedExtensions) == 0 {
+		// if non specified, then all allowed
+		return true
+	}
 	for _, allowed := range p.AllowedExtensions {
 		if allowed.Equal(oid) {
 			return true

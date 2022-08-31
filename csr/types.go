@@ -80,6 +80,17 @@ var (
 	OidAuthorityInfoAccessOcsp        = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1}
 	OidOCSPNoCheck                    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5}
 	OidAuthorityInfoAccessIssuers     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}
+
+	OidNameEmailAddress = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 1}
+	OidNameCN           = asn1.ObjectIdentifier{2, 5, 4, 3}
+	OidNameSerial       = asn1.ObjectIdentifier{2, 5, 4, 5}
+	OidNameC            = asn1.ObjectIdentifier{2, 5, 4, 6}
+	OidNameL            = asn1.ObjectIdentifier{2, 5, 4, 7}
+	OidNameST           = asn1.ObjectIdentifier{2, 5, 4, 8}
+	OidNameStreet       = asn1.ObjectIdentifier{2, 5, 4, 9}
+	OidNameO            = asn1.ObjectIdentifier{2, 5, 4, 10}
+	OidNameOU           = asn1.ObjectIdentifier{2, 5, 4, 11}
+	OidNamePostal       = asn1.ObjectIdentifier{2, 5, 4, 17}
 )
 
 // OID is the asn1's ObjectIdentifier, provide a custom

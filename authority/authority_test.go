@@ -141,9 +141,9 @@ func (s *testSuite) TestNewAuthority() {
 	s.Equal(len(cfg4.Authority.Issuers), len(issuers))
 
 	for _, issuer := range issuers {
-		s.NotContains(issuer.AiaURL(), "${ISSUER_ID}")
-		s.NotContains(issuer.CrlURL(), "${ISSUER_ID}")
-		s.NotContains(issuer.OcspURL(), "${ISSUER_ID}")
+		s.NotContains(issuer.AiaURL(), "ISSUER_ID")
+		s.NotContains(issuer.CrlURL(), "ISSUER_ID")
+		s.NotContains(issuer.OcspURL(), "ISSUER_ID")
 
 		issuer.CrlRenewal()
 		issuer.CrlExpiry()
@@ -347,6 +347,57 @@ func (s *testSuite) TestIssuerSign() {
 	rootCA, err := authority.CreateIssuer(cfg, rootPEM, nil, nil, rootSigner)
 	s.Require().NoError(err)
 
+	s.Run("default_subject_merge", func() {
+		req := csr.CertificateRequest{
+			CommonName: "trusty.com",
+			SAN:        []string{"www.trusty.com", "127.0.0.1", "server@trusty.com", "spiffe://trusty/test"},
+			KeyRequest: kr,
+			Names: []csr.X509Name{
+				{EmailAddress: "ra@test.com"},
+				{OrganizationalUnit: "user_role"},
+			},
+		}
+
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		s.Require().NoError(err)
+
+		sreq := csr.SignRequest{
+			Request: string(csrPEM),
+			SAN:     req.SAN,
+			Extensions: []csr.X509Extension{
+				{
+					ID:    csr.OID{1, 2, 3},
+					Value: "0500",
+				},
+			},
+			Subject: &csr.X509Subject{
+				CommonName: "trusty.com",
+				Names: []csr.X509Name{
+					{OrganizationalUnit: "trusty"},
+					{OrganizationalUnit: "dev"},
+				},
+			},
+		}
+
+		crt, _, err := rootCA.Sign(sreq)
+		s.Require().NoError(err)
+		s.Equal(sreq.Subject.CommonName, crt.Subject.CommonName) // must be from RA
+		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
+		s.False(crt.IsCA)
+		s.False(crt.BasicConstraintsValid)
+		s.Equal(0, crt.MaxPathLen)
+		s.NotEmpty(crt.IPAddresses)
+		s.NotEmpty(crt.EmailAddresses)
+		s.NotEmpty(crt.DNSNames)
+		s.Require().NotEmpty(crt.URIs)
+		s.Equal("spiffe://trusty/test", crt.URIs[0].String())
+		s.False(crt.NotAfter.After(rootCA.Bundle().Cert.NotAfter))
+
+		s.Equal("trusty", crt.Subject.OrganizationalUnit[0])
+		s.Equal("dev", crt.Subject.OrganizationalUnit[1])
+		//		s.Equal("0:trusty",crt.Subject.Names)
+	})
+
 	s.Run("default", func() {
 		req := csr.CertificateRequest{
 			CommonName: "trusty.com",
@@ -373,12 +424,53 @@ func (s *testSuite) TestIssuerSign() {
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
 		s.False(crt.IsCA)
-		s.Equal(0, crt.MaxPathLen)
 		s.False(crt.BasicConstraintsValid)
-		s.Len(crt.IPAddresses, 1)
-		s.Len(crt.EmailAddresses, 1)
-		s.Len(crt.DNSNames, 2)
-		s.Len(crt.URIs, 1)
+		s.Equal(0, crt.MaxPathLen)
+		s.NotEmpty(crt.IPAddresses)
+		s.NotEmpty(crt.EmailAddresses)
+		s.NotEmpty(crt.DNSNames)
+		s.Require().NotEmpty(crt.URIs)
+		s.Equal("spiffe://trusty/test", crt.URIs[0].String())
+		s.False(crt.NotAfter.After(rootCA.Bundle().Cert.NotAfter))
+	})
+
+	s.Run("default_spiffie", func() {
+		req := csr.CertificateRequest{
+			CommonName: "trusty.com",
+			SAN:        []string{"www.trusty.com", "127.0.0.1", "server@trusty.com", "spiffe://trusty/test"},
+			KeyRequest: kr,
+			Names: []csr.X509Name{
+				{EmailAddress: "csra@test.com"},
+			},
+		}
+
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		s.Require().NoError(err)
+
+		sreq := csr.SignRequest{
+			Request: string(csrPEM),
+			SAN:     req.SAN,
+			Extensions: []csr.X509Extension{
+				{
+					ID:    csr.OID{1, 2, 3},
+					Value: "0500",
+				},
+			},
+		}
+
+		crt, _, err := rootCA.Sign(sreq)
+		s.Require().NoError(err)
+		s.Equal(req.CommonName, crt.Subject.CommonName)
+		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
+		s.False(crt.IsCA)
+		s.False(crt.BasicConstraintsValid)
+		s.Equal(0, crt.MaxPathLen)
+		s.NotEmpty(crt.IPAddresses)
+		s.NotEmpty(crt.EmailAddresses)
+		s.NotEmpty(crt.DNSNames)
+		s.Require().NotEmpty(crt.URIs)
+		s.Equal("spiffe://trusty/test", crt.URIs[0].String())
+		s.False(crt.NotAfter.After(rootCA.Bundle().Cert.NotAfter))
 
 		// test unknown profile
 		sreq.Profile = "unknown"
@@ -451,8 +543,8 @@ func (s *testSuite) TestIssuerSign() {
 			SAN:        []string{"ca@trusty.com", "trusty.com", "127.0.0.1"},
 			Names: []csr.X509Name{
 				{
-					O: "trusty",
-					C: "US",
+					Organization: "trusty",
+					Country:      "US",
 				},
 			},
 		}
@@ -477,8 +569,8 @@ func (s *testSuite) TestIssuerSign() {
 			SAN:        []string{"ca@trusty.com", "trustyca.com", "127.0.0.1"},
 			Names: []csr.X509Name{
 				{
-					O: "trusty",
-					C: "US",
+					Organization: "trusty",
+					Country:      "US",
 				},
 			},
 		}
@@ -503,8 +595,8 @@ func (s *testSuite) TestIssuerSign() {
 			SAN:        []string{"ca@trusty.com", "127.0.0.1", "spiffe://google.com/ca"},
 			Names: []csr.X509Name{
 				{
-					O: "trusty",
-					C: "US",
+					Organization: "trusty",
+					Country:      "US",
 				},
 			},
 		}
@@ -530,8 +622,8 @@ func (s *testSuite) TestIssuerSign() {
 			SAN:        []string{"rootca@trusty.com", "trusty.com", "127.0.0.1"},
 			Names: []csr.X509Name{
 				{
-					O: "trusty",
-					C: "US",
+					Organization: "trusty",
+					Country:      "US",
 				},
 			},
 		}
@@ -556,8 +648,8 @@ func (s *testSuite) TestIssuerSign() {
 			//SAN:        []string{"ca@trusty.com", "trusty.com", "127.0.0.1"},
 			Names: []csr.X509Name{
 				{
-					O: "trusty",
-					C: "US",
+					Organization: "trusty",
+					Country:      "US",
 				},
 			},
 		}
@@ -590,8 +682,8 @@ func (s *testSuite) TestIssuerSign() {
 			SAN:        []string{"ca@trusty.com", "www.trusty.com", "127.0.0.1"},
 			Names: []csr.X509Name{
 				{
-					O: "trusty",
-					C: "US",
+					Organization: "trusty",
+					Country:      "US",
 				},
 			},
 		}
@@ -621,8 +713,8 @@ func (s *testSuite) TestIssuerSign() {
 			SAN:        []string{"ca@trusty.com", "www.trusty.com", "127.0.0.1"},
 			Names: []csr.X509Name{
 				{
-					O: "trusty",
-					C: "US",
+					Organization: "trusty",
+					Country:      "US",
 				},
 			},
 		}

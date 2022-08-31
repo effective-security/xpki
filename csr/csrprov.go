@@ -114,25 +114,17 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 		err = errors.WithMessage(err, "identify key")
 		return
 	}
+	ext, err := pkixExtentions(req.Extensions)
+	if err != nil {
+		err = errors.WithMessage(err, "invalid extensions")
+		return
+	}
 
 	logger.Tracef("key_id=%q, label=%q", keyID, label)
 	var template = x509.CertificateRequest{
 		Subject:            req.Name(),
 		SignatureAlgorithm: req.KeyRequest.SigAlgo(),
-	}
-
-	for _, ext := range req.Extensions {
-		val, derr := ext.GetValue()
-		if derr != nil {
-			err = errors.WithStack(derr)
-			return
-		}
-
-		template.ExtraExtensions = append(template.Extensions, pkix.Extension{
-			Id:       asn1.ObjectIdentifier(ext.ID),
-			Critical: ext.Critical,
-			Value:    val,
-		})
+		ExtraExtensions:    ext,
 	}
 
 	for _, san := range req.SAN {
@@ -150,6 +142,13 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 			template.DNSNames = append(template.DNSNames, san)
 		}
 	}
+	logger.KV(xlog.TRACE,
+		"key_id", keyID,
+		"label", label,
+		"subject", template.Subject.String(),
+		"ext", pkixExtentionsIDs(ext),
+		"SAN", req.SAN,
+	)
 
 	csrPEM, err = x509.CreateCertificateRequest(rand.Reader, &template, priv)
 	if err != nil {
@@ -164,6 +163,30 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 	csrPEM = pem.EncodeToMemory(&block)
 
 	return
+}
+
+func pkixExtentionsIDs(in []pkix.Extension) []string {
+	var list []string
+	for _, ext := range in {
+		list = append(list, ext.Id.String())
+	}
+	return list
+}
+
+func pkixExtentions(in []X509Extension) ([]pkix.Extension, error) {
+	var list []pkix.Extension
+	for _, ext := range in {
+		raw, err := ext.GetValue()
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		list = append(list, pkix.Extension{
+			Id:       asn1.ObjectIdentifier(ext.ID),
+			Critical: ext.Critical,
+			Value:    raw,
+		})
+	}
+	return list, nil
 }
 
 // DefaultSigAlgo returns an appropriate X.509 signature algorithm given

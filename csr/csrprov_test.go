@@ -42,8 +42,8 @@ func TestGenerateKeyAndRequest(t *testing.T) {
 			name: "valid rsa",
 			req: prov.NewSigningCertificateRequest("label", "RSA", 2048, "localhost", []csr.X509Name{
 				{
-					O:  "org1",
-					OU: "unit1",
+					Organization:       "org1",
+					OrganizationalUnit: "unit1",
 				},
 			}, []string{"127.0.0.1", "localhost"}),
 			experr: "",
@@ -52,8 +52,8 @@ func TestGenerateKeyAndRequest(t *testing.T) {
 			name: "valid rsa",
 			req: prov.NewSigningCertificateRequest("label", "ECDSA", 256, "localhost", []csr.X509Name{
 				{
-					O:  "org1",
-					OU: "unit1",
+					Organization:       "org1",
+					OrganizationalUnit: "unit1",
 				},
 			}, []string{"127.0.0.1", "localhost"}),
 			experr: "",
@@ -103,8 +103,8 @@ func TestCreateRequestAndExportKey(t *testing.T) {
 			name: "valid rsa",
 			req: prov.NewSigningCertificateRequest("label", "RSA", 2048, "localhost", []csr.X509Name{
 				{
-					O:  "org1",
-					OU: "unit1",
+					Organization:       "org1",
+					OrganizationalUnit: "unit1",
 				},
 			}, []string{"127.0.0.1", "localhost"}),
 			experr: "",
@@ -113,8 +113,8 @@ func TestCreateRequestAndExportKey(t *testing.T) {
 			name: "valid rsa",
 			req: prov.NewSigningCertificateRequest("label", "ECDSA", 256, "localhost", []csr.X509Name{
 				{
-					O:  "org1",
-					OU: "unit1",
+					Organization:       "org1",
+					OrganizationalUnit: "unit1",
 				},
 			}, []string{"127.0.0.1", "localhost"}),
 			experr: "",

@@ -215,9 +215,18 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 	var crlRenewal, crlExpiry, ocspExpiry time.Duration
 	var crl, aia, ocsp string
 	if cfg.AIA != nil {
+		// NOTE: ${ISSUER_ID} was the old format, but has an issues in Helm
+		// added another template as `:ISSUER_ID`
+
 		crl = strings.Replace(cfg.AIA.CrlURL, "${ISSUER_ID}", bundle.SubjectID, -1)
+		crl = strings.Replace(crl, ":ISSUER_ID", bundle.SubjectID, -1)
+
 		aia = strings.Replace(cfg.AIA.AiaURL, "${ISSUER_ID}", bundle.SubjectID, -1)
+		aia = strings.Replace(aia, ":ISSUER_ID", bundle.SubjectID, -1)
+
 		ocsp = strings.Replace(cfg.AIA.OcspURL, "${ISSUER_ID}", bundle.SubjectID, -1)
+		ocsp = strings.Replace(ocsp, ":ISSUER_ID", bundle.SubjectID, -1)
+
 		crlRenewal = cfg.AIA.CRLRenewal
 		crlExpiry = cfg.AIA.CRLExpiry
 		ocspExpiry = cfg.AIA.OCSPExpiry
@@ -318,10 +327,10 @@ func (ca *Issuer) VerifyProof(data []byte, proof string) error {
 
 // Sign signs a new certificate based on the PEM-encoded
 // certificate request with the specified profile.
-func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
+func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error) {
 	//logger.KV(xlog.DEBUG, "req", req)
 
-	profileName := req.Profile
+	profileName := raReq.Profile
 	if profileName == "" {
 		profileName = "default"
 	}
@@ -330,38 +339,47 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 		return nil, nil, errors.New("unsupported profile: " + profileName)
 	}
 
-	csrTemplate, err := csr.ParsePEM([]byte(req.Request))
+	requesterCsrTemplate, err := csr.ParsePEM([]byte(raReq.Request))
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
 
-	csrTemplate.SignatureAlgorithm = ca.sigAlgo
+	logger.KV(xlog.TRACE,
+		"req", "cert",
+		"profile", profileName,
+		"csr_cn", requesterCsrTemplate.Subject.CommonName,
+		"csr_ext", extensionsList(requesterCsrTemplate),
+		"req_cn", raReq.SubjectCommonName(),
+		"req_ext", raReq.ExtensionsIDs(),
+	)
+
+	requesterCsrTemplate.SignatureAlgorithm = ca.sigAlgo
 
 	// Copy out only the fields from the CSR authorized by policy.
 	safeTemplate := x509.Certificate{}
 	// If the profile contains no explicit whitelist, assume that all fields
 	// should be copied from the CSR.
 	if profile.AllowedCSRFields == nil {
-		safeTemplate = *csrTemplate
+		safeTemplate = *requesterCsrTemplate
 	} else {
 		if profile.AllowedCSRFields.Subject {
-			safeTemplate.Subject = csrTemplate.Subject
+			safeTemplate.Subject = requesterCsrTemplate.Subject
 		}
 		if profile.AllowedCSRFields.DNSNames {
-			safeTemplate.DNSNames = csrTemplate.DNSNames
+			safeTemplate.DNSNames = requesterCsrTemplate.DNSNames
 		}
 		if profile.AllowedCSRFields.IPAddresses {
-			safeTemplate.IPAddresses = csrTemplate.IPAddresses
+			safeTemplate.IPAddresses = requesterCsrTemplate.IPAddresses
 		}
 		if profile.AllowedCSRFields.URIs {
-			safeTemplate.URIs = csrTemplate.URIs
+			safeTemplate.URIs = requesterCsrTemplate.URIs
 		}
 		if profile.AllowedCSRFields.EmailAddresses {
-			safeTemplate.EmailAddresses = csrTemplate.EmailAddresses
+			safeTemplate.EmailAddresses = requesterCsrTemplate.EmailAddresses
 		}
-		safeTemplate.PublicKeyAlgorithm = csrTemplate.PublicKeyAlgorithm
-		safeTemplate.PublicKey = csrTemplate.PublicKey
-		safeTemplate.SignatureAlgorithm = csrTemplate.SignatureAlgorithm
+		safeTemplate.PublicKeyAlgorithm = requesterCsrTemplate.PublicKeyAlgorithm
+		safeTemplate.PublicKey = requesterCsrTemplate.PublicKey
+		safeTemplate.SignatureAlgorithm = requesterCsrTemplate.SignatureAlgorithm
 	}
 
 	/*
@@ -385,7 +403,9 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 			}
 	*/
 
-	safeTemplate.Subject = csr.PopulateName(req.Subject, safeTemplate.Subject)
+	safeTemplate.Subject = csr.PopulateName(raReq.Subject, safeTemplate.Subject)
+	// allow Names to be signed
+	safeTemplate.Subject.ExtraNames = safeTemplate.Subject.Names
 
 	// If there is a whitelist, ensure that both the Common Name, SAN DNSNames and Emails match
 	if profile.AllowedNamesRegex != nil && safeTemplate.Subject.CommonName != "" {
@@ -448,9 +468,17 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 		})
 	}
 
-	for _, ext := range req.Extensions {
+	for _, ext := range raReq.Extensions {
 		if !profile.IsAllowedExtention(ext.ID) {
-			return nil, nil, errors.Errorf("extension not allowed: %s", ext.ID.String())
+			if ca.cfg.OmitDisabledExtensions {
+				logger.KV(xlog.TRACE,
+					"reason", "not_allowed",
+					"profile", profileName,
+					"ext", ext.ID.String(),
+				)
+			} else {
+				return nil, nil, errors.Errorf("extension not allowed: %s", ext.ID.String())
+			}
 		}
 		id := asn1.ObjectIdentifier(ext.ID)
 		if certutil.FindExtension(safeTemplate.ExtraExtensions, id) == nil {
@@ -474,9 +502,17 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 		}
 	}
 
-	for _, ext := range csrTemplate.ExtraExtensions {
+	for _, ext := range requesterCsrTemplate.ExtraExtensions {
 		if !profile.IsAllowedExtention(csr.OID(ext.Id)) {
-			return nil, nil, errors.New("extension not allowed: " + ext.Id.String())
+			if ca.cfg.OmitDisabledExtensions {
+				logger.KV(xlog.TRACE,
+					"reason", "not_allowed",
+					"profile", profileName,
+					"ext", ext.Id.String(),
+				)
+			} else {
+				return nil, nil, errors.Errorf("extension not allowed: %s", ext.Id.String())
+			}
 		}
 		if certutil.FindExtension(safeTemplate.ExtraExtensions, ext.Id) == nil {
 			safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, ext)
@@ -488,9 +524,9 @@ func (ca *Issuer) Sign(req csr.SignRequest) (*x509.Certificate, []byte, error) {
 			)
 		}
 	}
-	csr.SetSAN(&safeTemplate, req.SAN)
+	csr.SetSAN(&safeTemplate, raReq.SAN)
 
-	err = ca.fillTemplate(&safeTemplate, profile, req.NotBefore, req.NotAfter)
+	err = ca.fillTemplate(&safeTemplate, profile, raReq.NotBefore, raReq.NotAfter)
 	if err != nil {
 		return nil, nil, errors.WithMessagef(err, "failed to populate template")
 	}
@@ -538,11 +574,31 @@ func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
 		return nil, errors.WithMessagef(err, "create certificate")
 	}
 
-	logger.Infof("serial=%d, CN=%q, URI=%v, DNS=%v, Email=%v",
-		template.SerialNumber, template.Subject.CommonName, template.URIs, template.DNSNames, template.EmailAddresses)
+	uris := make([]string, 0, len(template.URIs))
+	for _, uri := range template.URIs {
+		uris = append(uris, uri.String())
+	}
+
+	logger.KV(xlog.NOTICE,
+		"signed", "cert",
+		"serial", template.SerialNumber,
+		"CN", template.Subject.CommonName,
+		"URI", uris,
+		"DNS", template.DNSNames,
+		"Email", template.EmailAddresses,
+		"extentions", extensionsList(template),
+	)
 
 	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 	return cert, nil
+}
+
+func extensionsList(crt *x509.Certificate) []string {
+	var list []string
+	for _, ex := range crt.Extensions {
+		list = append(list, ex.Id.String())
+	}
+	return list
 }
 
 func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile, notBefore, notAfter time.Time) error {

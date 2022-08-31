@@ -59,12 +59,13 @@ type CertificatePolicyQualifier struct {
 
 // X509Name contains the SubjectInfo fields.
 type X509Name struct {
-	C            string `json:"c" yaml:"c"`   // Country
-	ST           string `json:"st" yaml:"st"` // State
-	L            string `json:"l" yaml:"l"`   // Locality
-	O            string `json:"o" yaml:"o"`   // OrganisationName
-	OU           string `json:"ou" yaml:"ou"` // OrganisationalUnitName
-	SerialNumber string `json:"serial_number" yaml:"serial_number"`
+	Country            string `json:"c" yaml:"c"`
+	Province           string `json:"st" yaml:"st"`
+	Locality           string `json:"l" yaml:"l"`
+	Organization       string `json:"o" yaml:"o"`
+	OrganizationalUnit string `json:"ou" yaml:"ou"`
+	EmailAddress       string `json:"email" yaml:"email"` // 1.2.840.113549.1.9.1
+	SerialNumber       string `json:"serial_number" yaml:"serial_number"`
 }
 
 // X509Subject contains the information that should be used to override the
@@ -134,6 +135,23 @@ type SignRequest struct {
 	NotAfter time.Time `json:"-" yaml:"-"`
 }
 
+// SubjectCommonName returns CN in the request
+func (r *SignRequest) SubjectCommonName() string {
+	if r.Subject != nil {
+		return r.Subject.CommonName
+	}
+	return ""
+}
+
+// ExtensionsIDs returns list of extension IDs in the request
+func (r *SignRequest) ExtensionsIDs() []string {
+	var list []string
+	for _, ex := range r.Extensions {
+		list = append(list, ex.ID.String())
+	}
+	return list
+}
+
 // A CertificateRequest encapsulates the API interface to the
 // certificate request functionality.
 type CertificateRequest struct {
@@ -172,24 +190,6 @@ func (r *CertificateRequest) Validate() error {
 	return nil
 }
 
-// Name returns the PKIX name for the request.
-func (r *CertificateRequest) Name() pkix.Name {
-	name := pkix.Name{
-		CommonName:   r.CommonName,
-		SerialNumber: r.SerialNumber,
-	}
-
-	for _, n := range r.Names {
-		appendIf(n.C, &name.Country)
-		appendIf(n.ST, &name.Province)
-		appendIf(n.L, &name.Locality)
-		appendIf(n.O, &name.Organization)
-		appendIf(n.OU, &name.OrganizationalUnit)
-	}
-
-	return name
-}
-
 // AddSAN adds a SAN value to the request
 func (r *CertificateRequest) AddSAN(s string) {
 	if found := slices.ContainsString(r.SAN, s); !found {
@@ -201,7 +201,7 @@ func (r *CertificateRequest) AddSAN(s string) {
 func isNameEmpty(n X509Name) bool {
 	empty := func(s string) bool { return strings.TrimSpace(s) == "" }
 
-	if empty(n.C) && empty(n.ST) && empty(n.L) && empty(n.O) && empty(n.OU) {
+	if empty(n.Country) && empty(n.Province) && empty(n.Locality) && empty(n.Organization) && empty(n.OrganizationalUnit) {
 		return true
 	}
 	return false
@@ -277,9 +277,15 @@ func ParsePEM(csrPEM []byte) (*x509.Certificate, error) {
 	return Parse(block.Bytes)
 }
 
-type subjectPublicKeyInfo struct {
-	Algorithm        pkix.AlgorithmIdentifier
-	SubjectPublicKey asn1.BitString
+// Name returns the PKIX name for the request.
+func (r *CertificateRequest) Name() pkix.Name {
+	subs := X509Subject{
+		CommonName:   r.CommonName,
+		SerialNumber: r.SerialNumber,
+		Names:        r.Names,
+	}
+
+	return subs.Name()
 }
 
 // Name returns the PKIX name for the subject.
@@ -287,12 +293,70 @@ func (s *X509Subject) Name() pkix.Name {
 	var name pkix.Name
 	name.CommonName = s.CommonName
 	name.SerialNumber = s.SerialNumber
+
+	if s.CommonName != "" {
+		name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+			Type:  OidNameCN,
+			Value: s.CommonName,
+		})
+	}
+
+	if s.SerialNumber != "" {
+		name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+			Type:  OidNameSerial,
+			Value: s.SerialNumber,
+		})
+	}
+
 	for _, n := range s.Names {
-		appendIf(n.C, &name.Country)
-		appendIf(n.ST, &name.Province)
-		appendIf(n.L, &name.Locality)
-		appendIf(n.O, &name.Organization)
-		appendIf(n.OU, &name.OrganizationalUnit)
+		appendIf(n.Country, &name.Country)
+		appendIf(n.Province, &name.Province)
+		appendIf(n.Locality, &name.Locality)
+		appendIf(n.Organization, &name.Organization)
+		appendIf(n.OrganizationalUnit, &name.OrganizationalUnit)
+
+		if n.Country != "" {
+			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+				Type:  OidNameC,
+				Value: n.Country,
+			})
+		}
+		if n.Province != "" {
+			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+				Type:  OidNameST,
+				Value: n.Province,
+			})
+		}
+		if n.Locality != "" {
+			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+				Type:  OidNameL,
+				Value: n.Locality,
+			})
+		}
+		if n.Organization != "" {
+			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+				Type:  OidNameO,
+				Value: n.Organization,
+			})
+		}
+		if n.OrganizationalUnit != "" {
+			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+				Type:  OidNameOU,
+				Value: n.OrganizationalUnit,
+			})
+		}
+		if n.EmailAddress != "" {
+			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+				Type:  OidNameEmailAddress,
+				Value: n.EmailAddress,
+			})
+		}
+		if n.SerialNumber != "" {
+			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
+				Type:  OidNameSerial,
+				Value: n.SerialNumber,
+			})
+		}
 	}
 	return name
 }
@@ -300,27 +364,43 @@ func (s *X509Subject) Name() pkix.Name {
 // PopulateName has functionality similar to Name, except
 // it fills the fields of the resulting pkix.Name with req's if the
 // subject's corresponding fields are empty
-func PopulateName(s *X509Subject, req pkix.Name) pkix.Name {
+func PopulateName(raSubject *X509Subject, csrSubject pkix.Name) pkix.Name {
 	// if no subject, use req
-	if s == nil {
-		return req
+	if raSubject == nil {
+		return csrSubject
 	}
 
-	name := s.Name()
-
+	name := raSubject.Name()
 	if name.CommonName == "" {
-		name.CommonName = req.CommonName
+		name.CommonName = csrSubject.CommonName
+	}
+	if name.SerialNumber == "" {
+		name.SerialNumber = csrSubject.SerialNumber
 	}
 
-	replaceSliceIfEmpty(&name.Country, &req.Country)
-	replaceSliceIfEmpty(&name.Province, &req.Province)
-	replaceSliceIfEmpty(&name.Locality, &req.Locality)
-	replaceSliceIfEmpty(&name.Organization, &req.Organization)
-	replaceSliceIfEmpty(&name.OrganizationalUnit, &req.OrganizationalUnit)
-	if name.SerialNumber == "" {
-		name.SerialNumber = req.SerialNumber
+	replaceSliceIfEmpty(&name.Country, &csrSubject.Country)
+	replaceSliceIfEmpty(&name.Province, &csrSubject.Province)
+	replaceSliceIfEmpty(&name.Locality, &csrSubject.Locality)
+	replaceSliceIfEmpty(&name.Organization, &csrSubject.Organization)
+	replaceSliceIfEmpty(&name.OrganizationalUnit, &csrSubject.OrganizationalUnit)
+
+	for _, n := range csrSubject.Names {
+		if FindAttr(name.Names, n.Type) == nil {
+			name.Names = append(name.Names, n)
+		}
 	}
+
 	return name
+}
+
+// FindAttr returns attribute
+func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pkix.AttributeTypeAndValue {
+	for idx, at := range attrs {
+		if at.Type.Equal(id) {
+			return &attrs[idx]
+		}
+	}
+	return nil
 }
 
 // replaceSliceIfEmpty replaces the contents of replaced with newContents if
@@ -339,6 +419,7 @@ func SetSAN(template *x509.Certificate, SAN []string) {
 		template.EmailAddresses = []string{}
 		template.DNSNames = []string{}
 		template.URIs = []*url.URL{}
+
 		for i := range template.ExtraExtensions {
 			// remove SAN
 			if template.ExtraExtensions[i].Id.Equal(OidExtensionSubjectAltName) {
