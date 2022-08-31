@@ -60,7 +60,7 @@ jobs:
 
   UnitTest:
     needs:
-    - detect-noop
+      - detect-noop
     #- GoCache
     runs-on: ubuntu-latest
 
@@ -120,7 +120,6 @@ jobs:
           go mod tidy
 
       - name: Go tools
-        if: steps.go-build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           make tools
