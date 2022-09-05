@@ -769,6 +769,7 @@ func filterChain(chains [][]*x509.Certificate, f rankingFunc) [][]*x509.Certific
 
 // RankingFunc returns the relative rank between chain1 and chain2.
 // Return value:
+//
 //	positive integer if rank(chain1) > rank(chain2),
 //	negative integer if rank(chain1) < rank(chain2),
 //	0 if rank(chain1) == (chain2).

@@ -238,7 +238,7 @@ func TestClaims_String(t *testing.T) {
 func TestClaims_Int(t *testing.T) {
 	c := func(o MapClaims, k string, exp int) {
 		act := o.Int(k)
-		assert.Equal(t, act, exp)
+		assert.Equal(t, exp, act)
 	}
 
 	o := MapClaims{
@@ -265,6 +265,38 @@ func TestClaims_Int(t *testing.T) {
 	c(o, "uint", 123)
 	c(o, "uint32", 132)
 	c(o, "uint64", 164)
+}
+
+func TestClaims_UInt64(t *testing.T) {
+	c := func(o MapClaims, k string, exp uint64) {
+		act := o.UInt64(k)
+		assert.Equal(t, exp, act)
+	}
+
+	o := MapClaims{
+		"nil":    nil,
+		"struct": struct{}{},
+		"z":      "123",
+		"ze":     "abc",
+		"n":      int(-1),
+		"int":    int(1),
+		"int32":  int32(32),
+		"int64":  int64(64),
+		"uint":   uint(123),
+		"uint32": uint32(132),
+		"uint64": uint64(164),
+	}
+	c(o, "nil", uint64(0))
+	c(o, "struct", uint64(0))
+	c(o, "z", uint64(123))
+	c(o, "ze", uint64(0))
+	c(o, "n", uint64(0xffffffffffffffff))
+	c(o, "int", uint64(1))
+	c(o, "int32", uint64(32))
+	c(o, "int64", uint64(64))
+	c(o, "uint", uint64(123))
+	c(o, "uint32", uint64(132))
+	c(o, "uint64", uint64(164))
 }
 
 func TestClaims_Bool(t *testing.T) {
