@@ -413,6 +413,41 @@ func (c MapClaims) UInt64(k string) uint64 {
 	}
 }
 
+// Int64 will return the named claim as an int64
+func (c MapClaims) Int64(k string) int64 {
+	if c == nil {
+		return 0
+	}
+	v := c[k]
+	if v == nil {
+		return 0
+	}
+	switch tv := v.(type) {
+	case int:
+		return int64(tv)
+	case int32:
+		return int64(tv)
+	case int64:
+		return int64(tv)
+	case uint:
+		return int64(tv)
+	case uint32:
+		return int64(tv)
+	case uint64:
+		return int64(tv)
+	case string:
+		i64, err := strconv.ParseInt(tv, 10, 64)
+		if err != nil {
+			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+			return 0
+		}
+		return i64
+	default:
+		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
+		return 0
+	}
+}
+
 // VerifyAudience compares the aud claim against expected.
 func (c MapClaims) VerifyAudience(expected []string) error {
 	if len(expected) == 0 {
@@ -591,7 +626,7 @@ func (n NumericDate) MarshalJSON() ([]byte, error) {
 func (n *NumericDate) UnmarshalJSON(b []byte) error {
 	s := string(b)
 
-	f, err := strconv.ParseFloat(s, 64)
+	f, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return errors.Errorf("expected number value to unmarshal NumericDate: %s", s)
 	}
@@ -662,9 +697,9 @@ func SetClaimsExpiration(claims MapClaims, expiry time.Duration) {
 	expiresAt := now.Add(expiry)
 	notBefore := now.Add(DefaultNotBefore)
 
-	claims["iat"] = json.Number(strconv.FormatInt(now.Unix(), 10))
-	claims["nbf"] = json.Number(strconv.FormatInt(notBefore.Unix(), 10))
-	claims["exp"] = json.Number(strconv.FormatInt(expiresAt.Unix(), 10))
+	claims["iat"] = now.Unix()
+	claims["nbf"] = notBefore.Unix()
+	claims["exp"] = expiresAt.Unix()
 }
 
 // CreateClaims returns claims
