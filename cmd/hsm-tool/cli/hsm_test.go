@@ -306,9 +306,7 @@ func (s *hsmSuite) Test_RmKey() {
 	mocked.AssertExpectations(s.T())
 }
 
-//
 // Mock
-//
 type mockedProvider struct {
 	mock.Mock
 }

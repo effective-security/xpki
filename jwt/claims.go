@@ -3,6 +3,7 @@ package jwt
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -263,7 +264,7 @@ func (c MapClaims) String(k string) string {
 	case string:
 		return tv
 	default:
-		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
+		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
 		return xlog.EscapedString(v)
 	}
 }
@@ -283,7 +284,7 @@ func (c MapClaims) Bool(k string) bool {
 	case string:
 		return tv == "true"
 	default:
-		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
+		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
 		return false
 	}
 }
@@ -331,12 +332,13 @@ func (c MapClaims) Time(k string) *time.Time {
 		}
 		unix, err := strconv.ParseInt(tv, 10, 64)
 		if err != nil {
+			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
 			return nil
 		}
 		t := time.Unix(unix, 0)
 		return &t
 	default:
-		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
+		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
 		return nil
 	}
 }
@@ -366,11 +368,47 @@ func (c MapClaims) Int(k string) int {
 	case string:
 		i, err := strconv.Atoi(tv)
 		if err != nil {
+			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
 			return 0
 		}
 		return i
 	default:
-		logger.Debugf("reason=unsupported, val=%s, type='%T'", k, tv)
+		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
+		return 0
+	}
+}
+
+// UInt64 will return the named claim as an uint64
+func (c MapClaims) UInt64(k string) uint64 {
+	if c == nil {
+		return 0
+	}
+	v := c[k]
+	if v == nil {
+		return 0
+	}
+	switch tv := v.(type) {
+	case int:
+		return uint64(tv)
+	case int32:
+		return uint64(tv)
+	case int64:
+		return uint64(tv)
+	case uint:
+		return uint64(tv)
+	case uint32:
+		return uint64(tv)
+	case uint64:
+		return uint64(tv)
+	case string:
+		i64, err := strconv.ParseUint(tv, 10, 64)
+		if err != nil {
+			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+			return 0
+		}
+		return i64
+	default:
+		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
 		return 0
 	}
 }

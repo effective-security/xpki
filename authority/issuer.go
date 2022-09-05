@@ -341,7 +341,7 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 
 	requesterCsrTemplate, err := csr.ParsePEM([]byte(raReq.Request))
 	if err != nil {
-		return nil, nil, errors.WithStack(err)
+		return nil, nil, errors.WithMessage(err, "failed to parse CSR")
 	}
 
 	logger.KV(xlog.TRACE,

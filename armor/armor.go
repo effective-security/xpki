@@ -14,12 +14,14 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "armor"
 // A Block represents an OpenPGP armored structure.
 //
 // The encoded form is:
-//    -----BEGIN Type-----
-//    Headers
 //
-//    base64-encoded Bytes
-//    '=' base64 encoded checksum
-//    -----END Type-----
+//	-----BEGIN Type-----
+//	Headers
+//
+//	base64-encoded Bytes
+//	'=' base64 encoded checksum
+//	-----END Type-----
+//
 // where Headers is a possibly empty sequence of Key: Value lines.
 type Block struct {
 	Type    string            // The type, taken from the preamble (i.e. "RSA PRIVATE KEY").
