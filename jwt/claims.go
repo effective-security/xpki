@@ -37,6 +37,17 @@ type Claims struct {
 	Nonce      string                 `json:"nonce,omitempty"`
 	HTTPMethod string                 `json:"htm,omitempty"`
 	HTTPUri    string                 `json:"htu,omitempty"`
+
+	// Custom most common claims
+	Name          string `json:"name,omitempty"`
+	Profile       string `json:"profile ,omitempty"`
+	Email         string `json:"email,omitempty"`
+	EmailVerified bool   `json:"email_verified ,omitempty"`
+	Phone         string `json:"phone_number,omitempty"`
+	PhoneVerified bool   `json:"phone_number_verified ,omitempty"`
+	Role          string `json:"role,omitempty"`
+	// map of Org:Role
+	Orgs map[string]string `json:"orgs,omitempty"`
 }
 
 // Marshal returns JSON encoded string
