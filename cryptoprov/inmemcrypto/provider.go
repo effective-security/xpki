@@ -34,7 +34,7 @@ type inMemProv struct {
 
 // registerKey registers key for the given id in HSM
 func (h *inMemProv) registerKey(keyID string, pvk crypto.PrivateKey) {
-	logger.Tracef("id=%s", keyID)
+	logger.KV(xlog.TRACE, "id", keyID)
 	h.keyIDToPvk[keyID] = pvk
 }
 
@@ -271,7 +271,7 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 		}
 		key = pem.EncodeToMemory(&block)
 	default:
-		logger.Errorf("unsupported key: %T", priv)
+		logger.KV(xlog.ERROR, "reason", "unsupported key", "type", fmt.Sprintf("%T", priv))
 		panic("Generate should have failed to produce a valid key.")
 	}
 

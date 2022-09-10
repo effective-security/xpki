@@ -8,6 +8,7 @@ import (
 	"io"
 	"reflect"
 
+	"github.com/effective-security/xlog"
 	"github.com/pkg/errors"
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -23,7 +24,7 @@ type Signer struct {
 
 // NewSigner creates new signer
 func NewSigner(keyID string, label string, publicKey crypto.PublicKey, prov *Provider) crypto.Signer {
-	logger.Debugf("id=%s, label=%q", keyID, label)
+	logger.KV(xlog.DEBUG, "id", keyID, "label", label)
 	return &Signer{
 		keyID:  keyID,
 		label:  label,

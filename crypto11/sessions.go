@@ -19,7 +19,6 @@ func (lib *PKCS11Lib) NewSession(slot uint) (pkcs11.SessionHandle, error) {
 // setupSessions must have been called for the slot already,
 // otherwise there will be a panic.
 func (lib *PKCS11Lib) withSession(slot uint, f func(session pkcs11.SessionHandle) error) error {
-	//logger.Tracef("api=withSession, slot=0x%X", slot)
 	var session pkcs11.SessionHandle
 	var err error
 	sessionPool := lib.sessionPools[slot]

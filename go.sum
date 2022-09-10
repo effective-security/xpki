@@ -73,8 +73,6 @@ github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ3
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/effective-security/xlog v0.0.0-20221007144802-50359733b22f h1:d9Y0xVlFw/5LIz7QQNmdLOvecCvS5AwY4UeNkiOVjeM=
-github.com/effective-security/xlog v0.0.0-20221007144802-50359733b22f/go.mod h1:MgiEiGSIXe0WWCX37/HkNKgsuKy3IbyQ6XVhOCBcsiM=
 github.com/effective-security/xlog v0.0.0-20221008085823-05b9d4781678 h1:MoHrvtsAv63M28v5NEE4uyCifhEt75vd/hjKZeV3apE=
 github.com/effective-security/xlog v0.0.0-20221008085823-05b9d4781678/go.mod h1:K/Rrf1LAhR7UpCKxAmiqe/vzeMySs57MYIGsolAWGNo=
 github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=

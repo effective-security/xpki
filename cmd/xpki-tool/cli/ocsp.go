@@ -6,6 +6,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
 	"github.com/pkg/errors"
@@ -71,7 +72,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 	crt := list[0]
 
 	if len(crt.OCSPServer) < 1 {
-		logger.Infof("certificate does not have OCSP URL: CN=%q\n", crt.Subject.String())
+		logger.KV(xlog.DEBUG, "reason", "certificate does not have OCSP URL", "cn", crt.Subject.String())
 		return nil
 	}
 
@@ -99,7 +100,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 	}
 
 	for _, url := range crt.OCSPServer {
-		logger.Infof("fetching OCSP from %q\n", url)
+		logger.KV(xlog.DEBUG, "status", "fetching OCSP", "url", url)
 		status, der, err := OCSPValidation(client, crt, issuer, url)
 
 		if err != nil {
@@ -111,13 +112,13 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 				filename := path.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
 				err = ioutil.WriteFile(filename, der, 0644)
 				if err != nil {
-					return errors.WithMessagef(err, "unable to write OCSP: %s", filename)
+					return errors.Wrapf(err, "unable to write OCSP: %s", filename)
 				}
 			}
 			if a.Print {
 				res, err := ocsp.ParseResponse(der, nil)
 				if err != nil {
-					return errors.WithMessage(err, "unable to prase OCSP")
+					return errors.Wrapf(err, "unable to prase OCSP")
 				}
 
 				print.OCSPResponse(w, res, true)

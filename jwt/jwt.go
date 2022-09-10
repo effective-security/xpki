@@ -270,7 +270,6 @@ func (p *provider) ParseToken(authorization string, cfg VerifyConfig) (MapClaims
 	claims := MapClaims{}
 	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (interface{}, error) {
 		logger.KV(xlog.DEBUG,
-			"src", "ParseToken",
 			"headers", token.Header,
 			"claims", token.Claims,
 		)

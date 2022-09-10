@@ -164,7 +164,7 @@ func Decode(data []byte) (p *Block, rest []byte) {
 	base64Block := removeWhitespace(rest[:endIndex])
 	blockLen := len(base64Block)
 	if blockLen < 5 || base64Block[blockLen-5] != '=' {
-		logger.Debugf("reason=crc, blockLen=%d", blockLen)
+		logger.KV(xlog.DEBUG, "reason", "crc", "blockLen", blockLen)
 		return decodeError(data, rest)
 	}
 
@@ -176,21 +176,21 @@ func Decode(data []byte) (p *Block, rest []byte) {
 	var m int
 	m, err = base64.StdEncoding.Decode(expectedBytes[0:], crcData)
 	if m != 3 || err != nil {
-		logger.Debugf("reason=crc, crc_len=%d, err=[%v]", m, err)
+		logger.KV(xlog.DEBUG, "reason", "crc", "crc_len", m, "err", err)
 		return decodeError(data, rest)
 	}
 	p.CRC = uint32(expectedBytes[0])<<16 | uint32(expectedBytes[1])<<8 | uint32(expectedBytes[2])
 	p.Bytes = make([]byte, base64.StdEncoding.DecodedLen(len(base64Data)))
 	n, err := base64.StdEncoding.Decode(p.Bytes, base64Data)
 	if err != nil {
-		logger.Debugf("reason=base64, err=[%v]", err)
+		logger.KV(xlog.DEBUG, "reason", "base64", "err", err)
 		return decodeError(data, rest)
 	}
 	p.Bytes = p.Bytes[:n]
 
 	crc := uint32(crc24(crc24Init, p.Bytes) & crc24Mask)
 	if p.CRC != crc {
-		logger.Debugf("reason=CRC, expected=%d, actual=%d", p.CRC, crc)
+		logger.KV(xlog.DEBUG, "reason", "CRC", "expected", p.CRC, "actual", crc)
 		return decodeError(data, rest)
 	}
 

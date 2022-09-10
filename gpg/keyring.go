@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 
+	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/armor"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/openpgp"
@@ -17,7 +18,7 @@ func KeyRing(data []byte) (openpgp.EntityList, error) {
 	for {
 		block, rest := armor.Decode(data)
 		if block == nil {
-			logger.Tracef("reason=no_block, data=[%s...]", string(data))
+			logger.KV(xlog.TRACE, "reason", "no_block", "data", string(data))
 			break
 		}
 

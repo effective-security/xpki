@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/big"
 
+	"github.com/effective-security/xlog"
 	pkcs11 "github.com/miekg/pkcs11"
 	"github.com/pkg/errors"
 )
@@ -249,8 +250,6 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 		return nil, errors.WithStack(err)
 	}
 
-	logger.Infof("slot=0x%X, id=%s, label=%q", slot, string(id), string(label))
-
 	publicKeyTemplate := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
 		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_ECDSA),
@@ -277,11 +276,11 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 		publicKeyTemplate,
 		privateKeyTemplate)
 	if err != nil {
-		logger.Errorf("reason=GenerateKeyPair, err=[%+v]", err)
+		logger.KV(xlog.ERROR, "reason", "GenerateKeyPair", "err", err)
 		return nil, errors.WithStack(err)
 	}
 	if pub, err = lib.exportECDSAPublicKey(session, pubHandle); err != nil {
-		logger.Errorf("reason=exportECDSAPublicKey, err=[%+v]", err)
+		logger.KV(xlog.ERROR, "reason", "exportECDSAPublicKey", "err", err)
 		return nil, errors.WithStack(err)
 	}
 	priv := PKCS11PrivateKeyECDSA{

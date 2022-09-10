@@ -244,7 +244,7 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 
 // GetKey returns PrivateKey
 func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
-	logger.Infof("keyID=" + keyID)
+	logger.KV(xlog.INFO, "keyID", keyID)
 
 	ctx := context.Background()
 	name := p.keyName(keyID)
@@ -279,7 +279,7 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 
 // EnumKeys returns list of keys on the slot. For KMS slotID is ignored.
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
-	logger.Tracef("host=%s, slotID=%d, prefix=%q", p.endpoint, slotID, prefix)
+	logger.KV(xlog.TRACE, "host", p.endpoint, "slotID", slotID, "prefix", prefix)
 
 	iter := p.KmsClient.ListCryptoKeys(
 		context.Background(),
@@ -300,7 +300,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 
 		if key.Primary != nil &&
 			key.Primary.State != kmspb.CryptoKeyVersion_ENABLED {
-			logger.Tracef("skip_key=%q, state=%v", key.Name, key.Primary.State.String())
+			logger.KV(xlog.TRACE, "skip_key", key.Name, "state", key.Primary.State.String())
 			continue
 		}
 
@@ -338,8 +338,7 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	if err != nil {
 		return errors.WithMessagef(err, "failed to schedule key deletion: %s", keyID)
 	}
-	logger.Noticef("id=%s, deletion_time=%v",
-		keyID, resp.DestroyTime.AsTime().Format(time.RFC3339))
+	logger.KV(xlog.NOTICE, "id", keyID, "deletion_time", resp.DestroyTime.AsTime())
 
 	return nil
 }

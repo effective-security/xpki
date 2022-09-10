@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
@@ -436,7 +437,7 @@ func SetSAN(template *x509.Certificate, SAN []string) {
 		if strings.Contains(san, "://") {
 			u, err := url.Parse(san)
 			if err != nil {
-				logger.Errorf("uri=%q, err=[%+v]", san, err)
+				logger.KV(xlog.ERROR, "uri", san, "err", err)
 			}
 			template.URIs = append(template.URIs, u)
 		} else if ip := net.ParseIP(san); ip != nil {

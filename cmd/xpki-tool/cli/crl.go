@@ -7,6 +7,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
 	"github.com/pkg/errors"
@@ -76,12 +77,12 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 	}
 	for _, crt := range list {
 		if len(crt.CRLDistributionPoints) < 1 {
-			logger.Infof("CRL DP is not present: CN=%q\n", crt.Subject.String())
+			logger.KV(xlog.DEBUG, "reason", "CRL DP is not present", "CN", crt.Subject.String())
 			continue
 		}
 
 		crldp := crt.CRLDistributionPoints[0]
-		logger.Infof("fetching CRL from %q\n", crldp)
+		logger.KV(xlog.DEBUG, "status", "fetching CRL", "url", crldp)
 
 		body, err := download(client, crldp)
 		if err != nil {
@@ -90,7 +91,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 
 		crl, err := x509.ParseCRL(body)
 		if err != nil {
-			return errors.WithMessage(err, "unable to prase CRL")
+			return errors.Wrapf(err, "unable to prase CRL")
 		}
 		if a.Print {
 			fmt.Fprintf(w, "=================================================\n")
@@ -101,7 +102,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 			filename := path.Join(a.Output, fmt.Sprintf("%s.crl", certutil.GetIssuerID(crt)))
 			err = ioutil.WriteFile(filename, body, 0644)
 			if err != nil {
-				return errors.WithMessagef(err, "unable to write CRL: %s", filename)
+				return errors.Wrapf(err, "unable to write CRL: %s", filename)
 			}
 		}
 	}

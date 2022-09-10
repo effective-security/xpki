@@ -42,11 +42,11 @@ func (ca *Issuer) GenCert(crypto cryptoprov.Provider, req *csr.CertificateReques
 
 	err = fileutil.Vfs.Rename(certFile, certFile+".bak")
 	if err != nil {
-		logger.Warningf("reason=move, file=%q, err=%q", certFile, err.Error())
+		logger.KV(xlog.WARNING, "reason", "move", "file", certFile, "err", err.Error())
 	}
 	err = fileutil.Vfs.Rename(keyFile, keyFile+".bak")
 	if err != nil {
-		logger.Warningf("reason=move, file=%q, err=%q", keyFile, err.Error())
+		logger.KV(xlog.WARNING, "reason", "move", "file", keyFile, "err", err.Error())
 	}
 
 	certBundle := strings.TrimSpace(string(certPEM)) + "\n" + ca.PEM()

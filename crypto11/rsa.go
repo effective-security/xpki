@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"unsafe"
 
+	"github.com/effective-security/xlog"
 	pkcs11 "github.com/miekg/pkcs11"
 	"github.com/pkg/errors"
 )
@@ -19,7 +20,7 @@ type PKCS11PrivateKeyRSA struct {
 
 // Export the public key corresponding to a private RSA key.
 func (lib *PKCS11Lib) exportRSAPublicKey(session pkcs11.SessionHandle, pubHandle pkcs11.ObjectHandle) (crypto.PublicKey, error) {
-	logger.Tracef("session=0x%X, obj=0x%X", session, pubHandle)
+	logger.KV(xlog.TRACE, "session=0x", session, "obj=0x", pubHandle)
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),
@@ -112,8 +113,6 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
 		}
 	}
 
-	logger.Infof("slot=0x%X, id=%s, label=%q, purpose=%v", slot, string(id), string(label), purpose)
-
 	publicKeyTemplate := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
 		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_RSA),
@@ -148,11 +147,11 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
 		publicKeyTemplate,
 		privateKeyTemplate)
 	if err != nil {
-		logger.Errorf("reason=GenerateKeyPair, pubHandle=%v, privHandle=%v, err=[%+v]", pubHandle, privHandle, err)
+		logger.KV(xlog.ERROR, "reason", "GenerateKeyPair", "pubHandle", pubHandle, "privHandle", privHandle, "err", err)
 		return nil, errors.WithStack(err)
 	}
 	if pub, err = lib.exportRSAPublicKey(session, pubHandle); err != nil {
-		logger.Errorf("reason=exportRSAPublicKey, err=[%+v]", err)
+		logger.KV(xlog.ERROR, "reason", "exportRSAPublicKey", "err", err)
 		return nil, errors.WithStack(err)
 	}
 	priv := PKCS11PrivateKeyRSA{
@@ -241,7 +240,7 @@ func hashToPKCS11(hashFunction crypto.Hash) (uint, uint, uint, error) {
 }
 
 func (lib *PKCS11Lib) signPSS(session pkcs11.SessionHandle, priv *PKCS11PrivateKeyRSA, digest []byte, opts *rsa.PSSOptions) ([]byte, error) {
-	logger.Tracef("session=0x%X, obj=0x%X", session, priv.key.Handle)
+	logger.KV(xlog.TRACE, "session=0x", session, "obj=0x", priv.key.Handle)
 
 	var hMech, mgf, hLen, sLen uint
 	var err error
@@ -280,7 +279,7 @@ var pkcs1Prefix = map[crypto.Hash][]byte{
 }
 
 func (lib *PKCS11Lib) signPKCS1v15(session pkcs11.SessionHandle, priv *PKCS11PrivateKeyRSA, digest []byte, hash crypto.Hash) (signature []byte, err error) {
-	logger.Tracef("session=0x%X, obj=0x%X", session, priv.key.Handle)
+	logger.KV(xlog.TRACE, "session=0x", session, "obj=0x", priv.key.Handle)
 	/* Calculate T for EMSA-PKCS1-v1_5. */
 	oid := pkcs1Prefix[hash]
 	T := make([]byte, len(oid)+len(digest))
@@ -292,7 +291,7 @@ func (lib *PKCS11Lib) signPKCS1v15(session pkcs11.SessionHandle, priv *PKCS11Pri
 		signature, err = lib.Ctx.Sign(session, T)
 		if err != nil {
 			err = errors.WithStack(err)
-			logger.Tracef("session=0x%X, obj=0x%X, err=%v", session, priv.key.Handle, err)
+			logger.KV(xlog.TRACE, "session=0x", session, "obj=0x", priv.key.Handle, "err", err)
 		}
 	}
 	return
