@@ -283,7 +283,7 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		ocspExpiry:  ocspExpiry,
 		keyInfo:     keyInfo,
 	}
-	logger.Noticef("issuer=%s, skid=%s, crl_url=%s, ocsp_url=%s", label, ca.skid, ca.crlURL, ca.ocspURL)
+	logger.KV(xlog.NOTICE, "issuer", label, "skid", ca.skid, "crl_url", ca.crlURL, "ocsp_url", ca.ocspURL)
 	return ca, nil
 }
 
@@ -657,7 +657,7 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 
 	template.IsCA = profile.CAConstraint.IsCA
 	if template.IsCA {
-		logger.Noticef("subject=%q, is_ca=true, MaxPathLen=%d", template.Subject.String(), profile.CAConstraint.MaxPathLen)
+		logger.KV(xlog.NOTICE, "subject", template.Subject.String(), "is_ca", "true", "MaxPathLen", profile.CAConstraint.MaxPathLen)
 		template.BasicConstraintsValid = true
 		template.MaxPathLen = profile.CAConstraint.MaxPathLen
 		template.MaxPathLenZero = template.MaxPathLen == 0

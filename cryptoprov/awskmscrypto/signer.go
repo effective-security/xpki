@@ -9,6 +9,7 @@ import (
 	"reflect"
 
 	"github.com/aws/aws-sdk-go/service/kms"
+	"github.com/effective-security/xlog"
 	"github.com/pkg/errors"
 )
 
@@ -35,7 +36,7 @@ type Signer struct {
 
 // NewSigner creates new signer
 func NewSigner(keyID string, label string, signingAlgorithms []string, publicKey crypto.PublicKey, kmsClient KmsClient) crypto.Signer {
-	logger.Debugf("id=%s, label=%q, algos=%v", keyID, label, signingAlgorithms)
+	logger.KV(xlog.DEBUG, "id", keyID, "label", label, "algos", signingAlgorithms)
 	return &Signer{
 		keyID:             keyID,
 		label:             label,

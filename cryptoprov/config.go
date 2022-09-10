@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/effective-security/xlog"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )
@@ -129,7 +130,7 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 				pinfile = resolved
 				break
 			}
-			logger.Warningf("reason=resolve, pinfile=%q, basedir=%q", pinfile, folder)
+			logger.KV(xlog.WARNING, "reason", "resolve", "pinfile", pinfile, "basedir", folder)
 		}
 
 		pb, err := ioutil.ReadFile(pinfile)

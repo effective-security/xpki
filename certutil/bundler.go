@@ -258,7 +258,7 @@ type fetchedIntermediate struct {
 // and attempts to first parse it as a DER-encoded certificate; if
 // this fails, it attempts to decode it as a PEM-encoded certificate.
 func fetchRemoteCertificate(client *http.Client, certURL string) (fi *fetchedIntermediate, err error) {
-	logger.Debugf("fetching remote certificate: %s", certURL)
+	logger.KV(xlog.DEBUG, "status", "fetching remote certificate", "url", certURL)
 	var resp *http.Response
 	resp, err = client.Get(certURL)
 	if err != nil {
@@ -404,13 +404,12 @@ func constructCertFileName(cert *x509.Certificate) string {
 func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 	if IntermediateStash != "" {
 		if _, err := fileutil.Vfs.Stat(IntermediateStash); err != nil && os.IsNotExist(err) {
-			logger.Infof("intermediate stash directory %s doesn't exist, creating", IntermediateStash)
+			logger.KV(xlog.INFO, "reason", "creating intermediate stash directory", "folder", IntermediateStash)
 			err = fileutil.Vfs.MkdirAll(IntermediateStash, 0755)
 			if err != nil {
-				logger.Errorf("failed to create intermediate stash directory %s: %v", IntermediateStash, err)
+				logger.KV(xlog.ERROR, "reason", "failed to create intermediate stash directory", "folder", IntermediateStash, "err", err)
 				return err
 			}
-			logger.Infof("intermediate stash directory %s created", IntermediateStash)
 		}
 	}
 	// stores URLs and certificate signatures that have been seen
@@ -457,7 +456,7 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 		}
 		for _, url := range current.Cert.IssuingCertificateURL {
 			if seen[url] {
-				logger.Debugf("url %s has been seen", url)
+
 				continue
 			}
 			var crt *fetchedIntermediate
@@ -468,7 +467,7 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 				}
 
 				if seen[string(crt.Cert.Signature)] {
-					logger.Debugf("fetched certificate is known")
+					logger.KV(xlog.DEBUG, "status", "fetched certificate is known")
 					continue
 				}
 				seen[url] = true
@@ -477,12 +476,11 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 				advanced = true
 				break
 			} else {
-				logger.Debugf("AIA fetch is disabled for url %s", url)
+				logger.KV(xlog.DEBUG, "reason", "AIA fetch disabled", "url", url)
 			}
 		}
 
 		if !advanced {
-			//logger.Debugf("didn't advance, stepping back")
 			chain = chain[1:]
 		}
 	}
@@ -603,9 +601,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 
 		chains, err := cert.Verify(b.VerifyOptions())
 		if err != nil {
-			logger.Debugf("first verification failed with default bundle, issuer=%q, subject=%q, aia=%q : %v",
-				cert.Issuer.CommonName, cert.Subject.CommonName, cert.IssuingCertificateURL, err)
-
+			logger.KV(xlog.DEBUG, "reason", "verification failed", "err", err.Error())
 			// If the error was an unknown authority, try to fetch
 			// the intermediate specified in the AIA and add it to
 			// the intermediates bundle.
@@ -615,13 +611,13 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 
 			searchErr := b.fetchIntermediates(certs)
 			if searchErr != nil {
-				logger.Debugf("issuer search failed: %v", searchErr)
+				logger.KV(xlog.DEBUG, "reason", "search failed", "err", searchErr.Error())
 				return nil, errors.WithMessage(err, "unable to verify the certificate chain")
 			}
 
 			chains, err = cert.Verify(b.VerifyOptions())
 			if err != nil {
-				return nil, errors.WithMessage(err, "unable to verify the certificate chain")
+				return nil, errors.Wrap(err, "unable to verify the certificate chain")
 			}
 		}
 		matchingChains := optimalChains(chains)

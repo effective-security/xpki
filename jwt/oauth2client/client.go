@@ -46,7 +46,7 @@ func New(cfg *ClientConfig) (*Client, error) {
 		p.verifyKey = verifyKey
 	}
 
-	logger.Infof("sts=%q, audience=%q, issuer=%q", cfg.ProviderID, cfg.Audience, cfg.Issuer)
+	logger.KV(xlog.INFO, "sts", cfg.ProviderID, "audience", cfg.Audience, "issuer", cfg.Issuer)
 
 	return p, nil
 }

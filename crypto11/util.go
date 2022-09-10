@@ -3,6 +3,7 @@ package crypto11
 import (
 	"strings"
 
+	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/miekg/pkcs11"
 	"github.com/pkg/errors"
@@ -21,7 +22,7 @@ func (p11lib *PKCS11Lib) TokensInfo() ([]*SlotTokenInfo, error) {
 		return nil, errors.WithStack(err)
 	}
 
-	logger.Tracef("slots=%d", len(slots))
+	logger.KV(xlog.TRACE, "slots", len(slots))
 
 	for _, slotID := range slots {
 		si, err := p11lib.Ctx.GetSlotInfo(slotID)
@@ -30,13 +31,7 @@ func (p11lib *PKCS11Lib) TokensInfo() ([]*SlotTokenInfo, error) {
 		}
 		ti, err := p11lib.Ctx.GetTokenInfo(slotID)
 		if err != nil {
-			logger.Errorf(
-				"reason=GetTokenInfo, slotID=%d, ManufacturerID=%q, SlotDescription=%q, err=[%+v]",
-				slotID,
-				si.ManufacturerID,
-				si.SlotDescription,
-				err,
-			)
+			logger.KV(xlog.ERROR, "reason", "GetTokenInfo", "slotID", slotID, "ManufacturerID", si.ManufacturerID, "SlotDescription", si.SlotDescription, "err", err)
 		} else if ti.SerialNumber != "" || ti.Label != "" {
 			list = append(list, &SlotTokenInfo{
 				id:           slotID,
@@ -62,16 +57,12 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	}
 	defer p11lib.Ctx.CloseSession(session)
 
-	logger.Tracef("slot=0x%X, id=%q", slotID, keyID)
-
-	id := []byte(keyID)
-
 	var privHandle, pubHandle pkcs11.ObjectHandle
 	if privHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
-		logger.Warningf("reason=not_found, type=CKO_PRIVATE_KEY, err=[%+v]", err)
+		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PRIVATE_KEY", "err", err.Error())
 	}
 	if pubHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PUBLIC_KEY, ^uint(0)); err != nil {
-		logger.Warningf("reason=not_found, type=CKO_PUBLIC_KEY, err=[%+v]", err)
+		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PUBLIC_KEY", "err", err.Error())
 	}
 
 	if privHandle != 0 {
@@ -79,7 +70,7 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 		if err != nil {
 			return errors.WithStack(err)
 		}
-		logger.Infof("type=CKO_PRIVATE_KEY, slot=0x%X, id=%q", slotID, keyID)
+
 	}
 
 	if pubHandle != 0 {
@@ -87,7 +78,7 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 		if err != nil {
 			return errors.WithStack(err)
 		}
-		logger.Infof("type=CKO_PUBLIC_KEY, slot=0x%X, id=%q", slotID, string(id))
+
 	}
 	return nil
 }
@@ -96,8 +87,7 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 func (p11lib *PKCS11Lib) getPublicKeyPEM(slotID uint, keyID string) (string, error) {
 	priv, err := p11lib.FindKeyPairOnSlot(slotID, keyID, "")
 	if err != nil {
-		return "", errors.WithMessagef(err, "reason=FindKeyPairOnSlot, slotID=%d, uriID=%s",
-			slotID, keyID)
+		return "", errors.WithMessagef(err, "unable to find key: slot=%d, key=%s", slotID, keyID)
 	}
 
 	pub, err := ConvertToPublic(priv)

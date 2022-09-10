@@ -131,11 +131,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 	keyID := aws.StringValue(resp.KeyMetadata.KeyId)
 	arn := aws.StringValue(resp.KeyMetadata.Arn)
 
-	logger.Infof("arn=%q, id=%q, label=%q",
-		arn,
-		keyID,
-		label,
-	)
+	logger.KV(xlog.INFO, "arn", arn, "id", keyID, "label", label)
 
 	// 2. Retrieve public key from KMS
 	pubKeyResp, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
@@ -182,11 +178,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	keyID := aws.StringValue(resp.KeyMetadata.KeyId)
 	arn := aws.StringValue(resp.KeyMetadata.Arn)
 
-	logger.Infof("arn=%q, id=%q, label=%q",
-		arn,
-		keyID,
-		label,
-	)
+	logger.KV(xlog.INFO, "arn", arn, "id", keyID, "label", label)
 
 	// 2. Retrieve public key from KMS
 	pubKeyResp, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
@@ -213,7 +205,7 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 
 // GetKey returns pkcs11 uri for the given key id
 func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
-	logger.Infof("api=GetKey, keyID=%s", keyID)
+	logger.KV(xlog.INFO, "api", "GetKey", "keyID", keyID)
 
 	ki, err := p.kmsClient.DescribeKey(&kms.DescribeKeyInput{KeyId: &keyID})
 	if err != nil {
@@ -257,7 +249,7 @@ func keyMeta(ki *kms.DescribeKeyOutput) map[string]string {
 
 // EnumKeys returns list of keys on the slot. For KMS slotID is ignored.
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
-	logger.Tracef("endpoit=%s, slotID=%d, prefix=%q", p.endpoint, slotID, prefix)
+	logger.KV(xlog.TRACE, "endpoit", p.endpoint, "slotID", slotID, "prefix", prefix)
 
 	opts := &kms.ListKeysInput{}
 
@@ -294,8 +286,7 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	if err != nil {
 		return errors.WithMessagef(err, "failed to schedule key deletion: %s", keyID)
 	}
-	logger.Noticef("id=%s, deletion_time=%v",
-		keyID, aws.TimeValue(resp.DeletionDate).Format(time.RFC3339))
+	logger.KV(xlog.NOTICE, "id", keyID, "deletion_time", aws.TimeValue(resp.DeletionDate).Format(time.RFC3339))
 
 	return nil
 }

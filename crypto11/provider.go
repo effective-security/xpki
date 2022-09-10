@@ -3,6 +3,7 @@ package crypto11
 import (
 	"strings"
 
+	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/miekg/pkcs11"
 	"github.com/pkg/errors"
@@ -98,7 +99,6 @@ func (p11lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyI
 
 // KeyInfo retrieves info about key with the specified id
 func (p11lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
-	logger.Tracef("slot=0x%X, id=%q", slotID, keyID)
 	var err error
 	session, err := p11lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
 	if err != nil {
@@ -106,11 +106,9 @@ func (p11lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) 
 	}
 	defer p11lib.Ctx.CloseSession(session)
 
-	logger.Tracef("slot=0x%X, id=%q", slotID, keyID)
-
 	var privHandle pkcs11.ObjectHandle
 	if privHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
-		logger.Warningf("reason=not_found, type=CKO_PRIVATE_KEY, err=[%+v]", err)
+		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PRIVATE_KEY", "err", err.Error())
 	}
 
 	attributes := []*pkcs11.Attribute{

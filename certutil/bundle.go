@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/effective-security/xlog"
 	"github.com/pkg/errors"
 )
 
@@ -101,16 +102,13 @@ func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error) {
 	}
 
 	if len(c.Status.Messages) > 0 {
-		logger.Warningf("CN=%q, messages=[%s]",
-			c.Cert.Subject.CommonName, strings.Join(c.Status.Messages, ";"))
+		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "messages", strings.Join(c.Status.Messages, ";"))
 	}
 	if len(c.Status.ExpiringSKIs) > 0 {
-		logger.Warningf("CN=%q, ExpiringSKIs=[%s]",
-			c.Cert.Subject.CommonName, strings.Join(c.Status.ExpiringSKIs, ";"))
+		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "ExpiringSKIs", strings.Join(c.Status.ExpiringSKIs, ";"))
 	}
 	if len(c.Status.Untrusted) > 0 {
-		logger.Warningf("CN=%q, Untrusted=[%s]",
-			c.Cert.Subject.CommonName, strings.Join(c.Status.Untrusted, ";"))
+		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "Untrusted", strings.Join(c.Status.Untrusted, ";"))
 	}
 
 	status = &BundleStatus{
