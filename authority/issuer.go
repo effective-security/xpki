@@ -665,6 +665,9 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 		template.EmailAddresses = nil
 		template.URIs = nil
 	} else {
+		template.BasicConstraintsValid = true
+		template.MaxPathLen = -1
+
 		// Do not include OCSP and CDP to delegated OCSP responder cert
 		isOCSPResponder = certutil.IsOCSPSigner(template) &&
 			(profile.OCSPNoCheck || certutil.HasOCSPNoCheck(template))
