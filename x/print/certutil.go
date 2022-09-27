@@ -75,11 +75,9 @@ func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool) {
 			fmt.Fprintf(w, "  - %s\n", n)
 		}
 	}
-	if crt.IsCA {
-		fmt.Fprintf(w, "CA: true\n")
-		fmt.Fprintf(w, "  Basic Constraints Valid: %t\n", crt.BasicConstraintsValid)
-		fmt.Fprintf(w, "  Max Path: %d\n", crt.MaxPathLen)
-	}
+	fmt.Fprintf(w, "CA: %t\n", crt.IsCA)
+	fmt.Fprintf(w, "  Basic Constraints Valid: %t\n", crt.BasicConstraintsValid)
+	fmt.Fprintf(w, "  Max Path: %d\n", crt.MaxPathLen)
 	if verboseExtensions && len(crt.Extensions) > 0 {
 		fmt.Fprintf(w, "Extensions:\n")
 		for _, ex := range crt.Extensions {
