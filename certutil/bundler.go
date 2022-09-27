@@ -104,16 +104,16 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-// NewBundler creates a new Bundler from the files passed in; these
+// LoadBundler creates a new Bundler from the files passed in; these
 // files should contain a list of valid root certificates and a list
 // of valid intermediate certificates, respectively.
-func NewBundler(caBundleFile, intBundleFile string, opt ...Option) (*Bundler, error) {
+func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler, error) {
 	var caBundle, intBundle []byte
 	var err error
 
-	if caBundleFile != "" {
-		logger.KV(xlog.DEBUG, "status", "loading_root", "bundle", caBundleFile)
-		caBundle, err = ioutil.ReadFile(caBundleFile)
+	if rootBundleFile != "" {
+		logger.KV(xlog.DEBUG, "status", "loading_root", "bundle", rootBundleFile)
+		caBundle, err = ioutil.ReadFile(rootBundleFile)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "root bundle failed to load")
 		}
@@ -143,18 +143,8 @@ func NewBundler(caBundleFile, intBundleFile string, opt ...Option) (*Bundler, er
 // NewBundlerFromPEM creates a new Bundler from PEM-encoded root certificates and
 // intermediate certificates.
 // If caBundlePEM is nil, the resulting Bundler can only do "Force" bundle.
-func NewBundlerFromPEM(caBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundler, error) {
-	opts := defaultOptions
-
-	if len(caBundlePEM) == 0 {
-		opts.flavor = Force
-	}
-
-	for _, o := range opt {
-		o(&opts)
-	}
-
-	roots, err := ParseChainFromPEM(caBundlePEM)
+func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundler, error) {
+	roots, err := ParseChainFromPEM(rootBundlePEM)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to parse root bundle")
 	}
@@ -163,6 +153,20 @@ func NewBundlerFromPEM(caBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundle
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to parse intermediate bundle")
 	}
+	return NewBundler(roots, intermediates, opt...)
+}
+
+// NewBundler returns Bundler
+func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundler, error) {
+	opts := defaultOptions
+
+	if len(roots) == 0 {
+		opts.flavor = Force
+	}
+
+	for _, o := range opt {
+		o(&opts)
+	}
 
 	b := &Bundler{
 		KnownIssuers:     map[string]bool{},
@@ -170,10 +174,8 @@ func NewBundlerFromPEM(caBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundle
 		opts:             opts,
 	}
 
-	// RootPool will be nil if caBundlePEM is nil, also
-	// that translates to caBundleFile is "".
-	// Systems root store will be used.
-	if caBundlePEM != nil {
+	// RootPool will be nil if roots is empty
+	if len(roots) > 0 {
 		b.RootPool = x509.NewCertPool()
 	}
 
@@ -200,10 +202,10 @@ func (b *Bundler) VerifyOptions() x509.VerifyOptions {
 	}
 }
 
-// BundleFromFile takes a set of files containing the PEM-encoded leaf certificate
+// ChainFromFile takes a set of files containing the PEM-encoded leaf certificate
 // (optionally along with some intermediate certs), the PEM-encoded private key
 // and returns the bundle built from that key and the certificate(s).
-func (b *Bundler) BundleFromFile(bundleFile, keyFile string, password string) (*Chain, error) {
+func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*Chain, error) {
 	certsRaw, err := ioutil.ReadFile(bundleFile)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to load bundle")
@@ -221,12 +223,12 @@ func (b *Bundler) BundleFromFile(bundleFile, keyFile string, password string) (*
 		}
 	}
 
-	return b.BundleFromPEMorDER(certsRaw, keyPEM, password)
+	return b.ChainFromPEM(certsRaw, keyPEM, password)
 }
 
-// BundleFromPEMorDER builds a certificate bundle from the set of byte
+// ChainFromPEM builds a certificate chain from the set of byte
 // slices containing the PEM or DER-encoded certificate(s), private key.
-func (b *Bundler) BundleFromPEMorDER(certsRaw, keyPEM []byte, password string) (*Chain, error) {
+func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain, error) {
 	var key crypto.Signer
 	var err error
 	if len(keyPEM) != 0 {

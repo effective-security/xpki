@@ -67,12 +67,16 @@ func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte, opt ...Option) (bund
 		return
 	}
 
-	c, err := b.BundleFromPEMorDER(certPEM, nil, "")
+	c, err := b.ChainFromPEM(certPEM, nil, "")
 	if err != nil {
 		err = errors.WithMessage(err, "failed to bundle")
 		return
 	}
+	return BuildBundle(c)
+}
 
+// BuildBundle returns Bundle
+func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error) {
 	var pemCert, pemRoot, pemCA string
 	pemCert, _ = EncodeToPEMString(true, c.Cert)
 	pemRoot, _ = EncodeToPEMString(true, c.Root)
