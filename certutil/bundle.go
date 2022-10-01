@@ -78,10 +78,10 @@ func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte, opt ...Option) (bund
 // BuildBundle returns Bundle
 func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error) {
 	var pemCert, pemRoot, pemCA string
-	pemCert, _ = EncodeToPEMString(true, c.Cert)
-	pemRoot, _ = EncodeToPEMString(true, c.Root)
+	pemCert, _ = EncodeToPEMString(false, c.Cert)
+	pemRoot, _ = EncodeToPEMString(false, c.Root)
 	if len(c.Chain) > 1 {
-		pemCA, _ = EncodeToPEMString(true, c.Chain[1:]...)
+		pemCA, _ = EncodeToPEMString(false, c.Chain[1:]...)
 	}
 
 	bundle = &Bundle{

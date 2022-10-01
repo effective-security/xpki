@@ -83,7 +83,9 @@ type GenCertCmd struct {
 	Profile    string   `required:"" help:"certificate profile name from CA config"`
 	KeyLabel   string   `required:"" help:"name for generated key"`
 	San        []string `help:"Subject Alt Names for generated cert"`
-	Output     string   `help:"the optional prefix for output files; if not set, the output will be printed to STDOUT only"`
+
+	PemInfo bool   `help:"Include certificate info in PEM file"`
+	Output  string `help:"the optional prefix for output files; if not set, the output will be printed to STDOUT only"`
 }
 
 // Run the command
@@ -154,7 +156,7 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 		}
 
 		crt, _ := certutil.ParseFromPEM(certPEM)
-		pem, _ := certutil.EncodeToPEMString(true, crt)
+		pem, _ := certutil.EncodeToPEMString(a.PemInfo, crt)
 		certPEM = []byte(pem + "\n")
 	} else {
 		issuer, err := authority.NewIssuer(isscfg, cryptoprov)
@@ -178,7 +180,7 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 			return errors.WithMessage(err, "sign request")
 		}
 
-		pem, _ := certutil.EncodeToPEMString(true, crt)
+		pem, _ := certutil.EncodeToPEMString(a.PemInfo, crt)
 		certPEM = []byte(pem + "\n")
 	}
 
@@ -207,7 +209,8 @@ type CsrSignCmd struct {
 	OcspURL string `help:"optional OCSP URL to add to the certificate"`
 	CrlURL  string `help:"optional CRL DP to add to the certificate"`
 
-	Output string `help:"the optional prefix for output files; if not set, the output will be printed to STDOUT only"`
+	PemInfo bool   `help:"Include certificate info in PEM file"`
+	Output  string `help:"the optional prefix for output files; if not set, the output will be printed to STDOUT only"`
 }
 
 // Run the command
@@ -259,7 +262,7 @@ func (a *CsrSignCmd) Run(ctx *Cli) error {
 	if err != nil {
 		return errors.WithMessage(err, "sign request")
 	}
-	pem, _ := certutil.EncodeToPEMString(true, crt)
+	pem, _ := certutil.EncodeToPEMString(a.PemInfo, crt)
 
 	if a.Output == "" {
 		ctl.WriteCert(ctx.Writer(), nil, nil, []byte(pem+"\n"))
