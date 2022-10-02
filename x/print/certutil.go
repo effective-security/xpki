@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/oid"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -33,6 +35,7 @@ func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool) {
 	fmt.Fprintf(w, "Issuer: %s\n", certutil.NameToString(&crt.Issuer))
 	fmt.Fprintf(w, "Issued: %s (%s ago)\n", crt.NotBefore.Local().String(), issuedIn.String())
 	fmt.Fprintf(w, "Expires: %s (in %s)\n", crt.NotAfter.Local().String(), expiresIn.String())
+
 	if len(crt.DNSNames) > 0 {
 		fmt.Fprintf(w, "DNS Names:\n")
 		for _, n := range crt.DNSNames {
@@ -78,11 +81,28 @@ func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool) {
 	fmt.Fprintf(w, "CA: %t\n", crt.IsCA)
 	fmt.Fprintf(w, "  Basic Constraints Valid: %t\n", crt.BasicConstraintsValid)
 	fmt.Fprintf(w, "  Max Path: %d\n", crt.MaxPathLen)
+
 	if verboseExtensions && len(crt.Extensions) > 0 {
 		fmt.Fprintf(w, "Extensions:\n")
 		for _, ex := range crt.Extensions {
-			fmt.Fprintf(w, "  id: %s, critical: %t\n", ex.Id, ex.Critical)
-			fmt.Fprintf(w, "  val: %x\n\n", ex.Value)
+			soid := ex.Id.String()
+			fmt.Fprintf(w, "  critical: %t\n", ex.Critical)
+			if name, ok := oid.DisplayName[soid]; ok {
+				fmt.Fprintf(w, "  oid: %s (%s)\n", soid, name)
+			} else {
+				fmt.Fprintf(w, "  oid: %s\n", soid)
+			}
+
+			fmt.Fprintf(w, "  value: %x\n", ex.Value)
+			switch soid {
+			case "2.5.29.15":
+				fmt.Fprintf(w, "  - %s\n", strings.Join(oid.KeyUsages(crt.KeyUsage), ", "))
+			case "2.5.29.37":
+				fmt.Fprintf(w, "  - %s\n", strings.Join(oid.ExtKeyUsages(crt.ExtKeyUsage...), ", "))
+			case "2.5.29.32":
+				fmt.Fprintf(w, "  identifiers: %s\n", strings.Join(oid.Strings(crt.PolicyIdentifiers...), ", "))
+			}
+			fmt.Fprintln(w)
 		}
 	}
 }

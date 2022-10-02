@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
 )
@@ -240,7 +241,7 @@ func Parse(csrBytes []byte) (*x509.Certificate, error) {
 	for _, val := range csrv.Extensions {
 		// Check the CSR for the X.509 BasicConstraints (RFC 5280, 4.2.1.9)
 		// extension and append to template if necessary
-		if val.Id.Equal(BasicConstraintsOID) {
+		if val.Id.Equal(oid.ExtensionBasicConstraints) {
 			var constraints BasicConstraints
 			var rest []byte
 
@@ -296,14 +297,14 @@ func (s *X509Subject) Name() pkix.Name {
 
 	if s.CommonName != "" {
 		name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-			Type:  OidNameCN,
+			Type:  oid.NameCN,
 			Value: s.CommonName,
 		})
 	}
 
 	if s.SerialNumber != "" {
 		name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-			Type:  OidNameSerial,
+			Type:  oid.NameSerial,
 			Value: s.SerialNumber,
 		})
 	}
@@ -317,43 +318,43 @@ func (s *X509Subject) Name() pkix.Name {
 
 		if n.Country != "" {
 			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-				Type:  OidNameC,
+				Type:  oid.NameC,
 				Value: n.Country,
 			})
 		}
 		if n.Province != "" {
 			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-				Type:  OidNameST,
+				Type:  oid.NameST,
 				Value: n.Province,
 			})
 		}
 		if n.Locality != "" {
 			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-				Type:  OidNameL,
+				Type:  oid.NameL,
 				Value: n.Locality,
 			})
 		}
 		if n.Organization != "" {
 			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-				Type:  OidNameO,
+				Type:  oid.NameO,
 				Value: n.Organization,
 			})
 		}
 		if n.OrganizationalUnit != "" {
 			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-				Type:  OidNameOU,
+				Type:  oid.NameOU,
 				Value: n.OrganizationalUnit,
 			})
 		}
 		if n.EmailAddress != "" {
 			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-				Type:  OidNameEmailAddress,
+				Type:  oid.NameEmailAddress,
 				Value: n.EmailAddress,
 			})
 		}
 		if n.SerialNumber != "" {
 			name.Names = append(name.Names, pkix.AttributeTypeAndValue{
-				Type:  OidNameSerial,
+				Type:  oid.NameSerial,
 				Value: n.SerialNumber,
 			})
 		}
@@ -422,7 +423,7 @@ func SetSAN(template *x509.Certificate, SAN []string) {
 
 		for i := range template.ExtraExtensions {
 			// remove SAN
-			if template.ExtraExtensions[i].Id.Equal(OidExtensionSubjectAltName) {
+			if template.ExtraExtensions[i].Id.Equal(oid.ExtensionSubjectAltName) {
 				l := len(template.ExtraExtensions)
 				template.ExtraExtensions[i] = template.ExtraExtensions[l-1]
 				template.ExtraExtensions = template.ExtraExtensions[:l-1]

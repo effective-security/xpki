@@ -21,6 +21,7 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
 	"github.com/spf13/afero"
@@ -629,7 +630,7 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	// This should be used when validating the profile at load, and isn't used
 	// here.
 	ku, eku, _ = profile.Usages()
-	if ku == 0 && len(eku) == 0 && profile.FindExtension(csr.OidExtensionKeyUsage) == nil {
+	if ku == 0 && len(eku) == 0 && profile.FindExtension(oid.ExtensionKeyUsage) == nil {
 		return errors.Errorf("invalid profile: no key usages")
 	}
 
