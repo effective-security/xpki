@@ -1,7 +1,6 @@
 package csr
 
 import (
-	"crypto/x509"
 	"encoding/asn1"
 	"encoding/json"
 	"fmt"
@@ -23,75 +22,11 @@ const (
 	OneYear = Duration(8760 * time.Hour)
 )
 
-// BasicConstraintsOID specifies OID for BasicConstraints
-var BasicConstraintsOID = asn1.ObjectIdentifier{2, 5, 29, 19}
-
 // BasicConstraints CSR information RFC 5280, 4.2.1.9
 type BasicConstraints struct {
 	IsCA       bool `asn1:"optional"`
 	MaxPathLen int  `asn1:"optional,default:-1"`
 }
-
-// KeyUsage contains a mapping of string names to key usages.
-var KeyUsage = map[string]x509.KeyUsage{
-	"signing":            x509.KeyUsageDigitalSignature,
-	"digital signature":  x509.KeyUsageDigitalSignature,
-	"content commitment": x509.KeyUsageContentCommitment,
-	"key encipherment":   x509.KeyUsageKeyEncipherment,
-	"key agreement":      x509.KeyUsageKeyAgreement,
-	"data encipherment":  x509.KeyUsageDataEncipherment,
-	"cert sign":          x509.KeyUsageCertSign,
-	"crl sign":           x509.KeyUsageCRLSign,
-	"encipher only":      x509.KeyUsageEncipherOnly,
-	"decipher only":      x509.KeyUsageDecipherOnly,
-}
-
-// ExtKeyUsage contains a mapping of string names to extended key
-// usages.
-var ExtKeyUsage = map[string]x509.ExtKeyUsage{
-	"any":              x509.ExtKeyUsageAny,
-	"server auth":      x509.ExtKeyUsageServerAuth,
-	"client auth":      x509.ExtKeyUsageClientAuth,
-	"code signing":     x509.ExtKeyUsageCodeSigning,
-	"email protection": x509.ExtKeyUsageEmailProtection,
-	"s/mime":           x509.ExtKeyUsageEmailProtection,
-	"ipsec end system": x509.ExtKeyUsageIPSECEndSystem,
-	"ipsec tunnel":     x509.ExtKeyUsageIPSECTunnel,
-	"ipsec user":       x509.ExtKeyUsageIPSECUser,
-	"timestamping":     x509.ExtKeyUsageTimeStamping,
-	"ocsp signing":     x509.ExtKeyUsageOCSPSigning,
-	"microsoft sgc":    x509.ExtKeyUsageMicrosoftServerGatedCrypto,
-	"netscape sgc":     x509.ExtKeyUsageNetscapeServerGatedCrypto,
-}
-
-// well-known OIDs
-var (
-	OidExtensionSubjectKeyID          = asn1.ObjectIdentifier{2, 5, 29, 14}
-	OidExtensionKeyUsage              = asn1.ObjectIdentifier{2, 5, 29, 15}
-	OidExtensionExtendedKeyUsage      = asn1.ObjectIdentifier{2, 5, 29, 37}
-	OidExtensionAuthorityKeyID        = asn1.ObjectIdentifier{2, 5, 29, 35}
-	OidExtensionBasicConstraints      = asn1.ObjectIdentifier{2, 5, 29, 19}
-	OidExtensionSubjectAltName        = asn1.ObjectIdentifier{2, 5, 29, 17}
-	OidExtensionCertificatePolicies   = asn1.ObjectIdentifier{2, 5, 29, 32}
-	OidExtensionNameConstraints       = asn1.ObjectIdentifier{2, 5, 29, 30}
-	OidExtensionCRLDistributionPoints = asn1.ObjectIdentifier{2, 5, 29, 31}
-	OidExtensionAuthorityInfoAccess   = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
-	OidExtensionCRLNumber             = asn1.ObjectIdentifier{2, 5, 29, 20}
-	OidAuthorityInfoAccessOcsp        = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1}
-	OidOCSPNoCheck                    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5}
-	OidAuthorityInfoAccessIssuers     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}
-
-	OidNameEmailAddress = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 1}
-	OidNameCN           = asn1.ObjectIdentifier{2, 5, 4, 3}
-	OidNameSerial       = asn1.ObjectIdentifier{2, 5, 4, 5}
-	OidNameC            = asn1.ObjectIdentifier{2, 5, 4, 6}
-	OidNameL            = asn1.ObjectIdentifier{2, 5, 4, 7}
-	OidNameST           = asn1.ObjectIdentifier{2, 5, 4, 8}
-	OidNameStreet       = asn1.ObjectIdentifier{2, 5, 4, 9}
-	OidNameO            = asn1.ObjectIdentifier{2, 5, 4, 10}
-	OidNameOU           = asn1.ObjectIdentifier{2, 5, 4, 11}
-	OidNamePostal       = asn1.ObjectIdentifier{2, 5, 4, 17}
-)
 
 // OID is the asn1's ObjectIdentifier, provide a custom
 // JSON marshal / unmarshal.

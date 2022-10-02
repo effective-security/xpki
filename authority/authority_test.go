@@ -12,6 +12,7 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/testca"
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/guid"
@@ -213,7 +214,7 @@ func (s *testSuite) TestShakenRoot() {
 	s.Require().NoError(err)
 
 	s.Equal(x509.KeyUsageCertSign, cert.KeyUsage)
-	ext := certutil.FindExtension(cert.Extensions, csr.OidExtensionKeyUsage)
+	ext := certutil.FindExtension(cert.Extensions, oid.ExtensionKeyUsage)
 	s.Require().NotNil(ext)
 	s.False(ext.Critical)
 }

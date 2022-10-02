@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/x/slices"
 	"github.com/jinzhu/copier"
 	"github.com/pkg/errors"
@@ -333,7 +334,7 @@ func (p *CertProfile) Validate() error {
 		return errors.New("no expiry set")
 	}
 
-	if len(p.Usage) == 0 && p.FindExtension(csr.OidExtensionKeyUsage) == nil {
+	if len(p.Usage) == 0 && p.FindExtension(oid.ExtensionKeyUsage) == nil {
 		return errors.New("no usages specified")
 	} else if _, _, unk := p.Usages(); len(unk) > 0 {
 		return errors.Errorf("unknown usage: %s", strings.Join(unk, ","))
@@ -443,9 +444,9 @@ func (c *Config) Validate() error {
 // The unknown uses are collected into a slice that is also returned.
 func (p *CertProfile) Usages() (ku x509.KeyUsage, eku []x509.ExtKeyUsage, unk []string) {
 	for _, keyUse := range p.Usage {
-		if kuse, ok := csr.KeyUsage[keyUse]; ok {
+		if kuse, ok := oid.KeyUsage[keyUse]; ok {
 			ku |= kuse
-		} else if ekuse, ok := csr.ExtKeyUsage[keyUse]; ok {
+		} else if ekuse, ok := oid.ExtKeyUsage[keyUse]; ok {
 			eku = append(eku, ekuse)
 		} else {
 			unk = append(unk, keyUse)
