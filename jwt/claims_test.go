@@ -226,12 +226,18 @@ func TestClaims_String(t *testing.T) {
 		"foo":    "bar",
 		"blank":  "",
 		"count":  uint64(1),
+		"sub":    uint64(112365491768253),
+		"int64":  int64(112365491768253),
+		"jsonn":  json.Number("112365491768253"),
 		"struct": stru,
 	}
 	c(o, "foo", "bar")
 	c(o, "blank", "")
 	c(o, "unknown", "")
 	c(o, "count", "1")
+	c(o, "sub", "112365491768253")
+	c(o, "int64", "112365491768253")
+	c(o, "jsonn", "112365491768253")
 	c(o, "struct", `{"Foo":"foo","B":true,"I":-1}`)
 }
 
