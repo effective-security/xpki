@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/kms v1.1.0
 	github.com/alecthomas/kong v0.4.0
 	github.com/aws/aws-sdk-go v1.27.0
-	github.com/effective-security/xlog v0.0.0-20220818044154-4d280a49975d
+	github.com/effective-security/xlog v0.0.0-20221008085823-05b9d4781678
 	github.com/go-phorce/cov-report v1.1.1-0.20200622030546-3fb510c4b1ba
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/googleapis/gax-go/v2 v2.1.1

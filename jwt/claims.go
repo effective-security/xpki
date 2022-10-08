@@ -274,6 +274,17 @@ func (c MapClaims) String(k string) string {
 	switch tv := v.(type) {
 	case string:
 		return tv
+	case uint64:
+		return strconv.FormatUint(tv, 10)
+	case int64:
+		return strconv.FormatInt(tv, 10)
+	case json.Number:
+		return tv.String()
+	case bool:
+		if tv {
+			return "true"
+		}
+		return "false"
 	default:
 		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
 		return xlog.EscapedString(v)
@@ -376,6 +387,9 @@ func (c MapClaims) Int(k string) int {
 		return int(tv)
 	case uint64:
 		return int(tv)
+	case json.Number:
+		i, _ := tv.Int64()
+		return int(i)
 	case string:
 		i, err := strconv.Atoi(tv)
 		if err != nil {
@@ -411,6 +425,9 @@ func (c MapClaims) UInt64(k string) uint64 {
 		return uint64(tv)
 	case uint64:
 		return uint64(tv)
+	case json.Number:
+		i, _ := tv.Int64()
+		return uint64(i)
 	case string:
 		i64, err := strconv.ParseUint(tv, 10, 64)
 		if err != nil {
