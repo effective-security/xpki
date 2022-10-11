@@ -162,6 +162,9 @@ func CreatePoolFromPEM(pemBytes []byte) (*x509.CertPool, error) {
 func LoadPEMFiles(files ...string) ([]byte, error) {
 	var pem []byte
 	for _, f := range files {
+		if f == "" {
+			continue
+		}
 		b, err := ioutil.ReadFile(f)
 		if err != nil {
 			return pem, errors.WithMessage(err, "failed to load PEM")
