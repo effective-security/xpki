@@ -168,6 +168,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 			return nil, errors.WithMessagef(err, "failed to load root-bundle")
 		}
 	}
+
 	rootBytes = certutil.JoinPEM(rootBytes, rootPem)
 
 	certBytes, err := afero.ReadFile(fileutil.Vfs, cfg.CertFile)
