@@ -7,7 +7,6 @@ import (
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/jwt"
-	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	hjwt "gopkg.in/square/go-jose.v2/jwt"
 )
@@ -24,10 +23,7 @@ func NewSigner(s crypto.Signer) (Signer, error) {
 	})
 	prov, err := jwt.NewFromCryptoSigner(s, ops)
 	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	jk := jose.JSONWebKey{
@@ -35,7 +31,7 @@ func NewSigner(s crypto.Signer) (Signer, error) {
 	}
 	tp, err := Thumbprint(&jk)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return &signer{
@@ -73,7 +69,7 @@ func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, e
 	}
 	err := c.Add(claims, extraClaims)
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", err
 	}
 
 	std := jwt.CreateClaims(
@@ -86,7 +82,7 @@ func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, e
 	)
 	token, err := p.prov.Sign(std)
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", err
 	}
 
 	r.Header.Set(HTTPHeader, token)

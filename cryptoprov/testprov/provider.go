@@ -118,7 +118,7 @@ func (g *defaultIDGenerator) Generate() string {
 func Loader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	p, err := Init()
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	p.tc = tc
 	return p, nil
@@ -206,7 +206,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	reader := rand.Reader
 	key, err := p.ecdsaKeyGenerator.GenerateKey(curve, reader)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	if len(label) == 0 {

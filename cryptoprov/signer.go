@@ -31,7 +31,7 @@ func (c *Crypto) NewSignerFromFromFile(caKeyFile string) (crypto.Signer, error) 
 func (c *Crypto) NewSignerFromPEM(caKey []byte) (crypto.Signer, error) {
 	_, pvk, err := c.LoadPrivateKey(caKey)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	signer, supported := pvk.(crypto.Signer)

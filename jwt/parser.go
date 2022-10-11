@@ -32,7 +32,7 @@ func (p *TokenParser) Parse(tokenString string, cfg VerifyConfig, keyFunc Keyfun
 func (p *TokenParser) ParseWithClaims(tokenString string, cfg VerifyConfig, claims MapClaims, keyFunc Keyfunc) (*Token, error) {
 	token, parts, err := p.ParseUnverified(tokenString, claims)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	// Verify signing method is in the required set
@@ -53,20 +53,20 @@ func (p *TokenParser) ParseWithClaims(tokenString string, cfg VerifyConfig, clai
 	// Lookup key
 	var key interface{}
 	if key, err = keyFunc(token); err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	// Validate Claims
 	if !p.SkipClaimsValidation {
 		if err := token.Claims.Valid(cfg); err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 	}
 
 	// Perform signature validation
 	token.Signature = parts[2]
 	if err = VerifySignature(token.SigningMethod, strings.Join(parts[0:2], "."), token.Signature, key); err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	token.Valid = true

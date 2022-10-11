@@ -26,7 +26,7 @@ func LoadFromPEM(certFile string) (*x509.Certificate, error) {
 
 	cert, err := ParseFromPEM(bytes)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return cert, nil
@@ -60,7 +60,7 @@ func LoadChainFromPEM(certFile string) ([]*x509.Certificate, error) {
 
 	certs, err := ParseChainFromPEM(bytes)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return certs, nil
@@ -119,7 +119,7 @@ func EncodeToPEM(out io.Writer, withComments bool, certs ...*x509.Certificate) e
 		if crt != nil {
 			err := encodeToPEM(out, withComments, crt)
 			if err != nil {
-				return errors.WithStack(err)
+				return err
 			}
 		}
 	}
@@ -135,7 +135,7 @@ func EncodeToPEMString(withComments bool, certs ...*x509.Certificate) (string, e
 	b := bytes.NewBuffer([]byte{})
 	err := EncodeToPEM(b, withComments, certs...)
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", err
 	}
 	pem := b.String()
 	pem = strings.TrimSpace(pem)
@@ -147,7 +147,7 @@ func EncodeToPEMString(withComments bool, certs ...*x509.Certificate) (string, e
 func CreatePoolFromPEM(pemBytes []byte) (*x509.CertPool, error) {
 	certs, err := ParseChainFromPEM(pemBytes)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	pool := x509.NewCertPool()

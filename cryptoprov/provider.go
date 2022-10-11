@@ -86,7 +86,7 @@ func New(defaultProvider Provider, providers []Provider) (*Crypto, error) {
 
 	for _, p := range providers {
 		if err := c.Add(p); err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 	}
 	return c, nil
