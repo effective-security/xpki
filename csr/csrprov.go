@@ -177,7 +177,7 @@ func pkixExtentions(in []X509Extension) ([]pkix.Extension, error) {
 	for _, ext := range in {
 		raw, err := ext.GetValue()
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 		list = append(list, pkix.Extension{
 			Id:       asn1.ObjectIdentifier(ext.ID),

@@ -37,7 +37,7 @@ func LoadKey(path string) (*jose.JSONWebKey, string, error) {
 	}
 	dpopThumbprint, err := Thumbprint(k)
 	if err != nil {
-		return nil, "", errors.WithStack(err)
+		return nil, "", err
 	}
 
 	return k, dpopThumbprint, nil

@@ -17,7 +17,7 @@ func init() {
 func LoadProvider(cfg cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	p, err := Init(cfg)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	return p, nil
 }

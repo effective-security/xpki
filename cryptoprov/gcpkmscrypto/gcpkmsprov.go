@@ -419,7 +419,7 @@ func (p *Provider) Close() error {
 func KmsLoader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	p, err := Init(tc)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	return p, nil
 }

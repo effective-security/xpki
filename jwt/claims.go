@@ -156,32 +156,32 @@ func (c *Claims) Valid(cfg VerifyConfig) error {
 
 	err := c.VerifyExpiresAt(now, false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuedAt(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyNotBefore(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuer(cfg.ExpectedIssuer)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifySubject(cfg.ExpectedSubject)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyAudience(cfg.ExpectedAudience)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	return nil
@@ -205,7 +205,7 @@ func (c MapClaims) Add(val ...interface{}) error {
 			if reflect.Indirect(reflect.ValueOf(i)).Kind() == reflect.Struct {
 				m, err := normalize(i)
 				if err != nil {
-					return errors.WithStack(err)
+					return err
 				}
 				c.merge(m)
 			} else {
@@ -594,32 +594,32 @@ func (c MapClaims) Valid(cfg VerifyConfig) error {
 
 	err := c.VerifyExpiresAt(now, false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuedAt(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyNotBefore(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuer(cfg.ExpectedIssuer)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifySubject(cfg.ExpectedSubject)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyAudience(cfg.ExpectedAudience)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	return nil

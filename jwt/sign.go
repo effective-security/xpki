@@ -148,7 +148,7 @@ func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error) {
 func sign(signingString string, signer crypto.Signer) (string, error) {
 	si, err := NewSignerInfo(signer)
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", err
 	}
 	return si.sign(signingString)
 }
@@ -157,7 +157,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 	if strings.HasPrefix(si.algo, "HS") {
 		sig, err := si.signer.Sign(nil, []byte(signingString), nil)
 		if err != nil {
-			return "", errors.WithStack(err)
+			return "", err
 		}
 		return EncodeSegment(sig), nil
 	}
@@ -167,7 +167,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 
 	sig, err := si.signer.Sign(rand.Reader, h.Sum(nil), si.hasher)
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", err
 	}
 
 	switch si.algo {
@@ -228,7 +228,7 @@ func (si *SignerInfo) signJWT(claims interface{}, headers map[string]interface{}
 	sstr := EncodeSegment(jsonHeader) + "." + EncodeSegment(jsonClaims)
 	sig, err := si.sign(sstr)
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", err
 	}
 	return sstr + "." + sig, nil
 }
@@ -258,11 +258,11 @@ func VerifySignature(algo, signingString, signature string, key interface{}) err
 
 		signer, err := newSymmetricSigner(algo, bytes)
 		if err != nil {
-			return errors.WithStack(err)
+			return err
 		}
 		sig, err := signer.Sign(nil, []byte(signingString), nil)
 		if err != nil {
-			return errors.WithStack(err)
+			return err
 		}
 		if EncodeSegment(sig) != signature {
 			return errors.Errorf("invalid signature")

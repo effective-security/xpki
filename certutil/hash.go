@@ -83,7 +83,7 @@ func ParseHexDigestWithPrefix(digest string) (hash.Hash, []byte, error) {
 
 	h, err := NewHash(digestParts[0])
 	if err != nil {
-		return nil, nil, errors.WithStack(err)
+		return nil, nil, err
 	}
 
 	d, err := hex.DecodeString(digestParts[1])
@@ -99,7 +99,7 @@ func Digest(hash crypto.Hash, data []byte) []byte {
 	h := hash.New()
 	_, err := h.Write(data)
 	if err != nil {
-		logger.Panicf("digest failed: %s", errors.WithStack(err))
+		logger.Panicf("digest failed: %+v", errors.WithStack(err))
 	}
 	return h.Sum(nil)
 }

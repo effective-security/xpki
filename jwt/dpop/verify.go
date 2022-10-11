@@ -195,7 +195,7 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	}
 	tb, err := Thumbprint(pjwk)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	res := &Result{
