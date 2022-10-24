@@ -229,7 +229,7 @@ func TestAddSAN(t *testing.T) {
 }
 
 func TestEncodeCRLDP(t *testing.T) {
-	ext, err := csr.EncodeCRLDP([]string{
+	ext, err := csr.EncodeCDP([]string{
 		"https://authenticate-api.iconectiv.com/download/v1/crl",
 	})
 	require.NoError(t, err)
@@ -251,6 +251,11 @@ func TestEncodeCRLDP(t *testing.T) {
 	b, err = cext.GetValue()
 	require.NoError(t, err)
 	assert.Equal(t, ext.Value, b)
+
+	list, err := csr.DecodeCDP(ext.Value)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "https://authenticate-api.iconectiv.com/download/v1/crl", list[0])
 }
 
 func TestSignRequest(t *testing.T) {
@@ -272,5 +277,4 @@ func TestSignRequest(t *testing.T) {
 	}
 	assert.Equal(t, "cn", s.SubjectCommonName())
 	assert.NotEmpty(t, s.ExtensionsIDs())
-
 }
