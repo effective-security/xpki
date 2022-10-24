@@ -449,3 +449,40 @@ func SetSAN(template *x509.Certificate, SAN []string) {
 		}
 	}
 }
+
+// EncodeCRLDP returns CRLDP
+func EncodeCRLDP(cdp []string) (*pkix.Extension, error) {
+	ext := pkix.Extension{
+		Id: oid.ExtensionCRLDistributionPoints,
+	}
+	var crlDp []distributionPoint
+	for _, name := range cdp {
+		dp := distributionPoint{
+			DistributionPoint: distributionPointName{
+				FullName: []asn1.RawValue{
+					{Tag: 6, Class: 2, Bytes: []byte(name)},
+				},
+			},
+		}
+		crlDp = append(crlDp, dp)
+	}
+
+	val, err := asn1.Marshal(crlDp)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	ext.Value = val
+	return &ext, nil
+}
+
+// RFC 5280, 4.2.1.14
+type distributionPoint struct {
+	DistributionPoint distributionPointName `asn1:"optional,tag:0"`
+	Reason            asn1.BitString        `asn1:"optional,tag:1"`
+	CRLIssuer         asn1.RawValue         `asn1:"optional,tag:2"`
+}
+
+type distributionPointName struct {
+	FullName     []asn1.RawValue  `asn1:"optional,tag:0"`
+	RelativeName pkix.RDNSequence `asn1:"optional,tag:1"`
+}

@@ -2,11 +2,13 @@ package csr_test
 
 import (
 	"crypto/x509"
+	"encoding/hex"
 	"testing"
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/x/guid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -224,4 +226,51 @@ func TestAddSAN(t *testing.T) {
 	r.AddSAN("127.0.0.1")
 
 	assert.Len(t, r.SAN, 2)
+}
+
+func TestEncodeCRLDP(t *testing.T) {
+	ext, err := csr.EncodeCRLDP([]string{
+		"https://authenticate-api.iconectiv.com/download/v1/crl",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "303e303ca03aa038863668747470733a2f2f61757468656e7469636174652d6170692e69636f6e65637469762e636f6d2f646f776e6c6f61642f76312f63726c",
+		hex.EncodeToString(ext.Value))
+
+	cext := csr.X509Extension{
+		ID:    csr.OID(oid.ExtensionCRLDistributionPoints),
+		Value: "hex:303e303ca03aa038863668747470733a2f2f61757468656e7469636174652d6170692e69636f6e65637469762e636f6d2f646f776e6c6f61642f76312f63726c",
+	}
+	b, err := cext.GetValue()
+	require.NoError(t, err)
+	assert.Equal(t, ext.Value, b)
+
+	cext = csr.X509Extension{
+		ID:    csr.OID(oid.ExtensionCRLDistributionPoints),
+		Value: "303e303ca03aa038863668747470733a2f2f61757468656e7469636174652d6170692e69636f6e65637469762e636f6d2f646f776e6c6f61642f76312f63726c",
+	}
+	b, err = cext.GetValue()
+	require.NoError(t, err)
+	assert.Equal(t, ext.Value, b)
+}
+
+func TestSignRequest(t *testing.T) {
+	s := csr.SignRequest{
+		//Subject: ,
+	}
+	assert.Empty(t, s.SubjectCommonName())
+	assert.Empty(t, s.ExtensionsIDs())
+
+	s = csr.SignRequest{
+		Subject: &csr.X509Subject{
+			CommonName: "cn",
+		},
+		Extensions: []csr.X509Extension{
+			{
+				ID: csr.OID(oid.ExtensionCRLDistributionPoints),
+			},
+		},
+	}
+	assert.Equal(t, "cn", s.SubjectCommonName())
+	assert.NotEmpty(t, s.ExtensionsIDs())
+
 }
