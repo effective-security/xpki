@@ -36,6 +36,10 @@ func LoadFromPEM(certFile string) (*x509.Certificate, error) {
 func ParseFromPEM(bytes []byte) (*x509.Certificate, error) {
 	block, _ := pem.Decode(bytes)
 	if block == nil || block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+		cert, err := x509.ParseCertificate(bytes)
+		if err == nil {
+			return cert, nil
+		}
 		return nil, errors.Errorf("unable to parse PEM")
 	}
 
@@ -71,6 +75,11 @@ func ParseChainFromPEM(certificateChainPem []byte) ([]*x509.Certificate, error) 
 	for len(rest) != 0 {
 		block, rest = pem.Decode(rest)
 		if block == nil {
+			cert, err := x509.ParseCertificate(certificateChainPem)
+			if err == nil {
+				list = append(list, cert)
+				return list, nil
+			}
 			return list, errors.Errorf("potentially malformed PEM")
 		}
 		if block.Type == "CERTIFICATE" {
