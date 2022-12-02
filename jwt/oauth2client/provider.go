@@ -27,3 +27,13 @@ func LoadProvider(location string) (*Provider, error) {
 func (p *Provider) Client(id string) *Client {
 	return p.clients[id]
 }
+
+// ClientNames returns list of supported clients
+func (p *Provider) ClientNames() []string {
+	list := make([]string, 0, len(p.clients))
+	for k := range p.clients {
+		list = append(list, k)
+	}
+
+	return list
+}
