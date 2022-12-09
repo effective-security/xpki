@@ -261,10 +261,8 @@ func GetTokenInfo(t string) *TokenInfo {
 		now := TimeNowFn()
 		iat := res.Claims.IssuedAt.Time()
 		res.IsFresh = now.Sub(iat) < DefaultExpiration
-
-		cnf := res.Claims.CNF
-		if jkt, ok := cnf[CnfThumbprint].(string); ok {
-			res.CnfJkt = jkt
+		if res.Claims.Cnf != nil {
+			res.CnfJkt = res.Claims.Cnf.Jkt
 		}
 	}
 

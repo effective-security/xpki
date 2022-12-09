@@ -21,6 +21,14 @@ func TestClaims(t *testing.T) {
 	now := time.Now()
 	c := &Claims{
 		ID: "123",
+		Cnf: &Cnf{
+			Jkt: "1234",
+		},
+	}
+	assert.Equal(t, `{"jti":"123","cnf":{"jkt":"1234"}}`, c.Marshal())
+
+	c = &Claims{
+		ID: "123",
 	}
 	assert.Equal(t, `{"jti":"123"}`, c.Marshal())
 	assert.EqualError(t, c.VerifyExpiresAt(now, true), "exp claim not found")
@@ -87,7 +95,9 @@ func TestNumericDate(t *testing.T) {
 	var tim time.Time
 	assert.Nil(t, NewNumericDate(tim))
 	var val NumericDate
-	assert.EqualError(t, val.UnmarshalJSON([]byte(`"abc"`)), "expected number value to unmarshal NumericDate: \"abc\"")
+	assert.EqualError(t, val.UnmarshalJSON([]byte(`"abc"`)), "expected number value to unmarshal NumericDate: abc")
+	assert.NoError(t, val.UnmarshalJSON([]byte(`"123"`)))
+	assert.NoError(t, val.UnmarshalJSON([]byte(`123`)))
 
 	var nn *NumericDate
 	assert.True(t, nn.Time().IsZero())
@@ -358,10 +368,23 @@ func TestClaims_Bool(t *testing.T) {
 }
 
 func TestCreateClaims(t *testing.T) {
-	cl := CreateClaims("123", "subj", "issuer", []string{"aud"}, 60*time.Minute, nil)
+	extraClaims := MapClaims{
+		"cnf": Cnf{
+			Jkt: "123123",
+		},
+		"orgs": map[string]string{
+			"1": "admin",
+			"2": "user",
+		},
+	}
+	cl := CreateClaims("123", "subj", "issuer", []string{"aud"}, 60*time.Minute, extraClaims)
 	assert.NotNil(t, cl.Time("iat"))
+	assert.False(t, cl.TimeVal("iat").IsZero())
+	assert.True(t, cl.TimeVal("iat2").IsZero())
 	assert.NotNil(t, cl.Time("nbf"))
 	assert.NotNil(t, cl.Time("exp"))
+	assert.Equal(t, "123123", cl.CNF().Jkt)
+	assert.Len(t, cl.StringsMap("orgs"), 2)
 }
 
 func TestClaims_Time(t *testing.T) {
@@ -430,4 +453,105 @@ func TestNil(t *testing.T) {
 	assert.Equal(t, 0, c.Int("123"))
 	assert.Nil(t, c.Time("123"))
 	assert.False(t, c.Bool("123"))
+}
+
+func TestDPoP(t *testing.T) {
+	js := `{
+        "aud": "secdi",
+        "cnf": {
+                "jkt": "4k3pN8RezZr_O0xJ4bJtlliw85Xg0TxVouHWvD4TVYg"
+        },
+        "email": "denis@averlon.io",
+        "email_verified": false,
+        "exp": "1671113793",
+        "iat": 1670508993,
+        "iss": "https://localhost:18443",
+        "name": "Denis Issoupov",
+        "nbf": "1670508873",
+        "nonce": "o_VhzPAT",
+        "org": "255672613685166359",
+        "org_role": "owner",
+        "orgs": {
+                "255672613685166359": "owner",
+                "255679584895238423": "owner"
+        },
+        "provider": "google",
+        "sub": "254312925823500567"
+}
+`
+	var c Claims
+	err := json.Unmarshal([]byte(js), &c)
+	require.NoError(t, err)
+	assert.Equal(t, "4k3pN8RezZr_O0xJ4bJtlliw85Xg0TxVouHWvD4TVYg", c.Cnf.Jkt)
+	assert.Len(t, c.Orgs, 2)
+	assert.Equal(t, "owner", c.OrgRole)
+
+	mc := MapClaims{}
+	err = json.Unmarshal([]byte(js), &mc)
+	require.NoError(t, err)
+	assert.Equal(t, "4k3pN8RezZr_O0xJ4bJtlliw85Xg0TxVouHWvD4TVYg", mc.CNF().Jkt)
+}
+
+func TestCnf(t *testing.T) {
+	mc := MapClaims{
+		"cnf": &Cnf{
+			Jkt: "1234",
+		},
+	}
+	assert.Equal(t, "1234", mc.CNF().Jkt)
+
+	mc = MapClaims{
+		"cnf": Cnf{
+			Jkt: "1234",
+		},
+	}
+	assert.Equal(t, "1234", mc.CNF().Jkt)
+	mc = MapClaims{
+		"cnf": map[string]string{
+			"jkt": "1234",
+		},
+	}
+	assert.Equal(t, "1234", mc.CNF().Jkt)
+	mc = MapClaims{
+		"cnf": map[string]any{
+			"jkt": "1234",
+		},
+	}
+	assert.Equal(t, "1234", mc.CNF().Jkt)
+	mc = MapClaims{}
+	assert.Nil(t, mc.CNF())
+	mc = MapClaims{
+		"cnf": 1,
+	}
+	assert.Nil(t, mc.CNF())
+}
+
+func TestStringsMap(t *testing.T) {
+	mc := MapClaims{
+		"orgs": map[string]string{
+			"jkt": "1234",
+		},
+	}
+	assert.Len(t, mc.StringsMap("orgs"), 1)
+
+	mc = MapClaims{
+		"orgs": map[string]any{
+			"jkt":  "1234",
+			"jkt2": 1234,
+		},
+	}
+	assert.Len(t, mc.StringsMap("orgs"), 2)
+
+	mc = MapClaims{
+		"orgs": map[string]int{
+			"jkt": 1234,
+		},
+	}
+	assert.Len(t, mc.StringsMap("orgs"), 0)
+
+	mc = MapClaims{
+		"orgs": 1,
+	}
+	assert.Nil(t, mc.StringsMap("orgs"))
+	assert.Nil(t, mc.StringsMap("orgs2"))
 }
