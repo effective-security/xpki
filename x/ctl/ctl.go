@@ -48,8 +48,8 @@ func WriteJSON(out io.Writer, value interface{}) error {
 		return errors.WithMessage(err, "failed to encode")
 	}
 
-	out.Write(json)
-	out.Write(newLine)
+	_, _ = out.Write(json)
+	_, _ = out.Write(newLine)
 
 	return nil
 }

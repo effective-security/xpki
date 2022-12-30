@@ -63,7 +63,7 @@ func (lib *PKCS11Lib) findKey(session pkcs11.SessionHandle, keyID, label string,
 	if err = lib.Ctx.FindObjectsInit(session, template); err != nil {
 		return 0, errors.WithStack(err)
 	}
-	defer lib.Ctx.FindObjectsFinal(session)
+	_ = lib.Ctx.FindObjectsFinal(session)
 	if handles, _, err = lib.Ctx.FindObjects(session, 1); err != nil {
 		return 0, errors.WithStack(err)
 	}
@@ -87,7 +87,7 @@ func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keyt
 	if err = lib.Ctx.FindObjectsInit(session, template); err != nil {
 		return nil, errors.WithStack(err)
 	}
-	defer lib.Ctx.FindObjectsFinal(session)
+	_ = lib.Ctx.FindObjectsFinal(session)
 	if handles, _, err = lib.Ctx.FindObjects(session, 100); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -111,7 +111,7 @@ func (lib *PKCS11Lib) FindKeys(session pkcs11.SessionHandle, keylabel string, ke
 	if err = lib.Ctx.FindObjectsInit(session, template); err != nil {
 		return nil, errors.WithStack(err)
 	}
-	defer lib.Ctx.FindObjectsFinal(session)
+	_ = lib.Ctx.FindObjectsFinal(session)
 	if handles, _, err = lib.Ctx.FindObjects(session, 100); err != nil {
 		return nil, errors.WithStack(err)
 	}

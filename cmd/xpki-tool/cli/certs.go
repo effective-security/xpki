@@ -71,7 +71,7 @@ func (a *CertInfoCmd) Run(ctx *Cli) error {
 		}
 		defer f.Close()
 
-		certutil.EncodeToPEM(f, true, list...)
+		_ = certutil.EncodeToPEM(f, true, list...)
 	}
 
 	return nil
@@ -336,7 +336,7 @@ type certRevInfo struct {
 }
 
 // statusMap maps status
-var statusMap map[int]string = map[int]string{
+var statusMap = map[int]string{
 	ocsp.Good:    "good",
 	ocsp.Revoked: "revoked",
 	ocsp.Unknown: "unknown",

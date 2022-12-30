@@ -24,7 +24,7 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "awskms
 const ProviderName = "AWSKMS"
 
 func init() {
-	cryptoprov.Register(ProviderName, KmsLoader)
+	_ = cryptoprov.Register(ProviderName, KmsLoader)
 }
 
 // KmsClient interface

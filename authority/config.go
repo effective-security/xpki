@@ -111,14 +111,14 @@ type AIAConfig struct {
 // Copy returns new copy
 func (c *Config) Copy() *Config {
 	d := new(Config)
-	copier.Copy(d, c)
+	_ = copier.Copy(d, c)
 	return d
 }
 
 // Copy returns new copy
 func (c *IssuerConfig) Copy() *IssuerConfig {
 	d := new(IssuerConfig)
-	copier.Copy(d, c)
+	_ = copier.Copy(d, c)
 	return d
 }
 
@@ -235,7 +235,7 @@ type CAConstraint struct {
 // Copy returns new copy
 func (p *CertProfile) Copy() *CertProfile {
 	d := new(CertProfile)
-	copier.Copy(d, p)
+	_ = copier.Copy(d, p)
 	return d
 }
 

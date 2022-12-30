@@ -142,6 +142,6 @@ func (lib *PKCS11Lib) dsaGeneric(slot uint, key pkcs11.ObjectHandle, mechanism u
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	sig.unmarshalBytes(sigBytes)
+	_ = sig.unmarshalBytes(sigBytes)
 	return sig.marshalDER()
 }

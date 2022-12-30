@@ -59,9 +59,6 @@ var errTokenNotFound = errors.New("crypto11: could not find PKCS#11 token")
 // errKeyNotFound represents the failure to find the requested PKCS#11 key
 var errKeyNotFound = errors.New("crypto11: could not find PKCS#11 key")
 
-// errNotConfigured is returned when the PKCS#11 library is not configured
-var errNotConfigured = errors.New("crypto11: PKCS#11 not yet configured")
-
 // errCannotOpenPKCS11 is returned when the PKCS#11 library cannot be opened
 var errCannotOpenPKCS11 = errors.New("crypto11: could not open PKCS#11")
 
@@ -77,10 +74,6 @@ var errUnsupportedKeyType = errors.New("crypto11: unrecognized key type")
 // 32 bits, or less than 2.
 var errMalformedRSAKey = errors.New("crypto11/rsa: malformed RSA key")
 
-// errUnrecognizedRSAOptions is returned when unrecognized options
-// structures are pased to Sign or Decrypt.
-var errUnrecognizedRSAOptions = errors.New("crypto11/rsa: unrecognized RSA options type")
-
 // errUnsupportedRSAOptions is returned when an unsupported RSA option is requested.
 //
 // Currently this means a nontrivial SessionKeyLen when decrypting; or
@@ -95,12 +88,6 @@ var errMalformedDER = errors.New("crypto11: malformed DER message")
 // means the PKCS#11 library has returned an empty or odd-length byte
 // string.
 var errMalformedSignature = errors.New("crypto11: malformed signature")
-
-// errInvalidURI is returned if the PKCS #11 URI is invalid.
-var errInvalidURI = errors.New("crypto11: invalid PKCS11 URI")
-
-// errInvalidPrivateKeyURI is returned if the PKCS #11 URI is invalid for the private key object
-var errInvalidPrivateKeyURI = errors.New("crypto11: invalid PKCS11 URI for private key object")
 
 // errUnsupportedEllipticCurve is returned when an elliptic curve
 // unsupported by crypto11 is specified.  Note that the error behavior
@@ -216,7 +203,7 @@ func (lib *PKCS11Lib) Model() string {
 func (lib *PKCS11Lib) Close() {
 	if lib.Ctx != nil {
 		lib.Ctx.Destroy()
-		lib.Ctx.Finalize()
+		_ = lib.Ctx.Finalize()
 		lib.Ctx = nil
 	}
 }
