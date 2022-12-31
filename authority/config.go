@@ -270,7 +270,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	body, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, errors.WithMessage(err, "unable to read configuration file")
+		return nil, errors.Wrap(err, "unable to read configuration file")
 	}
 
 	var cfg = new(Config)
@@ -279,9 +279,8 @@ func LoadConfig(path string) (*Config, error) {
 	} else {
 		err = yaml.Unmarshal(body, cfg)
 	}
-
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to unmarshal configuration")
+		return nil, errors.Wrap(err, "failed to unmarshal configuration")
 	}
 
 	if len(cfg.Profiles) == 0 {
@@ -353,28 +352,28 @@ func (p *CertProfile) Validate() error {
 	if p.AllowedNames != "" && p.AllowedNamesRegex == nil {
 		rule, err := regexp.Compile(p.AllowedNames)
 		if err != nil {
-			return errors.WithMessage(err, "failed to compile AllowedNames")
+			return errors.Wrap(err, "failed to compile AllowedNames")
 		}
 		p.AllowedNamesRegex = rule
 	}
 	if p.AllowedDNS != "" && p.AllowedDNSRegex == nil {
 		rule, err := regexp.Compile(p.AllowedDNS)
 		if err != nil {
-			return errors.WithMessage(err, "failed to compile AllowedDNS")
+			return errors.Wrap(err, "failed to compile AllowedDNS")
 		}
 		p.AllowedDNSRegex = rule
 	}
 	if p.AllowedEmail != "" && p.AllowedEmailRegex == nil {
 		rule, err := regexp.Compile(p.AllowedEmail)
 		if err != nil {
-			return errors.WithMessage(err, "failed to compile AllowedEmail")
+			return errors.Wrap(err, "failed to compile AllowedEmail")
 		}
 		p.AllowedEmailRegex = rule
 	}
 	if p.AllowedURI != "" && p.AllowedURIRegex == nil {
 		rule, err := regexp.Compile(p.AllowedURI)
 		if err != nil {
-			return errors.WithMessage(err, "failed to compile AllowedURI")
+			return errors.Wrap(err, "failed to compile AllowedURI")
 		}
 		p.AllowedURIRegex = rule
 	}

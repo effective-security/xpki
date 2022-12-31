@@ -26,11 +26,11 @@ func New(cfg *ClientConfig) (*Client, error) {
 	var err error
 	cfg.ClientID, err = fileutil.LoadConfigWithSchema(cfg.ClientID)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	cfg.ClientSecret, err = fileutil.LoadConfigWithSchema(cfg.ClientSecret)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	p := &Client{
@@ -46,7 +46,7 @@ func New(cfg *ClientConfig) (*Client, error) {
 		p.verifyKey = verifyKey
 	}
 
-	logger.KV(xlog.INFO, "sts", cfg.ProviderID, "audience", cfg.Audience, "issuer", cfg.Issuer)
+	logger.KV(xlog.DEBUG, "sts", cfg.ProviderID, "audience", cfg.Audience, "issuer", cfg.Issuer)
 
 	return p, nil
 }

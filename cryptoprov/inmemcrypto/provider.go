@@ -215,7 +215,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	reader := rand.Reader
 	key, err := p.ecdsaKeyGenerator.GenerateKey(curve, reader)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	if len(label) == 0 {

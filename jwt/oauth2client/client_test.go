@@ -76,5 +76,9 @@ func TestProvider(t *testing.T) {
 	p, err := oauth2client.LoadProvider("testdata/oauth.yaml")
 	require.NoError(t, err)
 
-	require.NotNil(t, p.Client("github"))
+	assert.NotEmpty(t, p.ClientNames())
+
+	for _, c := range p.ClientNames() {
+		require.NotNil(t, p.Client(c))
+	}
 }

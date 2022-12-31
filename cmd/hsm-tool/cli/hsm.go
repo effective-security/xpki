@@ -194,17 +194,17 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error {
 	req := prov.NewKeyRequest(prefixKeyLabel(a.Label), a.Algo, a.Size, purpose)
 	prv, err := req.Generate()
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	keyID, _, err := crypto.IdentifyKey(prv)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	uri, key, err := crypto.ExportKey(keyID)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	if key == nil {

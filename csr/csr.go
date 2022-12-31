@@ -449,3 +449,58 @@ func SetSAN(template *x509.Certificate, SAN []string) {
 		}
 	}
 }
+
+// EncodeCDP returns CRLDP
+func EncodeCDP(cdp []string) (*pkix.Extension, error) {
+	ext := pkix.Extension{
+		Id: oid.ExtensionCRLDistributionPoints,
+	}
+	var crlDp []DistributionPoint
+	for _, name := range cdp {
+		dp := DistributionPoint{
+			DistributionPoint: DistributionPointName{
+				FullName: []asn1.RawValue{
+					{Tag: 6, Class: 2, Bytes: []byte(name)},
+				},
+			},
+		}
+		crlDp = append(crlDp, dp)
+	}
+
+	val, err := asn1.Marshal(crlDp)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	ext.Value = val
+	return &ext, nil
+}
+
+// DecodeCDP returns list of CDP
+func DecodeCDP(val []byte) ([]string, error) {
+	var crlDp []DistributionPoint
+	_, err := asn1.Unmarshal(val, &crlDp)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	var list []string
+	for _, c := range crlDp {
+		for _, fn := range c.DistributionPoint.FullName {
+			list = append(list, string(fn.Bytes))
+		}
+	}
+	return list, nil
+}
+
+// DistributionPoint defines CDP as per RFC 5280, 4.2.1.14
+type DistributionPoint struct {
+	DistributionPoint DistributionPointName `asn1:"optional,tag:0"`
+	Reason            asn1.BitString        `asn1:"optional,tag:1"`
+	CRLIssuer         asn1.RawValue         `asn1:"optional,tag:2"`
+}
+
+// DistributionPointName is a part of DistributionPoint
+type DistributionPointName struct {
+	FullName     []asn1.RawValue  `asn1:"optional,tag:0"`
+	RelativeName pkix.RDNSequence `asn1:"optional,tag:1"`
+}

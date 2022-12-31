@@ -2,7 +2,7 @@ package oauth2client
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/effective-security/xlog"
@@ -52,7 +52,7 @@ func LoadConfig(file string) (*Config, error) {
 		return &Config{}, nil
 	}
 
-	b, err := ioutil.ReadFile(file)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -76,14 +76,14 @@ func Load(cfgfile string) ([]*Client, error) {
 
 	cfg, err := LoadConfig(cfgfile)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	list := make([]*Client, len(cfg.Clients))
 	for idx, c := range cfg.Clients {
 		list[idx], err = New(c)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 	}
 
@@ -92,7 +92,7 @@ func Load(cfgfile string) ([]*Client, error) {
 
 // LoadClient returns a single `Client` loaded from config
 func LoadClient(file string) (*Client, error) {
-	b, err := ioutil.ReadFile(file)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}

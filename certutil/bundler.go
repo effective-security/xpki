@@ -113,17 +113,17 @@ func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler,
 
 	if rootBundleFile != "" {
 		logger.KV(xlog.DEBUG, "status", "loading_root", "bundle", rootBundleFile)
-		caBundle, err = ioutil.ReadFile(rootBundleFile)
+		caBundle, err = os.ReadFile(rootBundleFile)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "root bundle failed to load")
+			return nil, errors.Wrapf(err, "root bundle failed to load")
 		}
 	}
 
 	if intBundleFile != "" {
 		logger.KV(xlog.DEBUG, "status", "loading_ca", "bundle", intBundleFile)
-		intBundle, err = ioutil.ReadFile(intBundleFile)
+		intBundle, err = os.ReadFile(intBundleFile)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "intermediate CA bundle failed to load")
+			return nil, errors.Wrapf(err, "intermediate CA bundle failed to load")
 		}
 	}
 
@@ -132,7 +132,7 @@ func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler,
 			logger.KV(xlog.DEBUG, "stach_folder", IntermediateStash)
 			err = fileutil.Vfs.MkdirAll(IntermediateStash, 0755)
 			if err != nil {
-				return nil, errors.WithMessagef(err, "failed to create intermediate stash directory")
+				return nil, errors.Wrapf(err, "failed to create intermediate stash directory")
 			}
 		}
 	}
@@ -234,13 +234,13 @@ func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain
 	if len(keyPEM) != 0 {
 		key, err = ParsePrivateKeyPEM(keyPEM)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 	}
 
 	certs, err := ParseChainFromPEM(certsRaw)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	if len(certs) == 0 {
 		return nil, errors.New("failed to parse certificates")

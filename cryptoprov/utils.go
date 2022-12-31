@@ -26,22 +26,22 @@ func (c *Crypto) LoadGPGPrivateKey(creationTime time.Time, key []byte) (*packet.
 	if strings.HasPrefix(keyPem, "pkcs11") {
 		pkuri, err := ParsePrivateKeyURI(keyPem)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 
 		provider, err := c.ByManufacturer(pkuri.Manufacturer(), pkuri.Model())
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 
 		s, err := provider.GetKey(pkuri.ID())
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 
 		pk, err = gpg.ConvertToPacketPrivateKey(creationTime, s)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 
 	} else {
@@ -100,7 +100,7 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error) {
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.PrivateKey, err error) {
 	keyDER, err := GetPrivateKeyDERFromPEM(keyPEM, password)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return ParsePrivateKeyDER(keyDER)
@@ -216,7 +216,7 @@ func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate,
 
 	_, cert.PrivateKey, err = c.LoadPrivateKey(keyPEMBlock)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return cert, nil
