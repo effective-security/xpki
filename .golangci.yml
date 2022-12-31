@@ -17,3 +17,4 @@ issues:
     - S1023 # redundant break statement (gosimple)
     - S1009 # should omit nil check; len() for []byte is defined as zero (gosimple)
     - S1034 # assigning the result of this type assertion to a variable (switch opts := opts.(type)) could eliminate type assertions in switch cases (gosimple)
+    - 
