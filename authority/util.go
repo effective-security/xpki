@@ -37,7 +37,7 @@ func (ca *Issuer) GenCert(crypto cryptoprov.Provider, req *csr.CertificateReques
 		},
 	})
 	if err != nil {
-		return nil, nil, errors.WithStack(err)
+		return nil, nil, err
 	}
 
 	err = fileutil.Vfs.Rename(certFile, certFile+".bak")

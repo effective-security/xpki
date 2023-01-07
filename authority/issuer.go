@@ -157,7 +157,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 	if cfg.CABundleFile != "" {
 		intCAbytes, err = afero.ReadFile(fileutil.Vfs, cfg.CABundleFile)
 		if err != nil {
-			return nil, errors.WithMessage(err, "failed to load ca-bundle")
+			return nil, errors.Wrap(err, "failed to load ca-bundle")
 		}
 	}
 	intCAbytes = certutil.JoinPEM(intCAbytes, caPem)
@@ -165,18 +165,19 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 	if cfg.RootBundleFile != "" {
 		rootBytes, err = afero.ReadFile(fileutil.Vfs, cfg.RootBundleFile)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "failed to load root-bundle")
+			return nil, errors.Wrap(err, "failed to load root-bundle")
 		}
 	}
+
 	rootBytes = certutil.JoinPEM(rootBytes, rootPem)
 
 	certBytes, err := afero.ReadFile(fileutil.Vfs, cfg.CertFile)
 	if err != nil {
-		return nil, errors.WithMessagef(err, "failed to load cert")
+		return nil, errors.Wrap(err, "failed to load cert")
 	}
 	issuer, err := CreateIssuer(cfg, certBytes, intCAbytes, rootBytes, cryptoSigner)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	_, err = issuer.CreateDelegatedOCSPSigner()
 	if err != nil {
@@ -247,7 +248,7 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		}
 		_, err = asn1.Unmarshal(bundle.Cert.RawSubjectPublicKeyInfo, &publicKeyInfo)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "failed to decode SubjectPublicKeyInfo")
+			return nil, errors.Wrap(err, "failed to decode SubjectPublicKeyInfo")
 		}
 
 		keyHash[h] = certutil.Digest(h, publicKeyInfo.PublicKey.RightAlign())
@@ -306,7 +307,7 @@ func (ca *Issuer) VerifyProof(data []byte, proof string) error {
 
 	signature, err := base64.RawURLEncoding.DecodeString(proof)
 	if err != nil {
-		return errors.WithMessagef(err, "unable to verify proof")
+		return errors.Wrap(err, "unable to verify proof")
 	}
 	h := hasher.New()
 	h.Write(data)
@@ -314,7 +315,7 @@ func (ca *Issuer) VerifyProof(data []byte, proof string) error {
 	if ca.keyInfo.Type == "RSA" {
 		err = rsa.VerifyPKCS1v15(ca.signer.Public().(*rsa.PublicKey), hasher, h.Sum(nil), signature)
 		if err != nil {
-			return errors.WithMessagef(err, "invalid rsa signature")
+			return errors.Wrap(err, "invalid rsa signature")
 		}
 		return nil
 	}
@@ -445,7 +446,7 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 		serialNumber := make([]byte, 20)
 		_, err = io.ReadFull(rand.Reader, serialNumber)
 		if err != nil {
-			return nil, nil, errors.WithMessagef(err, "failed to generate serial number")
+			return nil, nil, errors.Wrap(err, "failed to generate serial number")
 		}
 
 		// SetBytes interprets buf as the bytes of a big-endian
@@ -485,7 +486,7 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 		if certutil.FindExtension(safeTemplate.ExtraExtensions, id) == nil {
 			raw, err := ext.GetValue()
 			if err != nil {
-				return nil, nil, errors.WithStack(err)
+				return nil, nil, err
 			}
 
 			safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{
@@ -542,7 +543,7 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 
 	crt, err := certutil.ParseFromPEM(signedCertPEM)
 	if err != nil {
-		return nil, nil, errors.WithStack(err)
+		return nil, nil, err
 	}
 
 	// TODO: register issued cert
@@ -572,7 +573,7 @@ func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, caCert, template.PublicKey, ca.signer)
 	if err != nil {
-		return nil, errors.WithMessagef(err, "create certificate")
+		return nil, errors.Wrap(err, "create certificate")
 	}
 
 	uris := make([]string, 0, len(template.URIs))

@@ -96,7 +96,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 	timeout := time.Second * time.Duration(ctx.Timeout)
 	client, err := httpClient(a.Proxy, timeout)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	for _, url := range crt.OCSPServer {

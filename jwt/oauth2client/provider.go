@@ -1,9 +1,5 @@
 package oauth2client
 
-import (
-	"github.com/pkg/errors"
-)
-
 // Provider of OAuth2 clients
 type Provider struct {
 	clients map[string]*Client
@@ -17,7 +13,7 @@ func LoadProvider(location string) (*Provider, error) {
 
 	list, err := Load(location)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	for _, cl := range list {
@@ -30,4 +26,14 @@ func LoadProvider(location string) (*Provider, error) {
 // Client returns Client by provider
 func (p *Provider) Client(id string) *Client {
 	return p.clients[id]
+}
+
+// ClientNames returns list of supported clients
+func (p *Provider) ClientNames() []string {
+	list := make([]string, 0, len(p.clients))
+	for k := range p.clients {
+		list = append(list, k)
+	}
+
+	return list
 }

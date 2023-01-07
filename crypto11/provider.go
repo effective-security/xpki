@@ -17,7 +17,7 @@ func init() {
 func LoadProvider(cfg cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	p, err := Init(cfg)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	return p, nil
 }
@@ -109,6 +109,7 @@ func (p11lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) 
 	defer func() {
 		_ = p11lib.Ctx.CloseSession(session)
 	}()
+
 
 	var privHandle pkcs11.ObjectHandle
 	if privHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {

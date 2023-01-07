@@ -255,7 +255,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 
 	resp, err := p.kmsClient.ListKeys(opts)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	keys := resp.Keys
@@ -310,7 +310,7 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 		}
 		pemKey, err := certutil.EncodePublicKeyToPEM(pub)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 		pubKey = string(pemKey)
 		//		pubKey = base64.StdEncoding.EncodeToString(pub.PublicKey)
@@ -323,7 +323,7 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 		CreationTime: resp.KeyMetadata.CreationDate,
 	}
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return res, nil
@@ -361,7 +361,7 @@ func (p *Provider) Close() error {
 func KmsLoader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	p, err := Init(tc)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	return p, nil
 }

@@ -57,7 +57,7 @@ func Registered() []string {
 func LoadProvider(configLocation string) (Provider, error) {
 	tc, err := LoadTokenConfig(configLocation)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	manufacturer := tc.Manufacturer()
@@ -68,7 +68,7 @@ func LoadProvider(configLocation string) (Provider, error) {
 
 	prov, err := loader(tc)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return prov, nil
@@ -78,25 +78,25 @@ func LoadProvider(configLocation string) (Provider, error) {
 func Load(defaultConfig string, providersConfigs []string) (*Crypto, error) {
 	p, err := LoadProvider(defaultConfig)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	c, err := New(p, nil)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	err = c.Add(p)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	for _, configLocation := range providersConfigs {
 		p, err := LoadProvider(configLocation)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 		err = c.Add(p)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 	}
 	return c, nil

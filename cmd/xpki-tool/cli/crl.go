@@ -73,7 +73,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 
 	client, err := httpClient(a.Proxy, 3*time.Duration(ctx.Timeout))
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 	for _, crt := range list {
 		if len(crt.CRLDistributionPoints) < 1 {
@@ -86,7 +86,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 
 		body, err := download(client, crldp)
 		if err != nil {
-			return errors.WithStack(err)
+			return err
 		}
 
 		crl, err := x509.ParseCRL(body)

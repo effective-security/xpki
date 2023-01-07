@@ -65,7 +65,7 @@ func (a *CsrCreateCmd) Run(ctx *Cli) error {
 	} else {
 		err = saveCert(a.Output, key, csrPEM, nil)
 		if err != nil {
-			return errors.WithStack(err)
+			return err
 		}
 	}
 
@@ -151,7 +151,7 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 			cacfg,
 			defaultCrypto, &req)
 		if err != nil {
-			return errors.WithStack(err)
+			return err
 		}
 
 		crt, _ := certutil.ParseFromPEM(certPEM)
@@ -267,7 +267,7 @@ func (a *CsrSignCmd) Run(ctx *Cli) error {
 	} else {
 		err = saveCert(a.Output, nil, nil, []byte(pem+"\n"))
 		if err != nil {
-			return errors.WithStack(err)
+			return err
 		}
 	}
 

@@ -3,7 +3,7 @@ package jwt
 import (
 	"crypto"
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -91,7 +91,7 @@ func LoadConfig(file string) (*Config, error) {
 		return &Config{}, nil
 	}
 
-	raw, err := ioutil.ReadFile(file)
+	raw, err := os.ReadFile(file)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -129,7 +129,7 @@ func LoadConfig(file string) (*Config, error) {
 func Load(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error) {
 	cfg, err := LoadConfig(cfgfile)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	return New(cfg, crypto)
 }
@@ -168,7 +168,7 @@ func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error
 		}
 		p.signerInfo, err = NewSignerInfo(signer)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 		p.verifyKey = signer.Public()
 		p.headers = map[string]interface{}{
@@ -200,11 +200,11 @@ func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error
 
 		si, err := newSymmetricSigner("HS256", key)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 		p.signerInfo, err = NewSignerInfo(si)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 	}
 
@@ -224,7 +224,7 @@ func NewFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error) 
 	var err error
 	p.signerInfo, err = NewSignerInfo(signer)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 	p.verifyKey = signer.Public()
 	p.headers = map[string]interface{}{
@@ -260,7 +260,7 @@ func (p *provider) currentKey() (string, []byte) {
 func (p *provider) Sign(claims MapClaims) (string, error) {
 	tokenString, err := p.signerInfo.signJWT(claims, p.headers)
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", err
 	}
 	return tokenString, nil
 }

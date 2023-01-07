@@ -50,7 +50,7 @@ func KeyRingFromFile(path string) (openpgp.EntityList, error) {
 
 	k, err := KeyRing(data)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	return k, nil
@@ -66,7 +66,7 @@ func KeyRingFromFiles(files []string) (openpgp.EntityList, error) {
 		// read keyring in file
 		el, err := KeyRingFromFile(path)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, err
 		}
 
 		// append keyring

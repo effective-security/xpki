@@ -1,0 +1,52 @@
+package jwt_test
+
+import (
+	"testing"
+
+	"github.com/effective-security/xpki/jwt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+)
+
+const idTokenGoogle = `eyJhbGciOiJSUzI1NiIsImtpZCI6IjU1MmRlMjdmNTE1NzM3NTM5NjAwZDg5YjllZTJlNGVkNTM1ZmI1MTkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhenAiOiIzMTI4OTAwMDE3MTgtamtoc3Bxcjd0dGM4MTJsNjJmMWE0bnRmZGI3MXZ0MmQuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJhdWQiOiIzMTI4OTAwMDE3MTgtamtoc3Bxcjd0dGM4MTJsNjJmMWE0bnRmZGI3MXZ0MmQuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJzdWIiOiIxMTQ1NTUxMTk4MzM1NDEzMjk4NTIiLCJoZCI6ImF2ZXJsb24uaW8iLCJlbWFpbCI6ImRlbmlzQGF2ZXJsb24uaW8iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibm9uY2UiOiJSQ01WS3dMViIsIm5hbWUiOiJEZW5pcyBJc3NvdXBvdiIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BRWRGVHA2YTJENWJNTllVWjRZYm1TTFc1LTJPMy12RU9VVHF6UmdjU0JnbT1zOTYtYyIsImdpdmVuX25hbWUiOiJEZW5pcyIsImZhbWlseV9uYW1lIjoiSXNzb3Vwb3YiLCJsb2NhbGUiOiJlbiIsImlhdCI6MTY3MDYxOTkxNSwiZXhwIjoxNjcwNjIzNTE1LCJqdGkiOiI5ZWI1ZTU2ZDU3YTljNmVmNWMzNWE2NWY4YzQ5NTg4NzYzOTYzZDVhIn0.doCTt8T2MBCDqh2PRcfUTcA9X6NVgIf3ionf5OaVsC-jiC9JI6dl6xhRauLj-wPYejnM31KvhlyI12P1Id77V1BjeGs6C_Dnly0eXTF8fdBI4DZW-6pOLFqGFKHi7iPt2RkB7JEx1eBMQ3HNWtdadbx-WvVSkhcYq9t5junnHARDYPd76hm6qKOAk8xRfn8fLr61tD7DOxzJbfNNXR44YiLOBl8f_-eHy3RPLKCmP9f6wh3eSGhtH8nC8XHoe-Ncdg5a2Ouv-PmF3Ddeb7FtBBXyiavwPSeRi6-N9Jo9Dmf63oI-a8rGdooej8G7MSvPy_3_EbDMifjgT443qLiSXg`
+const idTokenMs = `eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6IjJaUXBKM1VwYmpBWVhZR2FYRUpsOGxWMFRPSSJ9.eyJhdWQiOiI3MzUzNzA0Yy1jMjYyLTRlNGEtODQ1Ny04YWZkMGI1M2I2ZjciLCJpc3MiOiJodHRwczovL2xvZ2luLm1pY3Jvc29mdG9ubGluZS5jb20vNjhkYTQ2ODYtMDhlYi00ZTI3LWE4MzAtZWQzNmRkNWY3NzcwL3YyLjAiLCJpYXQiOjE2NzA2MjAwMjMsIm5iZiI6MTY3MDYyMDAyMywiZXhwIjoxNjcwNjIzOTIzLCJhaW8iOiJBV1FBbS84VEFBQUFncTlYMjhLQVhjeFl2alh6eHRJUzQybWxtbGI0Q1M4Y25ZbHFsZzhpYjY5NVlseHNEL2RnUlBrSmhHeHBpZlBYSGJ3L25xa2ROZUtYa3FaZU51MThCOTJVRGtLaWJWK0hoZUgwQ3pjeG5PK0w1c3pjeE5hQVYzbkZuTVpobHo3byIsImNjIjoiQ21CV0srWXdnVzZiQ25ZVkprWEpsWlhmWnFKbFFNZ0JEZTBuYlhEZ3l0SXZBWERoTjNPNFhJV3I3TXQ3V0U2emRrZUNVUnovWFBZT1c0YnF6Z2JlblpTc3NqeTNpd0NZcGQ3WTdwLzBoTXBWWWh2akNzdTJBVzhGcGp3VTZNbFczZFFTRjJWcmMzQmhibVF1YjI1dGFXTnliM052Wm5RdVkyOXRHaElLRUVlWW1iNVZJVlZFdlIyR1JGWTlMemtpRWdvUTc2S290R3pyQVV1eUhKVWFENzd1QVRJQ1RrRTRBVUlKQ1FCN3VNWU5mdHBJIiwiZW1haWwiOiJkZW5pc0Bla3NwYW5kLm9ubWljcm9zb2Z0LmNvbSIsIm5hbWUiOiJEZW5pcyBJc3NvdXBvdiIsIm5vbmNlIjoiR2p0cXZCTDEiLCJvaWQiOiJkNmJhYjQzNS05OWNlLTQxN2EtODg0Ni05ZWRhZWZiOWVmYTEiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJkZW5pc0Bla3NwYW5kLm9ubWljcm9zb2Z0LmNvbSIsInJoIjoiMC5BVmtBaGtiYWFPc0lKMDZvTU8wMjNWOTNjRXh3VTNOaXdrcE9oRmVLX1F0VHR2ZWRBTG8uIiwic3ViIjoicEFpU1dFWExuenFpdk9vMHRYVEh5M1JIdUI5S2IwaGczWjNEWjF3N3FpSSIsInRpZCI6IjY4ZGE0Njg2LTA4ZWItNGUyNy1hODMwLWVkMzZkZDVmNzc3MCIsInV0aSI6Ijc2S290R3pyQVV1eUhKVWFENzd1QVEiLCJ2ZXIiOiIyLjAifQ.NY7IBfR1lwApnlOPA2rmLGFewww_HWfhuNeYMFFnEkpiIiUrn4C28107N1I1EeecPF8lI2DrXzyT-07Uru8370sYOpFyeEOgmjxNK5aQhJLwJx_4kzipUcnOpySsiKCtMqr_mvGa0cXcg96a-p4RajtWKvTTn-L1QikR_zLjgU-UamHNXzkteOhhvKdqFLIuM3pBpiOV0MDUC7FaOZMEVPlxVfpoNXXSkzXMzwPIJ1ejLGUB4S713ExgPgtL9qkAIwoIZb0RC36sYmzSFlt0tOjjfYdGa-RUin1KhdxYlLTMxeqD6KKt5tubDMmnnS2caL8tXDNIgkD-rFLXBGprSA`
+
+func Test_ParseUnverified(t *testing.T) {
+
+	parser := jwt.TokenParser{
+		UseJSONNumber:        true,
+		SkipClaimsValidation: true,
+	}
+
+	t.Run("google", func(t *testing.T) {
+		claims := jwt.MapClaims{}
+		token, _, err := parser.ParseUnverified(idTokenGoogle, claims)
+		require.NoError(t, err)
+		claims = token.Claims.(jwt.MapClaims)
+		var stdClaims jwt.Claims
+		require.NoError(t, claims.To(&stdClaims))
+		assert.NotEmpty(t, stdClaims.Email)
+		assert.False(t, stdClaims.EmailVerified)
+		assert.Equal(t, "114555119833541329852", stdClaims.Subject)
+		assert.NotNil(t, stdClaims.Expiry)
+		assert.NotNil(t, stdClaims.IssuedAt)
+		assert.Equal(t, "312890001718-jkhspqr7ttc812l62f1a4ntfdb71vt2d.apps.googleusercontent.com", stdClaims.Audience[0])
+	})
+	t.Run("microsoft", func(t *testing.T) {
+		claims := jwt.MapClaims{}
+		token, _, err := parser.ParseUnverified(idTokenMs, claims)
+		require.NoError(t, err)
+		claims = token.Claims.(jwt.MapClaims)
+		var stdClaims jwt.Claims
+		require.NoError(t, claims.To(&stdClaims))
+		assert.NotEmpty(t, stdClaims.Email)
+		assert.False(t, stdClaims.EmailVerified)
+		assert.Equal(t, "pAiSWEXLnzqivOo0tXTHy3RHuB9Kb0hg3Z3DZ1w7qiI", stdClaims.Subject)
+		assert.Equal(t, "https://login.microsoftonline.com/68da4686-08eb-4e27-a830-ed36dd5f7770/v2.0", stdClaims.Issuer)
+		assert.NotNil(t, stdClaims.Expiry)
+		assert.NotNil(t, stdClaims.IssuedAt)
+		assert.Equal(t, "7353704c-c262-4e4a-8457-8afd0b53b6f7", stdClaims.Audience[0])
+	})
+}

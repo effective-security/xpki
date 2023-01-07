@@ -22,6 +22,11 @@ var (
 	DefaultTimeSkew = 5 * time.Minute
 )
 
+// Cnf is DPoP specific claim for JWT Key ID
+type Cnf struct {
+	Jkt string `json:"jkt,omitempty"`
+}
+
 // Claims represents public claim values (as specified in RFC 7519).
 type Claims struct {
 	Issuer    string       `json:"iss,omitempty"`
@@ -33,10 +38,10 @@ type Claims struct {
 	ID        string       `json:"jti,omitempty"`
 
 	// DPoP specific claims
-	CNF        map[string]interface{} `json:"cnf,omitempty"`
-	Nonce      string                 `json:"nonce,omitempty"`
-	HTTPMethod string                 `json:"htm,omitempty"`
-	HTTPUri    string                 `json:"htu,omitempty"`
+	Cnf        *Cnf   `json:"cnf,omitempty"`
+	Nonce      string `json:"nonce,omitempty"`
+	HTTPMethod string `json:"htm,omitempty"`
+	HTTPUri    string `json:"htu,omitempty"`
 
 	// Custom most common claims
 	Name          string `json:"name,omitempty"`
@@ -45,9 +50,13 @@ type Claims struct {
 	EmailVerified bool   `json:"email_verified ,omitempty"`
 	Phone         string `json:"phone_number,omitempty"`
 	PhoneVerified bool   `json:"phone_number_verified ,omitempty"`
-	Role          string `json:"role,omitempty"`
+	// Role in the service
+	Role   string `json:"role,omitempty"`
+	Tenant string `json:"tenant,omitempty"`
+	Org    string `json:"org,omitempty"`
 	// map of Org:Role
-	Orgs map[string]string `json:"orgs,omitempty"`
+	Orgs    map[string]string `json:"orgs,omitempty"`
+	OrgRole string            `json:"org_role,omitempty"`
 }
 
 // Marshal returns JSON encoded string
@@ -156,32 +165,32 @@ func (c *Claims) Valid(cfg VerifyConfig) error {
 
 	err := c.VerifyExpiresAt(now, false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuedAt(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyNotBefore(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuer(cfg.ExpectedIssuer)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifySubject(cfg.ExpectedSubject)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyAudience(cfg.ExpectedAudience)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	return nil
@@ -205,7 +214,7 @@ func (c MapClaims) Add(val ...interface{}) error {
 			if reflect.Indirect(reflect.ValueOf(i)).Kind() == reflect.Struct {
 				m, err := normalize(i)
 				if err != nil {
-					return errors.WithStack(err)
+					return err
 				}
 				c.merge(m)
 			} else {
@@ -260,6 +269,53 @@ func normalize(i interface{}) (map[string]interface{}, error) {
 	return m, nil
 }
 
+// CNF returns DPoP cnf claim
+func (c MapClaims) CNF() *Cnf {
+	v := c["cnf"]
+	if v == nil {
+		return nil
+	}
+	switch tv := v.(type) {
+	case *Cnf:
+		return tv
+	case Cnf:
+		return &tv
+	case map[string]string:
+		return &Cnf{
+			Jkt: tv["jkt"],
+		}
+	case map[string]any:
+		if jkt, ok := tv["jkt"].(string); ok {
+			return &Cnf{
+				Jkt: jkt,
+			}
+		}
+	}
+	return nil
+}
+
+// StringsMap will return the named claim as a map[string]string,
+func (c MapClaims) StringsMap(k string) map[string]string {
+	if c == nil {
+		return nil
+	}
+	v := c[k]
+	if v == nil {
+		return nil
+	}
+	switch tv := v.(type) {
+	case map[string]string:
+		return tv
+	case map[string]any:
+		res := map[string]string{}
+		for k, v := range tv {
+			res[k] = fmt.Sprint(v)
+		}
+		return res
+	}
+	return nil
+}
+
 // String will return the named claim as a string,
 // if the underlying type is not a string,
 // it will try and co-oerce it to a string.
@@ -311,7 +367,16 @@ func (c MapClaims) Bool(k string) bool {
 	}
 }
 
-// Time will return the named claim as Time
+// TimeVal will return the named claim as Time value
+func (c MapClaims) TimeVal(k string) time.Time {
+	p := c.Time(k)
+	if p != nil {
+		return *p
+	}
+	return time.Time{}
+}
+
+// Time will return the named claim as Time pointer
 func (c MapClaims) Time(k string) *time.Time {
 	if c == nil {
 		return nil
@@ -594,32 +659,32 @@ func (c MapClaims) Valid(cfg VerifyConfig) error {
 
 	err := c.VerifyExpiresAt(now, false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuedAt(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyNotBefore(now.Add(DefaultTimeSkew), false)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyIssuer(cfg.ExpectedIssuer)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifySubject(cfg.ExpectedSubject)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	err = c.VerifyAudience(cfg.ExpectedAudience)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	return nil
@@ -652,7 +717,7 @@ func (n NumericDate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON reads a date from its JSON representation.
 func (n *NumericDate) UnmarshalJSON(b []byte) error {
-	s := string(b)
+	s := strings.Trim(string(b), "\"")
 
 	f, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {

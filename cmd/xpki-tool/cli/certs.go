@@ -137,7 +137,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	timeout := time.Second * time.Duration(ctx.Timeout)
 	client, err := httpClient(a.Proxy, timeout)
 	if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	opts := []certutil.Option{
@@ -275,12 +275,12 @@ func OCSPValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Cer
 
 	req, err := certutil.CreateOCSPRequest(crt, issuer, crypto.SHA256)
 	if err != nil {
-		return ocsp.Unknown, nil, errors.WithStack(err)
+		return ocsp.Unknown, nil, err
 	}
 
 	der, err := postHTTP(client, rawURL, "application/ocsp-request", bytes.NewReader(req))
 	if err != nil {
-		return ocsp.Unknown, nil, errors.WithStack(err)
+		return ocsp.Unknown, nil, err
 	}
 
 	res, err := ocsp.ParseResponseForCert(der, crt, issuer)
