@@ -55,7 +55,9 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	if err != nil {
 		return errors.WithMessagef(err, "OpenSession on slot %d", slotID)
 	}
-	_ = p11lib.Ctx.CloseSession(session)
+	defer func() {
+		_ = p11lib.Ctx.CloseSession(session)
+	}()
 
 	var privHandle, pubHandle pkcs11.ObjectHandle
 	if privHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {

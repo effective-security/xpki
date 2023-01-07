@@ -63,7 +63,9 @@ func (p11lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyI
 	if err != nil {
 		return nil, errors.WithMessagef(err, "OpenSession on slot %d", slotID)
 	}
-	_ = p11lib.Ctx.CloseSession(sh)
+	defer func() {
+		_ = p11lib.Ctx.CloseSession(sh)
+	}()
 
 	keys, err := p11lib.ListKeys(sh, pkcs11.CKO_PRIVATE_KEY, ^uint(0))
 	if err != nil {
@@ -104,7 +106,9 @@ func (p11lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) 
 	if err != nil {
 		return nil, errors.WithMessagef(err, "OpenSession on slot %d", slotID)
 	}
-	_ = p11lib.Ctx.CloseSession(session)
+	defer func() {
+		_ = p11lib.Ctx.CloseSession(session)
+	}()
 
 	var privHandle pkcs11.ObjectHandle
 	if privHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
