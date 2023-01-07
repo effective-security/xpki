@@ -26,7 +26,6 @@ const (
 // Signer implements crypto.Signer interface
 type Signer struct {
 	keyID string
-	arn   string
 	label string
 	//signAlgo x509.SignatureAlgorithm
 	signingAlgorithms []string

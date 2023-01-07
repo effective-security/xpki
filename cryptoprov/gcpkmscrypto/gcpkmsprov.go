@@ -27,7 +27,7 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki/cryptopro
 const ProviderName = "GCPKMS"
 
 func init() {
-	cryptoprov.Register(ProviderName, KmsLoader)
+	_ = cryptoprov.Register(ProviderName, KmsLoader)
 }
 
 // KmsClient interface
@@ -119,7 +119,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 		pbpurpose = kmspb.CryptoKey_ASYMMETRIC_DECRYPT
 	}
 
-	algorithm := kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256
+	var algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm
 	switch bits {
 	case 2048:
 		algorithm = kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256
@@ -202,7 +202,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	ctx := context.Background()
 
 	pbpurpose := kmspb.CryptoKey_ASYMMETRIC_SIGN
-	algorithm := kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256
+	var algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm
 
 	switch curve {
 	case elliptic.P256():

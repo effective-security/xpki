@@ -811,6 +811,6 @@ func CreateClaims(jti, subject, issuer string, audience []string, expiry time.Du
 		Subject:   subject,
 	}
 	c := MapClaims{}
-	c.Add(claims, extraClaims)
+	_ = c.Add(claims, extraClaims)
 	return c
 }

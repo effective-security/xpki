@@ -181,7 +181,7 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error {
 	_, crypto := ctx.CryptoProv()
 	prov := csr.NewProvider(crypto)
 
-	purpose := csr.SigningKey
+	var purpose csr.KeyPurpose
 	switch strings.ToLower(a.Purpose) {
 	case "s", "sign", "signing":
 		purpose = csr.SigningKey

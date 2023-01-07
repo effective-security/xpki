@@ -125,7 +125,7 @@ func GenerateRSAKeyInPEM(rand io.Reader, size int) ([]byte, error) {
 		rand = crand.Reader
 	}
 	// key pair
-	key, err := rsa.GenerateKey(crand.Reader, size)
+	key, err := rsa.GenerateKey(rand, size)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}

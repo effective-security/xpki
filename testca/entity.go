@@ -125,7 +125,7 @@ func (id *Entity) SaveCertAndKey(certFile string, keyFile string, withChain bool
 			certs = append(certs, id.KeyAndCertChain().Chain...)
 		}
 
-		certutil.EncodeToPEM(fcert, true, certs...)
+		_ = certutil.EncodeToPEM(fcert, true, certs...)
 
 		fcert.Close()
 	}

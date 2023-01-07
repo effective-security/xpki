@@ -57,7 +57,6 @@ func (a *CsrCreateCmd) Run(ctx *Cli) error {
 	var key, csrPEM []byte
 	csrPEM, key, _, _, err = prov.CreateRequestAndExportKey(&req)
 	if err != nil {
-		key = nil
 		return errors.WithMessage(err, "process CSR")
 	}
 
@@ -166,7 +165,6 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 
 		csrPEM, key, _, _, err = prov.CreateRequestAndExportKey(&req)
 		if err != nil {
-			key = nil
 			return errors.WithMessage(err, "process CSR")
 		}
 

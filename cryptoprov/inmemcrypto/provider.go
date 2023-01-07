@@ -23,7 +23,7 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "inmemc
 const ProviderName = "inmem"
 
 func init() {
-	cryptoprov.Register(ProviderName, Loader)
+	_ = cryptoprov.Register(ProviderName, Loader)
 }
 
 // inMemProv stores keyID to signer mapping in memory.
