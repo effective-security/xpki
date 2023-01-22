@@ -29,13 +29,13 @@ func TestSigner(t *testing.T) {
 	rsReq, err := http.NewRequest(http.MethodGet, "https://cisco.com/api/signer?q=notincluded", nil)
 	require.NoError(t, err)
 
-	token, err := signer.ForRequest(rsReq, nil)
+	token, err := dpop.ForRequest(signer, rsReq, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
 	assert.Equal(t, token, rsReq.Header.Get(dpop.HTTPHeader))
 
-	res, err := dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+	res, err := dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 	require.NoError(t, err)
 	assert.NotNil(t, res.Key)
 	require.NotNil(t, res.Claims)
@@ -45,19 +45,19 @@ func TestSigner(t *testing.T) {
 	assert.Equal(t, "https://cisco.com/api/signer", res.Claims.HTTPUri)
 	assert.Equal(t, http.MethodGet, res.Claims.HTTPMethod)
 
-	_, err = dpop.VerifyClaims(dpop.VerifyConfig{ExpectedIssuer: "myissuer"}, rsReq)
+	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedIssuer: "myissuer"}, rsReq)
 	assert.EqualError(t, err, "dpop: invalid issuer: ''")
-	_, err = dpop.VerifyClaims(dpop.VerifyConfig{ExpectedSubject: "mysubj"}, rsReq)
+	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedSubject: "mysubj"}, rsReq)
 	assert.EqualError(t, err, "dpop: invalid subject: ''")
-	_, err = dpop.VerifyClaims(dpop.VerifyConfig{ExpectedAudience: "myau"}, rsReq)
+	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedAudience: "myau"}, rsReq)
 	assert.EqualError(t, err, "dpop: invalid audience: []")
-	_, err = dpop.VerifyClaims(dpop.VerifyConfig{ExpectedNonce: "tqwueytr35r"}, rsReq)
+	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedNonce: "tqwueytr35r"}, rsReq)
 	assert.EqualError(t, err, "dpop: invalid nonce: ''")
 
 	// test dpop via query
 	rsReq.URL.RawQuery += "&dpop=" + token
 	rsReq.Header.Set(dpop.HTTPHeader, "")
-	res, err = dpop.VerifyClaims(dpop.VerifyConfig{EnableQuery: true}, rsReq)
+	res, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{EnableQuery: true}, rsReq)
 	require.NoError(t, err)
 	assert.NotNil(t, res.Key)
 	require.NotNil(t, res.Claims)
@@ -73,13 +73,13 @@ func TestVerifyClaims(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("no header", func(t *testing.T) {
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: HTTP Header not present in request")
 	})
 
 	t.Run("invalid header", func(t *testing.T) {
 		rsReq.Header.Set(dpop.HTTPHeader, "invalid")
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: failed to parse header: square/go-jose: compact JWS format must have three parts")
 	})
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -105,7 +105,7 @@ func TestVerifyClaims(t *testing.T) {
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: typ field not found in header")
 	})
 
@@ -125,7 +125,7 @@ func TestVerifyClaims(t *testing.T) {
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: invalid typ header")
 	})
 
@@ -144,7 +144,7 @@ func TestVerifyClaims(t *testing.T) {
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: jwk field not found in header")
 	})
 
@@ -164,7 +164,7 @@ func TestVerifyClaims(t *testing.T) {
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: claim not found: jti")
 	})
 
@@ -177,7 +177,7 @@ func TestVerifyClaims(t *testing.T) {
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: claim not found: http_method")
 	})
 
@@ -192,7 +192,7 @@ func TestVerifyClaims(t *testing.T) {
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: claim not found: http_uri")
 	})
 
@@ -208,7 +208,7 @@ func TestVerifyClaims(t *testing.T) {
 		require.NoError(t, err)
 
 		rsReq.Method = "POST"
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: claim mismatch: http_method: 'GET'")
 		rsReq.Method = http.MethodGet
 	})
@@ -227,7 +227,7 @@ func TestVerifyClaims(t *testing.T) {
 
 		rsReq.URL.Path = "wrong"
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: http_uri claim mismatch: wrong")
 	})
 
@@ -242,9 +242,9 @@ func TestVerifyClaims(t *testing.T) {
 		rsReq.URL.Path = "/api/signer"
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
-		rsReq.Host = "local"
+		rsReq.URL.Host = "local"
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		assert.EqualError(t, err, "dpop: http_uri claim mismatch: local")
 	})
 	t.Run("expired", func(t *testing.T) {
@@ -262,7 +262,7 @@ func TestVerifyClaims(t *testing.T) {
 		err = ts.ForRequest(rsReq, nil)
 		require.NoError(t, err)
 
-		_, err = dpop.VerifyClaims(dpop.VerifyConfig{}, rsReq)
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "dpop: iat claim expired")
 	})
@@ -296,7 +296,7 @@ func TestParse(t *testing.T) {
 	r, _ := http.NewRequest(http.MethodPost, "https://api.test.proveid.dev/v1/dpop/token", nil)
 	r.Header.Set(dpop.HTTPHeader, dproof)
 
-	_, err := dpop.VerifyClaims(dpop.VerifyConfig{}, r)
+	_, err := dpop.VerifyRequestClaims(dpop.VerifyConfig{}, r)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expired")
 

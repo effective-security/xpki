@@ -82,8 +82,8 @@ var parser = jwtgo.TokenParser{
 	UseJSONNumber: true,
 }
 
-// VerifyClaims returns DPoP claims, raw claims, key; or error
-func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
+// VerifyRequestClaims returns DPoP claims, raw claims, key; or error
+func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	phdr := req.Header.Get(HTTPHeader)
 	if phdr == "" && cfg.EnableQuery {
 		phdr = queryString(req.URL, "dpop")
@@ -92,6 +92,11 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 		return nil, errors.New("dpop: HTTP Header not present in request")
 	}
 
+	return VerifyClaims(cfg, phdr, req.Method, req.URL)
+}
+
+// VerifyClaims returns DPoP claims, raw claims, key; or error
+func VerifyClaims(cfg VerifyConfig, phdr, method string, u *url.URL) (*Result, error) {
 	pjwt, err := jwt.ParseSigned(phdr)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "dpop: failed to parse header")
@@ -141,7 +146,7 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 		return nil, errors.New("dpop: claim not found: iat")
 	}
 
-	if !strings.EqualFold(claims.HTTPMethod, req.Method) {
+	if !strings.EqualFold(claims.HTTPMethod, method) {
 		return nil, errors.Errorf("dpop: claim mismatch: http_method: '%s'",
 			claims.HTTPMethod)
 	}
@@ -157,11 +162,11 @@ func VerifyClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	// supplied on the Request-Line as stored in RequestURI.  For
 	// most requests, fields other than Path and RawQuery will be
 	// empty. (See RFC 7230, Section 5.3)
-	if req.URL.Path != claimURL.Path {
-		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", req.URL.Path)
+	if u.Path != claimURL.Path {
+		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", u.Path)
 	}
-	if req.Host != claimURL.Host {
-		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", req.Host)
+	if u.Host != claimURL.Host {
+		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", u.Host)
 	}
 
 	// if claimUrl.Scheme != "https" {
