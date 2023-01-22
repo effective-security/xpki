@@ -45,7 +45,18 @@ func (p *signer) JWKThumbprint() string {
 	return p.tp
 }
 
-func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, error) {
+func ForRequest(p Signer, r *http.Request, extraClaims interface{}) (string, error) {
+	token, err := p.Sign(r.Method, r.URL, extraClaims)
+	if err != nil {
+		return "", err
+	}
+
+	r.Header.Set(HTTPHeader, token)
+	return token, nil
+}
+
+// Sign returns DPoP token
+func (p *signer) Sign(method string, u *url.URL, extraClaims interface{}) (string, error) {
 	now := TimeNowFn()
 	notBefore := now.Add(DefaultNotBefore)
 	exp := now.Add(DefaultExpiration)
@@ -57,14 +68,14 @@ func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, e
 	}
 
 	coreURL := url.URL{
-		Scheme: r.URL.Scheme,
-		Opaque: r.URL.Opaque,
-		Host:   r.URL.Host,
-		Path:   r.URL.Path,
+		Scheme: u.Scheme,
+		Opaque: u.Opaque,
+		Host:   u.Host,
+		Path:   u.Path,
 	}
 
 	c := jwt.MapClaims{
-		claimNameForHTTPMethod: r.Method,
+		claimNameForHTTPMethod: method,
 		claimNameForHTTPURL:    coreURL.String(),
 	}
 	err := c.Add(claims, extraClaims)
@@ -85,6 +96,5 @@ func (p *signer) ForRequest(r *http.Request, extraClaims interface{}) (string, e
 		return "", err
 	}
 
-	r.Header.Set(HTTPHeader, token)
 	return token, nil
 }

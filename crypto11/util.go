@@ -59,7 +59,6 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 		_ = p11lib.Ctx.CloseSession(session)
 	}()
 
-
 	var privHandle, pubHandle pkcs11.ObjectHandle
 	if privHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
 		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PRIVATE_KEY", "err", err.Error())
@@ -73,7 +72,6 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 		if err != nil {
 			return errors.WithStack(err)
 		}
-
 	}
 
 	if pubHandle != 0 {
@@ -81,7 +79,6 @@ func (p11lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 		if err != nil {
 			return errors.WithStack(err)
 		}
-
 	}
 	return nil
 }

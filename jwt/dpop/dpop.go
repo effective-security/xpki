@@ -1,7 +1,7 @@
 package dpop
 
 import (
-	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/effective-security/xlog"
@@ -36,8 +36,8 @@ const (
 
 // Signer specifies an interface to sign HTTP requests with DPoP
 type Signer interface {
-	// ForRequest annotates an HTTP Request with a DPoP header.
-	ForRequest(r *http.Request, extraClaims interface{}) (string, error)
+	// Sign returns DPoP token
+	Sign(method string, u *url.URL, extraClaims interface{}) (string, error)
 	// JWKThumbprint returns base64 hash of the key
 	JWKThumbprint() string
 }
