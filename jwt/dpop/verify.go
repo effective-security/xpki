@@ -92,11 +92,11 @@ func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 		return nil, errors.New("dpop: HTTP Header not present in request")
 	}
 
-	return VerifyClaims(cfg, phdr, req.Method, req.URL)
+	return VerifyClaims(cfg, phdr, req.Method, req.Host, req.URL)
 }
 
 // VerifyClaims returns DPoP claims, raw claims, key; or error
-func VerifyClaims(cfg VerifyConfig, phdr, method string, u *url.URL) (*Result, error) {
+func VerifyClaims(cfg VerifyConfig, phdr, method, hostFromHeader string, u *url.URL) (*Result, error) {
 	pjwt, err := jwt.ParseSigned(phdr)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "dpop: failed to parse header")
@@ -165,7 +165,12 @@ func VerifyClaims(cfg VerifyConfig, phdr, method string, u *url.URL) (*Result, e
 	if u.Path != claimURL.Path {
 		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", u.Path)
 	}
-	if u.Host != claimURL.Host {
+
+	host := u.Host
+	if host == "" {
+		host = hostFromHeader
+	}
+	if host != claimURL.Host {
 		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", u.Host)
 	}
 
