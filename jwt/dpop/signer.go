@@ -69,7 +69,6 @@ func (p *signer) Sign(method string, u *url.URL, extraClaims interface{}) (strin
 
 	coreURL := url.URL{
 		Scheme: u.Scheme,
-		Opaque: u.Opaque,
 		Host:   u.Host,
 		Path:   u.Path,
 	}

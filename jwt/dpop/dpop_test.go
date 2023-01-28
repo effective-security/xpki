@@ -209,7 +209,7 @@ func TestVerifyClaims(t *testing.T) {
 
 		rsReq.Method = "POST"
 		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
-		assert.EqualError(t, err, "dpop: claim mismatch: http_method: 'GET'")
+		assert.EqualError(t, err, "dpop: claim mismatch: http_method: \"GET\", actual: \"POST\"")
 		rsReq.Method = http.MethodGet
 	})
 
@@ -228,7 +228,7 @@ func TestVerifyClaims(t *testing.T) {
 		rsReq.URL.Path = "wrong"
 
 		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
-		assert.EqualError(t, err, "dpop: http_uri claim mismatch: wrong")
+		assert.EqualError(t, err, "dpop: claim mismatch: http_uri: \"https://cisco.com/api/signer\", actual: \"https://cisco.com/wrong\"")
 	})
 
 	t.Run("Invalid host", func(t *testing.T) {
@@ -245,7 +245,7 @@ func TestVerifyClaims(t *testing.T) {
 		rsReq.URL.Host = "local"
 
 		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
-		assert.EqualError(t, err, "dpop: http_uri claim mismatch: local")
+		assert.EqualError(t, err, "dpop: claim mismatch: http_uri: \"https://cisco.com/api/signer\", actual: \"https://local/api/signer\"")
 	})
 	t.Run("expired", func(t *testing.T) {
 		ts := &testSigner{

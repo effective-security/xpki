@@ -7,6 +7,7 @@ import (
 
 	"github.com/effective-security/xlog"
 	jwtgo "github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
@@ -92,11 +93,18 @@ func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 		return nil, errors.New("dpop: HTTP Header not present in request")
 	}
 
-	return VerifyClaims(cfg, phdr, req.Method, req.URL)
+	u := req.URL
+	coreURL := url.URL{
+		Scheme: slices.StringsCoalesce(u.Scheme, "https"),
+		Host:   slices.StringsCoalesce(u.Host, req.Host),
+		Path:   u.Path,
+	}
+
+	return VerifyClaims(cfg, phdr, req.Method, coreURL.String())
 }
 
 // VerifyClaims returns DPoP claims, raw claims, key; or error
-func VerifyClaims(cfg VerifyConfig, phdr, method string, u *url.URL) (*Result, error) {
+func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error) {
 	pjwt, err := jwt.ParseSigned(phdr)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "dpop: failed to parse header")
@@ -146,32 +154,15 @@ func VerifyClaims(cfg VerifyConfig, phdr, method string, u *url.URL) (*Result, e
 		return nil, errors.New("dpop: claim not found: iat")
 	}
 
-	if !strings.EqualFold(claims.HTTPMethod, method) {
-		return nil, errors.Errorf("dpop: claim mismatch: http_method: '%s'",
-			claims.HTTPMethod)
+	if !strings.EqualFold(claims.HTTPMethod, httpMethod) {
+		return nil, errors.Errorf("dpop: claim mismatch: http_method: %q, actual: %q",
+			claims.HTTPMethod, httpMethod)
 	}
 
-	claimURL, err := url.Parse(claims.HTTPUri)
-	if err != nil {
-		return nil, errors.Errorf("dpop: invalid claim: http_uri: %v", err.Error())
+	if !strings.EqualFold(claims.HTTPUri, httpURI) {
+		return nil, errors.Errorf("dpop: claim mismatch: http_uri: %q, actual: %q",
+			claims.HTTPUri, httpURI)
 	}
-
-	// From the req.URL docs:
-	//
-	// For server requests, the URL is parsed from the URI
-	// supplied on the Request-Line as stored in RequestURI.  For
-	// most requests, fields other than Path and RawQuery will be
-	// empty. (See RFC 7230, Section 5.3)
-	if u.Path != claimURL.Path {
-		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", u.Path)
-	}
-	if u.Host != claimURL.Host {
-		return nil, errors.Errorf("dpop: http_uri claim mismatch: %s", u.Host)
-	}
-
-	// if claimUrl.Scheme != "https" {
-	//	return nil, nil, errors.Errorf("dpop: http_uri claim mismatch in scheme: %s", claimUrl.Scheme)
-	//}
 
 	now := TimeNowFn()
 	iat := claims.IssuedAt.Time()
