@@ -113,16 +113,34 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 		err = errors.WithMessage(err, "identify key")
 		return
 	}
+	logger.KV(xlog.TRACE, "key_id", keyID, "label", label)
+
+	csrPEM, err = c.SignRequest(priv, req)
+	if err != nil {
+		err = errors.WithMessage(err, "failed to sign request")
+		return
+	}
+
+	return
+}
+
+// SignRequest signs a certificate request
+func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) (csrPEM []byte, err error) {
 	ext, err := pkixExtentions(req.Extensions)
 	if err != nil {
 		err = errors.WithMessage(err, "invalid extensions")
 		return
 	}
 
-	logger.KV(xlog.TRACE, "key_id", keyID, "label", label)
+	s, ok := priv.(crypto.Signer)
+	if !ok {
+		err = errors.Errorf("unable to convert key to crypto.Signer")
+		return
+	}
+
 	var template = x509.CertificateRequest{
 		Subject:            req.Name(),
-		SignatureAlgorithm: req.KeyRequest.SigAlgo(),
+		SignatureAlgorithm: DefaultSigAlgo(s),
 		ExtraExtensions:    ext,
 	}
 
@@ -141,9 +159,7 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 			template.DNSNames = append(template.DNSNames, san)
 		}
 	}
-	logger.KV(xlog.TRACE,
-		"key_id", keyID,
-		"label", label,
+	logger.KV(xlog.DEBUG,
 		"subject", template.Subject.String(),
 		"ext", pkixExtentionsIDs(ext),
 		"SAN", req.SAN,
@@ -161,7 +177,7 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 
 	csrPEM = pem.EncodeToMemory(&block)
 
-	return
+	return csrPEM, nil
 }
 
 func pkixExtentionsIDs(in []pkix.Extension) []string {
