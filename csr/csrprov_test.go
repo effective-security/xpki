@@ -75,6 +75,11 @@ func TestGenerateKeyAndRequest(t *testing.T) {
 
 				signer := k.(crypto.Signer)
 				assert.Equal(t, tc.req.KeyRequest.SigAlgo(), csr.DefaultSigAlgo(signer))
+
+				_, err = prov.SignRequest(k, tc.req)
+				require.NoError(t, err)
+
+				assert.Equal(t, tc.req.KeyRequest.SigAlgo(), csr.DefaultSigAlgo(signer))
 			}
 		})
 	}

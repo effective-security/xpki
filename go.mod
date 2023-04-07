@@ -1,12 +1,12 @@
 module github.com/effective-security/xpki
 
-go 1.19
+go 1.20
 
 require (
 	cloud.google.com/go/kms v1.1.0
 	github.com/alecthomas/kong v0.4.0
 	github.com/aws/aws-sdk-go v1.27.0
-	github.com/effective-security/xlog v0.0.0-20221008085823-05b9d4781678
+	github.com/effective-security/xlog v0.5.0
 	github.com/go-phorce/cov-report v1.1.1-0.20200622030546-3fb510c4b1ba
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/googleapis/gax-go/v2 v2.1.1
@@ -19,7 +19,6 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/ugorji/go/codec v1.2.6
 	golang.org/x/crypto v0.0.0-20220131195533-30dcbda58838
-	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
 	golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2
 	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f
 	golang.org/x/tools v0.1.9
