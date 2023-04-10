@@ -33,9 +33,9 @@ func LoadProvider(location string) (*Provider, error) {
 func (p *Provider) Client(provider string) *Client {
 	prov := p.clients[provider]
 	if prov != nil && len(prov.cfg.Domains) > 0 {
-		return nil
+		return prov
 	}
-	return prov
+	return nil
 }
 
 // ClientForDomain returns Client by domain
