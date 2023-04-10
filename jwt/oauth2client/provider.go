@@ -3,12 +3,14 @@ package oauth2client
 // Provider of OAuth2 clients
 type Provider struct {
 	clients map[string]*Client
+	domains map[string]*Client
 }
 
 // LoadProvider returns Provider
 func LoadProvider(location string) (*Provider, error) {
 	p := &Provider{
 		clients: make(map[string]*Client),
+		domains: make(map[string]*Client),
 	}
 
 	list, err := Load(location)
@@ -18,14 +20,27 @@ func LoadProvider(location string) (*Provider, error) {
 
 	for _, cl := range list {
 		p.clients[cl.cfg.ProviderID] = cl
+
+		for _, domain := range cl.cfg.Domains {
+			p.domains[domain] = cl
+		}
 	}
 
 	return p, nil
 }
 
 // Client returns Client by provider
-func (p *Provider) Client(id string) *Client {
-	return p.clients[id]
+func (p *Provider) Client(provider string) *Client {
+	prov := p.clients[provider]
+	if prov != nil && len(prov.cfg.Domains) > 0 {
+		return nil
+	}
+	return prov
+}
+
+// ClientForDomain returns Client by domain
+func (p *Provider) ClientForDomain(domain string) *Client {
+	return p.domains[domain]
 }
 
 // ClientNames returns list of supported clients

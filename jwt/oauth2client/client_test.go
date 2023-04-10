@@ -24,7 +24,7 @@ func Test_Config(t *testing.T) {
 	cfg, err := oauth2client.LoadConfig("testdata/oauth.yaml")
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	require.Len(t, cfg.Clients, 1)
+	require.Len(t, cfg.Clients, 2)
 	cliCfg := cfg.Clients[0]
 	assert.Equal(t, 2, len(cliCfg.Scopes))
 	assert.Equal(t, "github", cliCfg.ProviderID)
@@ -79,6 +79,11 @@ func TestProvider(t *testing.T) {
 	assert.NotEmpty(t, p.ClientNames())
 
 	for _, c := range p.ClientNames() {
-		require.NotNil(t, p.Client(c))
+		cli := p.Client(c)
+		if cli != nil {
+			assert.Empty(t, cli.Config().Domains)
+		}
 	}
+	assert.NotNil(t, p.ClientForDomain("custom.com"))
+	assert.Nil(t, p.ClientForDomain("foo.com"))
 }
