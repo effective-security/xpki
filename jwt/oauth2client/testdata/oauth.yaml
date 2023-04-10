@@ -6,3 +6,13 @@ clients:
     - "user"
     - "repo"
     auth_url: "https://github.com/login/oauth/authorize"
+  - provider_id: custom
+    client_id: "client5678"
+    client_secret: "secret6789"
+    scopes:
+    - "user"
+    - "repo"
+    auth_url: "https://github.com/login/oauth/authorize"
+    domains:
+    - custom.com
+    
