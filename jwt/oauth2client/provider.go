@@ -39,6 +39,11 @@ func (p *Provider) Client(provider string) *Client {
 }
 
 // ClientForDomain returns Client by domain
+func (p *Provider) ClientForProvider(provider string) *Client {
+	return p.clients[provider]
+}
+
+// ClientForDomain returns Client by domain
 func (p *Provider) ClientForDomain(domain string) *Client {
 	return p.domains[domain]
 }
