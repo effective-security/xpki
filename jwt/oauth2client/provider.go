@@ -46,8 +46,20 @@ func (p *Provider) ClientForDomain(domain string) *Client {
 // ClientNames returns list of supported clients
 func (p *Provider) ClientNames() []string {
 	list := make([]string, 0, len(p.clients))
-	for k := range p.clients {
-		list = append(list, k)
+	for name, c := range p.clients {
+		if len(c.cfg.Domains) == 0 {
+			list = append(list, name)
+		}
+	}
+
+	return list
+}
+
+// Domains returns list of supported domains
+func (p *Provider) Domains() []string {
+	list := make([]string, 0, len(p.domains))
+	for name := range p.domains {
+		list = append(list, name)
 	}
 
 	return list

@@ -76,13 +76,14 @@ func TestProvider(t *testing.T) {
 	p, err := oauth2client.LoadProvider("testdata/oauth.yaml")
 	require.NoError(t, err)
 
-	assert.NotEmpty(t, p.ClientNames())
+	assert.Len(t, p.ClientNames(), 1)
+	assert.Len(t, p.Domains(), 1)
 
 	for _, c := range p.ClientNames() {
-		cli := p.Client(c)
-		if cli != nil {
-			assert.Empty(t, cli.Config().Domains)
-		}
+		assert.NotEmpty(t, p.Client(c))
+	}
+	for _, c := range p.Domains() {
+		assert.NotEmpty(t, p.ClientForDomain(c))
 	}
 	assert.NotNil(t, p.ClientForDomain("custom.com"))
 	assert.Nil(t, p.ClientForDomain("foo.com"))
