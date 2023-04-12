@@ -50,6 +50,7 @@ func Test_Config(t *testing.T) {
 	assert.Equal(t, 2, len(cfg.Keys))
 	assert.Equal(t, "1", cfg.KeyID)
 	assert.Equal(t, "trusty.com", cfg.Issuer)
+	assert.Equal(t, 8*time.Hour, time.Duration(cfg.TokenExpiry))
 	//assert.Equal(t, jwtprov.trustyClient, cfg.DefaultRole)
 	//assert.Equal(t, 2, len(cfg.RolesMap[jwtprov.trustyAdmin]))
 }
@@ -68,8 +69,9 @@ func Test_Load(t *testing.T) {
 	_, err = jwt.Load("testdata/jwtprov.json", nil)
 	require.NoError(t, err)
 
-	_, err = jwt.Load("testdata/jwtprov.yaml", nil)
+	p, err := jwt.Load("testdata/jwtprov.yaml", nil)
 	require.NoError(t, err)
+	assert.Equal(t, 12*time.Hour, p.TokenExpiry())
 
 	_, err = jwt.Load("testdata/jwtprov-kms.yaml", nil)
 	assert.EqualError(t, err, "Crypto provider not provided to load private key")

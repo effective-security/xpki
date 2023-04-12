@@ -1,5 +1,6 @@
 {
   "issuer" : "trusty.com",
+  "token_expiry" : "8h",
   "kid" : "1",
   "keys" : [
     {
