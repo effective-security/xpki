@@ -11,6 +11,7 @@ import (
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
@@ -32,6 +33,8 @@ type Signer interface {
 	PublicKey() crypto.PublicKey
 	// Issuer returns name of the issuer
 	Issuer() string
+	// TokenExpiry specifies token expiration period
+	TokenExpiry() time.Duration
 }
 
 // Parser specifies JWT parser interface
@@ -63,6 +66,9 @@ type Config struct {
 	Keys []*Key `json:"keys" yaml:"keys"`
 
 	PrivateKey string `json:"private_key" yaml:"private_key"`
+
+	// TokenExpiry specifies token expiration period
+	TokenExpiry csr.Duration `json:"token_expiry" yaml:"token_expiry"`
 }
 
 // WithHeaders allows to specify extra headers or override defaults
@@ -76,13 +82,14 @@ func WithHeaders(headers map[string]interface{}) Option {
 
 // provider for JWT
 type provider struct {
-	issuer     string
-	kid        string
-	keys       map[string][]byte
-	signerInfo *SignerInfo
-	verifyKey  crypto.PublicKey
-	headers    map[string]interface{}
-	parser     TokenParser
+	issuer      string
+	tokenExpiry time.Duration
+	kid         string
+	keys        map[string][]byte
+	signerInfo  *SignerInfo
+	verifyKey   crypto.PublicKey
+	headers     map[string]interface{}
+	parser      TokenParser
 }
 
 // LoadConfig returns configuration loaded from a file
@@ -146,9 +153,10 @@ func MustNew(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) Provider {
 // New returns new provider that supports, both Signer and Parser
 func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error) {
 	p := &provider{
-		issuer: cfg.Issuer,
-		kid:    cfg.KeyID,
-		keys:   map[string][]byte{},
+		issuer:      cfg.Issuer,
+		kid:         cfg.KeyID,
+		tokenExpiry: time.Duration(cfg.TokenExpiry),
+		keys:        map[string][]byte{},
 		parser: TokenParser{
 			UseJSONNumber: true,
 		},
@@ -156,6 +164,9 @@ func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error
 
 	if p.issuer == "" {
 		return nil, errors.Errorf("issuer not configured")
+	}
+	if p.tokenExpiry == 0 {
+		p.tokenExpiry = 60 * time.Minute
 	}
 
 	if cfg.PrivateKey != "" {
@@ -246,6 +257,11 @@ func (p *provider) PublicKey() crypto.PublicKey {
 // Issuer returns issuer name
 func (p *provider) Issuer() string {
 	return p.issuer
+}
+
+// TokenExpiry specifies token expiration period
+func (p *provider) TokenExpiry() time.Duration {
+	return p.tokenExpiry
 }
 
 // CurrentKey returns the key currently being used to sign tokens.

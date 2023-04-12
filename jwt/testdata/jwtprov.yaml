@@ -1,5 +1,6 @@
 ---
 issuer: trusty-dev.com
+token_expiry: 12h
 kid: 0
 keys:
   - id: 0
