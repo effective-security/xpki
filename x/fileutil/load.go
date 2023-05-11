@@ -1,10 +1,12 @@
 package fileutil
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 
 	"github.com/pkg/errors"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -55,4 +57,42 @@ func SaveConfigWithSchema(path, value string) error {
 	}
 
 	return nil
+}
+
+// Unmarshal JSON or YAML file to an interface
+func Unmarshal(file string, v interface{}) error {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return errors.WithMessagef(err, "unable to read file")
+	}
+
+	if strings.HasSuffix(file, ".json") {
+		err = json.Unmarshal(b, v)
+		if err != nil {
+			return errors.WithMessagef(err, "unable parse JSON: %s", file)
+		}
+	} else {
+		err = yaml.Unmarshal(b, v)
+		if err != nil {
+			return errors.WithMessagef(err, "unable parse YAML: %s", file)
+		}
+	}
+	return nil
+}
+
+// Marshal saves object to file
+func Marshal(fn string, value interface{}) error {
+	var data []byte
+	var err error
+	if strings.HasSuffix(fn, ".json") {
+		data, err = json.MarshalIndent(value, "", "  ")
+	} else {
+		data, err = yaml.Marshal(value)
+	}
+
+	if err != nil {
+		return errors.WithMessage(err, "failed to encode")
+	}
+
+	return os.WriteFile(fn, data, os.ModePerm)
 }
