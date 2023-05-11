@@ -87,4 +87,26 @@ func TestProvider(t *testing.T) {
 	}
 	assert.NotNil(t, p.ClientForDomain("custom.com"))
 	assert.Nil(t, p.ClientForDomain("foo.com"))
+
+	cfg, err := oauth2client.LoadConfig("testdata/oauth.yaml")
+	require.NoError(t, err)
+
+	p, err = oauth2client.NewProvider(cfg)
+	require.NoError(t, err)
+
+	assert.Len(t, p.ClientNames(), 1)
+	assert.Len(t, p.Domains(), 1)
+
+	for _, c := range p.ClientNames() {
+		assert.NotEmpty(t, p.Client(c))
+	}
+	for _, c := range p.Domains() {
+		assert.NotEmpty(t, p.ClientForDomain(c))
+	}
+	cl := p.ClientForDomain("custom.com")
+	require.NotNil(t, cl)
+	clcfg := cl.Config()
+	require.NotNil(t, clcfg)
+	assert.Equal(t, "consent", clcfg.Prompt)
+
 }

@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/effective-security/xlog"
 	"github.com/pkg/errors"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -42,6 +41,8 @@ type ClientConfig struct {
 	RedirectURL string `json:"redirect_url"  yaml:"redirect_url"`
 	// PubKey specifies PEM encoded Public Key of the JWT issuer
 	PubKey string `json:"pubkey" yaml:"pubkey"`
+	// Prompt parameter, such as `consent`
+	Prompt string `json:"prompt" yaml:"prompt"`
 	// Audience of JWT token
 	Audience string `json:"audience" yaml:"audience"`
 	// Issuer of JWT token
@@ -86,8 +87,6 @@ func LoadConfig(file string) (*Config, error) {
 
 // Load returns new Provider
 func Load(cfgfile string) ([]*Client, error) {
-	logger.KV(xlog.TRACE, "file", cfgfile)
-
 	cfg, err := LoadConfig(cfgfile)
 	if err != nil {
 		return nil, err

@@ -8,17 +8,25 @@ type Provider struct {
 
 // LoadProvider returns Provider
 func LoadProvider(location string) (*Provider, error) {
+	cfg, err := LoadConfig(location)
+	if err != nil {
+		return nil, err
+	}
+	return NewProvider(cfg)
+}
+
+// NewProvider returns Provider
+func NewProvider(cfg *Config) (*Provider, error) {
 	p := &Provider{
 		clients: make(map[string]*Client),
 		domains: make(map[string]*Client),
 	}
 
-	list, err := Load(location)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, cl := range list {
+	for _, c := range cfg.Clients {
+		cl, err := New(c)
+		if err != nil {
+			return nil, err
+		}
 		p.clients[cl.cfg.ProviderID] = cl
 
 		for _, domain := range cl.cfg.Domains {
