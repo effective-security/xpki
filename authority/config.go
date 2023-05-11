@@ -14,7 +14,7 @@ import (
 	"github.com/effective-security/xpki/x/slices"
 	"github.com/jinzhu/copier"
 	"github.com/pkg/errors"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 var (

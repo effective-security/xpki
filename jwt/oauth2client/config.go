@@ -1,18 +1,13 @@
 package oauth2client
 
 import (
-	"encoding/json"
-	"os"
-	"strings"
-
-	"github.com/pkg/errors"
-	yaml "gopkg.in/yaml.v2"
+	"github.com/effective-security/xpki/x/fileutil"
 )
 
 // Config provides OAuth2 configuration for supported clients
 type Config struct {
 	// Clients provides a list of supported clients
-	Clients []*ClientConfig
+	Clients []*ClientConfig `json:"clients" yaml:"clients"`
 }
 
 // ClientConfig provides OAuth2 configuration
@@ -63,26 +58,15 @@ type IDPParam struct {
 
 // LoadConfig returns configuration loaded from a file
 func LoadConfig(file string) (*Config, error) {
+	config := new(Config)
 	if file == "" {
-		return &Config{}, nil
+		return config, nil
 	}
-
-	b, err := os.ReadFile(file)
+	err := fileutil.Unmarshal(file, config)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
-
-	var config Config
-	if strings.HasSuffix(file, ".json") {
-		err = json.Unmarshal(b, &config)
-	} else {
-		err = yaml.Unmarshal(b, &config)
-	}
-	if err != nil {
-		return nil, errors.WithMessagef(err, "unable to unmarshal %q", file)
-	}
-
-	return &config, nil
+	return config, nil
 }
 
 // Load returns new Provider
@@ -105,19 +89,10 @@ func Load(cfgfile string) ([]*Client, error) {
 
 // LoadClient returns a single `Client` loaded from config
 func LoadClient(file string) (*Client, error) {
-	b, err := os.ReadFile(file)
+	config := new(ClientConfig)
+	err := fileutil.Unmarshal(file, config)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
-
-	var config ClientConfig
-	if strings.HasSuffix(file, ".json") {
-		err = json.Unmarshal(b, &config)
-	} else {
-		err = yaml.Unmarshal(b, &config)
-	}
-	if err != nil {
-		return nil, errors.WithMessagef(err, "unable to unmarshal %q", file)
-	}
-	return New(&config)
+	return New(config)
 }

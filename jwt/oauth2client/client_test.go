@@ -11,15 +11,15 @@ import (
 func Test_Config(t *testing.T) {
 	_, err := oauth2client.LoadConfig("testdata/missing.yaml")
 	require.Error(t, err)
-	assert.Equal(t, "open testdata/missing.yaml: no such file or directory", err.Error())
+	assert.Equal(t, "unable to read file: open testdata/missing.yaml: no such file or directory", err.Error())
 
 	_, err = oauth2client.LoadConfig("testdata/oauth_corrupted.1.yaml")
 	require.Error(t, err)
-	assert.Equal(t, `unable to unmarshal "testdata/oauth_corrupted.1.yaml": yaml: line 2: mapping values are not allowed in this context`, err.Error())
+	assert.Equal(t, `unable parse YAML: testdata/oauth_corrupted.1.yaml: yaml: line 2: mapping values are not allowed in this context`, err.Error())
 
 	_, err = oauth2client.LoadConfig("testdata/oauth_corrupted.2.yaml")
 	require.Error(t, err)
-	assert.Equal(t, `unable to unmarshal "testdata/oauth_corrupted.2.yaml": yaml: line 5: did not find expected key`, err.Error())
+	assert.Equal(t, `unable parse YAML: testdata/oauth_corrupted.2.yaml: yaml: line 5: did not find expected key`, err.Error())
 
 	cfg, err := oauth2client.LoadConfig("testdata/oauth.yaml")
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func Test_Config(t *testing.T) {
 func Test_Load(t *testing.T) {
 	_, err := oauth2client.Load("testdata/missing.yaml")
 	require.Error(t, err)
-	assert.Equal(t, "open testdata/missing.yaml: no such file or directory", err.Error())
+	assert.Equal(t, "unable to read file: open testdata/missing.yaml: no such file or directory", err.Error())
 
 	_, err = oauth2client.Load("testdata/oauth_corrupted.1.yaml")
 	require.Error(t, err)
@@ -65,7 +65,7 @@ func Test_Load(t *testing.T) {
 
 func Test_LoadClient(t *testing.T) {
 	_, err := oauth2client.LoadClient("testdata/missing.yaml")
-	assert.EqualError(t, err, "open testdata/missing.yaml: no such file or directory")
+	assert.EqualError(t, err, "unable to read file: open testdata/missing.yaml: no such file or directory")
 
 	c, err := oauth2client.LoadClient("testdata/client.yaml")
 	require.NoError(t, err)

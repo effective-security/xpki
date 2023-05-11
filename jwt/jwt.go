@@ -15,7 +15,7 @@ import (
 	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
 	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "jwt")
