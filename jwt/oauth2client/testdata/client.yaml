@@ -4,6 +4,7 @@ client_secret: "secret6789"
 scopes:
 - "user"
 - "repo"
+audience: custom.com
 auth_url: "https://github.com/login/oauth/authorize"
 redirect_url: "https://localhost:8080/auth/callback"
 

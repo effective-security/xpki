@@ -12,6 +12,8 @@ clients:
     scopes:
     - "user"
     - "repo"
+    audience: custom.com
+    prompt: consent
     auth_url: "https://github.com/login/oauth/authorize"
     domains:
     - custom.com
