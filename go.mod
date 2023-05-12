@@ -6,22 +6,19 @@ require (
 	cloud.google.com/go/kms v1.10.2
 	github.com/alecthomas/kong v0.7.1
 	github.com/aws/aws-sdk-go v1.44.262
-	github.com/effective-security/xlog v0.5.1-0.20230412090216-cadb9f78039b
-	github.com/go-phorce/cov-report v1.1.1-0.20200622030546-3fb510c4b1ba
+	github.com/effective-security/xlog v0.5.1-0.20230511203813-a9b98ec61d24
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/googleapis/gax-go/v2 v2.8.0
 	github.com/jinzhu/copier v0.3.5
-	github.com/mattn/goveralls v0.0.11
 	github.com/miekg/pkcs11 v1.0.3
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/afero v1.9.2
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
 	github.com/ugorji/go/codec v1.2.6
 	golang.org/x/crypto v0.7.0
 	golang.org/x/net v0.10.0
 	golang.org/x/oauth2 v0.8.0
-	golang.org/x/tools v0.6.0
 	google.golang.org/api v0.118.0
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1
 	google.golang.org/protobuf v1.30.0
@@ -44,9 +41,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.8.1 // indirect
 	github.com/stretchr/objx v0.5.0 // indirect
-	github.com/yuin/goldmark v1.4.13 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/sys v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
