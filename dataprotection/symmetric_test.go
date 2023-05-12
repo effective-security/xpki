@@ -32,4 +32,23 @@ func TestNewSymmetric(t *testing.T) {
 
 	_, err = p.Unprotect(ctx, protected[:11])
 	assert.EqualError(t, err, "invalid data")
+
+	s := state{Str: "hello", ID: 123}
+	b64, err := ProtectObject(ctx, p, s)
+	require.NoError(t, err)
+	var s2 state
+	err = UnprotectObject(ctx, p, b64, &s2)
+	require.NoError(t, err)
+	assert.Equal(t, s, s2)
+
+	err = UnprotectObject(ctx, p, "b64", &s2)
+	assert.EqualError(t, err, "failed to unprotect data: invalid data")
+
+	err = UnprotectObject(ctx, p, "Aa"+b64, &s2)
+	assert.EqualError(t, err, "failed to unprotect data: failed to upprotect: cipher: message authentication failed")
+}
+
+type state struct {
+	Str string `json:"str,omitempty"`
+	ID  uint64 `json:"id,omitempty"`
 }
