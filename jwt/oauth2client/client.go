@@ -32,6 +32,22 @@ func New(cfg *ClientConfig) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.AuthURL, err = fileutil.LoadConfigWithSchema(cfg.AuthURL)
+	if err != nil {
+		return nil, err
+	}
+	cfg.TokenURL, err = fileutil.LoadConfigWithSchema(cfg.TokenURL)
+	if err != nil {
+		return nil, err
+	}
+	cfg.UserinfoURL, err = fileutil.LoadConfigWithSchema(cfg.UserinfoURL)
+	if err != nil {
+		return nil, err
+	}
+	cfg.RedirectURL, err = fileutil.LoadConfigWithSchema(cfg.RedirectURL)
+	if err != nil {
+		return nil, err
+	}
 
 	p := &Client{
 		cfg: cfg,
