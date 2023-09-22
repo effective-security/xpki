@@ -8,6 +8,7 @@ import (
 type Provider struct {
 	clients map[string]*Client
 	domains map[string]*Client
+	emails  map[string]*Client
 }
 
 // LoadProvider returns Provider
@@ -24,6 +25,7 @@ func NewProvider(cfg *Config) (*Provider, error) {
 	p := &Provider{
 		clients: make(map[string]*Client),
 		domains: make(map[string]*Client),
+		emails:  make(map[string]*Client),
 	}
 
 	for _, c := range cfg.Clients {
@@ -41,6 +43,12 @@ func (p *Provider) RegisterClient(c *ClientConfig, override bool) error {
 	cl, err := New(c)
 	if err != nil {
 		return err
+	}
+	for _, email := range cl.cfg.Emails {
+		if !override && p.emails[email] != nil {
+			return errors.Errorf("OAuth client email already registered: %s", email)
+		}
+		p.emails[email] = cl
 	}
 	for _, domain := range cl.cfg.Domains {
 		if !override && p.domains[domain] != nil {
@@ -74,6 +82,11 @@ func (p *Provider) ClientForDomain(domain string) *Client {
 	return p.domains[domain]
 }
 
+// ClientForEmail returns Client by email
+func (p *Provider) ClientForEmail(email string) *Client {
+	return p.emails[email]
+}
+
 // ClientNames returns list of supported clients
 func (p *Provider) ClientNames() []string {
 	list := make([]string, 0, len(p.clients))
@@ -90,6 +103,16 @@ func (p *Provider) ClientNames() []string {
 func (p *Provider) Domains() []string {
 	list := make([]string, 0, len(p.domains))
 	for name := range p.domains {
+		list = append(list, name)
+	}
+
+	return list
+}
+
+// Emails returns list of configured emails
+func (p *Provider) Emails() []string {
+	list := make([]string, 0, len(p.emails))
+	for name := range p.emails {
 		list = append(list, name)
 	}
 

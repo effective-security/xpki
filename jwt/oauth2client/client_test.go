@@ -96,6 +96,7 @@ func TestProvider(t *testing.T) {
 
 	assert.Len(t, p.ClientNames(), 1)
 	assert.Len(t, p.Domains(), 1)
+	assert.Len(t, p.Emails(), 1)
 
 	for _, c := range p.ClientNames() {
 		assert.NotEmpty(t, p.Client(c))
@@ -103,10 +104,14 @@ func TestProvider(t *testing.T) {
 	for _, c := range p.Domains() {
 		assert.NotEmpty(t, p.ClientForDomain(c))
 	}
+	for _, c := range p.Emails() {
+		assert.NotEmpty(t, p.ClientForEmail(c))
+	}
 	cl := p.ClientForDomain("custom.com")
+	require.NotNil(t, cl)
+	cl = p.ClientForEmail("denis@customalias.com")
 	require.NotNil(t, cl)
 	clcfg := cl.Config()
 	require.NotNil(t, clcfg)
 	assert.Equal(t, "consent", clcfg.Prompt)
-
 }

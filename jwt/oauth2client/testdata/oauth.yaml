@@ -17,4 +17,6 @@ clients:
     auth_url: "https://github.com/login/oauth/authorize"
     domains:
     - custom.com
+    emails:
+    - denis@customalias.com
     
