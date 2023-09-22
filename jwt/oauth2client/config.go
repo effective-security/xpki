@@ -46,6 +46,8 @@ type ClientConfig struct {
 	IDPParam *IDPParam `json:"idp_param" yaml:"idp_param"`
 	// Domains specifies the list of domains to filter by
 	Domains []string `json:"domains" yaml:"domains"`
+	// Emails specifies the list of emails to filter by
+	Emails []string `json:"emails" yaml:"emails"`
 }
 
 // IDPParam is a struct for IDP parameter
