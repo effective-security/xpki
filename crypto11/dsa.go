@@ -53,9 +53,7 @@ func (lib *PKCS11Lib) GenerateDSAKeyPair(params *dsa.Parameters) (*PKCS11Private
 func (lib *PKCS11Lib) GenerateDSAKeyPairOnSlot(slot uint, id []byte, label []byte, params *dsa.Parameters) (*PKCS11PrivateKeyDSA, error) {
 	var k *PKCS11PrivateKeyDSA
 	var err error
-	if err = lib.setupSessions(slot, 0); err != nil {
-		return nil, errors.WithStack(err)
-	}
+	lib.setupSessions(slot)
 	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
 		k, err = lib.GenerateDSAKeyPairOnSession(session, slot, id, label, params)
 		return err

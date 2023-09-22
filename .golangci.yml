@@ -4,7 +4,15 @@ run:
 
 linters:
   enable:
-    - revive
+    # TODO: remove init code
+    #- gochecknoinits
+    - goconst
+    - goimports
+    - stylecheck
+    - unparam
+    - staticcheck
+    - unused
+    #- revive
 
 issues:
   exclude:
@@ -17,3 +25,4 @@ issues:
     - S1023 # redundant break statement (gosimple)
     - S1009 # should omit nil check; len() for []byte is defined as zero (gosimple)
     - S1034 # assigning the result of this type assertion to a variable (switch opts := opts.(type)) could eliminate type assertions in switch cases (gosimple)
+    - ST1016 # methods on the same type should have the same receiver name

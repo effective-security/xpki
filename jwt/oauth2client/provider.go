@@ -1,5 +1,9 @@
 package oauth2client
 
+import (
+	"github.com/pkg/errors"
+)
+
 // Provider of OAuth2 clients
 type Provider struct {
 	clients map[string]*Client
@@ -23,18 +27,32 @@ func NewProvider(cfg *Config) (*Provider, error) {
 	}
 
 	for _, c := range cfg.Clients {
-		cl, err := New(c)
+		err := p.RegisterClient(c, false)
 		if err != nil {
 			return nil, err
-		}
-		p.clients[cl.cfg.ProviderID] = cl
-
-		for _, domain := range cl.cfg.Domains {
-			p.domains[domain] = cl
 		}
 	}
 
 	return p, nil
+}
+
+// RegisterClient registers new client
+func (p *Provider) RegisterClient(c *ClientConfig, override bool) error {
+	cl, err := New(c)
+	if err != nil {
+		return err
+	}
+	for _, domain := range cl.cfg.Domains {
+		if !override && p.domains[domain] != nil {
+			return errors.Errorf("OAuth client domain already registered: %s", domain)
+		}
+		p.domains[domain] = cl
+	}
+	if !override && p.clients[cl.cfg.ProviderID] != nil {
+		return errors.Errorf("OAuth provider already registered: %s", cl.cfg.ProviderID)
+	}
+	p.clients[cl.cfg.ProviderID] = cl
+	return nil
 }
 
 // Client returns Client by provider

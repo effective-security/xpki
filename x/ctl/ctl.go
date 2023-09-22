@@ -15,7 +15,7 @@ import (
 type VersionFlag string
 
 // Decode the flag
-func (v VersionFlag) Decode(ctx *kong.DecodeContext) error { return nil }
+func (v VersionFlag) Decode(_ *kong.DecodeContext) error { return nil }
 
 // IsBool returns true for the flag
 func (v VersionFlag) IsBool() bool { return true }

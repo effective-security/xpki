@@ -22,7 +22,7 @@ func (a *CsrInfoCmd) Run(ctx *Cli) error {
 	}
 
 	block, _ := pem.Decode(csrb)
-	if block == nil || "CERTIFICATE REQUEST" != block.Type {
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
 		return errors.New("invalid CSR file")
 	}
 

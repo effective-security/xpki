@@ -42,6 +42,18 @@ import (
 	"golang.org/x/crypto/cryptobyte/asn1"
 )
 
+const (
+	algHS256 = "HS256"
+	algHS384 = "HS384"
+	algHS512 = "HS512"
+	algRS256 = "RS256"
+	algRS384 = "RS384"
+	algRS512 = "RS512"
+	algES256 = "ES256"
+	algES384 = "ES384"
+	algES512 = "ES512"
+)
+
 type symSigner struct {
 	hash crypto.Hash
 	algo string
@@ -55,11 +67,11 @@ func newSymmetricSigner(algo string, key []byte) (crypto.Signer, error) {
 	}
 
 	switch algo {
-	case "HS256":
+	case algHS256:
 		s.hash = crypto.SHA256
-	case "HS384":
+	case algHS384:
 		s.hash = crypto.SHA384
-	case "HS512":
+	case algHS512:
 		s.hash = crypto.SHA512
 	default:
 		return nil, errors.Errorf("unsupported algorithm: " + algo)
@@ -116,25 +128,25 @@ func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error) {
 		si.keySize = typ.N.BitLen()
 		switch {
 		case si.keySize >= 4096:
-			si.algo = "RS512"
+			si.algo = algRS512
 			si.hasher.hash = crypto.SHA512
 		case si.keySize >= 3072:
-			si.algo = "RS384"
+			si.algo = algRS384
 			si.hasher.hash = crypto.SHA384
 		default:
-			si.algo = "RS256"
+			si.algo = algRS256
 			si.hasher.hash = crypto.SHA256
 		}
 	case *ecdsa.PublicKey:
 		switch typ.Curve {
 		case elliptic.P521():
-			si.algo = "ES512"
+			si.algo = algES512
 			si.hasher.hash = crypto.SHA512
 		case elliptic.P384():
-			si.algo = "ES384"
+			si.algo = algES384
 			si.hasher.hash = crypto.SHA384
 		default:
-			si.algo = "ES256"
+			si.algo = algES256
 			si.hasher.hash = crypto.SHA256
 		}
 		si.keySize = typ.Curve.Params().BitSize
@@ -171,7 +183,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 	}
 
 	switch si.algo {
-	case "ES256", "ES384", "ES512":
+	case algES256, algES384, algES512:
 		// for ECDSA, signature is encoded ASN1{r,s}
 		var (
 			r, s  = &big.Int{}, &big.Int{}
@@ -201,7 +213,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 
 		return EncodeSegment(out), nil
 
-	case "RS256", "RS384", "RS512":
+	case algRS256, algRS384, algRS512:
 		return EncodeSegment(sig), nil
 	}
 	return "", errors.Errorf("unsupported: " + si.algo)
@@ -234,18 +246,18 @@ func (si *SignerInfo) signJWT(claims interface{}, headers map[string]interface{}
 }
 
 var hashMap = map[string]crypto.Hash{
-	"ES256": crypto.SHA256,
-	"ES384": crypto.SHA384,
-	"ES512": crypto.SHA512,
-	"RS256": crypto.SHA256,
-	"RS384": crypto.SHA384,
-	"RS512": crypto.SHA512,
+	algES256: crypto.SHA256,
+	algES384: crypto.SHA384,
+	algES512: crypto.SHA512,
+	algRS256: crypto.SHA256,
+	algRS384: crypto.SHA384,
+	algRS512: crypto.SHA512,
 }
 
 var curveMap = map[string]elliptic.Curve{
-	"ES256": elliptic.P256(),
-	"ES384": elliptic.P384(),
-	"ES512": elliptic.P521(),
+	algES256: elliptic.P256(),
+	algES384: elliptic.P384(),
+	algES512: elliptic.P521(),
 }
 
 // VerifySignature returns error if JWT signature is invalid
@@ -286,7 +298,7 @@ func VerifySignature(algo, signingString, signature string, key interface{}) err
 	hasher.Write([]byte(signingString))
 
 	switch algo {
-	case "ES256", "ES384", "ES512":
+	case algES256, algES384, algES512:
 		curve := curveMap[algo]
 		curveBits := curve.Params().BitSize
 		keySize := curveBits / 8
@@ -305,7 +317,7 @@ func VerifySignature(algo, signingString, signature string, key interface{}) err
 			return nil
 		}
 		return errors.Errorf("invalid key type for ECDSA signature: %T", key)
-	case "RS256", "RS384", "RS512":
+	case algRS256, algRS384, algRS512:
 		if rsaKey, ok := key.(*rsa.PublicKey); ok {
 			// Verify the signature
 			err = rsa.VerifyPKCS1v15(rsaKey, h, hasher.Sum(nil), sig)

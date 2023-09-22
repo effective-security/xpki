@@ -662,6 +662,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 		// Include at least one intermediate if the leaf has enabled OCSP and is not CA.
 		if bundle.Cert.OCSPServer != nil && !bundle.Cert.IsCA && len(bundle.Chain) <= 2 {
 			// No op. Return one intermediate if there is one.
+			logger.KV(xlog.DEBUG, "reason", "skipped_chain", "cert", bundle.Cert.Subject.CommonName)
 		} else {
 			// do not include the root.
 			bundle.Chain = bundle.Chain[:len(bundle.Chain)-1]
