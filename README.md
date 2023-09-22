@@ -6,7 +6,8 @@ Library for working with certificates and keys
 
 ## Requirements
 
-1. GoLang 1.18+
+1. GoLang 1.21+
+1. SoftHSM2
 
 ## Contribution
 

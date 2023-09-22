@@ -215,9 +215,7 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairWithLabel(label string, c elliptic.Cur
 func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSlot(slot uint, id []byte, label []byte, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
 	var k *PKCS11PrivateKeyECDSA
 	var err error
-	if err = lib.setupSessions(slot, 0); err != nil {
-		return nil, errors.WithStack(err)
-	}
+	lib.setupSessions(slot)
 	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
 		k, err = lib.GenerateECDSAKeyPairOnSession(session, slot, id, label, c)
 		return err

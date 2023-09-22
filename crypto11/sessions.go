@@ -39,14 +39,11 @@ func (lib *PKCS11Lib) withSession(slot uint, f func(session pkcs11.SessionHandle
 
 // setupSessions creates the session pool for a given slot,
 // if it does not exist already.
-func (lib *PKCS11Lib) setupSessions(slot uint, max int) error {
+func (lib *PKCS11Lib) setupSessions(slot uint) {
 	lib.sessionPoolMutex.Lock()
 	defer lib.sessionPoolMutex.Unlock()
-	if max <= 0 {
-		max = maxSessionsChan
-	}
+
 	if _, ok := lib.sessionPools[slot]; !ok {
-		lib.sessionPools[slot] = make(chan pkcs11.SessionHandle, max)
+		lib.sessionPools[slot] = make(chan pkcs11.SessionHandle, maxSessionsChan)
 	}
-	return nil
 }

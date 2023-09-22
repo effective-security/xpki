@@ -617,10 +617,11 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	*/
 
 	var (
-		eku             []x509.ExtKeyUsage
-		ku              x509.KeyUsage
-		expiry          time.Duration = profile.Expiry.TimeDuration()
-		isOCSPResponder               = false
+		eku []x509.ExtKeyUsage
+		ku  x509.KeyUsage
+
+		expiry          = profile.Expiry.TimeDuration()
+		isOCSPResponder = false
 	)
 
 	if expiry == 0 && notAfter.IsZero() {

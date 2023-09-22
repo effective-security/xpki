@@ -82,7 +82,7 @@ func (c *Cli) WithErrWriter(out io.Writer) *Cli {
 }
 
 // AfterApply hook loads config
-func (c *Cli) AfterApply(app *kong.Kong, vars kong.Vars) error {
+func (c *Cli) AfterApply(_ *kong.Kong, _ kong.Vars) error {
 	xlog.SetGlobalLogLevel(xlog.ERROR)
 	return nil
 }

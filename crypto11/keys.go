@@ -138,9 +138,7 @@ func (lib *PKCS11Lib) FindKeyPair(keyID, label string) (crypto.PrivateKey, error
 func (lib *PKCS11Lib) FindKeyPairOnSlot(slot uint, keyID, label string) (crypto.PrivateKey, error) {
 	var err error
 	var k crypto.PrivateKey
-	if err = lib.setupSessions(slot, 0); err != nil {
-		return nil, errors.WithStack(err)
-	}
+	lib.setupSessions(slot)
 	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
 		k, err = lib.FindKeyPairOnSession(session, slot, keyID, label)
 		return err

@@ -29,6 +29,8 @@ type HsmLsKeyCmd struct {
 	Prefix string `help:"specifies key label prefix (optional)"`
 }
 
+const skipSerial = "--@--"
+
 // Run the command
 func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 	_, defprov := ctx.CryptoProv()
@@ -40,11 +42,11 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 	isDefaultSlot := a.Serial == "" && a.Token == ""
 	filterSerial := a.Serial
 	if filterSerial == "" {
-		filterSerial = "--@--"
+		filterSerial = skipSerial
 	}
 	filterLabel := a.Token
 	if filterLabel == "" {
-		filterLabel = "--@--"
+		filterLabel = skipSerial
 	}
 
 	out := ctx.Writer()

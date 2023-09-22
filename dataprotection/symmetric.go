@@ -42,7 +42,7 @@ func NewSymmetric(secret []byte) (Provider, error) {
 }
 
 // Protect returns protected blob
-func (p symProvider) Protect(ctx context.Context, data []byte) ([]byte, error) {
+func (p symProvider) Protect(_ context.Context, data []byte) ([]byte, error) {
 	nonce := make([]byte, p.nonceSize)
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, errors.WithStack(err)
@@ -57,7 +57,7 @@ func (p symProvider) Protect(ctx context.Context, data []byte) ([]byte, error) {
 }
 
 // Unprotect returns unprotected data
-func (p symProvider) Unprotect(ctx context.Context, protected []byte) ([]byte, error) {
+func (p symProvider) Unprotect(_ context.Context, protected []byte) ([]byte, error) {
 	if len(protected) < p.nonceSize {
 		return nil, errors.Errorf("invalid data")
 	}

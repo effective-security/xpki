@@ -76,9 +76,7 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairWithLabel(label string, bits int, purpos
 func (lib *PKCS11Lib) GenerateRSAKeyPairOnSlot(slot uint, id []byte, label []byte, bits int, purpose KeyPurpose) (*PKCS11PrivateKeyRSA, error) {
 	var k *PKCS11PrivateKeyRSA
 	var err error
-	if err = lib.setupSessions(slot, 0); err != nil {
-		return nil, errors.WithStack(err)
-	}
+	lib.setupSessions(slot)
 	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
 		k, err = lib.GenerateRSAKeyPairOnSession(session, slot, id, label, bits, purpose)
 		return errors.WithStack(err)
