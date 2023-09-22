@@ -1,6 +1,8 @@
 package oauth2client
 
 import (
+	"strings"
+
 	"github.com/pkg/errors"
 )
 
@@ -84,7 +86,13 @@ func (p *Provider) ClientForDomain(domain string) *Client {
 
 // ClientForEmail returns Client by email
 func (p *Provider) ClientForEmail(email string) *Client {
-	return p.emails[email]
+	c := p.emails[email]
+	if c != nil {
+		return c
+	}
+	parts := strings.Split(email, "@")
+	domain := parts[len(parts)-1]
+	return p.domains[domain]
 }
 
 // ClientNames returns list of supported clients

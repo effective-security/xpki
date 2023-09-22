@@ -109,6 +109,8 @@ func TestProvider(t *testing.T) {
 	}
 	cl := p.ClientForDomain("custom.com")
 	require.NotNil(t, cl)
+	cl = p.ClientForEmail("denis@custom.com")
+	require.NotNil(t, cl)
 	cl = p.ClientForEmail("denis@customalias.com")
 	require.NotNil(t, cl)
 	clcfg := cl.Config()
