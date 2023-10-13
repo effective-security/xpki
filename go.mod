@@ -7,6 +7,7 @@ require (
 	github.com/alecthomas/kong v0.7.1
 	github.com/aws/aws-sdk-go v1.44.262
 	github.com/effective-security/xlog v0.5.1-0.20230511203813-a9b98ec61d24
+	github.com/go-jose/go-jose/v3 v3.0.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/googleapis/gax-go/v2 v2.8.0
 	github.com/jinzhu/copier v0.3.5
@@ -22,7 +23,6 @@ require (
 	google.golang.org/api v0.118.0
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1
 	google.golang.org/protobuf v1.30.0
-	gopkg.in/square/go-jose.v2 v2.6.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

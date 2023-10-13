@@ -1,14 +1,15 @@
 package dpop
 
 import (
+	"context"
 	"crypto"
 	"net/http"
 	"net/url"
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/jwt"
-	"gopkg.in/square/go-jose.v2"
-	hjwt "gopkg.in/square/go-jose.v2/jwt"
+	"github.com/go-jose/go-jose/v3"
+	hjwt "github.com/go-jose/go-jose/v3/jwt"
 )
 
 type signer struct {
@@ -21,7 +22,7 @@ func NewSigner(s crypto.Signer) (Signer, error) {
 	ops := jwt.WithHeaders(map[string]interface{}{
 		"typ": jwtHeaderTypeDPOP,
 	})
-	prov, err := jwt.NewFromCryptoSigner(s, ops)
+	prov, err := jwt.NewProviderFromCryptoSigner(s, ops)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +47,7 @@ func (p *signer) JWKThumbprint() string {
 }
 
 func ForRequest(p Signer, r *http.Request, extraClaims interface{}) (string, error) {
-	token, err := p.Sign(r.Method, r.URL, extraClaims)
+	token, err := p.Sign(r.Context(), r.Method, r.URL, extraClaims)
 	if err != nil {
 		return "", err
 	}
@@ -56,7 +57,7 @@ func ForRequest(p Signer, r *http.Request, extraClaims interface{}) (string, err
 }
 
 // Sign returns DPoP token
-func (p *signer) Sign(method string, u *url.URL, extraClaims interface{}) (string, error) {
+func (p *signer) Sign(ctx context.Context, method string, u *url.URL, extraClaims interface{}) (string, error) {
 	now := TimeNowFn()
 	notBefore := now.Add(DefaultNotBefore)
 	exp := now.Add(DefaultExpiration)
@@ -90,7 +91,7 @@ func (p *signer) Sign(method string, u *url.URL, extraClaims interface{}) (strin
 		DefaultExpiration,
 		c,
 	)
-	token, err := p.prov.Sign(std)
+	token, err := p.prov.Sign(ctx, std)
 	if err != nil {
 		return "", err
 	}

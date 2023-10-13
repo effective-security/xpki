@@ -1,0 +1,2 @@
+issuer: https://accounts.google.com
+jwks_uri: https://www.googleapis.com/oauth2/v3/certs

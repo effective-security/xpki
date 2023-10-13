@@ -1,0 +1,2 @@
+issuer: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_1e150iZBO
+jwks_uri: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_1e150iZBO/.well-known/jwks.json

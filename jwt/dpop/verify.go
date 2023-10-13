@@ -8,9 +8,9 @@ import (
 	"github.com/effective-security/xlog"
 	jwtgo "github.com/effective-security/xpki/jwt"
 	"github.com/effective-security/xpki/x/slices"
+	"github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/pkg/errors"
-	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
 )
 
 // VerifyConfig expreses the possible options for validating a JWT
@@ -171,7 +171,7 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 	}
 
 	jwtgo.TimeNowFn = TimeNowFn
-	_, err = parser.Parse(phdr, jwtgo.VerifyConfig{}, func(token *jwtgo.Token) (interface{}, error) {
+	_, err = parser.Parse(phdr, nil, func(token *jwtgo.Token) (interface{}, error) {
 		return pjwk.Public().Key, nil
 	})
 	if err != nil {

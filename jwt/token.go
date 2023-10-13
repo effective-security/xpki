@@ -4,7 +4,7 @@ import "encoding/base64"
 
 // ValidClaims interface for Claims validation
 type ValidClaims interface {
-	Valid(cfg VerifyConfig) error
+	Valid(cfg *VerifyConfig) error
 }
 
 // VerifyConfig expreses the possible options for validating a JWT

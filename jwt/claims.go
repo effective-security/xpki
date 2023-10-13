@@ -160,7 +160,7 @@ func (c *Claims) VerifySubject(expected string) error {
 }
 
 // Valid returns error if the standard claims are invalid
-func (c *Claims) Valid(cfg VerifyConfig) error {
+func (c *Claims) Valid(cfg *VerifyConfig) error {
 	now := TimeNowFn()
 
 	err := c.VerifyExpiresAt(now, false)
@@ -178,21 +178,22 @@ func (c *Claims) Valid(cfg VerifyConfig) error {
 		return err
 	}
 
-	err = c.VerifyIssuer(cfg.ExpectedIssuer)
-	if err != nil {
-		return err
-	}
+	if cfg != nil {
+		err = c.VerifyIssuer(cfg.ExpectedIssuer)
+		if err != nil {
+			return err
+		}
 
-	err = c.VerifySubject(cfg.ExpectedSubject)
-	if err != nil {
-		return err
-	}
+		err = c.VerifySubject(cfg.ExpectedSubject)
+		if err != nil {
+			return err
+		}
 
-	err = c.VerifyAudience(cfg.ExpectedAudience)
-	if err != nil {
-		return err
+		err = c.VerifyAudience(cfg.ExpectedAudience)
+		if err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 
@@ -654,7 +655,7 @@ func (c MapClaims) VerifySubject(expected string) error {
 }
 
 // Valid returns error if the standard claims are invalid
-func (c MapClaims) Valid(cfg VerifyConfig) error {
+func (c MapClaims) Valid(cfg *VerifyConfig) error {
 	now := TimeNowFn()
 
 	err := c.VerifyExpiresAt(now, false)
@@ -672,21 +673,22 @@ func (c MapClaims) Valid(cfg VerifyConfig) error {
 		return err
 	}
 
-	err = c.VerifyIssuer(cfg.ExpectedIssuer)
-	if err != nil {
-		return err
-	}
+	if cfg != nil {
+		err = c.VerifyIssuer(cfg.ExpectedIssuer)
+		if err != nil {
+			return err
+		}
 
-	err = c.VerifySubject(cfg.ExpectedSubject)
-	if err != nil {
-		return err
-	}
+		err = c.VerifySubject(cfg.ExpectedSubject)
+		if err != nil {
+			return err
+		}
 
-	err = c.VerifyAudience(cfg.ExpectedAudience)
-	if err != nil {
-		return err
+		err = c.VerifyAudience(cfg.ExpectedAudience)
+		if err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 

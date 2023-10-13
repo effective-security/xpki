@@ -1,6 +1,7 @@
 package dpop
 
 import (
+	"context"
 	"net/url"
 	"time"
 
@@ -37,7 +38,7 @@ const (
 // Signer specifies an interface to sign HTTP requests with DPoP
 type Signer interface {
 	// Sign returns DPoP token
-	Sign(method string, u *url.URL, extraClaims interface{}) (string, error)
+	Sign(ctx context.Context, method string, u *url.URL, extraClaims interface{}) (string, error)
 	// JWKThumbprint returns base64 hash of the key
 	JWKThumbprint() string
 }

@@ -11,8 +11,8 @@ import (
 	"path"
 
 	"github.com/effective-security/xlog"
+	jose "github.com/go-jose/go-jose/v3"
 	"github.com/pkg/errors"
-	"gopkg.in/square/go-jose.v2"
 )
 
 // Thumbprint returns key thumbprint
