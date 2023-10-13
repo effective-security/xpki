@@ -3,6 +3,7 @@ package jwt_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/effective-security/xpki/jwt"
 	"github.com/effective-security/xpki/x/fileutil"
@@ -43,6 +44,15 @@ func Test_ParseJwks(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("cognito", func(t *testing.T) {
+		_, err = parser.ParseToken(ctx, idTokenCognito, nil)
+		assert.Error(t, err)
+
+		jwt.TimeNowFn = func() time.Time {
+			return time.Date(2023, time.October, 13, 9, 40, 0, 0, time.UTC)
+		}
+		defer func() {
+			jwt.TimeNowFn = time.Now
+		}()
 		claims, err := parser.ParseToken(ctx, idTokenCognito, nil)
 		require.NoError(t, err)
 
