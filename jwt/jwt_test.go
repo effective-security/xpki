@@ -1,6 +1,7 @@
 package jwt_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -20,31 +21,25 @@ import (
 )
 
 func Test_Config(t *testing.T) {
-	_, err := jwt.LoadConfig("testdata/missing.json")
-	require.Error(t, err)
-	assert.Equal(t, "open testdata/missing.json: no such file or directory", err.Error())
+	_, err := jwt.LoadProviderConfig("testdata/missing.json")
+	assert.EqualError(t, err, "unable to read file: open testdata/missing.json: no such file or directory")
 
-	_, err = jwt.LoadConfig("testdata/jwtprov_corrupted.1.json")
-	require.Error(t, err)
-	assert.Equal(t, `unable to unmarshal JSON: "testdata/jwtprov_corrupted.1.json": invalid character 'v' looking for beginning of value`, err.Error())
+	_, err = jwt.LoadProviderConfig("testdata/jwtprov_corrupted.1.json")
+	assert.EqualError(t, err, `unable parse JSON: testdata/jwtprov_corrupted.1.json: invalid character 'v' looking for beginning of value`)
 
-	_, err = jwt.LoadConfig("testdata/jwtprov_corrupted.yaml")
-	require.Error(t, err)
-	assert.Equal(t, `unable to unmarshal YAML: "testdata/jwtprov_corrupted.yaml": yaml: line 3: did not find expected alphabetic or numeric character`, err.Error())
+	_, err = jwt.LoadProviderConfig("testdata/jwtprov_corrupted.yaml")
+	assert.EqualError(t, err, `unable parse YAML: testdata/jwtprov_corrupted.yaml: yaml: line 3: did not find expected alphabetic or numeric character`)
 
-	_, err = jwt.LoadConfig("testdata/jwtprov_corrupted.2.json")
-	require.Error(t, err)
-	assert.Equal(t, `missing kid: "testdata/jwtprov_corrupted.2.json"`, err.Error())
+	_, err = jwt.LoadProviderConfig("testdata/jwtprov_corrupted.2.json")
+	assert.EqualError(t, err, `missing kid: "testdata/jwtprov_corrupted.2.json"`)
 
-	_, err = jwt.LoadConfig("testdata/jwtprov_no_kid.json")
-	require.Error(t, err)
-	assert.Equal(t, `missing kid: "testdata/jwtprov_no_kid.json"`, err.Error())
+	_, err = jwt.LoadProviderConfig("testdata/jwtprov_no_kid.json")
+	assert.EqualError(t, err, `missing kid: "testdata/jwtprov_no_kid.json"`)
 
-	_, err = jwt.LoadConfig("testdata/jwtprov_no_keys.json")
-	require.Error(t, err)
-	assert.Equal(t, `missing keys: "testdata/jwtprov_no_keys.json"`, err.Error())
+	_, err = jwt.LoadProviderConfig("testdata/jwtprov_no_keys.json")
+	assert.EqualError(t, err, `missing keys: "testdata/jwtprov_no_keys.json"`)
 
-	cfg, err := jwt.LoadConfig("testdata/jwtprov.json")
+	cfg, err := jwt.LoadProviderConfig("testdata/jwtprov.json")
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Equal(t, 2, len(cfg.Keys))
@@ -56,86 +51,91 @@ func Test_Config(t *testing.T) {
 }
 
 func Test_Load(t *testing.T) {
-	_, err := jwt.Load("testdata/missing.json", nil)
+	_, err := jwt.LoadProvider("testdata/missing.json", nil)
 	require.Error(t, err)
-	assert.Equal(t, "open testdata/missing.json: no such file or directory", err.Error())
+	assert.Equal(t, "unable to read file: open testdata/missing.json: no such file or directory", err.Error())
 
-	_, err = jwt.Load("testdata/jwtprov_corrupted.1.json", nil)
-	require.Error(t, err)
-
-	_, err = jwt.Load("testdata/jwtprov_corrupted.2.json", nil)
+	_, err = jwt.LoadProvider("testdata/jwtprov_corrupted.1.json", nil)
 	require.Error(t, err)
 
-	_, err = jwt.Load("testdata/jwtprov.json", nil)
+	_, err = jwt.LoadProvider("testdata/jwtprov_corrupted.2.json", nil)
+	require.Error(t, err)
+
+	_, err = jwt.LoadProvider("testdata/jwtprov.json", nil)
 	require.NoError(t, err)
 
-	p, err := jwt.Load("testdata/jwtprov.yaml", nil)
+	p, err := jwt.LoadProvider("testdata/jwtprov.yaml", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 12*time.Hour, p.TokenExpiry())
 
-	_, err = jwt.Load("testdata/jwtprov-kms.yaml", nil)
+	_, err = jwt.LoadProvider("testdata/jwtprov-kms.yaml", nil)
 	assert.EqualError(t, err, "Crypto provider not provided to load private key")
 
-	_, err = jwt.Load("", nil)
+	_, err = jwt.LoadProvider("", nil)
 	assert.EqualError(t, err, "issuer not configured")
 
 	assert.Panics(t, func() {
-		jwt.MustNew(&jwt.Config{
+		jwt.MustNewProvider(&jwt.ProviderConfig{
 			Issuer: "issuer",
 		}, nil)
 	})
 }
 
 func Test_SignSym(t *testing.T) {
-	p, err := jwt.Load("testdata/jwtprov.json", nil)
+	ctx := context.Background()
+	p, err := jwt.LoadProvider("testdata/jwtprov.json", nil)
 	require.NoError(t, err)
-	p1, err := jwt.Load("testdata/jwtprov.1.json", nil)
+	p1, err := jwt.LoadProvider("testdata/jwtprov.1.json", nil)
 	require.NoError(t, err)
-	p2, err := jwt.Load("testdata/jwtprov.2.json", nil)
+	p2, err := jwt.LoadProvider("testdata/jwtprov.2.json", nil)
 	require.NoError(t, err)
 
 	extra := jwt.MapClaims{
 		"cnf": "{}",
 	}
-	std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, extra)
-	token, err := p.Sign(std)
+	std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, 5*time.Minute, extra)
+	token, err := p.Sign(ctx, std)
 	require.NoError(t, err)
 	assert.Equal(t, extra["cnf"], std["cnf"])
 
-	cfg := jwt.VerifyConfig{
+	cfg := &jwt.VerifyConfig{
 		ExpectedIssuer:   p.Issuer(),
 		ExpectedSubject:  "denis@ekspand.com",
 		ExpectedAudience: []string{"trusty.com"},
 	}
-	claims, err := p.ParseToken(token, cfg)
+	claims, err := p.ParseToken(ctx, token, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, std, claims)
 
-	_, err = p2.ParseToken(token, cfg)
+	_, err = p2.ParseToken(ctx, token, cfg)
 	assert.EqualError(t, err, "failed to verify token: invalid signature")
 
-	cfg2 := cfg
-	cfg2.ExpectedIssuer = p1.Issuer()
-	_, err = p1.ParseToken(token, cfg2)
+	cfg2 := &jwt.VerifyConfig{
+		ExpectedIssuer:   p1.Issuer(),
+		ExpectedSubject:  "denis@ekspand.com",
+		ExpectedAudience: []string{"trusty.com"},
+	}
+	_, err = p1.ParseToken(ctx, token, cfg2)
 	assert.EqualError(t, err, "failed to verify token: invalid issuer: trusty.com, expected: trusty1.com")
 
 	cfg.ExpectedAudience = []string{"aud"}
-	_, err = p.ParseToken(token, cfg)
+	_, err = p.ParseToken(ctx, token, cfg)
 	assert.EqualError(t, err, "failed to verify token: token missing audience: aud")
 
 	cfg.ExpectedAudience = []string{"trusty.com"}
 	cfg.ExpectedSubject = "subj"
-	_, err = p.ParseToken(token, cfg)
+	_, err = p.ParseToken(ctx, token, cfg)
 	assert.EqualError(t, err, "failed to verify token: invalid subject: denis@ekspand.com, expected: subj")
 
 	parser := jwt.TokenParser{
 		ValidMethods: []string{"RS256"},
 	}
-	_, err = parser.Parse(token, jwt.VerifyConfig{}, nil)
+	_, err = parser.Parse(token, nil, nil)
 	assert.EqualError(t, err, "unsupported signing method: HS256")
 }
 
 func Test_SignPrivateRSA(t *testing.T) {
+	ctx := context.Background()
 	tcases := []int{2048, 3072, 4096}
 	for _, tc := range tcases {
 		ecKey, err := rsa.GenerateKey(rand.Reader, tc)
@@ -147,7 +147,7 @@ func Test_SignPrivateRSA(t *testing.T) {
 		crypto, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 		require.NoError(t, err)
 
-		p, err := jwt.New(&jwt.Config{
+		p, err := jwt.NewProvider(&jwt.ProviderConfig{
 			Issuer:     "trusty.com",
 			PrivateKey: string(pemKey),
 		}, crypto)
@@ -157,22 +157,22 @@ func Test_SignPrivateRSA(t *testing.T) {
 			"resource": "provenid.org",
 		}
 		std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, extra)
-		token, err := p.Sign(std)
+		token, err := p.Sign(ctx, std)
 
 		require.NoError(t, err)
 
-		cfg := jwt.VerifyConfig{
+		cfg := &jwt.VerifyConfig{
 			ExpectedSubject:  "denis@ekspand.com",
 			ExpectedAudience: []string{"trusty.com"},
 		}
-		claims, err := p.ParseToken(token, cfg)
+		claims, err := p.ParseToken(ctx, token, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, std, claims)
 
 		jwt.TimeNowFn = func() time.Time {
 			return time.Now().Add(24 * time.Hour)
 		}
-		_, err = p.ParseToken(token, cfg)
+		_, err = p.ParseToken(ctx, token, cfg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to verify token: token expired at:")
 		jwt.TimeNowFn = time.Now
@@ -180,6 +180,7 @@ func Test_SignPrivateRSA(t *testing.T) {
 }
 
 func Test_SignPrivateEC(t *testing.T) {
+	ctx := context.Background()
 	tcases := []elliptic.Curve{elliptic.P256(), elliptic.P384(), elliptic.P521()}
 	for _, tc := range tcases {
 		ecKey, err := ecdsa.GenerateKey(tc, rand.Reader)
@@ -191,27 +192,28 @@ func Test_SignPrivateEC(t *testing.T) {
 		crypto, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 		require.NoError(t, err)
 
-		p, err := jwt.New(&jwt.Config{
+		p, err := jwt.NewProvider(&jwt.ProviderConfig{
 			Issuer:     "trusty.com",
 			PrivateKey: string(pemKey),
 		}, crypto)
 		require.NoError(t, err)
 
 		std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, nil)
-		token, err := p.Sign(std)
+		token, err := p.Sign(ctx, std)
 		require.NoError(t, err)
 
-		cfg := jwt.VerifyConfig{
+		cfg := &jwt.VerifyConfig{
 			ExpectedSubject:  "denis@ekspand.com",
 			ExpectedAudience: []string{"trusty.com"},
 		}
-		claims, err := p.ParseToken(token, cfg)
+		claims, err := p.ParseToken(ctx, token, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, std, claims)
 	}
 }
 
 func Test_SignPrivateKMS(t *testing.T) {
+	ctx := context.Background()
 	cryptoProv, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
 	require.NoError(t, err)
 
@@ -230,36 +232,36 @@ func Test_SignPrivateKMS(t *testing.T) {
 		prov, pvk, err = crypto.LoadPrivateKey([]byte(url))
 	*/
 
-	p, err := jwt.New(&jwt.Config{
+	p, err := jwt.NewProvider(&jwt.ProviderConfig{
 		Issuer:     "trusty.com",
 		PrivateKey: url,
 	}, cryptoProv)
 	require.NoError(t, err)
 
 	std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, nil)
-	token, err := p.Sign(std)
+	token, err := p.Sign(ctx, std)
 	require.NoError(t, err)
 
-	cfg := jwt.VerifyConfig{
+	cfg := &jwt.VerifyConfig{
 		ExpectedSubject:  "denis@ekspand.com",
 		ExpectedAudience: []string{"trusty.com"},
 	}
-	claims, err := p.ParseToken(token, cfg)
+	claims, err := p.ParseToken(ctx, token, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, std, claims)
 
 	opt := jwt.WithHeaders(map[string]interface{}{
 		"typ": "custom",
 	})
-	p, err = jwt.NewFromCryptoSigner(pvk.(crypto.Signer), opt)
+	p, err = jwt.NewProviderFromCryptoSigner(pvk.(crypto.Signer), opt)
 	require.NoError(t, err)
 
 	std = jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, time.Minute, nil)
-	token, err = p.Sign(std)
+	token, err = p.Sign(ctx, std)
 	require.NoError(t, err)
 	assert.NotNil(t, p.PublicKey())
 
-	claims, err = p.ParseToken(token, cfg)
+	claims, err = p.ParseToken(ctx, token, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, std, claims)
 }

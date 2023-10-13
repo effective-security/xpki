@@ -16,7 +16,7 @@ import (
 )
 
 func TestCurrentKeyLastWithoutID(t *testing.T) {
-	p, err := New(&Config{
+	p, err := NewProvider(&ProviderConfig{
 		Issuer: "issuer.com",
 		Keys: []*Key{
 			{ID: "1", Seed: "seed1"},

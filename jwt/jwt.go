@@ -1,9 +1,8 @@
 package jwt
 
 import (
+	"context"
 	"crypto"
-	"encoding/json"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,9 +12,8 @@ import (
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/x/fileutil"
+	"github.com/go-jose/go-jose/v3"
 	"github.com/pkg/errors"
-	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/yaml.v3"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "jwt")
@@ -28,7 +26,7 @@ const (
 // Signer specifies JWT signer interface
 type Signer interface {
 	// SignClaims returns signed JWT token
-	Sign(claims MapClaims) (string, error)
+	Sign(ctx context.Context, claims MapClaims) (string, error)
 	// PublicKey is returned for assymetric signer
 	PublicKey() crypto.PublicKey
 	// Issuer returns name of the issuer
@@ -40,7 +38,7 @@ type Signer interface {
 // Parser specifies JWT parser interface
 type Parser interface {
 	// ParseToken returns jwt.StandardClaims
-	ParseToken(authorization string, cfg VerifyConfig) (MapClaims, error)
+	ParseToken(ctx context.Context, authorization string, cfg *VerifyConfig) (MapClaims, error)
 }
 
 // Provider specifies JWT provider interface
@@ -56,8 +54,8 @@ type Key struct {
 	Seed string `json:"seed" yaml:"seed"`
 }
 
-// Config provides OAuth2 configuration
-type Config struct {
+// ProviderConfig provides OAuth2 configuration
+type ProviderConfig struct {
 	// Issuer specifies issuer claim
 	Issuer string `json:"issuer" yaml:"issuer"`
 	// KeyID specifies ID of the current key
@@ -92,28 +90,16 @@ type provider struct {
 	parser      TokenParser
 }
 
-// LoadConfig returns configuration loaded from a file
-func LoadConfig(file string) (*Config, error) {
+// LoadProviderConfig returns provider configuration loaded from a file
+func LoadProviderConfig(file string) (*ProviderConfig, error) {
 	if file == "" {
-		return &Config{}, nil
+		return &ProviderConfig{}, nil
 	}
 
-	raw, err := os.ReadFile(file)
+	var config ProviderConfig
+	err := fileutil.Unmarshal(file, &config)
 	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	var config Config
-	if strings.HasSuffix(file, ".json") {
-		err = json.Unmarshal(raw, &config)
-		if err != nil {
-			return nil, errors.WithMessagef(err, "unable to unmarshal JSON: %q", file)
-		}
-	} else {
-		err = yaml.Unmarshal(raw, &config)
-		if err != nil {
-			return nil, errors.WithMessagef(err, "unable to unmarshal YAML: %q", file)
-		}
+		return nil, err
 	}
 
 	if config.PrivateKey != "" {
@@ -132,26 +118,26 @@ func LoadConfig(file string) (*Config, error) {
 	return &config, nil
 }
 
-// Load returns new provider
-func Load(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error) {
-	cfg, err := LoadConfig(cfgfile)
+// LoadProvider returns new provider
+func LoadProvider(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error) {
+	cfg, err := LoadProviderConfig(cfgfile)
 	if err != nil {
 		return nil, err
 	}
-	return New(cfg, crypto)
+	return NewProvider(cfg, crypto)
 }
 
-// MustNew returns new provider
-func MustNew(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) Provider {
-	p, err := New(cfg, crypto, ops...)
+// MustNewProvider returns new provider
+func MustNewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) Provider {
+	p, err := NewProvider(cfg, crypto, ops...)
 	if err != nil {
 		logger.Panicf("unable to create provider: %+v", err)
 	}
 	return p
 }
 
-// New returns new provider that supports, both Signer and Parser
-func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error) {
+// NewProvider returns new provider that supports, both Signer and Parser
+func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error) {
 	p := &provider{
 		issuer:      cfg.Issuer,
 		kid:         cfg.KeyID,
@@ -225,8 +211,8 @@ func New(cfg *Config, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error
 	return p, nil
 }
 
-// NewFromCryptoSigner returns new from Signer
-func NewFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error) {
+// NewProviderFromCryptoSigner returns new from Signer
+func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error) {
 	p := &provider{
 		parser: TokenParser{
 			UseJSONNumber: true,
@@ -273,7 +259,10 @@ func (p *provider) currentKey() (string, []byte) {
 }
 
 // Sign returns signed JWT token
-func (p *provider) Sign(claims MapClaims) (string, error) {
+func (p *provider) Sign(ctx context.Context, claims MapClaims) (string, error) {
+	if p.signerInfo == nil {
+		return "", errors.Errorf("signer not configured")
+	}
 	tokenString, err := p.signerInfo.signJWT(claims, p.headers)
 	if err != nil {
 		return "", err
@@ -281,8 +270,8 @@ func (p *provider) Sign(claims MapClaims) (string, error) {
 	return tokenString, nil
 }
 
-// ParseToken returns jwt.StandardClaims
-func (p *provider) ParseToken(authorization string, cfg VerifyConfig) (MapClaims, error) {
+// ParseToken returns MapClaims
+func (p *provider) ParseToken(ctx context.Context, authorization string, cfg *VerifyConfig) (MapClaims, error) {
 	claims := MapClaims{}
 	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (interface{}, error) {
 		logger.KV(xlog.DEBUG,

@@ -6,8 +6,8 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 
+	"github.com/go-jose/go-jose/v3"
 	"github.com/pkg/errors"
-	"gopkg.in/square/go-jose.v2"
 )
 
 // KeyInfo provides information about the key

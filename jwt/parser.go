@@ -2,11 +2,23 @@ package jwt
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 
+	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/x/fileutil"
+	jose "github.com/go-jose/go-jose/v3"
 	"github.com/pkg/errors"
 )
+
+// ParserConfig provides JWT parser configuration
+type ParserConfig struct {
+	// Issuer specifies issuer claim
+	Issuer   string              `json:"issuer" yaml:"issuer"`
+	JWKSURI  string              `json:"jwks_uri" yaml:"jwks_uri"`
+	JWKeySet *jose.JSONWebKeySet `json:"jwks" yaml:"jwks"`
+}
 
 // Keyfunc is a callback function to supply the key for verification.
 // The function receives the parsed, but unverified Token.
@@ -24,12 +36,12 @@ type TokenParser struct {
 // Parse parses and validates JWT, and return a token.
 // keyFunc will receive the parsed token and should return the key for validating.
 // If everything is kosher, err will be nil
-func (p *TokenParser) Parse(tokenString string, cfg VerifyConfig, keyFunc Keyfunc) (*Token, error) {
+func (p *TokenParser) Parse(tokenString string, cfg *VerifyConfig, keyFunc Keyfunc) (*Token, error) {
 	return p.ParseWithClaims(tokenString, cfg, MapClaims{}, keyFunc)
 }
 
 // ParseWithClaims parses token with a specified Claims
-func (p *TokenParser) ParseWithClaims(tokenString string, cfg VerifyConfig, claims MapClaims, keyFunc Keyfunc) (*Token, error) {
+func (p *TokenParser) ParseWithClaims(tokenString string, cfg *VerifyConfig, claims MapClaims, keyFunc Keyfunc) (*Token, error) {
 	token, parts, err := p.ParseUnverified(tokenString, claims)
 	if err != nil {
 		return nil, err
@@ -127,4 +139,74 @@ func (p *TokenParser) ParseUnverified(tokenString string, claims MapClaims) (tok
 	}
 
 	return token, parts, nil
+}
+
+// parser for JWT
+type parser struct {
+	issuer   string
+	parser   TokenParser
+	verifier KeySet
+}
+
+// LoadParserConfig returns parser configuration loaded from a file
+func LoadParserConfig(file string) (*ParserConfig, error) {
+	if file == "" {
+		return &ParserConfig{}, nil
+	}
+
+	var config ParserConfig
+	err := fileutil.Unmarshal(file, &config)
+	if err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// NewParser returns Parser
+func NewParser(cfg *ParserConfig) (Parser, error) {
+	p := &parser{
+		issuer: cfg.Issuer,
+		parser: TokenParser{
+			UseJSONNumber: true,
+		},
+	}
+
+	if cfg.JWKeySet != nil {
+		p.verifier = &StaticKeySet{KeySet: cfg.JWKeySet.Keys}
+	} else if cfg.JWKSURI != "" {
+		p.verifier = NewRemoteKeySet(context.Background(), cfg.JWKSURI)
+	}
+	return p, nil
+}
+
+// ParseToken returns MapClaims
+func (p *parser) ParseToken(ctx context.Context, authorization string, cfg *VerifyConfig) (MapClaims, error) {
+	if p.verifier == nil {
+		return nil, errors.Errorf("verifier not configured")
+	}
+	claims := MapClaims{}
+	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (interface{}, error) {
+		logger.KV(xlog.DEBUG,
+			"headers", token.Header,
+			"claims", token.Claims,
+		)
+		if strings.HasPrefix(token.SigningMethod, "HS") {
+			return nil, errors.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		keyID := ""
+		if kid, ok := token.Header["kid"]; ok {
+			keyID = kid.(string)
+		}
+
+		return p.verifier.GetKey(ctx, keyID)
+	})
+	if err != nil {
+		return nil, errors.WithMessagef(err, "failed to verify token")
+	}
+
+	if claims, ok := token.Claims.(MapClaims); ok && token.Valid {
+		return claims, nil
+	}
+
+	return nil, errors.Errorf("invalid token")
 }

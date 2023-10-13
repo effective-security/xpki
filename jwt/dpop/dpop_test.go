@@ -11,11 +11,11 @@ import (
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/jwt/dpop"
+	"github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/jwt"
 )
 
 func TestSigner(t *testing.T) {
@@ -80,7 +80,7 @@ func TestVerifyClaims(t *testing.T) {
 	t.Run("invalid header", func(t *testing.T) {
 		rsReq.Header.Set(dpop.HTTPHeader, "invalid")
 		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
-		assert.EqualError(t, err, "dpop: failed to parse header: square/go-jose: compact JWS format must have three parts")
+		assert.EqualError(t, err, "dpop: failed to parse header: go-jose/go-jose: compact JWS format must have three parts")
 	})
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)

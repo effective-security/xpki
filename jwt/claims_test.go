@@ -50,34 +50,33 @@ func TestClaims(t *testing.T) {
 	assert.EqualError(t, c.VerifyIssuer("iss"), "invalid issuer: iss1, expected: iss")
 	assert.EqualError(t, c.VerifySubject("sub"), "invalid subject: sub1, expected: sub")
 
-	cfg := VerifyConfig{
+	cfg := &VerifyConfig{
 		ExpectedIssuer:   c.Issuer,
 		ExpectedAudience: c.Audience,
 		ExpectedSubject:  c.Subject,
 	}
 	assert.NoError(t, c.Valid(cfg))
-	cfg = VerifyConfig{}
-	assert.NoError(t, c.Valid(cfg))
+	assert.NoError(t, c.Valid(nil))
 
 	c.IssuedAt = NewNumericDate(now.Add(time.Hour))
-	err := c.Valid(cfg)
+	err := c.Valid(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token issued after now:")
 
 	c.IssuedAt = NewNumericDate(now.Add(-time.Hour))
 	c.NotBefore = NewNumericDate(now.Add(time.Hour))
-	err = c.Valid(cfg)
+	err = c.Valid(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token not valid yet, not before:")
 
 	c.NotBefore = NewNumericDate(now.Add(-time.Hour))
 	c.Expiry = NewNumericDate(now.Add(-time.Hour))
-	err = c.Valid(cfg)
+	err = c.Valid(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token expired at:")
 
 	c.Expiry = NewNumericDate(now.Add(time.Hour))
-	assert.NoError(t, c.Valid(cfg))
+	assert.NoError(t, c.Valid(nil))
 }
 
 func TestAudience(t *testing.T) {
@@ -105,7 +104,7 @@ func TestNumericDate(t *testing.T) {
 
 func TestMapClaims(t *testing.T) {
 	now := time.Now()
-	cfg := VerifyConfig{}
+	var cfg *VerifyConfig
 	c := MapClaims{}
 	assert.EqualError(t, c.VerifyExpiresAt(now, true), "exp claim not found")
 	assert.EqualError(t, c.VerifyIssuedAt(now, true), "iat claim not found")
@@ -158,7 +157,7 @@ func TestMapClaims(t *testing.T) {
 	err = c2.VerifyNotBefore(now, true)
 	assert.Contains(t, err.Error(), "token not valid yet")
 
-	cfg = VerifyConfig{
+	cfg = &VerifyConfig{
 		ExpectedIssuer:   "123",
 		ExpectedAudience: []string{"t1"},
 		ExpectedSubject:  "sFX",

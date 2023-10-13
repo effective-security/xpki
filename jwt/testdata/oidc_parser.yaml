@@ -1,0 +1,16 @@
+issuer: https://accounts.google.com
+jwks:
+  keys:
+  - kid: "c6263d09745b5032e57fa6e1d041b77a54066dbd"
+    n: "0quLYDiZIxssFKreHcXeeUIbgyU-dctbQXTfBTbAKp4Jl_TH-FQt3EfBVbo2P_1bkH-6ofvDSkQDUbigOhN4zx7JwbjAl8P18-dgjxuhF9HRdZA2W54VxBspEuHhqpsFZKoH_409ywbnc0DtAT-OQR3oQ-6ZnJfUOkLvw7o62QSDyscEi_zh8NIAGQnBo98UVVWr6lbR_PIm7l_NZu0LAux-P5Av-CxAxf32Dvl6crfv_I8ME3_fRisfKaVn5qOt_XuSXmygtTtT94lwelCCuutT6VjjIe397j83yR6LDZACOY7aAw8dx_rb3TS-SgvxQoBshj3142B4RFTVwupyQQ"
+    alg: "RS256"
+    e: "AQAB"
+    kty: "RSA"
+    use: "sig"
+  - kid: "7d334497506acb74cdeedaa66184d15547f83693"
+    kty: "RSA"
+    use: "sig"
+    n: "keFudaSl4KpJ2xC-fIGOb4eD4hwmCVF3eWxginhvrcLNx3ygDjcN7wGRC-CkzJ12ymBGsTPnSBiTFTpwpa5LXEYi-wvN-RkwA8eptcFXIzCXn1k9TqFxaPfw5Qv8N2hj0ZnFR5KPMr1bgK8vktlBu_VbptXr9IKtUEpV0hQCMjmc0JAS61ZIgx9XhPWaRbuYUvmBVLN3ButKAoWqUuzdlP1arjC1R8bUWek3xKUuSSJmZ9oHIGU5omtTEgXRDiv442R3tle-gLcfcr57uPnaAh9bIgBJRZw2mjqP8uBZurq6YkuyUDFQb8NFkBxHigoEdE7di_OtEef2GFNLseE6mw"
+    e: "AQAB"
+    alg: "RS256"
+
