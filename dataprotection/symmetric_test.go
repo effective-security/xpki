@@ -12,6 +12,7 @@ func TestNewSymmetric(t *testing.T) {
 	p, err := NewSymmetric([]byte("secret"))
 	require.NoError(t, err)
 	assert.True(t, p.IsReady())
+	assert.Nil(t, p.PublicKey())
 
 	plaintext := []byte(`small data`)
 	ctx := context.Background()
