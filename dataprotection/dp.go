@@ -2,6 +2,7 @@ package dataprotection
 
 import (
 	"context"
+	"crypto"
 	"encoding/base64"
 	"encoding/json"
 
@@ -16,6 +17,8 @@ type Provider interface {
 	Unprotect(ctx context.Context, protected []byte) ([]byte, error)
 	// IsReady returns true when provider has encryption keys
 	IsReady() bool
+	// PublicKey is returned for assymetric signer
+	PublicKey() crypto.PublicKey
 }
 
 // ProtectStruct returns encrypted object value in base64url encoded format

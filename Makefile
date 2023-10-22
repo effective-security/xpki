@@ -68,5 +68,5 @@ hsmconfig:
 
 start-local-kms:
 	echo "*** starting local-kms"
-	docker-compose -f docker-compose.yml -p xpki-kms up -d --force-recreate --remove-orphans
+	docker compose -f docker-compose.yml -p xpki-kms up -d --force-recreate --remove-orphans
 

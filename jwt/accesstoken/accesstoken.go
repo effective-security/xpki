@@ -3,9 +3,11 @@ package accesstoken
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/effective-security/xpki/dataprotection"
 	"github.com/effective-security/xpki/jwt"
@@ -14,20 +16,21 @@ import (
 
 // Provider of Access Token
 type Provider struct {
-	dp     dataprotection.Provider
-	parser jwt.Parser
+	jwt.Provider
+
+	dp dataprotection.Provider
 }
 
 // New returns new Provider
-func New(dp dataprotection.Provider, parser jwt.Parser) *Provider {
+func New(dp dataprotection.Provider, provider jwt.Provider) jwt.Provider {
 	return &Provider{
-		dp:     dp,
-		parser: parser,
+		dp:       dp,
+		Provider: provider,
 	}
 }
 
-// Protect returns AccessToken from claims
-func (p *Provider) Protect(ctx context.Context, claims jwt.MapClaims) (string, error) {
+// Sign returns AccessToken from claims
+func (p *Provider) Sign(ctx context.Context, claims jwt.MapClaims) (string, error) {
 	js, err := json.Marshal(claims)
 	if err != nil {
 		return "", errors.WithStack(err)
@@ -44,11 +47,11 @@ func (p *Provider) Protect(ctx context.Context, claims jwt.MapClaims) (string, e
 // or nil if `auth` is not Access Token
 func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.VerifyConfig) (jwt.MapClaims, error) {
 	if !strings.HasPrefix(token, "pat.") {
-		if p.parser == nil {
+		if p.Provider == nil {
 			// not supported
 			return nil, nil
 		}
-		cl, err := p.parser.ParseToken(ctx, token, cfg)
+		cl, err := p.Provider.ParseToken(ctx, token, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -71,4 +74,27 @@ func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.Verify
 		return nil, errors.WithStack(err)
 	}
 	return claims, nil
+}
+
+// PublicKey is returned for assymetric signer
+func (p *Provider) PublicKey() crypto.PublicKey {
+	return p.dp.PublicKey()
+}
+
+// Issuer returns name of the issuer
+func (p *Provider) Issuer() string {
+	if p.Provider == nil {
+		// not supported
+		return ""
+	}
+	return p.Provider.Issuer()
+}
+
+// TokenExpiry specifies token expiration period
+func (p *Provider) TokenExpiry() time.Duration {
+	if p.Provider == nil {
+		// not supported
+		return 0
+	}
+	return p.Provider.TokenExpiry()
 }

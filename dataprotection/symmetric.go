@@ -2,6 +2,7 @@ package dataprotection
 
 import (
 	"context"
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -72,4 +73,9 @@ func (p symProvider) Unprotect(_ context.Context, protected []byte) ([]byte, err
 // IsReady returns true when provider has encryption keys
 func (p symProvider) IsReady() bool {
 	return true
+}
+
+// PublicKey is returned for assymetric signer
+func (p symProvider) PublicKey() crypto.PublicKey {
+	return nil
 }
