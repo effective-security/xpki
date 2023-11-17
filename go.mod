@@ -13,7 +13,7 @@ require (
 	github.com/jinzhu/copier v0.3.5
 	github.com/miekg/pkcs11 v1.0.3
 	github.com/pkg/errors v0.9.1
-	github.com/sirupsen/logrus v1.8.1
+	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/afero v1.9.2
 	github.com/stretchr/testify v1.8.4
 	github.com/ugorji/go/codec v1.2.6
