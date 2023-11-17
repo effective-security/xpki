@@ -16,7 +16,7 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/afero v1.9.2
 	github.com/stretchr/testify v1.8.4
-	github.com/ugorji/go/codec v1.2.6
+	github.com/ugorji/go/codec v1.2.11
 	golang.org/x/crypto v0.15.0
 	golang.org/x/net v0.18.0
 	golang.org/x/oauth2 v0.14.0
