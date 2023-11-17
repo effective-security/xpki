@@ -10,7 +10,7 @@ on:
   pull_request:
 
 env:
-  GO_CACHE_BUSTER: 3
+  GO_CACHE_BUSTER: 4
   ITEST_IMAGE_TAG: rc-${{ github.event.number }}
   COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
   RUN_ID: ${{ github.run_id }}
@@ -74,7 +74,7 @@ jobs:
           GIT_USER: ${{ secrets.GIT_USER }}
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         # with:
         #   fetch-depth: 0
         #   submodules: true
@@ -83,7 +83,7 @@ jobs:
         run: git fetch --prune --unshallow
 
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
 

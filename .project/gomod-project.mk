@@ -201,11 +201,15 @@ vet: build
 	echo "Running vet"
 	go vet ${BUILD_FLAGS} ./...
 
-lint:
+vulns:
+	echo "Running vulns"
+	govulncheck ${PROJ_PACKAGE}/...
+
+lint: fmt vet vulns
 	echo "Running lint"
 	golangci-lint run
 
-test: fmt vet lint
+test: lint
 	echo "Running test"
 	go test ${BUILD_FLAGS} ${TEST_RACEFLAG} ${PROJ_PACKAGE}/...
 
