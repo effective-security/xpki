@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/x/fileutil"
 	jose "github.com/go-jose/go-jose/v3"
 	"github.com/pkg/errors"
 )
@@ -155,7 +155,7 @@ func LoadParserConfig(file string) (*ParserConfig, error) {
 	}
 
 	var config ParserConfig
-	err := fileutil.Unmarshal(file, &config)
+	err := configloader.UnmarshalAndExpand(file, &config)
 	if err != nil {
 		return nil, err
 	}

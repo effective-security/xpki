@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/effective-security/x/fileutil"
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/testca"
-	"github.com/effective-security/xpki/x/fileutil"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/stretchr/testify/suite"
 
 	// register providers
@@ -72,7 +72,7 @@ func (s *testSuite) SetupSuite() {
 	)
 
 	tmpDir := filepath.Join(os.TempDir(), "xpki", "certs")
-	fileutil.Vfs.MkdirAll(tmpDir, os.ModePerm)
+	os.MkdirAll(tmpDir, os.ModePerm)
 
 	rootBundleFile = filepath.Join(tmpDir, "root_ca.pem")
 	s.Require().NoError(rootCA.SaveCertAndKey(rootBundleFile, "", false))
@@ -93,7 +93,6 @@ func (s *testSuite) TearDownSuite() {
 }
 
 func TestAuthority(t *testing.T) {
-	fileutil.SetMemMapFs()
 	suite.Run(t, new(testSuite))
 }
 
@@ -125,8 +124,7 @@ func (s *testSuite) TestNewAuthority() {
 	}
 
 	_, err = authority.NewAuthority(cfg3, s.crypto)
-	s.Require().Error(err)
-	s.Equal("unable to create issuer: \"badkey\": unable to create signer: load key file: open not_found: file does not exist", err.Error())
+	s.EqualError(err, `unable to create issuer: "badkey": unable to create signer: load key file: open not_found: no such file or directory`)
 
 	//
 	// test default Expiry and Renewal from Authority config
@@ -708,6 +706,10 @@ func (s *testSuite) TestIssuerSign() {
 	})
 
 	s.Run("GenFile", func() {
+		dir := s.T().TempDir()
+		certFile := filepath.Join(dir, "cert.pem")
+		keyFile := filepath.Join(dir, "cert.key")
+
 		req := csr.CertificateRequest{
 			CommonName: "trusty.com",
 			KeyRequest: kr,
@@ -723,26 +725,26 @@ func (s *testSuite) TestIssuerSign() {
 			crypto,
 			&req,
 			"RestrictedServer",
-			"/tmp/gencert/cert.pem",
-			"/tmp/gencert/cert.key")
+			certFile,
+			keyFile)
 		s.Require().NoError(err)
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
 
-		s.NoError(fileutil.FileExists("/tmp/gencert/cert.pem"))
-		s.NoError(fileutil.FileExists("/tmp/gencert/cert.key"))
+		s.NoError(fileutil.FileExists(certFile))
+		s.NoError(fileutil.FileExists(keyFile))
 
 		crt, _, err = rootCA.GenCert(
 			crypto,
 			&req,
 			"RestrictedServer",
-			"/tmp/gencert/cert.pem",
-			"/tmp/gencert/cert.key")
+			certFile,
+			keyFile)
 		s.Require().NoError(err)
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
 
-		s.NoError(fileutil.FileExists("/tmp/gencert/cert.pem.bak"))
-		s.NoError(fileutil.FileExists("/tmp/gencert/cert.key.bak"))
+		s.NoError(fileutil.FileExists(certFile + ".bak"))
+		s.NoError(fileutil.FileExists(keyFile + ".bak"))
 	})
 }

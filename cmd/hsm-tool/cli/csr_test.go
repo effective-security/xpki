@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/effective-security/xpki/x/guid"
+	"github.com/effective-security/x/guid"
 	"github.com/stretchr/testify/suite"
 )
 

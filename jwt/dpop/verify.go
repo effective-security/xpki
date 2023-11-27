@@ -5,9 +5,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xlog"
 	jwtgo "github.com/effective-security/xpki/jwt"
-	"github.com/effective-security/xpki/x/slices"
 	"github.com/go-jose/go-jose/v3"
 	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/pkg/errors"

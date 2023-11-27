@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"io"
 	"math/big"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +23,7 @@ import (
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/oid"
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
-	"github.com/spf13/afero"
 )
 
 var (
@@ -155,7 +154,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 	// Build the bundle and register the CA cert
 	var intCAbytes, rootBytes []byte
 	if cfg.CABundleFile != "" {
-		intCAbytes, err = afero.ReadFile(fileutil.Vfs, cfg.CABundleFile)
+		intCAbytes, err = os.ReadFile(cfg.CABundleFile)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to load ca-bundle")
 		}
@@ -163,7 +162,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 	intCAbytes = certutil.JoinPEM(intCAbytes, caPem)
 
 	if cfg.RootBundleFile != "" {
-		rootBytes, err = afero.ReadFile(fileutil.Vfs, cfg.RootBundleFile)
+		rootBytes, err = os.ReadFile(cfg.RootBundleFile)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to load root-bundle")
 		}
@@ -171,7 +170,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 
 	rootBytes = certutil.JoinPEM(rootBytes, rootPem)
 
-	certBytes, err := afero.ReadFile(fileutil.Vfs, cfg.CertFile)
+	certBytes, err := os.ReadFile(cfg.CertFile)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to load cert")
 	}

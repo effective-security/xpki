@@ -5,11 +5,11 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/oid"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -256,6 +256,35 @@ func TestEncodeCRLDP(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "https://authenticate-api.iconectiv.com/download/v1/crl", list[0])
+}
+
+func TestDecodeCDPFull(t *testing.T) {
+	h := `30819b308198a03aa038863668747470733a2f2f61757468656e7469636174652d6170692e69636f6e65637469762e636f6d2f646f776e6c6f61642f76312f63726ca25aa45830563114301206035504070c0b4272696467657761746572310b300906035504080c024e4a3113301106035504030c0a5354492d50412043524c310b3009060355040613025553310f300d060355040a0c065354492d5041`
+	b, err := hex.DecodeString(h)
+	require.NoError(t, err)
+	urls, issuers, err := csr.DecodeCDPFull(b)
+	require.NoError(t, err)
+	require.Len(t, urls, 1)
+	assert.Equal(t, "https://authenticate-api.iconectiv.com/download/v1/crl", urls[0])
+	require.Len(t, issuers, 1)
+	assert.Equal(t, "O=STI-PA,C=US,CN=STI-PA CRL,ST=NJ,L=Bridgewater", issuers[0].DirectoryName.String())
+
+	ex, err := csr.EncodeCDPFull([]string{"https://authenticate-api.iconectiv.com/download/v1/crl"}, issuers[0].Raw)
+	require.NoError(t, err)
+	h2 := hex.EncodeToString(ex.Value)
+	assert.Equal(t, h, h2)
+
+	ex, err = csr.EncodeCDPFull([]string{"https://authenticate-api-stg.iconectiv.com/download/v1/crl"}, issuers[0].Raw)
+	require.NoError(t, err)
+	h2 = hex.EncodeToString(ex.Value)
+	assert.Equal(t, `30819f30819ca03ea03c863a68747470733a2f2f61757468656e7469636174652d6170692d7374672e69636f6e65637469762e636f6d2f646f776e6c6f61642f76312f63726ca25aa45830563114301206035504070c0b4272696467657761746572310b300906035504080c024e4a3113301106035504030c0a5354492d50412043524c310b3009060355040613025553310f300d060355040a0c065354492d5041`, h2)
+
+	urls, issuers, err = csr.DecodeCDPFull(ex.Value)
+	require.NoError(t, err)
+	require.Len(t, urls, 1)
+	assert.Equal(t, "https://authenticate-api-stg.iconectiv.com/download/v1/crl", urls[0])
+	require.Len(t, issuers, 1)
+	assert.Equal(t, "O=STI-PA,C=US,CN=STI-PA CRL,ST=NJ,L=Bridgewater", issuers[0].DirectoryName.String())
 }
 
 func TestSignRequest(t *testing.T) {

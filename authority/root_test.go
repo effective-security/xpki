@@ -6,11 +6,11 @@ import (
 	"encoding/pem"
 	"testing"
 
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -1,7 +1,7 @@
 package oauth2client
 
 import (
-	"github.com/effective-security/xpki/x/fileutil"
+	"github.com/effective-security/x/configloader"
 )
 
 // Config provides OAuth2 configuration for supported clients
@@ -64,7 +64,7 @@ func LoadConfig(file string) (*Config, error) {
 	if file == "" {
 		return config, nil
 	}
-	err := fileutil.Unmarshal(file, config)
+	err := configloader.UnmarshalAndExpand(file, config)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func Load(cfgfile string) ([]*Client, error) {
 // LoadClient returns a single `Client` loaded from config
 func LoadClient(file string) (*Client, error) {
 	config := new(ClientConfig)
-	err := fileutil.Unmarshal(file, config)
+	err := configloader.UnmarshalAndExpand(file, config)
 	if err != nil {
 		return nil, err
 	}

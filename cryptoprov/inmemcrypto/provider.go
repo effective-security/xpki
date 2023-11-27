@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/pkg/errors"
 )
 

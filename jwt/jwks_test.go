@@ -5,29 +5,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xpki/jwt"
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParserConfig(t *testing.T) {
 	var cfg jwt.ParserConfig
-	err := fileutil.Unmarshal("testdata/oidc_parser.json", &cfg)
+	err := configloader.UnmarshalAndExpand("testdata/oidc_parser.json", &cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "https://accounts.google.com", cfg.Issuer)
 	require.NotNil(t, cfg.JWKeySet)
 	assert.Equal(t, 2, len(cfg.JWKeySet.Keys))
 
 	var cfg2 jwt.ParserConfig
-	err = fileutil.Unmarshal("testdata/oidc_parser.yaml", &cfg2)
+	err = configloader.UnmarshalAndExpand("testdata/oidc_parser.yaml", &cfg2)
 	require.NoError(t, err)
 	assert.Equal(t, "https://accounts.google.com", cfg2.Issuer)
 	require.NotNil(t, cfg2.JWKeySet)
 	assert.Equal(t, 2, len(cfg2.JWKeySet.Keys))
 
 	var cfg3 jwt.ParserConfig
-	err = fileutil.Unmarshal("testdata/oidc_parser_uri.yaml", &cfg3)
+	err = configloader.UnmarshalAndExpand("testdata/oidc_parser_uri.yaml", &cfg3)
 	require.NoError(t, err)
 	assert.Equal(t, "https://accounts.google.com", cfg3.Issuer)
 	assert.Equal(t, "https://www.googleapis.com/oauth2/v3/certs", cfg3.JWKSURI)
@@ -36,7 +36,7 @@ func TestParserConfig(t *testing.T) {
 
 func Test_ParseJwks(t *testing.T) {
 	var cfg jwt.ParserConfig
-	err := fileutil.Unmarshal("testdata/oidc_parser_cognito.json", &cfg)
+	err := configloader.UnmarshalAndExpand("testdata/oidc_parser_cognito.json", &cfg)
 	require.NoError(t, err)
 
 	ctx := context.Background()

@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/effective-security/x/fileutil"
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/x/ctl"
-	"github.com/effective-security/xpki/x/fileutil"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/pkg/errors"
 )
 

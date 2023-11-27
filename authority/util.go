@@ -2,14 +2,13 @@ package authority
 
 import (
 	"crypto/x509"
+	"os"
 	"strings"
 
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
-	"github.com/spf13/afero"
 )
 
 // GenCert creates certificate and stores key and certs to specified location
@@ -40,22 +39,22 @@ func (ca *Issuer) GenCert(crypto cryptoprov.Provider, req *csr.CertificateReques
 		return nil, nil, err
 	}
 
-	err = fileutil.Vfs.Rename(certFile, certFile+".bak")
+	err = os.Rename(certFile, certFile+".bak")
 	if err != nil {
 		logger.KV(xlog.WARNING, "reason", "move", "file", certFile, "err", err.Error())
 	}
-	err = fileutil.Vfs.Rename(keyFile, keyFile+".bak")
+	err = os.Rename(keyFile, keyFile+".bak")
 	if err != nil {
 		logger.KV(xlog.WARNING, "reason", "move", "file", keyFile, "err", err.Error())
 	}
 
 	certBundle := strings.TrimSpace(string(certPEM)) + "\n" + ca.PEM()
-	err = afero.WriteFile(fileutil.Vfs, certFile, []byte(certBundle), 0664)
+	err = os.WriteFile(certFile, []byte(certBundle), 0664)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
 
-	err = afero.WriteFile(fileutil.Vfs, keyFile, key, 0600)
+	err = os.WriteFile(keyFile, key, 0600)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
