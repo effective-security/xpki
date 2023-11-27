@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/go-jose/go-jose/v3"
 	"github.com/pkg/errors"
 )
@@ -97,17 +97,12 @@ func LoadProviderConfig(file string) (*ProviderConfig, error) {
 	}
 
 	var config ProviderConfig
-	err := fileutil.Unmarshal(file, &config)
+	err := configloader.UnmarshalAndExpand(file, &config)
 	if err != nil {
 		return nil, err
 	}
 
-	if config.PrivateKey != "" {
-		config.PrivateKey, err = fileutil.LoadConfigWithSchema(config.PrivateKey)
-		if err != nil {
-			return nil, errors.WithMessagef(err, "unable to resole private key")
-		}
-	} else {
+	if config.PrivateKey == "" {
 		if config.KeyID == "" {
 			return nil, errors.Errorf("missing kid: %q", file)
 		}
@@ -179,7 +174,7 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 		}
 
 		for _, key := range cfg.Keys {
-			seed, err := fileutil.LoadConfigWithSchema(key.Seed)
+			seed, err := configloader.ResolveValue(key.Seed)
 			if err != nil {
 				return nil, errors.Errorf("failed to load seed: " + err.Error())
 			}

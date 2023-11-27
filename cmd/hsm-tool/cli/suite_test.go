@@ -8,7 +8,6 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/xpki/x/ctl"
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -27,7 +26,7 @@ type testSuite struct {
 
 func (s *testSuite) SetupSuite() {
 	s.tmpdir = filepath.Join(os.TempDir(), "/tests/xpki", "mockhsm")
-	err := fileutil.Vfs.MkdirAll(s.tmpdir, 0777)
+	err := os.MkdirAll(s.tmpdir, 0777)
 	s.Require().NoError(err)
 
 	s.ctl = &Cli{}
@@ -60,7 +59,7 @@ func (s *testSuite) SetupSuite() {
 }
 
 func (s *testSuite) TearDownSuite() {
-	fileutil.Vfs.RemoveAll(s.tmpdir)
+	os.RemoveAll(s.tmpdir)
 }
 
 // HasText is a helper method to assert that the out stream contains the supplied

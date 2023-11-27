@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/alecthomas/kong"
-	"github.com/effective-security/xpki/x/slices"
+	"github.com/effective-security/x/slices"
 	"github.com/pkg/errors"
 	"github.com/ugorji/go/codec"
 )

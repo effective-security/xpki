@@ -15,7 +15,6 @@ import (
 
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/effective-security/xpki/x/print"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ocsp"
@@ -65,7 +64,7 @@ func (a *CertInfoCmd) Run(ctx *Cli) error {
 	print.Certificates(ctx.Writer(), list, a.Extensions)
 
 	if a.Out != "" {
-		f, err := fileutil.Vfs.OpenFile(a.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0664)
+		f, err := os.OpenFile(a.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0664)
 		if err != nil {
 			return errors.WithMessage(err, "unable to create file")
 		}

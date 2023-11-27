@@ -12,9 +12,9 @@ import (
 	"time"
 
 	kms "cloud.google.com/go/kms/apiv1"
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
 	"google.golang.org/api/iterator"

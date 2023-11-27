@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/effective-security/x/guid"
+	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/cryptoprov/testprov"
-	"github.com/effective-security/xpki/x/guid"
-	"github.com/effective-security/xpki/x/slices"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

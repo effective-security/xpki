@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/oid"
-	"github.com/effective-security/xpki/x/slices"
 	"github.com/pkg/errors"
 )
 
@@ -475,6 +475,32 @@ func EncodeCDP(cdp []string) (*pkix.Extension, error) {
 	return &ext, nil
 }
 
+// EncodeCDP returns CRLDP
+func EncodeCDPFull(cdp []string, issuer asn1.RawValue) (*pkix.Extension, error) {
+	ext := pkix.Extension{
+		Id: oid.ExtensionCRLDistributionPoints,
+	}
+	var crlDp []DistributionPoint
+	for _, name := range cdp {
+		dp := DistributionPoint{
+			DistributionPoint: DistributionPointName{
+				FullName: []asn1.RawValue{
+					{Tag: 6, Class: 2, Bytes: []byte(name)},
+				},
+			},
+			CRLIssuer: issuer,
+		}
+		crlDp = append(crlDp, dp)
+	}
+
+	val, err := asn1.Marshal(crlDp)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	ext.Value = val
+	return &ext, nil
+}
+
 // DecodeCDP returns list of CDP
 func DecodeCDP(val []byte) ([]string, error) {
 	var crlDp []DistributionPoint
@@ -492,6 +518,33 @@ func DecodeCDP(val []byte) ([]string, error) {
 	return list, nil
 }
 
+// DecodeCDP returns list of CDP
+func DecodeCDPFull(val []byte) ([]string, []GeneralName, error) {
+	var crlDp []DistributionPoint
+	_, err := asn1.Unmarshal(val, &crlDp)
+	if err != nil {
+		return nil, nil, errors.WithStack(err)
+	}
+
+	var list []string
+	var issuers []GeneralName
+	for _, c := range crlDp {
+		if len(c.CRLIssuer.Bytes) > 0 {
+			var gn GeneralName
+			err := gn.Parse(c.CRLIssuer)
+			if err != nil {
+				return nil, nil, errors.WithMessage(err, "unable to decode issuer name")
+			}
+			issuers = append(issuers, gn)
+		}
+
+		for _, fn := range c.DistributionPoint.FullName {
+			list = append(list, string(fn.Bytes))
+		}
+	}
+	return list, issuers, nil
+}
+
 // DistributionPoint defines CDP as per RFC 5280, 4.2.1.14
 type DistributionPoint struct {
 	DistributionPoint DistributionPointName `asn1:"optional,tag:0"`
@@ -503,4 +556,137 @@ type DistributionPoint struct {
 type DistributionPointName struct {
 	FullName     []asn1.RawValue  `asn1:"optional,tag:0"`
 	RelativeName pkix.RDNSequence `asn1:"optional,tag:1"`
+}
+
+// GeneralNames represents a General Names sequence as defined in RFC 5820
+// section 4.2.1.6.
+//
+// GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
+//
+//	GeneralName ::= CHOICE {
+//	     otherName                       [0]     OtherName,
+//	     rfc822Name                      [1]     IA5String,
+//	     dNSName                         [2]     IA5String,
+//	     x400Address                     [3]     ORAddress,
+//	     directoryName                   [4]     Name,
+//	     ediPartyName                    [5]     EDIPartyName,
+//	     uniformResourceIdentifier       [6]     IA5String,
+//	     iPAddress                       [7]     OCTET STRING,
+//	     registeredID                    [8]     OBJECT IDENTIFIER }
+//
+//	OtherName ::= SEQUENCE {
+//	     type-id    OBJECT IDENTIFIER,
+//	     value      [0] EXPLICIT ANY DEFINED BY type-id }
+//
+//	EDIPartyName ::= SEQUENCE {
+//	     nameAssigner            [0]     DirectoryString OPTIONAL,
+//	     partyName               [1]     DirectoryString }
+type GeneralName struct {
+	Raw           asn1.RawValue
+	DNSName       string
+	DirectoryName pkix.RDNSequence
+	EmailAddres   string
+	IPAddres      net.IP
+	URI           *url.URL
+}
+
+// Tag numbers for GeneralName structure.
+const (
+	nameTagOtherName     = 0
+	nameTagRFC822Name    = 1
+	nameTagDNSName       = 2
+	nameTagX400Address   = 3
+	nameTagDirectoryName = 4
+	nameTagEDIPartyName  = 5
+	nameTagURI           = 6
+	nameTagIPAddress     = 7
+	nameTagRegisteredID  = 8
+)
+
+// Unmarshal parses an DER-encoded ASN.1 data structure and stores the result
+// in the object.
+func (e *GeneralName) Parse(raw asn1.RawValue) error {
+	var tmp GeneralName
+
+	var val asn1.RawValue
+	rest, err := asn1.Unmarshal(raw.Bytes, &val)
+	if err != nil {
+		return err
+	} else if len(rest) != 0 {
+		return errors.New("trailing bytes")
+	}
+
+	switch val.Tag {
+	case nameTagDNSName:
+		tmp.DNSName = string(val.Bytes)
+
+	case nameTagDirectoryName:
+		_, err = asn1.Unmarshal(val.Bytes, &tmp.DirectoryName)
+		if err != nil {
+			return err
+		}
+
+	case nameTagRFC822Name:
+		tmp.EmailAddres = string(val.Bytes)
+
+	case nameTagIPAddress:
+		switch len(val.Bytes) {
+		case net.IPv4len, net.IPv6len:
+			tmp.IPAddres = val.Bytes
+
+		default:
+			return errors.New("cannot parse IP address")
+		}
+
+	case nameTagURI:
+		uri, err := url.Parse(string(val.Bytes))
+		if err != nil {
+			return errors.Errorf("cannot parse %q as URI", string(val.Bytes))
+		}
+		if len(uri.Host) > 0 {
+			if _, ok := domainToReverseLabels(uri.Host); !ok {
+				return errors.Errorf("cannot parse %q as URI", string(val.Bytes))
+			}
+		}
+		tmp.URI = uri
+	}
+	tmp.Raw = raw
+	*e = tmp
+
+	return nil
+}
+
+// domainToReverseLabels converts a textual domain name like foo.example.com to
+// the list of labels in reverse order, e.g. ["com", "example", "foo"].
+func domainToReverseLabels(domain string) (reverseLabels []string, ok bool) {
+	for len(domain) > 0 {
+		if i := strings.LastIndexByte(domain, '.'); i == -1 {
+			reverseLabels = append(reverseLabels, domain)
+			domain = ""
+		} else {
+			reverseLabels = append(reverseLabels, domain[i+1:])
+			domain = domain[:i]
+		}
+	}
+
+	if len(reverseLabels) > 0 && len(reverseLabels[0]) == 0 {
+		// An empty label at the end indicates an absolute value.
+		return nil, false
+	}
+
+	for _, label := range reverseLabels {
+		if len(label) == 0 {
+			// Empty labels are otherwise invalid.
+			return nil, false
+		}
+
+		for _, c := range label {
+			if c < 33 || c > 126 {
+				// Invalid character.
+				return nil, false
+			}
+		}
+	}
+
+	return reverseLabels, true
 }

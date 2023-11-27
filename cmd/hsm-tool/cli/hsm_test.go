@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"

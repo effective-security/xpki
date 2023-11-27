@@ -2,17 +2,16 @@ package cryptoprov
 
 import (
 	"crypto"
+	"os"
 	"strings"
 
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
-	"github.com/spf13/afero"
 )
 
 // NewSignerFromFromFile generates a new signer from a caFile
 // and a caKey file, both PEM encoded or caKey contains PKCS#11 Uri
 func (c *Crypto) NewSignerFromFromFile(caKeyFile string) (crypto.Signer, error) {
-	cakey, err := afero.ReadFile(fileutil.Vfs, caKeyFile)
+	cakey, err := os.ReadFile(caKeyFile)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "load key file")
 	}

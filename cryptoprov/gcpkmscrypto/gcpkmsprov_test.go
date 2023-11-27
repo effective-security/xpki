@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	kms "cloud.google.com/go/kms/apiv1"
+	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
-	"github.com/effective-security/xpki/x/guid"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

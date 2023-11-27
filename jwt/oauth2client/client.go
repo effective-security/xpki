@@ -8,7 +8,6 @@ import (
 
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/x/fileutil"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 )
@@ -23,31 +22,31 @@ type Client struct {
 
 // New returns new Provider
 func New(cfg *ClientConfig) (*Client, error) {
-	var err error
-	cfg.ClientID, err = fileutil.LoadConfigWithSchema(cfg.ClientID)
-	if err != nil {
-		return nil, err
-	}
-	cfg.ClientSecret, err = fileutil.LoadConfigWithSchema(cfg.ClientSecret)
-	if err != nil {
-		return nil, err
-	}
-	cfg.AuthURL, err = fileutil.LoadConfigWithSchema(cfg.AuthURL)
-	if err != nil {
-		return nil, err
-	}
-	cfg.TokenURL, err = fileutil.LoadConfigWithSchema(cfg.TokenURL)
-	if err != nil {
-		return nil, err
-	}
-	cfg.UserinfoURL, err = fileutil.LoadConfigWithSchema(cfg.UserinfoURL)
-	if err != nil {
-		return nil, err
-	}
-	cfg.RedirectURL, err = fileutil.LoadConfigWithSchema(cfg.RedirectURL)
-	if err != nil {
-		return nil, err
-	}
+	// var err error
+	// cfg.ClientID, err = fileutil.LoadConfigWithSchema(cfg.ClientID)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// cfg.ClientSecret, err = fileutil.LoadConfigWithSchema(cfg.ClientSecret)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// cfg.AuthURL, err = fileutil.LoadConfigWithSchema(cfg.AuthURL)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// cfg.TokenURL, err = fileutil.LoadConfigWithSchema(cfg.TokenURL)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// cfg.UserinfoURL, err = fileutil.LoadConfigWithSchema(cfg.UserinfoURL)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// cfg.RedirectURL, err = fileutil.LoadConfigWithSchema(cfg.RedirectURL)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	p := &Client{
 		cfg: cfg,

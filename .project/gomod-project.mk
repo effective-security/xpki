@@ -209,7 +209,7 @@ lint: fmt vet vulns
 	echo "Running lint"
 	golangci-lint run
 
-test: lint
+test:
 	echo "Running test"
 	go test ${BUILD_FLAGS} ${TEST_RACEFLAG} ${PROJ_PACKAGE}/...
 
