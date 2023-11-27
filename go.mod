@@ -3,15 +3,15 @@ module github.com/effective-security/xpki
 go 1.21
 
 require (
-	cloud.google.com/go/kms v1.15.3
+	cloud.google.com/go/kms v1.15.5
 	github.com/alecthomas/kong v0.8.1
 	github.com/aws/aws-sdk-go v1.47.13
-	github.com/effective-security/x v0.1.0
+	github.com/effective-security/x v0.1.1-0.20231127132411-787e96263399
 	github.com/effective-security/xlog v0.6.1-0.20231117065932-e993e47f2aa3
 	github.com/go-jose/go-jose/v3 v3.0.1
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/googleapis/gax-go/v2 v2.12.0
-	github.com/jinzhu/copier v0.3.5
+	github.com/jinzhu/copier v0.4.0
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
