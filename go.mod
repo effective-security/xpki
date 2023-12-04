@@ -16,7 +16,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.8.4
-	github.com/ugorji/go/codec v1.2.11
+	github.com/ugorji/go/codec v1.2.12
 	golang.org/x/crypto v0.15.0
 	golang.org/x/net v0.18.0
 	golang.org/x/oauth2 v0.14.0
