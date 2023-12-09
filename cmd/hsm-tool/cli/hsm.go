@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 
@@ -216,7 +216,7 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error {
 	if a.Output == "" {
 		ctl.WriteCert(ctx.Writer(), key, nil, nil)
 	} else {
-		err = ioutil.WriteFile(a.Output, key, 0600)
+		err = os.WriteFile(a.Output, key, 0600)
 		if err != nil {
 			return errors.WithStack(err)
 		}

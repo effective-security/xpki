@@ -100,12 +100,12 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
 	var err error
 	var pub crypto.PublicKey
 
-	if label == nil || len(label) == 0 {
+	if len(label) == 0 {
 		if label, err = lib.generateKeyLabel(); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}
-	if id == nil || len(id) == 0 {
+	if len(id) == 0 {
 		if id, err = lib.generateKeyID(); err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -204,7 +204,7 @@ func (lib *PKCS11Lib) decryptOAEP(session pkcs11.SessionHandle, priv *PKCS11Priv
 	if hMech, mgf, _, err = hashToPKCS11(hashFunction); err != nil {
 		return nil, errors.WithStack(err)
 	}
-	if label != nil && len(label) > 0 {
+	if len(label) > 0 {
 		sourceData = uint(uintptr(unsafe.Pointer(&label[0])))
 		sourceDataLen = uint(len(label))
 	}
@@ -308,9 +308,9 @@ func (lib *PKCS11Lib) signPKCS1v15(session pkcs11.SessionHandle, priv *PKCS11Pri
 // implementation may impose further restrictions.
 func (priv *PKCS11PrivateKeyRSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	err = priv.lib.withSession(priv.lib.Slot.id, func(session pkcs11.SessionHandle) error {
-		switch opts.(type) {
+		switch typ := opts.(type) {
 		case *rsa.PSSOptions:
-			signature, err = priv.lib.signPSS(session, priv, digest, opts.(*rsa.PSSOptions))
+			signature, err = priv.lib.signPSS(session, priv, digest, typ)
 		default: /* PKCS1-v1_5 */
 			signature, err = priv.lib.signPKCS1v15(session, priv, digest, opts.HashFunc())
 		}

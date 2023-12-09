@@ -2,7 +2,6 @@ package crypto11
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -189,7 +188,7 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 
 	pin := tokenConfig.Pin()
 	if strings.HasPrefix(pin, "file:") {
-		pb, err := ioutil.ReadFile(strings.TrimLeft(pin, "file:"))
+		pb, err := os.ReadFile(strings.TrimLeft(pin, "file:"))
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}

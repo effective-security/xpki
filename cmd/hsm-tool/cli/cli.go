@@ -2,7 +2,6 @@ package cli
 
 import (
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -150,7 +149,7 @@ func (c *Cli) ReadFile(filename string) ([]byte, error) {
 		return nil, errors.New("empty file name")
 	}
 	if filename == "-" {
-		return ioutil.ReadAll(c.stdin)
+		return io.ReadAll(c.stdin)
 	}
-	return ioutil.ReadFile(filename)
+	return os.ReadFile(filename)
 }

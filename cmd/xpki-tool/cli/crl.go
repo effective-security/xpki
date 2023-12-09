@@ -3,7 +3,7 @@ package cli
 import (
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path"
 	"time"
 
@@ -100,7 +100,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 
 		if a.Output != "" {
 			filename := path.Join(a.Output, fmt.Sprintf("%s.crl", certutil.GetIssuerID(crt)))
-			err = ioutil.WriteFile(filename, body, 0644)
+			err = os.WriteFile(filename, body, 0644)
 			if err != nil {
 				return errors.Wrapf(err, "unable to write CRL: %s", filename)
 			}

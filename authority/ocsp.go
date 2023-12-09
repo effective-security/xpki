@@ -89,7 +89,7 @@ func OCSPReasonStringToCode(reason string) (reasonCode int, err error) {
 }
 
 // SignOCSP return an OCSP response.
-func (i *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
+func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 	var thisUpdate, nextUpdate time.Time
 	if req.ThisUpdate != nil {
 		thisUpdate = *req.ThisUpdate
@@ -100,7 +100,7 @@ func (i *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 	if req.NextUpdate != nil {
 		nextUpdate = *req.NextUpdate
 	} else {
-		nextUpdate = thisUpdate.Add(i.ocspExpiry)
+		nextUpdate = thisUpdate.Add(ca.ocspExpiry)
 	}
 
 	status, ok := OCSPStatusCode[req.Status]
@@ -122,11 +122,11 @@ func (i *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 		template.RevocationReason = req.Reason
 	}
 
-	issuer := i.bundle.Cert
-	responder, err := i.CreateDelegatedOCSPSigner()
+	issuer := ca.bundle.Cert
+	responder, err := ca.CreateDelegatedOCSPSigner()
 	if err != nil {
 		logger.KV(xlog.ERROR, "reason", "delegated_ocsp", "err", err)
-		responder = i.responder
+		responder = ca.responder
 	}
 
 	if !bytes.Equal(issuer.RawSubject, responder.Cert.RawSubject) {
@@ -153,25 +153,25 @@ type OCSPResponder struct {
 // CreateDelegatedOCSPSigner create OCSP signing certificate,
 // if needed, or returns an existing one.
 // if the delegation is not allowed, the CA Signer is returned
-func (i *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
-	if i.cfg.AIA == nil ||
-		i.cfg.AIA.DelegatedOCSPProfile == "" {
-		if i.responder == nil {
-			i.responder = &OCSPResponder{
-				Signer: i.signer,
-				Cert:   i.bundle.Cert,
+func (ca *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
+	if ca.cfg.AIA == nil ||
+		ca.cfg.AIA.DelegatedOCSPProfile == "" {
+		if ca.responder == nil {
+			ca.responder = &OCSPResponder{
+				Signer: ca.signer,
+				Cert:   ca.bundle.Cert,
 			}
 		}
-		return i.responder, nil
+		return ca.responder, nil
 	}
 
-	i.lock.Lock()
-	defer i.lock.Unlock()
-	ocsp := i.responder
+	ca.lock.Lock()
+	defer ca.lock.Unlock()
+	ocsp := ca.responder
 
 	// check if existing cert is valid or needs to be renewed before
 	// OCSP validity period
-	cutoff := time.Now().Add(i.ocspExpiry).UTC()
+	cutoff := time.Now().Add(ca.ocspExpiry).UTC()
 	if ocsp != nil &&
 		ocsp.Cert != nil &&
 		cutoff.Before(ocsp.Cert.NotAfter.UTC()) {
@@ -188,7 +188,7 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
 		CommonName: "OCSP Responder",
 		KeyRequest: csr.NewKeyRequest(
 			inmem,
-			i.cfg.AIA.DelegatedOCSPProfile,
+			ca.cfg.AIA.DelegatedOCSPProfile,
 			"ecdsa", 256,
 			csr.SigningKey,
 		),
@@ -204,9 +204,9 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
 		return nil, errors.Errorf("unable to convert key to crypto.Signer")
 	}
 
-	crt, _, err := i.Sign(csr.SignRequest{
+	crt, _, err := ca.Sign(csr.SignRequest{
 		Request: string(csrPEM),
-		Profile: i.cfg.AIA.DelegatedOCSPProfile,
+		Profile: ca.cfg.AIA.DelegatedOCSPProfile,
 		Subject: &csr.X509Subject{
 			CommonName:   req.CommonName,
 			Names:        req.Names,
@@ -218,7 +218,7 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
 	}
 	logger.KV(xlog.NOTICE,
 		"reason", "cert_signed",
-		"profile", i.cfg.AIA.DelegatedOCSPProfile,
+		"profile", ca.cfg.AIA.DelegatedOCSPProfile,
 		"type", "delegated_ocsp",
 		"cn", crt.Subject.CommonName,
 		"expires", crt.NotAfter.UTC().Format(time.RFC3339),
@@ -229,6 +229,6 @@ func (i *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
 		Cert:   crt,
 	}
 
-	i.responder = r
+	ca.responder = r
 	return r, nil
 }

@@ -1,7 +1,7 @@
 package armor_test
 
 import (
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/effective-security/xpki/armor"
@@ -26,7 +26,7 @@ func Test_ArmorDecode(t *testing.T) {
 
 	for _, cs := range cases {
 		t.Run(cs.file, func(t *testing.T) {
-			data, err := ioutil.ReadFile(cs.file)
+			data, err := os.ReadFile(cs.file)
 			require.NoError(t, err)
 
 			count := 0
@@ -79,7 +79,7 @@ func Test_ArmorDecode_Corrupted(t *testing.T) {
 
 	for _, cs := range cases {
 		t.Run(cs.file, func(t *testing.T) {
-			data, err := ioutil.ReadFile(cs.file)
+			data, err := os.ReadFile(cs.file)
 			require.NoError(t, err)
 
 			count := 0

@@ -8,7 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -205,7 +205,7 @@ func (b *Bundler) VerifyOptions() x509.VerifyOptions {
 // (optionally along with some intermediate certs), the PEM-encoded private key
 // and returns the bundle built from that key and the certificate(s).
 func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*Chain, error) {
-	certsRaw, err := ioutil.ReadFile(bundleFile)
+	certsRaw, err := os.ReadFile(bundleFile)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to load bundle")
 	}
@@ -213,7 +213,7 @@ func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*C
 	var keyPEM []byte
 	// Load private key PEM only if a file is given
 	if keyFile != "" {
-		keyPEM, err = ioutil.ReadFile(keyFile)
+		keyPEM, err = os.ReadFile(keyFile)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed to load private key")
 		}
@@ -267,7 +267,7 @@ func fetchRemoteCertificate(client *http.Client, certURL string) (fi *fetchedInt
 
 	defer resp.Body.Close()
 	var certData []byte
-	certData, err = ioutil.ReadAll(resp.Body)
+	certData, err = io.ReadAll(resp.Body)
 	if err != nil {
 		logger.KV(xlog.DEBUG, "status", "failed read body", "url", certURL, "err", err.Error())
 		return
@@ -367,7 +367,7 @@ func (b *Bundler) verifyChain(chain []*fetchedIntermediate) bool {
 
 			logger.KV(xlog.DEBUG, "status", "write intermediate to stash directory", "fileName", fileName)
 			// If the write fails, verification should not fail.
-			err = ioutil.WriteFile(fileName, pem.EncodeToMemory(&block), 0644)
+			err = os.WriteFile(fileName, pem.EncodeToMemory(&block), 0644)
 			if err != nil {
 				logger.KV(xlog.DEBUG, "reason", "failed to write new intermediate", "err", err.Error())
 			} else {

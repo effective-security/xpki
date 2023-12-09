@@ -4,7 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -268,7 +268,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, errors.New("invalid path")
 	}
 
-	body, err := ioutil.ReadFile(path)
+	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read configuration file")
 	}

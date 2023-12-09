@@ -2,7 +2,6 @@ package cryptoprov
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,7 +132,7 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 			logger.KV(xlog.WARNING, "reason", "resolve", "pinfile", pinfile, "basedir", folder)
 		}
 
-		pb, err := ioutil.ReadFile(pinfile)
+		pb, err := os.ReadFile(pinfile)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "unable to load PIN for configuration: %s", filename)
 		}

@@ -6,7 +6,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
-	"io/ioutil"
 	"math/big"
 	"net/url"
 	"os"
@@ -22,7 +21,7 @@ import (
 )
 
 func Test_PrintCerts(t *testing.T) {
-	certsRaw, err := ioutil.ReadFile("testdata/trusty_peer_wfe.pem")
+	certsRaw, err := os.ReadFile("testdata/trusty_peer_wfe.pem")
 	require.NoError(t, err)
 
 	certs, err := certutil.ParseChainFromPEM(certsRaw)
@@ -49,7 +48,7 @@ func Test_PrintCertsRequest(t *testing.T) {
 	}
 
 	for _, f := range csrs {
-		certsRaw, err := ioutil.ReadFile(f)
+		certsRaw, err := os.ReadFile(f)
 		require.NoError(t, err)
 
 		block, _ := pem.Decode(certsRaw)
