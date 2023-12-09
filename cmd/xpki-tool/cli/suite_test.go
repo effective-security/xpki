@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,7 +76,7 @@ func (s *testSuite) HasNoText(texts ...string) {
 
 // HasTextInFile is a helper method to assert that file contains the supplied text
 func (s *testSuite) HasTextInFile(file string, texts ...string) {
-	f, err := ioutil.ReadFile(file)
+	f, err := os.ReadFile(file)
 	s.Require().NoError(err, "unable to read: %s", file)
 	outStr := string(f)
 	for _, t := range texts {

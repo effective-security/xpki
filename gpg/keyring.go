@@ -2,7 +2,7 @@ package gpg
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/armor"
@@ -31,7 +31,7 @@ func KeyRing(data []byte) (openpgp.EntityList, error) {
 			// append keyring
 			keyring = append(keyring, el...)
 		}
-		if rest == nil || len(rest) == 0 {
+		if len(rest) == 0 {
 			break
 		}
 		data = rest
@@ -43,7 +43,7 @@ func KeyRing(data []byte) (openpgp.EntityList, error) {
 // KeyRingFromFile reads a openpgp.KeyRing from the given file path which may
 // then be used to validate GPG keys in RPM packages.
 func KeyRingFromFile(path string) (openpgp.EntityList, error) {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}

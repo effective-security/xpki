@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path"
 	"time"
 
@@ -78,7 +78,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 
 	issuer := certutil.FindIssuer(crt, list, nil)
 	if issuer == nil && a.CA != "" {
-		cas, err := ioutil.ReadFile(a.CA)
+		cas, err := os.ReadFile(a.CA)
 		if err != nil {
 			return errors.WithMessage(err, "unable to load CA bundle")
 		}
@@ -110,7 +110,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 
 			if a.Out != "" {
 				filename := path.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
-				err = ioutil.WriteFile(filename, der, 0644)
+				err = os.WriteFile(filename, der, 0644)
 				if err != nil {
 					return errors.Wrapf(err, "unable to write OCSP: %s", filename)
 				}

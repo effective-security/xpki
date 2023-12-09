@@ -7,7 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 
@@ -147,11 +147,11 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
 		}
 	}
 
-	switch generalKey.(type) {
+	switch typ := generalKey.(type) {
 	case *rsa.PrivateKey:
-		return generalKey.(*rsa.PrivateKey), nil
+		return typ, nil
 	case *ecdsa.PrivateKey:
-		return generalKey.(*ecdsa.PrivateKey), nil
+		return typ, nil
 	}
 
 	// should never reach here
@@ -164,11 +164,11 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
 // form a certificate chain. On successful return, Certificate.Leaf will
 // be nil because the parsed form of the certificate is not retained.
 func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, error) {
-	certPEMBlock, err := ioutil.ReadFile(certFile)
+	certPEMBlock, err := os.ReadFile(certFile)
 	if err != nil {
 		return nil, err
 	}
-	keyPEMBlock, err := ioutil.ReadFile(keyFile)
+	keyPEMBlock, err := os.ReadFile(keyFile)
 	if err != nil {
 		return nil, err
 	}

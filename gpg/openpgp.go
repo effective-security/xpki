@@ -60,12 +60,12 @@ func Convert509CertificateToPGPPublicKey(c *x509.Certificate) *packet.PublicKey 
 func ConvertPublicKeyToPGP(creationTime time.Time, pub crypto.PublicKey) *packet.PublicKey {
 	var pgpPublicKey *packet.PublicKey
 
-	switch pub.(type) {
+	switch typ := pub.(type) {
 	case *rsa.PublicKey:
-		rsaPublicKey := pub.(*rsa.PublicKey)
+		rsaPublicKey := typ
 		pgpPublicKey = packet.NewRSAPublicKey(creationTime, rsaPublicKey)
 	case *ecdsa.PublicKey:
-		ecdsaPublicKey := pub.(*ecdsa.PublicKey)
+		ecdsaPublicKey := typ
 		pgpPublicKey = packet.NewECDSAPublicKey(creationTime, ecdsaPublicKey)
 	default:
 		logger.Panicf("unknown type of public key: %s", reflect.TypeOf(pub))
@@ -409,10 +409,8 @@ func ConvertToPacketPrivateKey(creationTime time.Time, s crypto.PrivateKey) (*pa
 	switch t := public.(type) {
 	case *rsa.PublicKey:
 		pgpPubKey = *packet.NewRSAPublicKey(creationTime, t)
-		break
 	case *ecdsa.PublicKey:
 		pgpPubKey = *packet.NewECDSAPublicKey(creationTime, t)
-		break
 	default:
 		return nil, errors.Errorf("unsupported key type: %T", t)
 	}

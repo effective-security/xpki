@@ -4,7 +4,7 @@ import (
 	"crypto"
 	"crypto/x509/pkix"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -81,7 +81,7 @@ var pemTests = []pemTest{
 
 func intersLoader(t *testing.T, filename string) []byte {
 	if filename != "" {
-		caBundle, err := ioutil.ReadFile(filename)
+		caBundle, err := os.ReadFile(filename)
 		require.NoError(t, err, "failed to load %s: %v", filename, err)
 		return caBundle
 	}

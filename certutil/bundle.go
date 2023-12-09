@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"io/ioutil"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -125,20 +125,20 @@ func LoadAndVerifyBundleFromPEM(certFile, intCAFile, rootFile string, opt ...Opt
 	var err error
 	var certPEM, intCAPEM, rootPEM []byte
 
-	certPEM, err = ioutil.ReadFile(certFile)
+	certPEM, err = os.ReadFile(certFile)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
 
 	if intCAFile != "" {
-		intCAPEM, err = ioutil.ReadFile(intCAFile)
+		intCAPEM, err = os.ReadFile(intCAFile)
 		if err != nil {
 			return nil, nil, errors.WithStack(err)
 		}
 	}
 
 	if rootFile != "" {
-		rootPEM, err = ioutil.ReadFile(rootFile)
+		rootPEM, err = os.ReadFile(rootFile)
 		if err != nil {
 			return nil, nil, errors.WithStack(err)
 		}

@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -121,13 +120,13 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	}
 
 	if a.CA != "" {
-		cas, err = ioutil.ReadFile(a.CA)
+		cas, err = os.ReadFile(a.CA)
 		if err != nil {
 			return errors.WithMessage(err, "unable to load CA bundle")
 		}
 	}
 	if a.Root != "" {
-		roots, err = ioutil.ReadFile(a.Root)
+		roots, err = os.ReadFile(a.Root)
 		if err != nil {
 			return errors.WithMessage(err, "unable to load Root bundle")
 		}
@@ -179,7 +178,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 
 	if a.Out != "" {
 		pem := bundle.CertPEM + "\n" + bundle.CACertsPEM
-		err = ioutil.WriteFile(a.Out, []byte(pem), 0664)
+		err = os.WriteFile(a.Out, []byte(pem), 0664)
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -367,7 +366,7 @@ func postHTTP(client *http.Client, url string, contentType string, body io.Reade
 	}
 	defer resp.Body.Close()
 
-	rbody, err := ioutil.ReadAll(resp.Body)
+	rbody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to download from %s", url)
 	}
@@ -382,7 +381,7 @@ func download(client *http.Client, url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to download from %s", url)
 	}

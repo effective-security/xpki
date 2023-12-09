@@ -1,8 +1,8 @@
 package cryptoprov
 
 import (
-	"io/ioutil"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -103,7 +103,7 @@ func ParseTokenURI(uri string) (TokenConfig, error) {
 		return nil, errors.WithMessage(ErrInvalidURI, uri)
 	}
 
-	pin, err := ioutil.ReadFile(pinURI.Path)
+	pin, err := os.ReadFile(pinURI.Path)
 	if err != nil {
 		return nil, errors.WithMessage(ErrInvalidURI, uri)
 	}

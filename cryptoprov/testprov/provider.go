@@ -244,8 +244,7 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 		return "", nil, errors.New("unsupported signer")
 	}
 
-	var uri string
-	uri = fmt.Sprintf("pkcs11:manufacturer=%s;model=%s;serial=%s;token=%s;id=%s;type=private",
+	uri := fmt.Sprintf("pkcs11:manufacturer=%s;model=%s;serial=%s;token=%s;id=%s;type=private",
 		strings.TrimSpace(strings.TrimRight(p.Manufacturer(), "\x00")),
 		strings.TrimSpace(p.Model()),
 		strings.TrimSpace(p.Serial()),

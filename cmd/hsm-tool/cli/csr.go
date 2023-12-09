@@ -2,7 +2,7 @@ package cli
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/effective-security/xpki/authority"
@@ -278,19 +278,19 @@ func (a *CsrSignCmd) Run(ctx *Cli) error {
 func saveCert(baseName string, key, csrPEM, certPEM []byte) error {
 	var err error
 	if len(certPEM) > 0 {
-		err = ioutil.WriteFile(baseName+".pem", certPEM, 0664)
+		err = os.WriteFile(baseName+".pem", certPEM, 0664)
 		if err != nil {
 			return errors.WithStack(err)
 		}
 	}
 	if len(csrPEM) > 0 {
-		err = ioutil.WriteFile(baseName+".csr", csrPEM, 0664)
+		err = os.WriteFile(baseName+".csr", csrPEM, 0664)
 		if err != nil {
 			return errors.WithStack(err)
 		}
 	}
 	if len(key) > 0 {
-		err = ioutil.WriteFile(baseName+".key", key, 0600)
+		err = os.WriteFile(baseName+".key", key, 0600)
 		if err != nil {
 			return errors.WithStack(err)
 		}

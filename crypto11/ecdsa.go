@@ -122,7 +122,7 @@ func marshalEcParams(c elliptic.Curve) ([]byte, error) {
 func unmarshalEcParams(b []byte) (elliptic.Curve, error) {
 	// See if it's a well-known curve
 	for _, ci := range wellKnownCurves {
-		if bytes.Compare(b, ci.oid) == 0 {
+		if bytes.Equal(b, ci.oid) {
 			if ci.curve != nil {
 				return ci.curve, nil
 			}
@@ -234,12 +234,12 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 	var parameters []byte
 	var pub crypto.PublicKey
 
-	if label == nil || len(label) == 0 {
+	if len(label) == 0 {
 		if label, err = lib.generateKeyLabel(); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}
-	if id == nil || len(id) == 0 {
+	if len(id) == 0 {
 		if id, err = lib.generateKeyID(); err != nil {
 			return nil, errors.WithStack(err)
 		}

@@ -27,21 +27,21 @@ var _ cryptoprov.Provider = (*PKCS11Lib)(nil)
 var _ cryptoprov.KeyManager = (*PKCS11Lib)(nil)
 
 // EnumTokens enumerates tokens
-func (p11lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error) {
+func (lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error) {
 	if currentSlotOnly {
 		return []cryptoprov.TokenInfo{
 			{
-				SlotID:       p11lib.Slot.id,
-				Description:  p11lib.Slot.description,
-				Label:        p11lib.Slot.label,
-				Manufacturer: p11lib.Slot.manufacturer,
-				Model:        p11lib.Slot.model,
-				Serial:       p11lib.Slot.serial,
+				SlotID:       lib.Slot.id,
+				Description:  lib.Slot.description,
+				Label:        lib.Slot.label,
+				Manufacturer: lib.Slot.manufacturer,
+				Model:        lib.Slot.model,
+				Serial:       lib.Slot.serial,
 			},
 		}, nil
 	}
 
-	list, err := p11lib.TokensInfo()
+	list, err := lib.TokensInfo()
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -58,16 +58,16 @@ func (p11lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInf
 }
 
 // EnumKeys returns lists of keys on the slot
-func (p11lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
-	sh, err := p11lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION)
+func (lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
+	sh, err := lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "OpenSession on slot %d", slotID)
 	}
 	defer func() {
-		_ = p11lib.Ctx.CloseSession(sh)
+		_ = lib.Ctx.CloseSession(sh)
 	}()
 
-	keys, err := p11lib.ListKeys(sh, pkcs11.CKO_PRIVATE_KEY, ^uint(0))
+	keys, err := lib.ListKeys(sh, pkcs11.CKO_PRIVATE_KEY, ^uint(0))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -80,7 +80,7 @@ func (p11lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyI
 			pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
 			pkcs11.NewAttribute(pkcs11.CKA_CLASS, 0),
 		}
-		if attributes, err = p11lib.Ctx.GetAttributeValue(sh, obj, attributes); err != nil {
+		if attributes, err = lib.Ctx.GetAttributeValue(sh, obj, attributes); err != nil {
 			return nil, errors.WithMessagef(err, "GetAttributeValue on key")
 		}
 
@@ -100,18 +100,18 @@ func (p11lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyI
 }
 
 // KeyInfo retrieves info about key with the specified id
-func (p11lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
+func (lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
 	var err error
-	session, err := p11lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	session, err := lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "OpenSession on slot %d", slotID)
 	}
 	defer func() {
-		_ = p11lib.Ctx.CloseSession(session)
+		_ = lib.Ctx.CloseSession(session)
 	}()
 
 	var privHandle pkcs11.ObjectHandle
-	if privHandle, err = p11lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
+	if privHandle, err = lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
 		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PRIVATE_KEY", "err", err.Error())
 	}
 
@@ -121,7 +121,7 @@ func (p11lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) 
 		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, 0),
 	}
-	if attributes, err = p11lib.Ctx.GetAttributeValue(session, privHandle, attributes); err != nil {
+	if attributes, err = lib.Ctx.GetAttributeValue(session, privHandle, attributes); err != nil {
 		return nil, errors.WithMessagef(err, "GetAttributeValue on key")
 	}
 
@@ -130,7 +130,7 @@ func (p11lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) 
 
 	pubKey := ""
 	if includePublic {
-		pubKey, err = p11lib.getPublicKeyPEM(slotID, keyID)
+		pubKey, err = lib.getPublicKeyPEM(slotID, keyID)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "reason='failed on GetPublicKey', slotID=%d, keyID=%q", slotID, keyID)
 		}

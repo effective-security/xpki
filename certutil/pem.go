@@ -11,7 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -19,7 +19,7 @@ import (
 
 // LoadFromPEM returns Certificate loaded from the file
 func LoadFromPEM(certFile string) (*x509.Certificate, error) {
-	bytes, err := ioutil.ReadFile(certFile)
+	bytes, err := os.ReadFile(certFile)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -53,7 +53,7 @@ func ParseFromPEM(bytes []byte) (*x509.Certificate, error) {
 
 // LoadChainFromPEM returns Certificates loaded from the file
 func LoadChainFromPEM(certFile string) ([]*x509.Certificate, error) {
-	bytes, err := ioutil.ReadFile(certFile)
+	bytes, err := os.ReadFile(certFile)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -165,7 +165,7 @@ func LoadPEMFiles(files ...string) ([]byte, error) {
 		if f == "" {
 			continue
 		}
-		b, err := ioutil.ReadFile(f)
+		b, err := os.ReadFile(f)
 		if err != nil {
 			return pem, errors.WithMessage(err, "failed to load PEM")
 		}
@@ -336,13 +336,13 @@ func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error) {
 		}
 	}
 
-	switch generalKey.(type) {
+	switch typ := generalKey.(type) {
 	case *rsa.PrivateKey:
-		return generalKey.(*rsa.PrivateKey), nil
+		return typ, nil
 	case *ecdsa.PrivateKey:
-		return generalKey.(*ecdsa.PrivateKey), nil
+		return typ, nil
 	case ed25519.PrivateKey:
-		return generalKey.(ed25519.PrivateKey), nil
+		return typ, nil
 	}
 
 	// should never reach here

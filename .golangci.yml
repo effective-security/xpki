@@ -16,13 +16,4 @@ linters:
 
 issues:
   exclude:
-    - S1034 # assigning the result of this type assertion to a variable (switch generalKey := generalKey.(type)) could eliminate type assertions in switch cases (gosimple)
     - SA1019 # x509.DecryptPEMBlock has been deprecated since Go 1.16 because it shouldn't be used: Legacy PEM encryption as specified in RFC 1423 is insecure by design. Since it does not authenticate the ciphertext, it is vulnerable to padding oracle attacks that can let an attacker recover the plaintext. (staticcheck)
-    - S1021 # should merge variable declaration with assignment on next line (gosimple)
-    - S1034 # assigning the result of this type assertion to a variable (switch generalKey := generalKey.(type)) could eliminate type assertions in switch cases (gosimple)
-    - SA1019 # x509.DecryptPEMBlock has been deprecated since Go 1.16 because it shouldn't be used: Legacy PEM encryption as specified in RFC 1423 is insecure by design. Since it does not authenticate the ciphertext, it is vulnerable to padding oracle attacks that can let an attacker recover the plaintext. (staticcheck)
-    - S1004 # should use bytes.Equal(b, ci.oid) instead (gosimple)
-    - S1023 # redundant break statement (gosimple)
-    - S1009 # should omit nil check; len() for []byte is defined as zero (gosimple)
-    - S1034 # assigning the result of this type assertion to a variable (switch opts := opts.(type)) could eliminate type assertions in switch cases (gosimple)
-    - ST1016 # methods on the same type should have the same receiver name
