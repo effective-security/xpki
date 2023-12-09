@@ -1,17 +1,21 @@
 package awskmscrypto
 
 import (
+	"context"
 	"crypto"
 	"crypto/elliptic"
 	"crypto/x509"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/client"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/kms"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
@@ -29,18 +33,18 @@ func init() {
 
 // KmsClient interface
 type KmsClient interface {
-	CreateKey(input *kms.CreateKeyInput) (*kms.CreateKeyOutput, error)
+	CreateKey(context.Context, *kms.CreateKeyInput, ...func(*kms.Options)) (*kms.CreateKeyOutput, error)
 	//IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error)
-	ListKeys(options *kms.ListKeysInput) (*kms.ListKeysOutput, error)
-	ScheduleKeyDeletion(input *kms.ScheduleKeyDeletionInput) (*kms.ScheduleKeyDeletionOutput, error)
-	DescribeKey(input *kms.DescribeKeyInput) (*kms.DescribeKeyOutput, error)
-	GetPublicKey(input *kms.GetPublicKeyInput) (*kms.GetPublicKeyOutput, error)
-	Sign(input *kms.SignInput) (*kms.SignOutput, error)
+	ListKeys(context.Context, *kms.ListKeysInput, ...func(*kms.Options)) (*kms.ListKeysOutput, error)
+	ScheduleKeyDeletion(context.Context, *kms.ScheduleKeyDeletionInput, ...func(*kms.Options)) (*kms.ScheduleKeyDeletionOutput, error)
+	DescribeKey(context.Context, *kms.DescribeKeyInput, ...func(*kms.Options)) (*kms.DescribeKeyOutput, error)
+	GetPublicKey(context.Context, *kms.GetPublicKeyInput, ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error)
+	Sign(context.Context, *kms.SignInput, ...func(*kms.Options)) (*kms.SignOutput, error)
 }
 
 // KmsClientFactory override for unittest
-var KmsClientFactory = func(p client.ConfigProvider, cfgs ...*aws.Config) (KmsClient, error) {
-	return kms.New(p, cfgs...), nil
+var KmsClientFactory = func(cfg aws.Config, optFns ...func(*kms.Options)) KmsClient {
+	return kms.NewFromConfig(cfg, optFns...)
 }
 
 // Provider implements Provider interface for KMS
@@ -53,6 +57,7 @@ type Provider struct {
 
 // Init configures Kms based hsm impl
 func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
+	ctx := context.Background()
 	kmsAttributes := parseKmsAttributes(tc.Attributes())
 	endpoint := kmsAttributes["Endpoint"]
 	region := kmsAttributes["Region"]
@@ -63,20 +68,41 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
 		tc:       tc,
 	}
 
-	mySession := session.Must(session.NewSession())
-	cfg := aws.NewConfig()
-	if endpoint != "" {
-		cfg = cfg.WithEndpoint(endpoint)
-	}
+	var awsops []func(*awsconfig.LoadOptions) error
+
 	if region != "" {
-		cfg = cfg.WithRegion(region)
+		awsops = append(awsops, awsconfig.WithRegion(region))
+	}
+	if endpoint != "" {
+		// https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/endpoints/
+		customResolver := aws.EndpointResolverWithOptionsFunc(func(svc, reg string, options ...any) (aws.Endpoint, error) {
+			if svc == kms.ServiceID && reg == region {
+				ep := aws.Endpoint{
+					PartitionID:   "aws",
+					URL:           endpoint,
+					SigningRegion: region,
+				}
+				return ep, nil
+			}
+			// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
+			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
+		})
+		awsops = append(awsops, awsconfig.WithEndpointResolverWithOptions(customResolver))
 	}
 
-	var err error
-	p.kmsClient, err = KmsClientFactory(mySession, cfg)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "failed to create KMS client")
+	id := os.Getenv("AWS_ACCESS_KEY_ID")
+	secret := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	token := os.Getenv("AWS_SESSION_TOKEN")
+	if id != "" && secret != "" {
+		awsops = append(awsops, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(id, secret, token)))
 	}
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsops...)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	p.kmsClient = KmsClientFactory(cfg)
 
 	return p, nil
 }
@@ -110,31 +136,29 @@ func (p *Provider) CurrentSlotID() uint {
 
 // GenerateRSAKey creates signer using randomly generated RSA key
 func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error) {
-	usage := "SIGN_VERIFY"
-	if purpose == 2 {
-		usage = "ENCRYPT_DECRYPT"
-	}
+	ctx := context.Background()
 
+	usage := slices.Select(purpose == 2, types.KeyUsageTypeEncryptDecrypt, types.KeyUsageTypeSignVerify)
 	specuKeyPairSpec := fmt.Sprintf("RSA_%d", bits)
 
 	// 1. Create key in KMS
 	input := &kms.CreateKeyInput{
-		CustomerMasterKeySpec: &specuKeyPairSpec,
-		KeyUsage:              &usage,
+		CustomerMasterKeySpec: types.CustomerMasterKeySpec(specuKeyPairSpec),
+		KeyUsage:              usage,
 		Description:           &label,
 	}
-	resp, err := p.kmsClient.CreateKey(input)
+	resp, err := p.kmsClient.CreateKey(ctx, input)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to create key with label: %q", label)
 	}
 
-	keyID := aws.StringValue(resp.KeyMetadata.KeyId)
-	arn := aws.StringValue(resp.KeyMetadata.Arn)
+	keyID := aws.ToString(resp.KeyMetadata.KeyId)
+	arn := aws.ToString(resp.KeyMetadata.Arn)
 
 	logger.KV(xlog.INFO, "arn", arn, "id", keyID, "label", label)
 
 	// 2. Retrieve public key from KMS
-	pubKeyResp, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
+	pubKeyResp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: &keyID})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 	}
@@ -143,45 +167,45 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to parse public key, id=%s", keyID)
 	}
-	signer := NewSigner(keyID, label, aws.StringValueSlice(resp.KeyMetadata.SigningAlgorithms), pub, p.kmsClient)
+	signer := NewSigner(keyID, label, resp.KeyMetadata.SigningAlgorithms, pub, p.kmsClient)
 
 	return signer, nil
 }
 
 // GenerateECDSAKey creates signer using randomly generated ECDSA key
 func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error) {
-	usage := "SIGN_VERIFY"
+	ctx := context.Background()
 
-	var spec string
+	var spec types.CustomerMasterKeySpec
 	switch curve {
 	case elliptic.P256():
-		spec = "ECC_NIST_P256"
+		spec = types.CustomerMasterKeySpecEccNistP256
 	case elliptic.P384():
-		spec = "ECC_NIST_P384"
+		spec = types.CustomerMasterKeySpecEccNistP384
 	case elliptic.P521():
-		spec = "ECC_NIST_P521"
+		spec = types.CustomerMasterKeySpecEccNistP521
 	default:
 		return nil, errors.New("unsupported curve")
 	}
 
 	// 1. Create key in KMS
 	input := &kms.CreateKeyInput{
-		CustomerMasterKeySpec: &spec,
-		KeyUsage:              &usage,
+		CustomerMasterKeySpec: spec,
+		KeyUsage:              types.KeyUsageTypeSignVerify,
 		Description:           &label,
 	}
-	resp, err := p.kmsClient.CreateKey(input)
+	resp, err := p.kmsClient.CreateKey(ctx, input)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to create key with label: %q", label)
 	}
 
-	keyID := aws.StringValue(resp.KeyMetadata.KeyId)
-	arn := aws.StringValue(resp.KeyMetadata.Arn)
+	keyID := aws.ToString(resp.KeyMetadata.KeyId)
+	arn := aws.ToString(resp.KeyMetadata.Arn)
 
 	logger.KV(xlog.INFO, "arn", arn, "id", keyID, "label", label)
 
 	// 2. Retrieve public key from KMS
-	pubKeyResp, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
+	pubKeyResp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: &keyID})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 	}
@@ -190,7 +214,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to parse public key, id=%s", keyID)
 	}
-	signer := NewSigner(keyID, label, aws.StringValueSlice(resp.KeyMetadata.SigningAlgorithms), pub, p.kmsClient)
+	signer := NewSigner(keyID, label, resp.KeyMetadata.SigningAlgorithms, pub, p.kmsClient)
 
 	return signer, nil
 }
@@ -205,14 +229,15 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 
 // GetKey returns pkcs11 uri for the given key id
 func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
+	ctx := context.Background()
 	logger.KV(xlog.INFO, "api", "GetKey", "keyID", keyID)
 
-	ki, err := p.kmsClient.DescribeKey(&kms.DescribeKeyInput{KeyId: &keyID})
+	ki, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: &keyID})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
 	}
 
-	resp, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
+	resp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: &keyID})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 	}
@@ -221,7 +246,7 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to parse public key, id=%s", keyID)
 	}
-	signer := NewSigner(keyID, aws.StringValue(ki.KeyMetadata.Description), aws.StringValueSlice(resp.SigningAlgorithms), pub, p.kmsClient)
+	signer := NewSigner(keyID, aws.ToString(ki.KeyMetadata.Description), resp.SigningAlgorithms, pub, p.kmsClient)
 	return signer, nil
 }
 
@@ -238,12 +263,12 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 
 func keyMeta(ki *kms.DescribeKeyOutput) map[string]string {
 	return map[string]string{
-		"description": aws.StringValue(ki.KeyMetadata.Description),
-		"usage":       aws.StringValue(ki.KeyMetadata.KeyUsage),
-		"origin":      aws.StringValue(ki.KeyMetadata.Origin),
-		"state":       aws.StringValue(ki.KeyMetadata.KeyState),
-		"enabled":     fmt.Sprintf("%t", aws.BoolValue(ki.KeyMetadata.Enabled)),
-		"algo":        strings.Join(aws.StringValueSlice(ki.KeyMetadata.SigningAlgorithms), ","),
+		"description": aws.ToString(ki.KeyMetadata.Description),
+		"usage":       string(ki.KeyMetadata.KeyUsage),
+		"origin":      string(ki.KeyMetadata.Origin),
+		"state":       string(ki.KeyMetadata.KeyState),
+		"enabled":     fmt.Sprintf("%t", ki.KeyMetadata.Enabled),
+		"algo":        fmt.Sprintf("%v", ki.KeyMetadata.SigningAlgorithms),
 	}
 }
 
@@ -251,9 +276,10 @@ func keyMeta(ki *kms.DescribeKeyOutput) map[string]string {
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
 	logger.KV(xlog.TRACE, "endpoit", p.endpoint, "slotID", slotID, "prefix", prefix)
 
+	ctx := context.Background()
 	opts := &kms.ListKeysInput{}
 
-	resp, err := p.kmsClient.ListKeys(opts)
+	resp, err := p.kmsClient.ListKeys(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -261,16 +287,16 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 	keys := resp.Keys
 	res := make([]cryptoprov.KeyInfo, 0, len(keys))
 	for _, k := range keys {
-		ki, err := p.kmsClient.DescribeKey(&kms.DescribeKeyInput{KeyId: k.KeyId})
+		ki, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: k.KeyId})
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed to describe key, id=%s", *k.KeyId)
 		}
-		if aws.StringValue(ki.KeyMetadata.KeyState) == "PendingDeletion" {
+		if ki.KeyMetadata.KeyState == types.KeyStatePendingDeletion {
 			continue
 		}
 
 		res = append(res, cryptoprov.KeyInfo{
-			ID:           aws.StringValue(k.KeyId),
+			ID:           aws.ToString(k.KeyId),
 			Meta:         keyMeta(ki),
 			CreationTime: ki.KeyMetadata.CreationDate,
 		})
@@ -280,27 +306,29 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 
 // DestroyKeyPairOnSlot destroys key pair on slot. For KMS slotID is ignored and KMS retire API is used to destroy the key.
 func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
-	resp, err := p.kmsClient.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	ctx := context.Background()
+	resp, err := p.kmsClient.ScheduleKeyDeletion(ctx, &kms.ScheduleKeyDeletionInput{
 		KeyId: &keyID,
 	})
 	if err != nil {
 		return errors.WithMessagef(err, "failed to schedule key deletion: %s", keyID)
 	}
-	logger.KV(xlog.NOTICE, "id", keyID, "deletion_time", aws.TimeValue(resp.DeletionDate).Format(time.RFC3339))
+	logger.KV(xlog.NOTICE, "id", keyID, "deletion_time", aws.ToTime(resp.DeletionDate).Format(time.RFC3339))
 
 	return nil
 }
 
 // KeyInfo retrieves info about key with the specified id
 func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
-	resp, err := p.kmsClient.DescribeKey(&kms.DescribeKeyInput{KeyId: &keyID})
+	ctx := context.Background()
+	resp, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: &keyID})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
 	}
 
 	pubKey := ""
 	if includePublic {
-		pubKeyResp, err := p.kmsClient.GetPublicKey(&kms.GetPublicKeyInput{KeyId: &keyID})
+		pubKeyResp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: &keyID})
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 		}
@@ -332,7 +360,8 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 // ExportKey returns PKCS#11 URI for specified key ID.
 // It does not return key bytes
 func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
-	resp, err := p.kmsClient.DescribeKey(&kms.DescribeKeyInput{KeyId: &keyID})
+	ctx := context.Background()
+	resp, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: &keyID})
 	if err != nil {
 		return "", nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
 	}
@@ -341,7 +370,7 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 		p.Manufacturer(),
 		p.Model(),
 		keyID,
-		aws.StringValue(resp.KeyMetadata.Arn),
+		aws.ToString(resp.KeyMetadata.Arn),
 	)
 
 	return uri, []byte(uri), nil

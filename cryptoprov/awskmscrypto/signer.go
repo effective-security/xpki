@@ -1,6 +1,7 @@
 package awskmscrypto
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -8,19 +9,10 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/aws/aws-sdk-go/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/effective-security/xlog"
 	"github.com/pkg/errors"
-)
-
-// Supported signature types by AWS KMS
-const (
-	SignRsaPssSha256   = "RSASSA_PSS_SHA_256"
-	SignRsaPssSha384   = "RSASSA_PSS_SHA_384"
-	SignRsaPssSha512   = "RSASSA_PSS_SHA_512"
-	SignRsaPkcs1Sha256 = "RSASSA_PKCS1_V1_5_SHA_256"
-	SignRsaPkcs1Sha384 = "RSASSA_PKCS1_V1_5_SHA_384"
-	SignRsaPkcs1Sha512 = "RSASSA_PKCS1_V1_5_SHA_512"
 )
 
 // Signer implements crypto.Signer interface
@@ -28,13 +20,13 @@ type Signer struct {
 	keyID string
 	label string
 	//signAlgo x509.SignatureAlgorithm
-	signingAlgorithms []string
+	signingAlgorithms []types.SigningAlgorithmSpec
 	pubKey            crypto.PublicKey
 	kmsClient         KmsClient
 }
 
 // NewSigner creates new signer
-func NewSigner(keyID string, label string, signingAlgorithms []string, publicKey crypto.PublicKey, kmsClient KmsClient) crypto.Signer {
+func NewSigner(keyID string, label string, signingAlgorithms []types.SigningAlgorithmSpec, publicKey crypto.PublicKey, kmsClient KmsClient) crypto.Signer {
 	logger.KV(xlog.DEBUG, "id", keyID, "label", label, "algos", signingAlgorithms)
 	return &Signer{
 		keyID:             keyID,
@@ -69,8 +61,6 @@ func (s *Signer) String() string {
 
 // Sign implements signing operation
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	typ := "DIGEST"
-
 	sigAlgo, err := sigAlgo(s.pubKey, opts)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to determine signature algorithm")
@@ -79,10 +69,10 @@ func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (si
 	req := &kms.SignInput{
 		KeyId:            &s.keyID,
 		Message:          digest,
-		MessageType:      &typ,
-		SigningAlgorithm: &sigAlgo,
+		MessageType:      types.MessageTypeDigest,
+		SigningAlgorithm: types.SigningAlgorithmSpec(sigAlgo),
 	}
-	resp, err := s.kmsClient.Sign(req)
+	resp, err := s.kmsClient.Sign(context.Background(), req)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to sign")
 	}

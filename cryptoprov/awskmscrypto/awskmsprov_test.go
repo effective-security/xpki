@@ -5,7 +5,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/effective-security/x/guid"
@@ -16,9 +15,9 @@ import (
 )
 
 func Test_KmsProvider(t *testing.T) {
-	os.Setenv("AWS_ACCESS_KEY_ID", "notusedbyemulator")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "notusedbyemulator")
-	os.Setenv("AWS_DEFAULT_REGION", "us-west-2")
+	t.Setenv("AWS_ACCESS_KEY_ID", "notusedbyemulator")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "notusedbyemulator")
+	t.Setenv("AWS_DEFAULT_REGION", "us-west-2")
 	cfg := &mockTokenCfg{
 		manufacturer: awskmscrypto.ProviderName,
 		model:        "KMS",
