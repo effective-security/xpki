@@ -7,10 +7,12 @@ import (
 	"hash/crc32"
 	"io"
 	"reflect"
+	"time"
 
+	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/metricskey"
 	"github.com/pkg/errors"
-	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -57,6 +59,8 @@ func (s *Signer) String() string {
 
 // Sign implements signing operation
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "sign")
+
 	digestCRC32C := Crc32c(digest)
 
 	req := &kmspb.AsymmetricSignRequest{

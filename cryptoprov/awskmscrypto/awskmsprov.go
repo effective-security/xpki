@@ -19,6 +19,7 @@ import (
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/metricskey"
 	"github.com/pkg/errors"
 )
 
@@ -136,6 +137,8 @@ func (p *Provider) CurrentSlotID() uint {
 
 // GenerateRSAKey creates signer using randomly generated RSA key
 func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_rsa")
+
 	ctx := context.Background()
 
 	usage := slices.Select(purpose == 2, types.KeyUsageTypeEncryptDecrypt, types.KeyUsageTypeSignVerify)
@@ -174,6 +177,8 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 
 // GenerateECDSAKey creates signer using randomly generated ECDSA key
 func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_ecdsa")
+
 	ctx := context.Background()
 
 	var spec types.CustomerMasterKeySpec
@@ -229,6 +234,8 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 
 // GetKey returns pkcs11 uri for the given key id
 func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "getkey")
+
 	ctx := context.Background()
 	logger.KV(xlog.INFO, "api", "GetKey", "keyID", keyID)
 
@@ -320,6 +327,8 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 
 // KeyInfo retrieves info about key with the specified id
 func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "keyinfo")
+
 	ctx := context.Background()
 	resp, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: &keyID})
 	if err != nil {

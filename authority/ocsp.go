@@ -13,6 +13,7 @@ import (
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/metricskey"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ocsp"
 )
@@ -90,6 +91,8 @@ func OCSPReasonStringToCode(reason string) (reasonCode int, err error) {
 
 // SignOCSP return an OCSP response.
 func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
+	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_ocsp")
+
 	var thisUpdate, nextUpdate time.Time
 	if req.ThisUpdate != nil {
 		thisUpdate = *req.ThisUpdate

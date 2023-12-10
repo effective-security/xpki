@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/metricskey"
 	"github.com/pkg/errors"
 )
 
@@ -61,6 +63,8 @@ func (s *Signer) String() string {
 
 // Sign implements signing operation
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "sign")
+
 	sigAlgo, err := sigAlgo(s.pubKey, opts)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to determine signature algorithm")
