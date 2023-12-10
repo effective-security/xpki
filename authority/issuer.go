@@ -22,6 +22,7 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/metricskey"
 	"github.com/effective-security/xpki/oid"
 	"github.com/pkg/errors"
 )
@@ -289,7 +290,10 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 
 // SignProof returns base64 URL encoded signature of the data
 func (ca *Issuer) SignProof(data []byte) (string, error) {
+	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_proof")
+
 	hasher := ca.keyInfo.Hash
+
 	h := hasher.New()
 	h.Write(data)
 	sig, err := ca.signer.Sign(rand.Reader, h.Sum(nil), hasher)
@@ -329,6 +333,8 @@ func (ca *Issuer) VerifyProof(data []byte, proof string) error {
 // Sign signs a new certificate based on the PEM-encoded
 // certificate request with the specified profile.
 func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error) {
+	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_cert")
+
 	//logger.KV(xlog.DEBUG, "req", req)
 
 	profileName := raReq.Profile

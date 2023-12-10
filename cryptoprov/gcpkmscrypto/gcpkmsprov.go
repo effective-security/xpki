@@ -12,13 +12,14 @@ import (
 	"time"
 
 	kms "cloud.google.com/go/kms/apiv1"
+	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/metricskey"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
 	"google.golang.org/api/iterator"
-	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki/cryptoprov", "gcpkms")
@@ -112,6 +113,8 @@ func (p *Provider) CurrentSlotID() uint {
 
 // GenerateRSAKey creates signer using randomly generated RSA key
 func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_rsa")
+
 	ctx := context.Background()
 
 	pbpurpose := kmspb.CryptoKey_ASYMMETRIC_SIGN
@@ -199,6 +202,8 @@ func parseKeyFromPEM(bytes []byte) (interface{}, error) {
 
 // GenerateECDSAKey creates signer using randomly generated ECDSA key
 func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_ecdsa")
+
 	ctx := context.Background()
 
 	pbpurpose := kmspb.CryptoKey_ASYMMETRIC_SIGN
@@ -244,6 +249,8 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 
 // GetKey returns PrivateKey
 func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "getkey")
+
 	logger.KV(xlog.INFO, "keyID", keyID)
 
 	ctx := context.Background()
@@ -345,6 +352,7 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 
 // KeyInfo retrieves info about key with the specified id
 func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "keyinfo")
 
 	ctx := context.Background()
 	name := p.keyName(keyID)
