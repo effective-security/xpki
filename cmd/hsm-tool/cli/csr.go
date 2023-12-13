@@ -8,7 +8,7 @@ import (
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/x/ctl"
+	"github.com/effective-security/xpki/x/print"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
@@ -61,7 +61,7 @@ func (a *CsrCreateCmd) Run(ctx *Cli) error {
 	}
 
 	if a.Output == "" {
-		ctl.WriteCert(ctx.Writer(), key, csrPEM, nil)
+		print.CertAndKey(ctx.Writer(), key, csrPEM, nil)
 	} else {
 		err = saveCert(a.Output, key, csrPEM, nil)
 		if err != nil {
@@ -183,7 +183,7 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 	}
 
 	if a.Output == "" {
-		ctl.WriteCert(ctx.Writer(), key, csrPEM, certPEM)
+		print.CertAndKey(ctx.Writer(), key, csrPEM, certPEM)
 	} else {
 		err = saveCert(a.Output, key, csrPEM, certPEM)
 		if err != nil {
@@ -263,7 +263,7 @@ func (a *CsrSignCmd) Run(ctx *Cli) error {
 	pem, _ := certutil.EncodeToPEMString(a.PemInfo, crt)
 
 	if a.Output == "" {
-		ctl.WriteCert(ctx.Writer(), nil, nil, []byte(pem+"\n"))
+		print.CertAndKey(ctx.Writer(), nil, nil, []byte(pem+"\n"))
 	} else {
 		err = saveCert(a.Output, nil, nil, []byte(pem+"\n"))
 		if err != nil {

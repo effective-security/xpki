@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/kong"
-	"github.com/effective-security/xpki/x/ctl"
+	"github.com/effective-security/x/ctl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,8 +29,7 @@ func TestContext(t *testing.T) {
 
 	out := bytes.NewBuffer([]byte{})
 	c.WithWriter(out)
-	err := c.WriteJSON(struct{}{})
-	require.NoError(t, err)
+	c.WriteJSON(struct{}{})
 	assert.Equal(t, "{}\n", out.String())
 }
 
