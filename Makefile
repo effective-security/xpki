@@ -26,7 +26,7 @@ clean:
 tools:
 	#go install golang.org/x/tools/cmd/stringer@latest
 	go install github.com/go-phorce/cov-report/cmd/cov-report@latest
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.51.2
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.54
 	go install github.com/mattn/goveralls@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 

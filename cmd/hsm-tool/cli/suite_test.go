@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/alecthomas/kong"
-	"github.com/effective-security/xpki/x/ctl"
+	"github.com/effective-security/x/ctl"
 	"github.com/stretchr/testify/suite"
 )
 

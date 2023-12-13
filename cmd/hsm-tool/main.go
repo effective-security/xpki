@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
+	"github.com/effective-security/x/ctl"
 	"github.com/effective-security/xpki/cmd/hsm-tool/cli"
 	"github.com/effective-security/xpki/internal/version"
-	"github.com/effective-security/xpki/x/ctl"
 	logger "github.com/sirupsen/logrus"
 )
 

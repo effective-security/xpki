@@ -121,7 +121,7 @@ func Test_OCSPResponse(t *testing.T) {
 
 func TestCSRandCert(t *testing.T) {
 	w := bytes.NewBuffer([]byte{})
-	print.CSRandCert(w, []byte("key"), []byte("csr"), []byte("cert"))
+	print.CertAndKey(w, []byte("key"), []byte("csr"), []byte("cert"))
 	out := w.String()
 	assert.Equal(t, "{\"cert\":\"cert\",\"csr\":\"csr\",\"key\":\"key\"}\n", out)
 }

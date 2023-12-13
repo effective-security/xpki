@@ -207,8 +207,8 @@ func OCSPResponse(w io.Writer, res *ocsp.Response, verboseExtensions bool) {
 	}
 }
 
-// CSRandCert outputs a cert, key and csr
-func CSRandCert(w io.Writer, key, csrBytes, cert []byte) {
+// CertAndKey outputs a cert, key and csr
+func CertAndKey(w io.Writer, key, csrBytes, cert []byte) {
 	out := map[string]string{}
 	if cert != nil {
 		out["cert"] = string(cert)
@@ -223,5 +223,11 @@ func CSRandCert(w io.Writer, key, csrBytes, cert []byte) {
 	}
 
 	jsonOut, _ := json.Marshal(out)
+	fmt.Fprintln(w, string(jsonOut))
+}
+
+// JSON prints json
+func JSON(w io.Writer, v any) {
+	jsonOut, _ := json.MarshalIndent(v, "", "  ")
 	fmt.Fprintln(w, string(jsonOut))
 }

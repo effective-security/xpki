@@ -10,7 +10,7 @@ import (
 	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/x/ctl"
+	"github.com/effective-security/xpki/x/print"
 	"github.com/pkg/errors"
 )
 
@@ -214,7 +214,7 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error {
 	}
 
 	if a.Output == "" {
-		ctl.WriteCert(ctx.Writer(), key, nil, nil)
+		print.CertAndKey(ctx.Writer(), key, nil, nil)
 	} else {
 		err = os.WriteFile(a.Output, key, 0600)
 		if err != nil {
