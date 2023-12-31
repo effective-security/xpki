@@ -286,7 +286,7 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 
 // EnumKeys returns list of keys on the slot. For KMS slotID is ignored.
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
-	logger.KV(xlog.TRACE, "host", p.endpoint, "slotID", slotID, "prefix", prefix)
+	logger.KV(xlog.DEBUG, "endpoint", p.endpoint, "slotID", slotID, "prefix", prefix)
 
 	iter := p.KmsClient.ListCryptoKeys(
 		context.Background(),
@@ -307,7 +307,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 
 		if key.Primary != nil &&
 			key.Primary.State != kmspb.CryptoKeyVersion_ENABLED {
-			logger.KV(xlog.TRACE, "skip_key", key.Name, "state", key.Primary.State.String())
+			logger.KV(xlog.DEBUG, "skip_key", key.Name, "state", key.Primary.State.String())
 			continue
 		}
 
