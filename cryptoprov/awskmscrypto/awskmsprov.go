@@ -281,7 +281,7 @@ func keyMeta(ki *kms.DescribeKeyOutput) map[string]string {
 
 // EnumKeys returns list of keys on the slot. For KMS slotID is ignored.
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
-	logger.KV(xlog.TRACE, "endpoit", p.endpoint, "slotID", slotID, "prefix", prefix)
+	logger.KV(xlog.DEBUG, "endpoint", p.endpoint, "slotID", slotID, "prefix", prefix)
 
 	ctx := context.Background()
 	opts := &kms.ListKeysInput{}
