@@ -230,6 +230,27 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 	return p, nil
 }
 
+// NewProviderWithSymmetricKey returns new from Signer
+func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error) {
+	p := &provider{
+		parser: TokenParser{
+			UseJSONNumber: true,
+		},
+	}
+	signer, err := newSymmetricSigner("HS256", key)
+	if err != nil {
+		return nil, err
+	}
+	p.signerInfo, err = NewSignerInfo(signer)
+	if err != nil {
+		return nil, err
+	}
+	for _, opt := range ops {
+		opt.applyOption(p)
+	}
+	return p, nil
+}
+
 // PublicKey is returned for assymetric signer
 func (p *provider) PublicKey() crypto.PublicKey {
 	return p.verifyKey
