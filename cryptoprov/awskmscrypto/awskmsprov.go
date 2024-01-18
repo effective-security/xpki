@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
-	"github.com/effective-security/x/slices"
+	"github.com/effective-security/x/values"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
@@ -141,7 +141,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 
 	ctx := context.Background()
 
-	usage := slices.Select(purpose == 2, types.KeyUsageTypeEncryptDecrypt, types.KeyUsageTypeSignVerify)
+	usage := values.Select(purpose == 2, types.KeyUsageTypeEncryptDecrypt, types.KeyUsageTypeSignVerify)
 	specuKeyPairSpec := fmt.Sprintf("RSA_%d", bits)
 
 	// 1. Create key in KMS

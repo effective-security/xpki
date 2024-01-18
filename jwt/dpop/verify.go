@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/effective-security/x/slices"
+	"github.com/effective-security/x/values"
 	"github.com/effective-security/xlog"
 	jwtgo "github.com/effective-security/xpki/jwt"
 	"github.com/go-jose/go-jose/v3"
@@ -95,8 +95,8 @@ func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 
 	u := req.URL
 	coreURL := url.URL{
-		Scheme: slices.StringsCoalesce(u.Scheme, "https"),
-		Host:   slices.StringsCoalesce(u.Host, req.Host),
+		Scheme: values.StringsCoalesce(u.Scheme, "https"),
+		Host:   values.StringsCoalesce(u.Host, req.Host),
 		Path:   u.Path,
 	}
 
