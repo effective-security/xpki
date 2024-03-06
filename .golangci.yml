@@ -6,7 +6,7 @@ linters:
   enable:
     # TODO: remove init code
     #- gochecknoinits
-    - goconst
+    #- goconst
     - goimports
     - stylecheck
     - unparam

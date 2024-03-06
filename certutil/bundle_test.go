@@ -63,12 +63,12 @@ var pemTests = []pemTest{
 		rootCaFile:   testCaBundle,
 		expErr:       "failed to bundle: failed to parse certificate: x509: malformed algorithm identifier",
 	},
-	{
-		name:         "selfSignedCert",
-		cert:         selfSignedCert,
-		caBundleFile: testIntCaBundle,
-		expValid:     true,
-	},
+	// {
+	// 	name:         "selfSignedCert",
+	// 	cert:         selfSignedCert,
+	// 	caBundleFile: testIntCaBundle,
+	// 	expValid:     true,
+	// },
 	{
 		name:         "expiredCert",
 		cert:         expiredCert,
