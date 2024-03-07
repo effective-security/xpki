@@ -26,13 +26,13 @@ func TestNewSymmetric(t *testing.T) {
 	// modify the data
 	protected[0] = protected[1]
 	_, err = p.Unprotect(ctx, protected)
-	assert.EqualError(t, err, "failed to upprotect: cipher: message authentication failed")
+	assert.EqualError(t, err, "failed to unprotect: cipher: message authentication failed")
 
 	_, err = p.Unprotect(ctx, nil)
-	assert.EqualError(t, err, "invalid data")
+	assert.EqualError(t, err, "invalid data: less than nonce size")
 
 	_, err = p.Unprotect(ctx, protected[:11])
-	assert.EqualError(t, err, "invalid data")
+	assert.EqualError(t, err, "invalid data: less than nonce size")
 
 	s := state{Str: "hello", ID: 123}
 	b64, err := ProtectObject(ctx, p, s)
@@ -43,10 +43,10 @@ func TestNewSymmetric(t *testing.T) {
 	assert.Equal(t, s, s2)
 
 	err = UnprotectObject(ctx, p, "b64", &s2)
-	assert.EqualError(t, err, "failed to unprotect data: invalid data")
+	assert.EqualError(t, err, "invalid data: less than nonce size")
 
 	err = UnprotectObject(ctx, p, "Aa"+b64, &s2)
-	assert.EqualError(t, err, "failed to unprotect data: failed to upprotect: cipher: message authentication failed")
+	assert.EqualError(t, err, "failed to unprotect: cipher: message authentication failed")
 }
 
 type state struct {
