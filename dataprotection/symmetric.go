@@ -60,11 +60,11 @@ func (p symProvider) Protect(_ context.Context, data []byte) ([]byte, error) {
 // Unprotect returns unprotected data
 func (p symProvider) Unprotect(_ context.Context, protected []byte) ([]byte, error) {
 	if len(protected) < p.nonceSize {
-		return nil, errors.Errorf("invalid data")
+		return nil, errors.Errorf("invalid data: less than nonce size")
 	}
 	plaintext, err := p.gcm.Open(nil, protected[:p.nonceSize], protected[p.nonceSize:], nil)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to upprotect")
+		return nil, errors.Wrapf(err, "failed to unprotect")
 	}
 
 	return plaintext, nil

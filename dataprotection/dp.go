@@ -29,7 +29,7 @@ func ProtectObject(ctx context.Context, p Provider, v interface{}) (string, erro
 	}
 	ejs, err := p.Protect(ctx, js)
 	if err != nil {
-		return "", errors.WithMessage(err, "failed to protect")
+		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(ejs), nil
 }
@@ -42,7 +42,7 @@ func UnprotectObject(ctx context.Context, p Provider, protected string, v interf
 	}
 	js, err = p.Unprotect(ctx, js)
 	if err != nil {
-		return errors.WithMessage(err, "failed to unprotect data")
+		return err
 	}
 
 	if err = json.Unmarshal(js, v); err != nil {
