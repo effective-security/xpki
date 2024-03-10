@@ -44,28 +44,7 @@ jobs:
             version:
               paths:
                 - '.VERSION'
-    
-  # GoCache:
-  #   runs-on: ubuntu-latest
-  #   needs:
-  #     - detect-noop
-  #   steps:
-
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
-  #       # with:
-  #       #   fetch-depth: 0
-  #       #   submodules: true
-
-  #     - name: Fetch History
-  #       run: git fetch --prune --unshallow
-
-  #     - name: Setup Golang with cache
-  #       uses: ./.github/actions/go-cache
-  #       with:
-  #         go-version-file: go.mod
-  #         build-command: make -j vars generate change_log version build
-
+   
   UnitTest:
     needs:
       - detect-noop
@@ -134,6 +113,19 @@ jobs:
           COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make coveralls-github
 
+      - name: Detect Version Changes
+        # https://github.com/fkirc/skip-duplicate-actions
+        id: version-changed
+        uses: fkirc/skip-duplicate-actions@v5.3.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          paths: '[".VERSION"]'
+          paths_filter: |
+            version:
+              paths:
+                - '.VERSION'
+              backtracking: 1
+
       - name: set-tag
         run: |
           VERSION=$(cat .VERSION).${{env.RUN_NUMBER}}
@@ -142,7 +134,7 @@ jobs:
           echo "git tag ${VERSION}"
 
       - name: Create Tag
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.detect-noop.outputs.paths_result.version != 'true'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && fromJSON(steps.version-changed.outputs.paths_result).version.should_skip == 'false'
         uses: actions/github-script@v6
         with:
           script: |
