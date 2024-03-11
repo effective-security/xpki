@@ -12,7 +12,7 @@ require (
 	github.com/effective-security/metrics v0.4.1-0.20240306105844-fe932e0fd622
 	github.com/effective-security/x v0.3.1-0.20240304123641-8de43cd9f090
 	github.com/effective-security/xlog v0.7.1
-	github.com/go-jose/go-jose/v3 v3.0.2
+	github.com/go-jose/go-jose/v3 v3.0.3
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/googleapis/gax-go/v2 v2.12.2
 	github.com/jinzhu/copier v0.4.0
