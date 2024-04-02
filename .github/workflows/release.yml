@@ -1,4 +1,4 @@
-name: release
+name: Set Tag
 
 on:
   workflow_dispatch:
