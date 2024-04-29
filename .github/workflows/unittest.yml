@@ -62,10 +62,6 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
-        # with:
-        #   fetch-depth: 0
-        #   submodules: true
-
       - name: Fetch History
         run: git fetch --prune --unshallow
 
@@ -120,6 +116,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           paths: '[".VERSION"]'
+          skip_after_successful_duplicate: false
           paths_filter: |
             version:
               paths:
