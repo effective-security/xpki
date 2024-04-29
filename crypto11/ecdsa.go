@@ -30,7 +30,7 @@ type curveInfo struct {
 }
 
 // ASN.1 marshal some value and panic on error
-func mustMarshal(val interface{}) []byte {
+func mustMarshal(val any) []byte {
 	if b, err := asn1.Marshal(val); err != nil {
 		panic(err)
 	} else {

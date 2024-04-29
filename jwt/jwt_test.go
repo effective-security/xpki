@@ -250,7 +250,7 @@ func Test_SignPrivateKMS(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, std, claims)
 
-	opt := jwt.WithHeaders(map[string]interface{}{
+	opt := jwt.WithHeaders(map[string]any{
 		"typ": "custom",
 	})
 	p, err = jwt.NewProviderFromCryptoSigner(pvk.(crypto.Signer), opt)

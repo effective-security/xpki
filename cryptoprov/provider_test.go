@@ -25,10 +25,10 @@ func loadP11Provider(t *testing.T) cryptoprov.Provider {
 	p11, err := crypto11.ConfigureFromFile(SoftHSMConfig)
 	require.NoError(t, err)
 
-	prov, supported := interface{}(p11).(cryptoprov.Provider)
+	prov, supported := any(p11).(cryptoprov.Provider)
 	require.True(t, supported)
 
-	mgr, supported := interface{}(p11).(cryptoprov.KeyManager)
+	mgr, supported := any(p11).(cryptoprov.KeyManager)
 	require.True(t, supported)
 	assert.NotNil(t, mgr.EnumKeys)
 

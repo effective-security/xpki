@@ -186,7 +186,7 @@ func (p *Provider) genKey(ctx context.Context, req *kmspb.CreateCryptoKeyRequest
 	return signer, nil
 }
 
-func parseKeyFromPEM(bytes []byte) (interface{}, error) {
+func parseKeyFromPEM(bytes []byte) (any, error) {
 	block, _ := pem.Decode(bytes)
 	if block == nil || block.Type != "PUBLIC KEY" || len(block.Headers) != 0 {
 		return nil, errors.Errorf("invalid block type")

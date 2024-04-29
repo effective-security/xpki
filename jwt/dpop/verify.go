@@ -171,7 +171,7 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 	}
 
 	jwtgo.TimeNowFn = TimeNowFn
-	_, err = parser.Parse(phdr, nil, func(token *jwtgo.Token) (interface{}, error) {
+	_, err = parser.Parse(phdr, nil, func(token *jwtgo.Token) (any, error) {
 		return pjwk.Public().Key, nil
 	})
 	if err != nil {

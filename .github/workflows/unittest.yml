@@ -128,7 +128,7 @@ jobs:
 
       - name: set-tag
         run: |
-          VERSION=$(cat .VERSION).${{env.RUN_NUMBER}}
+          VERSION=$(cat .VERSION).$(git rev-list --count HEAD)
           echo "VERSION: ${VERSION}"
           echo "DIST_VERSION=${VERSION}" >> $GITHUB_ENV
           echo "git tag ${VERSION}"

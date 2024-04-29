@@ -22,7 +22,7 @@ type Provider interface {
 }
 
 // ProtectStruct returns encrypted object value in base64url encoded format
-func ProtectObject(ctx context.Context, p Provider, v interface{}) (string, error) {
+func ProtectObject(ctx context.Context, p Provider, v any) (string, error) {
 	js, err := json.Marshal(v)
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to marshal")
@@ -35,7 +35,7 @@ func ProtectObject(ctx context.Context, p Provider, v interface{}) (string, erro
 }
 
 // UnprotectObject decrypts and unmarshals protected Base64 encoded string to a struct
-func UnprotectObject(ctx context.Context, p Provider, protected string, v interface{}) error {
+func UnprotectObject(ctx context.Context, p Provider, protected string, v any) error {
 	js, err := base64.RawURLEncoding.DecodeString(protected)
 	if err != nil {
 		return errors.WithMessage(err, "failed to base64 decode")

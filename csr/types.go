@@ -56,7 +56,7 @@ func (oid *OID) UnmarshalJSON(data []byte) (err error) {
 }
 
 // UnmarshalYAML unmarshals a YAML string into an OID.
-func (oid *OID) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (oid *OID) UnmarshalYAML(unmarshal func(any) error) error {
 	var buf string
 	err := unmarshal(&buf)
 	if err != nil {
@@ -119,7 +119,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 // UnmarshalYAML handles decoding our custom json serialization for Durations
-func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 	var buf string
 	err := unmarshal(&buf)
 	if err != nil {

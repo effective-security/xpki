@@ -38,7 +38,7 @@ const (
 // Signer specifies an interface to sign HTTP requests with DPoP
 type Signer interface {
 	// Sign returns DPoP token
-	Sign(ctx context.Context, method string, u *url.URL, extraClaims interface{}) (string, error)
+	Sign(ctx context.Context, method string, u *url.URL, extraClaims any) (string, error)
 	// JWKThumbprint returns base64 hash of the key
 	JWKThumbprint() string
 }
@@ -47,19 +47,19 @@ type Signer interface {
 var TimeNowFn = time.Now
 
 // SetCnfClaim sets DPoP `cnf` claim
-func SetCnfClaim(claims map[string]interface{}, thumprint string) {
-	claims["cnf"] = map[string]interface{}{
+func SetCnfClaim(claims map[string]any, thumprint string) {
+	claims["cnf"] = map[string]any{
 		CnfThumbprint: thumprint,
 	}
 }
 
 // GetCnfClaim gets DPoP `cnf` claim
-func GetCnfClaim(claims map[string]interface{}) (string, error) {
+func GetCnfClaim(claims map[string]any) (string, error) {
 	cnf := claims["cnf"]
 	if cnf == nil {
 		return "", nil
 	}
-	m, ok := cnf.(map[string]interface{})
+	m, ok := cnf.(map[string]any)
 	if !ok {
 		return "", errors.Errorf("dpop: invalid cnf claim")
 	}

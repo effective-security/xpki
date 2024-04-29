@@ -126,7 +126,7 @@ func TestCSRandCert(t *testing.T) {
 	assert.Equal(t, "{\"cert\":\"cert\",\"csr\":\"csr\",\"key\":\"key\"}\n", out)
 }
 
-func loadJSON(filename string, v interface{}) error {
+func loadJSON(filename string, v any) error {
 	cfr, err := os.Open(filename)
 	if err != nil {
 		return errors.WithStack(err)

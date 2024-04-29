@@ -24,7 +24,7 @@ type ParserConfig struct {
 // The function receives the parsed, but unverified Token.
 // This allows you to use properties in the Header of the token (such as `kid`)
 // to identify which key to use.
-type Keyfunc func(*Token) (interface{}, error)
+type Keyfunc func(*Token) (any, error)
 
 // TokenParser config
 type TokenParser struct {
@@ -63,7 +63,7 @@ func (p *TokenParser) ParseWithClaims(tokenString string, cfg *VerifyConfig, cla
 	}
 
 	// Lookup key
-	var key interface{}
+	var key any
 	if key, err = keyFunc(token); err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (p *parser) ParseToken(ctx context.Context, authorization string, cfg *Veri
 		return nil, errors.Errorf("verifier not configured")
 	}
 	claims := MapClaims{}
-	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (interface{}, error) {
+	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (any, error) {
 		logger.KV(xlog.DEBUG,
 			"headers", token.Header,
 			"claims", token.Claims,

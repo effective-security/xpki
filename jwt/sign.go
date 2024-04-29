@@ -219,8 +219,8 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 	return "", errors.Errorf("unsupported: " + si.algo)
 }
 
-func (si *SignerInfo) signJWT(claims interface{}, headers map[string]interface{}) (string, error) {
-	header := map[string]interface{}{
+func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error) {
+	header := map[string]any{
 		"typ": "JWT",
 		"alg": si.algo,
 	}
@@ -261,7 +261,7 @@ var curveMap = map[string]elliptic.Curve{
 }
 
 // VerifySignature returns error if JWT signature is invalid
-func VerifySignature(algo, signingString, signature string, key interface{}) error {
+func VerifySignature(algo, signingString, signature string, key any) error {
 	if strings.HasPrefix(algo, "HS") {
 		bytes, ok := key.([]byte)
 		if !ok {
