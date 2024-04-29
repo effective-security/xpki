@@ -12,7 +12,7 @@ import (
 )
 
 // ToPFX converts cert with private key to PFX
-func ToPFX(cert *x509.Certificate, priv interface{}, password string) []byte {
+func ToPFX(cert *x509.Certificate, priv any, password string) []byte {
 	// only allow alphanumeric passwords
 	for _, c := range password {
 		switch {
@@ -50,7 +50,7 @@ func ToPEM(cert *x509.Certificate) []byte {
 }
 
 // ToDER exports private key to DER
-func ToDER(priv interface{}) []byte {
+func ToDER(priv any) []byte {
 	var (
 		der []byte
 		err error
@@ -71,7 +71,7 @@ func ToDER(priv interface{}) []byte {
 }
 
 // PrivKeyToPEM exports private key to PEM
-func PrivKeyToPEM(priv interface{}) []byte {
+func PrivKeyToPEM(priv any) []byte {
 	var (
 		pemKey []byte
 		err    error
@@ -94,7 +94,7 @@ func PrivKeyToPEM(priv interface{}) []byte {
 }
 
 // ToPKCS8 exports private key to PKCS8
-func ToPKCS8(priv interface{}) []byte {
+func ToPKCS8(priv any) []byte {
 	cmd := exec.Command("openssl", "pkcs8", "-topk8", "-nocrypt", "-inform", "DER")
 
 	cmd.Stdin = bytes.NewReader(ToDER(priv))

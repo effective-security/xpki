@@ -93,7 +93,7 @@ func TestVerifyClaims(t *testing.T) {
 	t.Run("no typ", func(t *testing.T) {
 		s, err := jose.NewSigner(jsk, &jose.SignerOptions{
 			EmbedJWK: true,
-			ExtraHeaders: map[jose.HeaderKey]interface{}{
+			ExtraHeaders: map[jose.HeaderKey]any{
 				jose.HeaderContentType: "unsupported",
 			},
 		})
@@ -112,7 +112,7 @@ func TestVerifyClaims(t *testing.T) {
 	t.Run("multiple headers", func(t *testing.T) {
 		s, err := jose.NewSigner(jsk, &jose.SignerOptions{
 			EmbedJWK: true,
-			ExtraHeaders: map[jose.HeaderKey]interface{}{
+			ExtraHeaders: map[jose.HeaderKey]any{
 				jose.HeaderContentType: "unsupported",
 				jose.HeaderType:        "invalid",
 			},
@@ -132,7 +132,7 @@ func TestVerifyClaims(t *testing.T) {
 	t.Run("no empebbded key", func(t *testing.T) {
 		s, err := jose.NewSigner(jsk, &jose.SignerOptions{
 			//EmbedJWK: true,
-			ExtraHeaders: map[jose.HeaderKey]interface{}{
+			ExtraHeaders: map[jose.HeaderKey]any{
 				jose.HeaderType: "dpop+jwt",
 			},
 		})
@@ -150,7 +150,7 @@ func TestVerifyClaims(t *testing.T) {
 
 	s, err := jose.NewSigner(jsk, &jose.SignerOptions{
 		EmbedJWK: true,
-		ExtraHeaders: map[jose.HeaderKey]interface{}{
+		ExtraHeaders: map[jose.HeaderKey]any{
 			jose.HeaderType: "dpop+jwt",
 		},
 	})
@@ -269,7 +269,7 @@ func TestVerifyClaims(t *testing.T) {
 }
 
 func TestGetCnfClaim(t *testing.T) {
-	claims := map[string]interface{}{}
+	claims := map[string]any{}
 	tb, err := dpop.GetCnfClaim(claims)
 	require.NoError(t, err)
 	assert.Empty(t, tb)
@@ -283,7 +283,7 @@ func TestGetCnfClaim(t *testing.T) {
 	_, err = dpop.GetCnfClaim(claims)
 	assert.EqualError(t, err, "dpop: invalid cnf claim")
 
-	claims["cnf"] = map[string]interface{}{
+	claims["cnf"] = map[string]any{
 		dpop.CnfThumbprint: 123,
 	}
 	_, err = dpop.GetCnfClaim(claims)
@@ -328,7 +328,7 @@ type testSigner struct {
 	withHTTPURL    bool
 }
 
-func (p *testSigner) ForRequest(r *http.Request, extraClaims interface{}) error {
+func (p *testSigner) ForRequest(r *http.Request, extraClaims any) error {
 	now := time.Now()
 	if p.timeNowFn != nil {
 		now = p.timeNowFn()
@@ -349,7 +349,7 @@ func (p *testSigner) ForRequest(r *http.Request, extraClaims interface{}) error 
 	builder = builder.Claims(claims)
 
 	if p.withHTTPMethod {
-		builder = builder.Claims(map[string]interface{}{
+		builder = builder.Claims(map[string]any{
 			"htm": r.Method,
 		})
 	}
@@ -361,7 +361,7 @@ func (p *testSigner) ForRequest(r *http.Request, extraClaims interface{}) error 
 			Host:   r.URL.Host,
 			Path:   r.URL.Path,
 		}
-		builder = builder.Claims(map[string]interface{}{
+		builder = builder.Claims(map[string]any{
 			"htu": coreURL.String(),
 		})
 	}

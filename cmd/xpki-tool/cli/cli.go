@@ -88,7 +88,7 @@ func (c *Cli) AfterApply(_ *kong.Kong, _ kong.Vars) error {
 }
 
 // WriteJSON prints response to out
-func (c *Cli) WriteJSON(value interface{}) {
+func (c *Cli) WriteJSON(value any) {
 	print.JSON(c.Writer(), value)
 }
 

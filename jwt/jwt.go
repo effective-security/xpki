@@ -70,7 +70,7 @@ type ProviderConfig struct {
 }
 
 // WithHeaders allows to specify extra headers or override defaults
-func WithHeaders(headers map[string]interface{}) Option {
+func WithHeaders(headers map[string]any) Option {
 	return optionFunc(func(c *provider) {
 		for k, v := range headers {
 			c.headers[k] = v
@@ -86,7 +86,7 @@ type provider struct {
 	keys        map[string][]byte
 	signerInfo  *SignerInfo
 	verifyKey   crypto.PublicKey
-	headers     map[string]interface{}
+	headers     map[string]any
 	parser      TokenParser
 }
 
@@ -163,7 +163,7 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 			return nil, err
 		}
 		p.verifyKey = signer.Public()
-		p.headers = map[string]interface{}{
+		p.headers = map[string]any{
 			"jwk": &jose.JSONWebKey{
 				Key: p.verifyKey,
 			},
@@ -186,7 +186,7 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 		}
 
 		kid, key := p.currentKey()
-		p.headers = map[string]interface{}{
+		p.headers = map[string]any{
 			"kid": kid,
 		}
 
@@ -219,7 +219,7 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 		return nil, err
 	}
 	p.verifyKey = signer.Public()
-	p.headers = map[string]interface{}{
+	p.headers = map[string]any{
 		"jwk": &jose.JSONWebKey{
 			Key: p.verifyKey,
 		},
@@ -289,7 +289,7 @@ func (p *provider) Sign(ctx context.Context, claims MapClaims) (string, error) {
 // ParseToken returns MapClaims
 func (p *provider) ParseToken(ctx context.Context, authorization string, cfg *VerifyConfig) (MapClaims, error) {
 	claims := MapClaims{}
-	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (interface{}, error) {
+	token, err := p.parser.ParseWithClaims(authorization, cfg, claims, func(token *Token) (any, error) {
 		logger.KV(xlog.DEBUG,
 			"headers", token.Header,
 			"claims", token.Claims,

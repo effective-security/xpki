@@ -19,7 +19,7 @@ type signer struct {
 
 // NewSigner creates a DPoP signer that can generate DPoP headers for a request.
 func NewSigner(s crypto.Signer) (Signer, error) {
-	ops := jwt.WithHeaders(map[string]interface{}{
+	ops := jwt.WithHeaders(map[string]any{
 		"typ": jwtHeaderTypeDPOP,
 	})
 	prov, err := jwt.NewProviderFromCryptoSigner(s, ops)
@@ -46,7 +46,7 @@ func (p *signer) JWKThumbprint() string {
 	return p.tp
 }
 
-func ForRequest(p Signer, r *http.Request, extraClaims interface{}) (string, error) {
+func ForRequest(p Signer, r *http.Request, extraClaims any) (string, error) {
 	token, err := p.Sign(r.Context(), r.Method, r.URL, extraClaims)
 	if err != nil {
 		return "", err
@@ -57,7 +57,7 @@ func ForRequest(p Signer, r *http.Request, extraClaims interface{}) (string, err
 }
 
 // Sign returns DPoP token
-func (p *signer) Sign(ctx context.Context, method string, u *url.URL, extraClaims interface{}) (string, error) {
+func (p *signer) Sign(ctx context.Context, method string, u *url.URL, extraClaims any) (string, error) {
 	now := TimeNowFn()
 	notBefore := now.Add(DefaultNotBefore)
 	exp := now.Add(DefaultExpiration)

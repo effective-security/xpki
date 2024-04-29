@@ -12,7 +12,7 @@ import (
 
 type policyInformation struct {
 	PolicyIdentifier asn1.ObjectIdentifier
-	Qualifiers       []interface{} `asn1:"tag:optional,omitempty"`
+	Qualifiers       []any `asn1:"tag:optional,omitempty"`
 }
 
 type cpsPolicyQualifier struct {

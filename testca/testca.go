@@ -27,7 +27,7 @@ var (
 	oidExtKeyUsage = asn1.ObjectIdentifier{2, 5, 29, 37}
 )
 
-func getPublicKey(privkey interface{}) interface{} {
+func getPublicKey(privkey any) any {
 	switch pk := privkey.(type) {
 	case *ecdsa.PrivateKey:
 		return pk.Public()
@@ -42,7 +42,7 @@ func getPublicKey(privkey interface{}) interface{} {
 // MakeValidCertsChainTSA creates valid TSA cert with the only critical EKU extension for timestamping
 func MakeValidCertsChainTSA(t *testing.T, hours int, ec bool) (crypto.Signer, *x509.Certificate, []*x509.Certificate, *x509.Certificate) {
 	var err error
-	var rootkey, cakey, key interface{}
+	var rootkey, cakey, key any
 
 	if ec {
 		rootkey, err = ecdsa.GenerateKey(elliptic.P256(), crand.Reader)

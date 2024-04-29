@@ -16,11 +16,11 @@ type KeyInfo struct {
 	Type      string
 	IsPrivate bool
 	Hash      crypto.Hash
-	Key       interface{}
+	Key       any
 }
 
 // NewKeyInfo returns *SignerInfo
-func NewKeyInfo(k interface{}) (*KeyInfo, error) {
+func NewKeyInfo(k any) (*KeyInfo, error) {
 	ki := &KeyInfo{Key: k}
 	var pubKey crypto.PublicKey
 

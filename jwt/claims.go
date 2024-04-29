@@ -198,16 +198,20 @@ func (c *Claims) Valid(cfg *VerifyConfig) error {
 }
 
 // MapClaims provides generic claims on map
-type MapClaims map[string]interface{}
+type MapClaims map[string]any
 
 // Add new claims to the map
-func (c MapClaims) Add(val ...interface{}) error {
+func (c MapClaims) Add(val ...any) error {
 	for _, i := range val {
 		if i == nil {
 			continue
 		}
 		switch m := i.(type) {
-		case map[string]interface{}:
+		case map[string]string:
+			for k, v := range m {
+				c[k] = v
+			}
+		case map[string]any:
 			c.merge(m)
 		case MapClaims:
 			c.merge(m)
@@ -227,7 +231,7 @@ func (c MapClaims) Add(val ...interface{}) error {
 }
 
 // To converts the claims to the value pointed to by v.
-func (c MapClaims) To(val interface{}) error {
+func (c MapClaims) To(val any) error {
 	raw, err := json.Marshal(c)
 	if err != nil {
 		return errors.WithStack(err)
@@ -246,14 +250,14 @@ func (c MapClaims) Marshal() string {
 	return string(raw)
 }
 
-func (c MapClaims) merge(m map[string]interface{}) {
+func (c MapClaims) merge(m map[string]any) {
 	for k, v := range m {
 		c[k] = v
 	}
 }
 
-func normalize(i interface{}) (map[string]interface{}, error) {
-	m := make(map[string]interface{})
+func normalize(i any) (map[string]any, error) {
+	m := make(map[string]any)
 
 	raw, err := json.Marshal(i)
 	if err != nil {
@@ -553,7 +557,7 @@ func (c MapClaims) VerifyAudience(expected []string) error {
 		aud = append(aud, v)
 	case []string:
 		aud = v
-	case []interface{}:
+	case []any:
 		for _, a := range v {
 			vs, ok := a.(string)
 			if !ok {
@@ -743,7 +747,7 @@ type Audience []string
 
 // UnmarshalJSON reads an audience from its JSON representation.
 func (s *Audience) UnmarshalJSON(b []byte) error {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return errors.WithStack(err)
 	}
@@ -751,7 +755,7 @@ func (s *Audience) UnmarshalJSON(b []byte) error {
 	switch v := v.(type) {
 	case string:
 		*s = []string{v}
-	case []interface{}:
+	case []any:
 		a := make([]string, len(v))
 		for i, e := range v {
 			s, ok := e.(string)

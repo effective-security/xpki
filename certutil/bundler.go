@@ -492,7 +492,7 @@ type Chain struct {
 	Chain       []*x509.Certificate
 	Cert        *x509.Certificate
 	Root        *x509.Certificate
-	Key         interface{}
+	Key         any
 	Issuer      *pkix.Name
 	Subject     *pkix.Name
 	Expires     time.Time

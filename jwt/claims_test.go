@@ -168,7 +168,7 @@ func TestMapClaims(t *testing.T) {
 	c2["exp"] = time.Now().Add(time.Hour).Unix()
 	assert.NoError(t, c2.Valid(cfg))
 
-	c4 := map[string]interface{}{
+	c4 := map[string]any{
 		"c4":  "444",
 		"aud": []string{"t1", "t2"},
 		"exp": time.Now().Add(-time.Hour).Unix(),
@@ -214,7 +214,7 @@ func TestMapClaims(t *testing.T) {
 	assert.Contains(t, err.Error(), "token expired at")
 
 	c3 := MapClaims{
-		"aud": []interface{}{time.Now()},
+		"aud": []any{time.Now()},
 	}
 	assert.EqualError(t, c3.VerifyAudience([]string{"t2"}), "invalid aud claim with unsupported value")
 }
