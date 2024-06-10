@@ -20,9 +20,9 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/crypto v0.23.0
-	golang.org/x/net v0.25.0
-	golang.org/x/oauth2 v0.20.0
+	golang.org/x/crypto v0.24.0
+	golang.org/x/net v0.26.0
+	golang.org/x/oauth2 v0.21.0
 	google.golang.org/api v0.181.0
 	google.golang.org/protobuf v1.34.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -72,10 +72,10 @@ require (
 	golang.org/x/lint v0.0.0-20201208152925-83fdc39ff7b5 // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.20.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
+	golang.org/x/text v0.16.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.20.0 // indirect
+	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	google.golang.org/genproto v0.0.0-20240415180920-8c6c420018be // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240513163218-0867130af1f8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240513163218-0867130af1f8 // indirect
