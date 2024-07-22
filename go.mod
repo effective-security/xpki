@@ -1,6 +1,7 @@
 module github.com/effective-security/xpki
 
 go 1.22.2
+toolchain go1.22.5
 
 require (
 	cloud.google.com/go/kms v1.18.3
@@ -10,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.26
 	github.com/aws/aws-sdk-go-v2/service/kms v1.35.3
 	github.com/effective-security/metrics v0.6.54
-	github.com/effective-security/x v0.6.37
+	github.com/effective-security/x v0.6.40
 	github.com/effective-security/xlog v0.9.39
 	github.com/go-jose/go-jose/v3 v3.0.3
 	github.com/golang-jwt/jwt v3.2.2+incompatible
