@@ -1,6 +1,6 @@
 module github.com/effective-security/xpki
 
-go 1.22.3
+go 1.22.5
 
 require (
 	cloud.google.com/go/kms v1.19.0
