@@ -273,7 +273,7 @@ func ParsePEM(csrPEM []byte) (*x509.Certificate, error) {
 	}
 
 	if block.Type != "NEW CERTIFICATE REQUEST" && block.Type != "CERTIFICATE REQUEST" {
-		return nil, errors.Errorf("unsupported type in PEM: " + block.Type)
+		return nil, errors.Errorf("unsupported type in PEM: %s", block.Type)
 	}
 
 	return Parse(block.Bytes)

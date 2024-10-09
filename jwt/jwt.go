@@ -156,7 +156,7 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 		}
 		signer, err := crypto.NewSignerFromPEM([]byte(cfg.PrivateKey))
 		if err != nil {
-			return nil, errors.Errorf("failed to load private key: " + err.Error())
+			return nil, errors.Wrap(err, "failed to load private key")
 		}
 		p.signerInfo, err = NewSignerInfo(signer)
 		if err != nil {
@@ -176,7 +176,7 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 		for _, key := range cfg.Keys {
 			seed, err := configloader.ResolveValue(key.Seed)
 			if err != nil {
-				return nil, errors.Errorf("failed to load seed: " + err.Error())
+				return nil, errors.Wrap(err, "failed to load seed")
 			}
 			p.keys[key.ID] = certutil.SHA256([]byte(seed))
 		}

@@ -24,8 +24,8 @@ type Info struct {
 //
 // and then using gofmt to substitute it into a template
 func (v *Info) PopulateFromBuild() {
-	fmt.Sscanf(v.Build, "%d.%d.%d", &v.Major, &v.Minor, &v.Commit)
-	fmt.Sscanf(v.Build, "%f-", &v.flt)
+	_, _ = fmt.Sscanf(v.Build, "%d.%d.%d", &v.Major, &v.Minor, &v.Commit)
+	_, _ = fmt.Sscanf(v.Build, "%f-", &v.flt)
 	v.flt = v.flt*1000000 + float32(v.Commit)
 	v.Runtime = runtime.Version()
 }
