@@ -11,7 +11,6 @@ import (
 	"hash"
 	"io"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
@@ -276,7 +275,7 @@ func DecodeArmoredPgpSignature(armored io.Reader) (*packet.Signature, error) {
 // performs any needed preprocessing.
 func hashForSignature(hashID crypto.Hash, sigType packet.SignatureType) (hash.Hash, hash.Hash, error) {
 	if !hashID.Available() {
-		return nil, nil, errors.Errorf("hash not available: " + strconv.Itoa(int(hashID)))
+		return nil, nil, errors.Errorf("hash not available: %v", hashID)
 	}
 	h := hashID.New()
 
@@ -287,7 +286,7 @@ func hashForSignature(hashID crypto.Hash, sigType packet.SignatureType) (hash.Ha
 		return h, openpgp.NewCanonicalTextHash(h), nil
 	}
 
-	return nil, nil, errors.Errorf("unsupported signature type: " + strconv.Itoa(int(sigType)))
+	return nil, nil, errors.Errorf("unsupported signature type: %v", sigType)
 }
 
 // ConvertPemToPgpPrivateKey parses a PEM encoded private key.

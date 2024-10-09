@@ -74,7 +74,7 @@ func newSymmetricSigner(algo string, key []byte) (crypto.Signer, error) {
 	case algHS512:
 		s.hash = crypto.SHA512
 	default:
-		return nil, errors.Errorf("unsupported algorithm: " + algo)
+		return nil, errors.Errorf("unsupported algorithm: %s", algo)
 	}
 	return s, nil
 }
@@ -216,7 +216,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 	case algRS256, algRS384, algRS512:
 		return EncodeSegment(sig), nil
 	}
-	return "", errors.Errorf("unsupported: " + si.algo)
+	return "", errors.Errorf("unsupported: %s", si.algo)
 }
 
 func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error) {
@@ -328,5 +328,5 @@ func VerifySignature(algo, signingString, signature string, key any) error {
 		}
 		return errors.Errorf("invalid key type for RSA signature: %T", key)
 	}
-	return errors.Errorf("unsupported: %s" + algo)
+	return errors.Errorf("unsupported: %s", algo)
 }
