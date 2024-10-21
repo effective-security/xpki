@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/effective-security/x/values"
-	"github.com/effective-security/xlog"
 	jwtgo "github.com/effective-security/xpki/jwt"
 	"github.com/go-jose/go-jose/v3"
 	"github.com/go-jose/go-jose/v3/jwt"
@@ -200,10 +199,10 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 		Thumbprint: tb,
 	}
 
-	logger.KV(xlog.TRACE,
-		"key", res.Thumbprint,
-		"claims", claims,
-	)
+	// logger.KV(xlog.DEBUG,
+	// 	"key", res.Thumbprint,
+	// 	"claims", claims,
+	// )
 
 	return res, nil
 }
