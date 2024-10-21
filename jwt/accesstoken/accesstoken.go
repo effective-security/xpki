@@ -73,6 +73,12 @@ func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.Verify
 	if err := d.Decode(&claims); err != nil {
 		return nil, errors.WithStack(err)
 	}
+
+	err = claims.Valid(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	return claims, nil
 }
 
