@@ -34,9 +34,31 @@ func TestAT(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, claims, c2)
 
-	c2, err = p.ParseToken(context.Background(), "12345", nil)
+	_, err = p.ParseToken(context.Background(), "12345", nil)
+	assert.EqualError(t, err, "token not supported")
+}
+
+func TestATExpired(t *testing.T) {
+	ctx := context.Background()
+
+	dp, err := dataprotection.NewSymmetric([]byte(`accesstoken`))
 	require.NoError(t, err)
-	assert.Nil(t, c2)
+
+	p := accesstoken.New(dp, nil)
+	claims := jwt.MapClaims{
+		"sub":   "123454",
+		"email": "denis@at.com",
+		"exp":   time.Now().Add(-time.Second).Unix(),
+	}
+
+	assert.Empty(t, p.Issuer())
+	assert.Equal(t, time.Duration(0), p.TokenExpiry())
+
+	at, err := p.Sign(ctx, claims)
+	require.NoError(t, err)
+
+	_, err = p.ParseToken(ctx, at, nil)
+	assert.Error(t, err)
 }
 
 func TestATWithProvider(t *testing.T) {

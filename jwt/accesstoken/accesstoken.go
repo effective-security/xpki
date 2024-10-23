@@ -49,7 +49,7 @@ func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.Verify
 	if !strings.HasPrefix(token, "pat.") {
 		if p.Provider == nil {
 			// not supported
-			return nil, nil
+			return nil, errors.Errorf("token not supported")
 		}
 		cl, err := p.Provider.ParseToken(ctx, token, cfg)
 		if err != nil {
@@ -64,7 +64,7 @@ func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.Verify
 	}
 	js, err := p.dp.Unprotect(ctx, protected)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("failed to decrypt token")
 	}
 
 	d := json.NewDecoder(bytes.NewReader(js))
