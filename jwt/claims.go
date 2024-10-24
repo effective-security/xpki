@@ -606,7 +606,7 @@ func (c MapClaims) VerifyIssuedAt(now time.Time, req bool) error {
 		return nil
 	}
 	if iat.After(now) {
-		return errors.Errorf("token issued after now: %s, now: %s",
+		return errors.Errorf("token issued at %s, after now: %s",
 			iat.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
 	}
 	return nil

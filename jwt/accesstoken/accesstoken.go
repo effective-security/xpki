@@ -18,7 +18,8 @@ import (
 type Provider struct {
 	jwt.Provider
 
-	dp dataprotection.Provider
+	dp         dataprotection.Provider
+	revocation jwt.Revocation
 }
 
 // New returns new Provider
@@ -27,6 +28,14 @@ func New(dp dataprotection.Provider, provider jwt.Provider) jwt.Provider {
 		dp:       dp,
 		Provider: provider,
 	}
+}
+
+func (p *Provider) SetRevocation(r jwt.Revocation) {
+	p.revocation = r
+}
+
+func (p *Provider) GetRevocation() jwt.Revocation {
+	return p.revocation
 }
 
 // Sign returns AccessToken from claims
@@ -77,6 +86,12 @@ func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.Verify
 	err = claims.Valid(cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	if p.revocation != nil {
+		if err := p.revocation.Validate(ctx, token, claims); err != nil {
+			return nil, errors.WithMessagef(err, "invalid token")
+		}
 	}
 
 	return claims, nil

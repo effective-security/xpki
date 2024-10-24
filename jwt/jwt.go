@@ -38,7 +38,18 @@ type Signer interface {
 // Parser specifies JWT parser interface
 type Parser interface {
 	// ParseToken returns jwt.StandardClaims
-	ParseToken(ctx context.Context, authorization string, cfg *VerifyConfig) (MapClaims, error)
+	ParseToken(ctx context.Context, token string, cfg *VerifyConfig) (MapClaims, error)
+
+	GetRevocation() Revocation
+	SetRevocation(Revocation)
+}
+
+type Revocation interface {
+	// Validate validates token claims,
+	// it can be used to validate token revocation, etc.
+	Validate(ctx context.Context, token string, claims MapClaims) error
+	// Revoke revokes token
+	Revoke(ctx context.Context, token string, claims MapClaims) error
 }
 
 // Provider specifies JWT provider interface
@@ -88,6 +99,7 @@ type provider struct {
 	verifyKey   crypto.PublicKey
 	headers     map[string]any
 	parser      TokenParser
+	revocation  Revocation
 }
 
 // LoadProviderConfig returns provider configuration loaded from a file
@@ -251,6 +263,14 @@ func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error) {
 	return p, nil
 }
 
+func (p *provider) SetRevocation(r Revocation) {
+	p.revocation = r
+}
+
+func (p *provider) GetRevocation() Revocation {
+	return p.revocation
+}
+
 // PublicKey is returned for assymetric signer
 func (p *provider) PublicKey() crypto.PublicKey {
 	return p.verifyKey
@@ -317,10 +337,15 @@ func (p *provider) ParseToken(ctx context.Context, authorization string, cfg *Ve
 		return p.verifyKey, nil
 	})
 	if err != nil {
-		return nil, errors.WithMessagef(err, "failed to verify token")
+		return nil, errors.WithMessagef(err, "unable to verify token")
 	}
 
 	if claims, ok := token.Claims.(MapClaims); ok && token.Valid {
+		if p.revocation != nil {
+			if err := p.revocation.Validate(ctx, authorization, claims); err != nil {
+				return nil, errors.WithMessagef(err, "invalid token")
+			}
+		}
 		return claims, nil
 	}
 
