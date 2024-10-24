@@ -143,9 +143,10 @@ func (p *TokenParser) ParseUnverified(tokenString string, claims MapClaims) (tok
 
 // parser for JWT
 type parser struct {
-	issuer   string
-	parser   TokenParser
-	verifier KeySet
+	issuer     string
+	parser     TokenParser
+	verifier   KeySet
+	revocation Revocation
 }
 
 // LoadParserConfig returns parser configuration loaded from a file
@@ -179,6 +180,14 @@ func NewParser(cfg *ParserConfig) (Parser, error) {
 	return p, nil
 }
 
+func (p *parser) SetRevocation(r Revocation) {
+	p.revocation = r
+}
+
+func (p *parser) GetRevocation() Revocation {
+	return p.revocation
+}
+
 // ParseToken returns MapClaims
 func (p *parser) ParseToken(ctx context.Context, authorization string, cfg *VerifyConfig) (MapClaims, error) {
 	if p.verifier == nil {
@@ -201,10 +210,15 @@ func (p *parser) ParseToken(ctx context.Context, authorization string, cfg *Veri
 		return p.verifier.GetKey(ctx, keyID)
 	})
 	if err != nil {
-		return nil, errors.WithMessagef(err, "failed to verify token")
+		return nil, errors.WithMessagef(err, "unable to verify token")
 	}
 
 	if claims, ok := token.Claims.(MapClaims); ok && token.Valid {
+		if p.revocation != nil {
+			if err := p.revocation.Validate(ctx, authorization, claims); err != nil {
+				return nil, errors.WithMessagef(err, "invalid token")
+			}
+		}
 		return claims, nil
 	}
 

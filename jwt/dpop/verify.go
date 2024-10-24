@@ -174,7 +174,7 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 		return pjwk.Public().Key, nil
 	})
 	if err != nil {
-		return nil, errors.WithMessagef(err, "dpop: failed to verify token")
+		return nil, errors.WithMessagef(err, "dpop: unable to verify token")
 	}
 	if cfg.ExpectedIssuer != "" && claims.Issuer != cfg.ExpectedIssuer {
 		return nil, errors.Errorf("dpop: invalid issuer: '%s'", claims.Issuer)

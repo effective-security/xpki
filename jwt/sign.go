@@ -37,6 +37,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/effective-security/xpki/certutil"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
@@ -221,6 +222,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 
 func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error) {
 	header := map[string]any{
+		"jti": certutil.RandomString(8),
 		"typ": "JWT",
 		"alg": si.algo,
 	}

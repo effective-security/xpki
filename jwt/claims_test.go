@@ -153,7 +153,7 @@ func TestMapClaims(t *testing.T) {
 	err = c2.VerifyAudience([]string{"t2"})
 	assert.EqualError(t, err, "token missing audience: t2")
 	err = c2.VerifyIssuedAt(now, true)
-	assert.Contains(t, err.Error(), "token issued after now")
+	assert.Contains(t, err.Error(), "after now:")
 	err = c2.VerifyNotBefore(now, true)
 	assert.Contains(t, err.Error(), "token not valid yet")
 
