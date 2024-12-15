@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/kms v1.20.2
 	github.com/alecthomas/kong v1.6.0
 	github.com/aws/aws-sdk-go-v2 v1.32.6
-	github.com/aws/aws-sdk-go-v2/config v1.28.0
+	github.com/aws/aws-sdk-go-v2/config v1.28.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.47
 	github.com/aws/aws-sdk-go-v2/service/kms v1.37.7
 	github.com/effective-security/metrics v0.6.66
