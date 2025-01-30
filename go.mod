@@ -4,7 +4,7 @@ go 1.23.2
 
 require (
 	cloud.google.com/go/kms v1.20.4
-	github.com/alecthomas/kong v1.6.0
+	github.com/alecthomas/kong v1.7.0
 	github.com/aws/aws-sdk-go-v2 v1.34.0
 	github.com/aws/aws-sdk-go-v2/config v1.29.2
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.55
