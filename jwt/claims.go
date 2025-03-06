@@ -57,6 +57,7 @@ type Claims struct {
 	// map of Org:Role
 	Orgs    map[string]string `json:"orgs,omitempty"`
 	OrgRole string            `json:"org_role,omitempty"`
+	Scope   Audience          `json:"scope,omitempty"`
 }
 
 // Marshal returns JSON encoded string
@@ -317,6 +318,24 @@ func (c MapClaims) StringsMap(k string) map[string]string {
 			res[k] = fmt.Sprint(v)
 		}
 		return res
+	}
+	return nil
+}
+
+// Strings will return the named claim as a []string
+func (c MapClaims) Strings(k string) []string {
+	if c == nil {
+		return nil
+	}
+	v := c[k]
+	if v == nil {
+		return nil
+	}
+	switch tv := v.(type) {
+	case []string:
+		return tv
+	case string:
+		return []string{tv}
 	}
 	return nil
 }

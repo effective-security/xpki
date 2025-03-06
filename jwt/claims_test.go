@@ -250,6 +250,20 @@ func TestClaims_String(t *testing.T) {
 	c(o, "struct", `{"Foo":"foo","B":true,"I":-1}`)
 }
 
+func TestClaims_Strings(t *testing.T) {
+	c := func(o MapClaims, k string, exp any) {
+		act := o.Strings(k)
+		assert.Equal(t, act, exp)
+	}
+
+	o := MapClaims{
+		"foo":  "bar",
+		"list": []string{"1", "2"},
+	}
+	c(o, "foo", []string{"bar"})
+	c(o, "list", []string{"1", "2"})
+}
+
 func TestClaims_Int(t *testing.T) {
 	c := func(o MapClaims, k string, exp int) {
 		act := o.Int(k)
