@@ -332,6 +332,16 @@ func (c MapClaims) Strings(k string) []string {
 		return nil
 	}
 	switch tv := v.(type) {
+	case []any:
+		var res []string
+		for _, v := range tv {
+			if vs, ok := v.(string); ok {
+				res = append(res, vs)
+			} else {
+				res = append(res, fmt.Sprint(v))
+			}
+		}
+		return res
 	case []string:
 		return tv
 	case string:
