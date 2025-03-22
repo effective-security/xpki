@@ -74,7 +74,7 @@ func MakeSelfCertECDSAPem(hours int) (pemCert, pemKey []byte, err error) {
 // MakeSelfCertRSA creates self-signed cert
 func MakeSelfCertRSA(hours int) (*x509.Certificate, crypto.PrivateKey, error) {
 	// rsa key pair
-	key, err := rsa.GenerateKey(crand.Reader, 512)
+	key, err := rsa.GenerateKey(crand.Reader, 1024)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}

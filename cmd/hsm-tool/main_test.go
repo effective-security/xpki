@@ -16,7 +16,7 @@ func TestMain(t *testing.T) {
 	}
 
 	realMain([]string{"hsm-tool", "version"}, out, errout, exit)
-	assert.Equal(t, 1, rc)
+	assert.Equal(t, 80, rc)
 	assert.Equal(t, "hsm-tool: error: unexpected argument version\n", errout.String())
 	assert.Empty(t, out.String())
 }
