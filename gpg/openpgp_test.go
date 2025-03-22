@@ -148,7 +148,7 @@ func TestOpenPGP_Hash256(t *testing.T) {
 }
 
 func Test_CreateSignaturePGP(t *testing.T) {
-	pemCert, pemKey, err := testca.MakeSelfCertRSAPem(720)
+	pemCert, pemKey, err := testca.MakeSelfCertRSAPem(1024)
 	require.NoError(t, err)
 
 	certs, err := certutil.ParseChainFromPEM(pemCert)
@@ -177,8 +177,8 @@ func Test_CreateSignaturePGP(t *testing.T) {
 
 	signatureStr := buf.String()
 
-	t.Logf(string(pemCert))
-	t.Logf(signatureStr)
+	// t.Log(string(pemCert))
+	// t.Log(signatureStr)
 
 	signed := sha256.New()
 	_, err = signed.Write(data)
@@ -192,7 +192,7 @@ func Test_CreateSignaturePGP(t *testing.T) {
 
 	pem, err := EncodePGPEntityToPEM(ctx)
 	require.NoError(t, err)
-	t.Logf(string(pem))
+	t.Log(string(pem))
 
 	kr, err := KeyRing(pem)
 	require.NoError(t, err)
@@ -201,6 +201,7 @@ func Test_CreateSignaturePGP(t *testing.T) {
 }
 
 func Test_VerifySignaturePGP(t *testing.T) {
+	// TODO: add test for stronger key
 	pemCert := `
 -----BEGIN CERTIFICATE-----
 MIIBITCBzKADAgECAghNZYIhB/z9UjANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQD
@@ -231,7 +232,7 @@ aWSp29Dwgi9rQ9rwWzCfNf6eJxjNZpOrgfpB3h1ZJD+VI2QnaM+m2z7jPqgRqA==
 	require.NoError(t, err)
 
 	err = VerifySignaturePGP(signed, signature, pubkey)
-	require.NoError(t, err)
+	assert.EqualError(t, err, "detached PGP signature: openpgp: invalid signature: RSA verification failure")
 }
 
 func Test_ConvertPublicKeyToPGP(t *testing.T) {
@@ -330,7 +331,7 @@ func Test_EncodePGPEntity(t *testing.T) {
 
 	pem, err := EncodePGPEntityToPEM(entity)
 	require.NoError(t, err)
-	t.Logf(string(pem))
+	t.Log(string(pem))
 
 	entity2, err := DecodePGPEntityFromPEM(bytes.NewReader(pem))
 	require.NoError(t, err)

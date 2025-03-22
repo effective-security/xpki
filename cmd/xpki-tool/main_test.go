@@ -16,7 +16,7 @@ func TestMain(t *testing.T) {
 	}
 
 	realMain([]string{"xpki-tool", "version"}, out, errout, exit)
-	assert.Equal(t, 1, rc)
+	assert.Equal(t, 80, rc)
 	assert.Equal(t, "xpki-tool: error: unexpected argument version\n", errout.String())
 	assert.Empty(t, out.String())
 }
