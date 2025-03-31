@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.62
 	github.com/aws/aws-sdk-go-v2/service/kms v1.38.1
 	github.com/effective-security/metrics v0.7.83
-	github.com/effective-security/x v0.10.50
+	github.com/effective-security/x v0.11.52
 	github.com/effective-security/xlog v0.9.41
 	github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/golang-jwt/jwt/v4 v4.5.2
