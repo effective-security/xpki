@@ -158,21 +158,21 @@ func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error) {
 }
 
 // sign returns signed segment
-func sign(signingString string, signer crypto.Signer) (string, error) {
+func sign(signingString string, signer crypto.Signer) ([]byte, error) {
 	si, err := NewSignerInfo(signer)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	return si.sign(signingString)
 }
 
-func (si *SignerInfo) sign(signingString string) (string, error) {
+func (si *SignerInfo) sign(signingString string) ([]byte, error) {
 	if strings.HasPrefix(si.algo, "HS") {
 		sig, err := si.signer.Sign(nil, []byte(signingString), nil)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		return EncodeSegment(sig), nil
+		return sig, nil
 	}
 
 	h := si.hasher.hash.New()
@@ -180,7 +180,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 
 	sig, err := si.signer.Sign(rand.Reader, h.Sum(nil), si.hasher)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	switch si.algo {
@@ -196,7 +196,7 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 			!inner.ReadASN1Integer(r) ||
 			!inner.ReadASN1Integer(s) ||
 			!inner.Empty() {
-			return "", errors.Errorf("unable to decode ECDSA signature")
+			return nil, errors.Errorf("unable to decode ECDSA signature")
 		}
 
 		curveBits := si.keySize
@@ -212,12 +212,12 @@ func (si *SignerInfo) sign(signingString string) (string, error) {
 		r.FillBytes(out[0:keyBytes]) // r is assigned to the first half of output.
 		s.FillBytes(out[keyBytes:])  // s is assigned to the second half of output.
 
-		return EncodeSegment(out), nil
+		return out, nil
 
 	case algRS256, algRS384, algRS512:
-		return EncodeSegment(sig), nil
+		return sig, nil
 	}
-	return "", errors.Errorf("unsupported: %s", si.algo)
+	return nil, errors.Errorf("unsupported: %s", si.algo)
 }
 
 func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error) {
@@ -244,7 +244,7 @@ func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error
 	if err != nil {
 		return "", err
 	}
-	return sstr + "." + sig, nil
+	return sstr + "." + EncodeSegment(sig), nil
 }
 
 var hashMap = map[string]crypto.Hash{
