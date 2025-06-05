@@ -27,10 +27,8 @@ func TestNativeECDSA(t *testing.T) {
 	var err error
 	var key *ecdsa.PrivateKey
 	for i, curve := range curves {
-		if key, err = ecdsa.GenerateKey(curve, rand.Reader); err != nil {
-			t.Errorf("[%d] crypto.ecdsa.GenerateKey, curve=%v: %v", i, curve, err)
-			return
-		}
+		key, err = ecdsa.GenerateKey(curve, rand.Reader)
+		require.NoError(t, err, "[%d] crypto.ecdsa.GenerateKey, curve=%v", i, curve)
 		testEcdsaSigning(t, key, crypto.SHA1)
 		//testEcdsaSigning(t, key, crypto.SHA224)
 		testEcdsaSigning(t, key, crypto.SHA256)

@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/pkg/errors"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "inmemcrypto")

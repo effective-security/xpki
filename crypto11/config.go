@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	pkcs11 "github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
 

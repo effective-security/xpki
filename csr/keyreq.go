@@ -6,8 +6,8 @@ import (
 	"crypto/x509"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/pkg/errors"
 )
 
 const (

@@ -6,8 +6,8 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 
+	"github.com/cockroachdb/errors"
 	"github.com/go-jose/go-jose/v3"
-	"github.com/pkg/errors"
 )
 
 // KeyInfo provides information about the key

@@ -7,10 +7,10 @@ import (
 	"path"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
-	"github.com/pkg/errors"
 )
 
 // CRLCmd provides commands for CRL

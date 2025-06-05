@@ -37,8 +37,8 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/certutil"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
 )

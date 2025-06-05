@@ -4,8 +4,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/x/print"
-	"github.com/pkg/errors"
 )
 
 // CsrInfoCmd specifies flags for Info command

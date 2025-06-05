@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/cockroachdb/errors"
 	jose "github.com/go-jose/go-jose/v3"
-	"github.com/pkg/errors"
 )
 
 // KeySet is an interface for verifying JWT signatures.

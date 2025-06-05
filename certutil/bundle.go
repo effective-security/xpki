@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/pkg/errors"
 )
 
 // BundleStatus is designated for various status reporting.
@@ -79,10 +79,22 @@ func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte, opt ...Option) (bund
 // BuildBundle returns Bundle
 func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error) {
 	var pemCert, pemRoot, pemCA string
-	pemCert, _ = EncodeToPEMString(false, c.Cert)
-	pemRoot, _ = EncodeToPEMString(false, c.Root)
+
+	pemCert, err = EncodeToPEMString(false, c.Cert)
+	if err != nil {
+		return nil, nil, errors.WithMessage(err, "failed to encode cert to PEM")
+	}
+
+	pemRoot, err = EncodeToPEMString(false, c.Root)
+	if err != nil {
+		return nil, nil, errors.WithMessage(err, "failed to encode root cert to PEM")
+	}
+
 	if len(c.Chain) > 1 {
-		pemCA, _ = EncodeToPEMString(false, c.Chain[1:]...)
+		pemCA, err = EncodeToPEMString(false, c.Chain[1:]...)
+		if err != nil {
+			return nil, nil, errors.WithMessage(err, "failed to encode CA chain to PEM")
+		}
 	}
 
 	bundle = &Bundle{

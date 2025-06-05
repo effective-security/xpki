@@ -18,13 +18,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/metricskey"
 	"github.com/effective-security/xpki/oid"
-	"github.com/pkg/errors"
 )
 
 var (
@@ -125,16 +125,22 @@ func (ca *Issuer) OcspExpiry() time.Duration {
 
 // Profile returns CertProfile
 func (ca *Issuer) Profile(name string) *CertProfile {
+	ca.lock.RLock()
+	defer ca.lock.RUnlock()
 	return ca.cfg.Profiles[name]
 }
 
 // Profiles returns CertProfiles
 func (ca *Issuer) Profiles() map[string]*CertProfile {
+	ca.lock.RLock()
+	defer ca.lock.RUnlock()
 	return ca.cfg.Profiles
 }
 
 // AddProfile adds CertProfile
 func (ca *Issuer) AddProfile(label string, p *CertProfile) {
+	ca.lock.Lock()
+	defer ca.lock.Unlock()
 	ca.cfg.Profiles[label] = p
 }
 
@@ -341,7 +347,7 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 	if profileName == "" {
 		profileName = "default"
 	}
-	profile := ca.cfg.Profiles[profileName]
+	profile := ca.Profile(profileName)
 	if profile == nil {
 		return nil, nil, errors.New("unsupported profile: " + profileName)
 	}

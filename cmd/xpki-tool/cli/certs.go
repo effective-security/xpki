@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -186,6 +186,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 
 	// revInfo stores all certificates statuses
 	var revInfo []*certRevInfo
+	var revInfoMutex sync.Mutex
 
 	// For Revocation Check
 	if len(chain) > 0 && a.Revocation {
@@ -203,7 +204,9 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 			}
 
 			if len(crt.OCSPServer) == 0 {
+				revInfoMutex.Lock()
 				revInfo = append(revInfo, &certRevInfo{crt: crt, status: ocsp.Unknown, revokedType: "OCSP", err: errors.New("OCSP server is not present")})
+				revInfoMutex.Unlock()
 				//				fmt.Fprintf(w, "OCSP server is not present: %s\n", crt.Subject.String())
 			}
 
@@ -213,16 +216,20 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 					defer wg.Done()
 
 					status, _, err := OCSPValidation(client, crt, issuer, URL)
+					revInfoMutex.Lock()
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "OCSP"})
 					} else {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, url: URL, revokedType: "OCSP"})
 					}
+					revInfoMutex.Unlock()
 				}(url)
 			}
 
 			if len(crt.CRLDistributionPoints) == 0 {
+				revInfoMutex.Lock()
 				revInfo = append(revInfo, &certRevInfo{crt: crt, status: ocsp.Unknown, revokedType: "CRL", err: errors.New("CDP is not present")})
+				revInfoMutex.Unlock()
 				//				fmt.Fprintf(w, "CRL endpoint is not present: %s\n", crt.Subject.String())
 			}
 
@@ -231,11 +238,13 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 				go func(URL string) {
 					defer wg.Done()
 					status, err := CRLValidation(client, crt, issuer, URL)
+					revInfoMutex.Lock()
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "CRL"})
 					} else {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, url: URL, revokedType: "CRL"})
 					}
+					revInfoMutex.Unlock()
 				}(url)
 			}
 			wg.Wait()

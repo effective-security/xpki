@@ -10,9 +10,9 @@ import (
 	"os"
 	"path"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	jose "github.com/go-jose/go-jose/v3"
-	"github.com/pkg/errors"
 )
 
 // Thumbprint returns key thumbprint

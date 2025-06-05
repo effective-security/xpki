@@ -1,8 +1,8 @@
 package crypto11
 
 import (
+	"github.com/cockroachdb/errors"
 	pkcs11 "github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 // NewSession creates new RW session for a given slot

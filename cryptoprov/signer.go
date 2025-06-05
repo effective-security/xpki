@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 )
 
 // NewSignerFromFromFile generates a new signer from a caFile

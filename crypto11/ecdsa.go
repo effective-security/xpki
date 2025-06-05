@@ -9,9 +9,9 @@ import (
 	"io"
 	"math/big"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	pkcs11 "github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 // PKCS11PrivateKeyECDSA contains a reference to a loaded PKCS#11 ECDSA private key object.

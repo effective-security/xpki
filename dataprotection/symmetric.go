@@ -9,7 +9,7 @@ import (
 	"crypto/sha256"
 	"io"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"golang.org/x/crypto/hkdf"
 )
 

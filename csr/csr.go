@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/oid"
-	"github.com/pkg/errors"
 )
 
 // Signer interface to sign CSR

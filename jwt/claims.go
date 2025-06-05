@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xlog"
-	"github.com/pkg/errors"
 )
 
 var (

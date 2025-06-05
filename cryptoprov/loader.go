@@ -3,7 +3,7 @@ package cryptoprov
 import (
 	"sync"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 )
 
 // ProviderLoader is interface for loading provider by manufacturer

@@ -5,11 +5,11 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/values"
 	jwtgo "github.com/effective-security/xpki/jwt"
 	"github.com/go-jose/go-jose/v3"
 	"github.com/go-jose/go-jose/v3/jwt"
-	"github.com/pkg/errors"
 )
 
 // VerifyConfig expreses the possible options for validating a JWT

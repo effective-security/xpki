@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
-	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 )
 

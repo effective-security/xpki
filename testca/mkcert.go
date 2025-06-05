@@ -15,7 +15,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 )
 
 // MakeSelfCertECDSA creates self-signed cert

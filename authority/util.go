@@ -5,10 +5,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
-	"github.com/pkg/errors"
 )
 
 // GenCert creates certificate and stores key and certs to specified location

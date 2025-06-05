@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xlog"
 	jose "github.com/go-jose/go-jose/v3"
-	"github.com/pkg/errors"
 )
 
 // ParserConfig provides JWT parser configuration

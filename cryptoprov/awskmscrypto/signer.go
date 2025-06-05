@@ -12,9 +12,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/metricskey"
-	"github.com/pkg/errors"
 )
 
 // Signer implements crypto.Signer interface

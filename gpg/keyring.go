@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"os"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/armor"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/openpgp"
 )
 

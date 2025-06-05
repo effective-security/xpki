@@ -30,9 +30,7 @@ func TestInfo_GreaterOrEqual(t *testing.T) {
 	v20 := Info{2, 0, 3, "", "go1.5", float32(2.0*1000000 + 3)}
 	f := func(v, other Info, expected bool) {
 		act := v.GreaterOrEqual(other)
-		if act != expected {
-			t.Errorf("%v GreaterOrEqual (%v) return wrong result of %v, expecting %v", v, other, act, expected)
-		}
+		assert.Equal(t, expected, act, "%v GreaterOrEqual (%v) return wrong result", v, other)
 	}
 	f(v01, v01, true)
 	f(v02, v01, true)

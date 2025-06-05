@@ -49,8 +49,8 @@ import (
 	"crypto"
 	"sync"
 
+	"github.com/cockroachdb/errors"
 	pkcs11 "github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 // errTokenNotFound represents the failure to find the requested PKCS#11 token
