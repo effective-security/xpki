@@ -7,7 +7,7 @@ import (
 	"hash"
 	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 )
 
 var hashToStr = map[crypto.Hash]string{

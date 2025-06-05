@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 )
 
 // PrivateKeyURI holds PKCS#11 private key information.

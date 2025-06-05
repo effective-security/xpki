@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/gpg"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/openpgp/packet"
 )
 

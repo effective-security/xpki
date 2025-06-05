@@ -9,8 +9,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	pkcs11 "github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 // KeyPurpose declares the purpose for keys

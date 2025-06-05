@@ -10,9 +10,9 @@ import (
 	"io"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/pkg/errors"
 )
 
 // inMemProv stores keyID to signer mapping in memory. Private keys are not exportable.
@@ -29,7 +29,7 @@ func (h *inMemProv) registerKey(keyID string, pvk crypto.PrivateKey) {
 func (h *inMemProv) getKey(keyID string) (crypto.PrivateKey, error) {
 	pvk, ok := h.keyIDToPvk[keyID]
 	if !ok {
-		return nil, fmt.Errorf("key not found: %s", keyID)
+		return nil, errors.Errorf("key not found: %s", keyID)
 	}
 	return pvk, nil
 }

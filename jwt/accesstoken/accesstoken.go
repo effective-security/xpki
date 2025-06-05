@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/dataprotection"
 	"github.com/effective-security/xpki/jwt"
-	"github.com/pkg/errors"
 )
 
 // Provider of Access Token

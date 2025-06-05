@@ -9,8 +9,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/cockroachdb/errors"
 	"github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 // AttributeNames maps PKCS11 atribute to string

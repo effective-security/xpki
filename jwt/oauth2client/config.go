@@ -12,6 +12,8 @@ type Config struct {
 
 // ClientConfig provides OAuth2 configuration
 type ClientConfig struct {
+	// Disabled specifies if the client is disabled
+	Disabled bool `json:"disabled" yaml:"disabled"`
 	// ProviderID specifies Auth.Provider ID
 	ProviderID string `json:"provider_id" yaml:"provider_id"`
 	// ClientID specifies client ID
@@ -78,12 +80,16 @@ func Load(cfgfile string) ([]*Client, error) {
 		return nil, err
 	}
 
-	list := make([]*Client, len(cfg.Clients))
-	for idx, c := range cfg.Clients {
-		list[idx], err = New(c)
+	list := make([]*Client, 0, len(cfg.Clients))
+	for _, c := range cfg.Clients {
+		if c.Disabled {
+			continue
+		}
+		client, err := New(c)
 		if err != nil {
 			return nil, err
 		}
+		list = append(list, client)
 	}
 
 	return list, nil

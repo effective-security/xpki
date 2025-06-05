@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/fileutil"
 	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/x/print"
-	"github.com/pkg/errors"
 )
 
 // HsmCmd is the parent for HSM command

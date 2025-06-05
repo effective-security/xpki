@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/oid"
 	"github.com/jinzhu/copier"
-	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
 

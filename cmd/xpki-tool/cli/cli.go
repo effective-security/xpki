@@ -5,10 +5,10 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/ctl"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/x/print"
-	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
 

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/metricskey"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/ocsp"
 )
 

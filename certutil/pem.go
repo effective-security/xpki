@@ -14,7 +14,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 )
 
 // LoadFromPEM returns Certificate loaded from the file

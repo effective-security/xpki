@@ -3,10 +3,10 @@ package crypto11
 import (
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 func init() {

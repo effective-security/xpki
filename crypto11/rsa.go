@@ -7,9 +7,9 @@ import (
 	"math/big"
 	"unsafe"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	pkcs11 "github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 // PKCS11PrivateKeyRSA contains a reference to a loaded PKCS#11 RSA private key object.

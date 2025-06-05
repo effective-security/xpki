@@ -3,7 +3,7 @@ package oauth2client
 import (
 	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 )
 
 // Provider of OAuth2 clients
@@ -31,6 +31,9 @@ func NewProvider(cfg *Config) (*Provider, error) {
 	}
 
 	for _, c := range cfg.Clients {
+		if c.Disabled {
+			continue
+		}
 		err := p.RegisterClient(c, false)
 		if err != nil {
 			return nil, err

@@ -3,9 +3,9 @@ package authority
 import (
 	"crypto"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
-	"github.com/pkg/errors"
 )
 
 // NewRoot creates a new root certificate from the certificate request.

@@ -6,8 +6,8 @@ import (
 	"io"
 	"math/big"
 
+	"github.com/cockroachdb/errors"
 	pkcs11 "github.com/miekg/pkcs11"
-	"github.com/pkg/errors"
 )
 
 // PKCS11PrivateKeyDSA contains a reference to a loaded PKCS#11 DSA private key object.
