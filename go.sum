@@ -57,8 +57,8 @@ github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ3
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/effective-security/metrics v0.8.94 h1:SskjWU/cXtlampGV4DUY8UeAR+Hpqy8/jlCvVWuIWlY=
-github.com/effective-security/metrics v0.8.94/go.mod h1:pF3WYh8Unn4X0PBXbHhICS5wWkwsCXUq6eGryyWzqL8=
+github.com/effective-security/metrics v0.8.99 h1:CBpQnjB/gTM+T+UJTp0alKUjgkOd9DevHMhadWEfm90=
+github.com/effective-security/metrics v0.8.99/go.mod h1:QOcvT3oXiZKH4VMYlkdOrk7/KggYzf+8SBlBUUzLCbI=
 github.com/effective-security/x v0.14.64 h1:87myZ63/GoAyxbQbD9rATZ4Ip4AMK8mhB3r04S5BnTs=
 github.com/effective-security/x v0.14.64/go.mod h1:ijUNpgZPbxhJtF5GxNVZgHD1s30WPAuBCP2tem9ivP0=
 github.com/effective-security/xlog v0.9.41 h1:z+35GBV0BSybcl0rtuqxaqoDHa5ayY1CrjWPDRL9cdc=
