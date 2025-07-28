@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.36.6
 	github.com/aws/aws-sdk-go-v2/config v1.29.18
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.71
-	github.com/aws/aws-sdk-go-v2/service/kms v1.41.3
+	github.com/aws/aws-sdk-go-v2/service/kms v1.41.4
 	github.com/cockroachdb/errors v1.12.0
 	github.com/effective-security/metrics v0.8.99
 	github.com/effective-security/x v0.14.64
