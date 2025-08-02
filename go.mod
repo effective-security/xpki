@@ -14,7 +14,7 @@ require (
 	github.com/effective-security/x v0.14.68
 	github.com/effective-security/xlog v0.10.42
 	github.com/go-jose/go-jose/v3 v3.0.4
-	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/googleapis/gax-go/v2 v2.15.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/miekg/pkcs11 v1.1.1
