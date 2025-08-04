@@ -61,8 +61,8 @@ github.com/effective-security/metrics v0.8.99 h1:CBpQnjB/gTM+T+UJTp0alKUjgkOd9De
 github.com/effective-security/metrics v0.8.99/go.mod h1:QOcvT3oXiZKH4VMYlkdOrk7/KggYzf+8SBlBUUzLCbI=
 github.com/effective-security/x v0.14.68 h1:zhdArxx9HDtTlUOS0sfIKpvWGPCd3SbaLdDr4CQD3jc=
 github.com/effective-security/x v0.14.68/go.mod h1:fKWMYem3N10WRWu6109EowWZ/rSoawCOlUtf7pH4wIA=
-github.com/effective-security/xlog v0.10.42 h1:DOOYOJd7gjKEqxqXx8m79Poxu7Na/KYQ6HG2NY1QJTc=
-github.com/effective-security/xlog v0.10.42/go.mod h1:bK02QBVCwMTcPDkkzpJRI1cu+Rs0q19XaoFbBowtC64=
+github.com/effective-security/xlog v0.10.44 h1:MXEC0gMVdrK+sLSnlgX7DrwA1WUmVXp5R3AOheJGQQ4=
+github.com/effective-security/xlog v0.10.44/go.mod h1:bK02QBVCwMTcPDkkzpJRI1cu+Rs0q19XaoFbBowtC64=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/getsentry/sentry-go v0.27.0 h1:Pv98CIbtB3LkMWmXi4Joa5OOcwbmnX88sF5qbK3r3Ps=
