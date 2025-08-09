@@ -10,7 +10,6 @@ import (
 	"github.com/effective-security/x/ctl"
 	"github.com/effective-security/xpki/cmd/hsm-tool/cli"
 	"github.com/effective-security/xpki/internal/version"
-	logger "github.com/sirupsen/logrus"
 )
 
 type app struct {
@@ -21,9 +20,6 @@ type app struct {
 }
 
 func main() {
-	logger.SetReportCaller(true)
-	logger.SetFormatter(&logger.TextFormatter{})
-
 	realMain(os.Args, os.Stdout, os.Stderr, os.Exit)
 }
 
