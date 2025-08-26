@@ -18,7 +18,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.15.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/miekg/pkcs11 v1.1.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	golang.org/x/crypto v0.41.0
 	golang.org/x/net v0.43.0
 	golang.org/x/oauth2 v0.30.0
