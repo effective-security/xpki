@@ -77,7 +77,7 @@ func (p *Provider) Client(provider string) *Client {
 	return prov
 }
 
-// ClientForDomain returns Client by domain
+// ClientForProvider returns Client by provider
 func (p *Provider) ClientForProvider(provider string) *Client {
 	return p.clients[provider]
 }

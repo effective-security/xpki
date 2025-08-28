@@ -153,7 +153,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 }
 
 func (p *Provider) genKey(ctx context.Context, req *kmspb.CreateCryptoKeyRequest, label string) (crypto.PrivateKey, error) {
-	resp, err := p.KmsClient.CreateCryptoKey(ctx, req)
+	resp, err := p.CreateCryptoKey(ctx, req)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to create key")
 	}
@@ -166,7 +166,7 @@ func (p *Provider) genKey(ctx context.Context, req *kmspb.CreateCryptoKeyRequest
 	var pubKeyResp *kmspb.PublicKey
 	// Retrieve public key from KMS
 	for i := 0; i < 60; i++ {
-		pubKeyResp, err = p.KmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: resp.Name + "/cryptoKeyVersions/1"})
+		pubKeyResp, err = p.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: resp.Name + "/cryptoKeyVersions/1"})
 		if err == nil {
 			break
 		}
@@ -255,12 +255,12 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
 
 	ctx := context.Background()
 	name := p.keyName(keyID)
-	key, err := p.KmsClient.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: name})
+	key, err := p.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: name})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to get key")
 	}
 
-	pubResponse, err := p.KmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: name + "/cryptoKeyVersions/1"})
+	pubResponse, err := p.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: name + "/cryptoKeyVersions/1"})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to get public key")
 	}
@@ -288,7 +288,7 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
 	logger.KV(xlog.DEBUG, "endpoint", p.endpoint, "slotID", slotID, "prefix", prefix)
 
-	iter := p.KmsClient.ListCryptoKeys(
+	iter := p.ListCryptoKeys(
 		context.Background(),
 		&kmspb.ListCryptoKeysRequest{
 			Parent: p.keyring,
@@ -338,7 +338,7 @@ func keyLabelInfo(key *kmspb.CryptoKey) string {
 // DestroyKeyPairOnSlot destroys key pair on slot. For KMS slotID is ignored and KMS retire API is used to destroy the key.
 func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	logger.KV(xlog.NOTICE, "slot", slotID, "key", keyID)
-	resp, err := p.KmsClient.DestroyCryptoKeyVersion(context.Background(),
+	resp, err := p.DestroyCryptoKeyVersion(context.Background(),
 		&kmspb.DestroyCryptoKeyVersionRequest{
 			Name: p.keyVersionName(keyID),
 		})
@@ -359,14 +359,14 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 
 	logger.KV(xlog.DEBUG, "key", name)
 
-	key, err := p.KmsClient.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: name})
+	key, err := p.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: name})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
 	}
 
 	res := keyInfo(key)
 	if includePublic {
-		pub, err := p.KmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: name + "/cryptoKeyVersions/1"})
+		pub, err := p.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: name + "/cryptoKeyVersions/1"})
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 		}
@@ -417,7 +417,7 @@ func (p *Provider) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.P
 // Close allocated resources and file reloader
 func (p *Provider) Close() error {
 	if p.KmsClient != nil {
-		p.KmsClient.Close()
+		_ = p.KmsClient.Close()
 		p.KmsClient = nil
 	}
 	return nil

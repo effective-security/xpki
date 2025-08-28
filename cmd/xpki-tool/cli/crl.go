@@ -94,7 +94,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 			return errors.Wrapf(err, "unable to prase CRL")
 		}
 		if a.Print {
-			fmt.Fprintf(w, "=================================================\n")
+			_, _ = fmt.Fprintf(w, "=================================================\n")
 			print.CertificateList(w, crl)
 		}
 

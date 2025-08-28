@@ -104,9 +104,9 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 		status, der, err := OCSPValidation(client, crt, issuer, url)
 
 		if err != nil {
-			fmt.Fprintf(w, "%s : ERROR: %s\n", url, err.Error())
+			_, _ = fmt.Fprintf(w, "%s : ERROR: %s\n", url, err.Error())
 		} else {
-			fmt.Fprintf(w, "%s: %v\n", url, statusMap[status])
+			_, _ = fmt.Fprintf(w, "%s: %v\n", url, statusMap[status])
 
 			if a.Out != "" {
 				filename := path.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))

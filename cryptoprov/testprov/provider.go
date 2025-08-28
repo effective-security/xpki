@@ -189,7 +189,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 		label = fmt.Sprintf("%x", guid.MustCreate())
 	}
 
-	id := p.idGenerator.Generate()
+	id := p.Generate()
 
 	si := &provImpl{
 		id:    id,
@@ -213,7 +213,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 		label = fmt.Sprintf("%x", guid.MustCreate())
 	}
 
-	id := p.idGenerator.Generate()
+	id := p.Generate()
 
 	si := &provImpl{
 		id:    id,

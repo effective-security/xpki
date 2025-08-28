@@ -68,7 +68,7 @@ func Test_KeyRingFromFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, len(list))
 
-	list, err = gpg.KeyRingFromFiles([]string{"missing_file"})
+	_, err = gpg.KeyRingFromFiles([]string{"missing_file"})
 	require.Error(t, err)
 	assert.Equal(t, "open missing_file: no such file or directory", err.Error())
 }

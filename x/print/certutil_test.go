@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"net/url"
@@ -12,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
 	"github.com/stretchr/testify/assert"
@@ -126,15 +124,15 @@ func TestCSRandCert(t *testing.T) {
 	assert.Equal(t, "{\"cert\":\"cert\",\"csr\":\"csr\",\"key\":\"key\"}\n", out)
 }
 
-func loadJSON(filename string, v any) error {
-	cfr, err := os.Open(filename)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	defer cfr.Close()
-	err = json.NewDecoder(cfr).Decode(v)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	return nil
-}
+// func loadJSON(filename string, v any) error {
+// 	cfr, err := os.Open(filename)
+// 	if err != nil {
+// 		return errors.WithStack(err)
+// 	}
+// 	defer cfr.Close()
+// 	err = json.NewDecoder(cfr).Decode(v)
+// 	if err != nil {
+// 		return errors.WithStack(err)
+// 	}
+// 	return nil
+// }

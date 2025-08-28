@@ -70,7 +70,7 @@ func TestHardRSA(t *testing.T) {
 
 		testRsaEncryption(t, priv, nbits)
 		// Get a fresh handle to  the key
-		id, label, err = p11lib.Identify(&priv.key.PKCS11Object)
+		id, _, err = p11lib.Identify(&priv.key.PKCS11Object)
 		require.NoError(t, err)
 
 		key2, err = p11lib.FindKeyPair(id, "")
@@ -92,9 +92,9 @@ func testRsaSigning(t *testing.T, key crypto.Signer, nbits int) {
 	// testRsaSigningPSS(t, key, crypto.SHA224)
 	// testRsaSigningPSS(t, key, crypto.SHA256)
 	// testRsaSigningPSS(t, key, crypto.SHA384)
-	if nbits > 1024 { // key too smol for SHA512 with sLen=hLen
-		// testRsaSigningPSS(t, key, crypto.SHA512)
-	}
+	// if nbits > 1024 { // key too smol for SHA512 with sLen=hLen
+	// 	// testRsaSigningPSS(t, key, crypto.SHA512)
+	// }
 }
 
 func testRsaSigningPKCS1v15(t *testing.T, key crypto.Signer, hashFunction crypto.Hash) {
@@ -108,55 +108,55 @@ func testRsaSigningPKCS1v15(t *testing.T, key crypto.Signer, hashFunction crypto
 	sig, err = key.Sign(rand.Reader, plaintextHash, hashFunction)
 	require.NoError(t, err)
 
-	rsaPubkey := key.Public().(crypto.PublicKey).(*rsa.PublicKey)
+	rsaPubkey := key.Public().(*rsa.PublicKey)
 	err = rsa.VerifyPKCS1v15(rsaPubkey, hashFunction, plaintextHash, sig)
 	require.NoError(t, err)
 }
 
-func testRsaSigningPSS(t *testing.T, key crypto.Signer, hashFunction crypto.Hash) {
-	var err error
-	var sig []byte
+// func testRsaSigningPSS(t *testing.T, key crypto.Signer, hashFunction crypto.Hash) {
+// 	var err error
+// 	var sig []byte
 
-	plaintext := []byte("sign me with PSS")
-	h := hashFunction.New()
-	h.Write(plaintext)
-	plaintextHash := h.Sum([]byte{})
+// 	plaintext := []byte("sign me with PSS")
+// 	h := hashFunction.New()
+// 	h.Write(plaintext)
+// 	plaintextHash := h.Sum([]byte{})
 
-	pssOptions := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashFunction}
-	sig, err = key.Sign(rand.Reader, plaintextHash, pssOptions)
-	require.NoError(t, err)
+// 	pssOptions := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashFunction}
+// 	sig, err = key.Sign(rand.Reader, plaintextHash, pssOptions)
+// 	require.NoError(t, err)
 
-	rsaPubkey := key.Public().(crypto.PublicKey).(*rsa.PublicKey)
-	err = rsa.VerifyPSS(rsaPubkey, hashFunction, plaintextHash, sig, pssOptions)
-	require.NoError(t, err)
-}
+// 	rsaPubkey := key.Public().(crypto.PublicKey).(*rsa.PublicKey)
+// 	err = rsa.VerifyPSS(rsaPubkey, hashFunction, plaintextHash, sig, pssOptions)
+// 	require.NoError(t, err)
+// }
 
 // TODO: larger HASH, with label
-func testRsaEncryption(t *testing.T, key crypto.Decrypter, nbits int) {
+func testRsaEncryption(t *testing.T, key crypto.Decrypter, nbits int) { // nolint: unparam
 	testRsaEncryptionPKCS1v15(t, key)
 	testRsaEncryptionOAEP(t, key, crypto.SHA1, []byte{})
 	// testRsaEncryptionOAEP(t, key, crypto.SHA224, []byte{})
-	if nbits > 1024 { // key too smol for SHA256
-		// testRsaEncryptionOAEP(t, key, crypto.SHA256, []byte{})
-	}
+	// if nbits > 1024 { // key too smol for SHA256
+	// 	// testRsaEncryptionOAEP(t, key, crypto.SHA256, []byte{})
+	// }
 	//testRsaEncryptionOAEP(t, key, crypto.SHA384, []byte{})
-	if nbits > 1024 { // key too smol for SHA512
-		// testRsaEncryptionOAEP(t, key, crypto.SHA512, []byte{})
-	}
+	// if nbits > 1024 { // key too smol for SHA512
+	// 	// testRsaEncryptionOAEP(t, key, crypto.SHA512, []byte{})
+	// }
 
 	//
 	// With label
 	//
 
-	if nbits == 1024 {
-		// testRsaEncryptionOAEP(t, key, crypto.SHA1, []byte{1, 2, 3, 4})
-	}
+	// if nbits == 1024 {
+	// 	// testRsaEncryptionOAEP(t, key, crypto.SHA1, []byte{1, 2, 3, 4})
+	// }
 	//testRsaEncryptionOAEP(t, key, crypto.SHA224, []byte{5, 6, 7, 8})
 	// testRsaEncryptionOAEP(t, key, crypto.SHA256, []byte{9})
 	// testRsaEncryptionOAEP(t, key, crypto.SHA384, []byte{10, 11, 12, 13, 14, 15})
-	if nbits > 1024 {
-		// testRsaEncryptionOAEP(t, key, crypto.SHA512, []byte{16, 17, 18})
-	}
+	// if nbits > 1024 {
+	// 	// testRsaEncryptionOAEP(t, key, crypto.SHA512, []byte{16, 17, 18})
+	// }
 }
 
 func testRsaEncryptionPKCS1v15(t *testing.T, key crypto.Decrypter) {
@@ -164,7 +164,7 @@ func testRsaEncryptionPKCS1v15(t *testing.T, key crypto.Decrypter) {
 	var ciphertext, decrypted []byte
 
 	plaintext := []byte("encrypt me with old and busted crypto")
-	rsaPubkey := key.Public().(crypto.PublicKey).(*rsa.PublicKey)
+	rsaPubkey := key.Public().(*rsa.PublicKey)
 	ciphertext, err = rsa.EncryptPKCS1v15(rand.Reader, rsaPubkey, plaintext)
 	require.NoError(t, err)
 
@@ -186,7 +186,7 @@ func testRsaEncryptionOAEP(t *testing.T, key crypto.Decrypter, hashFunction cryp
 
 	plaintext := []byte("encrypt me with new hotness")
 	h := hashFunction.New()
-	rsaPubkey := key.Public().(crypto.PublicKey).(*rsa.PublicKey)
+	rsaPubkey := key.Public().(*rsa.PublicKey)
 	ciphertext, err = rsa.EncryptOAEP(h, rand.Reader, rsaPubkey, plaintext, label)
 	require.NoError(t, err, "OAEP Encrypt")
 

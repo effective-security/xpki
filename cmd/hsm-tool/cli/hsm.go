@@ -58,13 +58,13 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 
 	printIfNotEmpty := func(label, val string) {
 		if val != "" {
-			fmt.Fprintf(out, "%s:  %s\n", label, val)
+			_, _ = fmt.Fprintf(out, "%s:  %s\n", label, val)
 		}
 	}
 
 	for _, token := range tokens {
 		if isDefaultSlot || token.Serial == filterSerial || token.Label == filterLabel {
-			fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
+			_, _ = fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
 			printIfNotEmpty("  Manufacturer", token.Manufacturer)
 			printIfNotEmpty("  Model", token.Model)
 			printIfNotEmpty("  Description", token.Description)
@@ -76,20 +76,20 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 				return errors.WithMessagef(err, "failed to list keys on slot %d", token.SlotID)
 			}
 			if a.Prefix != "" && len(keys) == 0 {
-				fmt.Fprintf(out, "no keys found with prefix: %s\n", a.Prefix)
+				_, _ = fmt.Fprintf(out, "no keys found with prefix: %s\n", a.Prefix)
 			}
 			for i, key := range keys {
-				fmt.Fprintf(out, "[%d]\n", i)
-				fmt.Fprintf(out, "  Id:    %s\n", key.ID)
+				_, _ = fmt.Fprintf(out, "[%d]\n", i)
+				_, _ = fmt.Fprintf(out, "  Id:    %s\n", key.ID)
 				printIfNotEmpty("  Label", key.Label)
 				printIfNotEmpty("  Type", key.Type)
 				printIfNotEmpty("  Class", key.Class)
 				printIfNotEmpty("  Version", key.CurrentVersionID)
 				if key.CreationTime != nil {
-					fmt.Fprintf(out, "  Created: %s\n", key.CreationTime.Format(time.RFC3339))
+					_, _ = fmt.Fprintf(out, "  Created: %s\n", key.CreationTime.Format(time.RFC3339))
 				}
 				for k, v := range key.Meta {
-					fmt.Fprintf(out, "  %s: %s\n", k, v)
+					_, _ = fmt.Fprintf(out, "  %s: %s\n", k, v)
 				}
 			}
 		}
@@ -129,34 +129,34 @@ func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
 
 	printIfNotEmpty := func(label, val string) {
 		if val != "" {
-			fmt.Fprintf(out, "  %s:  %s\n", label, val)
+			_, _ = fmt.Fprintf(out, "  %s:  %s\n", label, val)
 		}
 	}
 
 	for _, token := range tokens {
 		if isDefaultSlot || token.Serial == filterSerial {
-			fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
-			fmt.Fprintf(out, "  Description:  %s\n", token.Description)
-			fmt.Fprintf(out, "  Token serial: %s\n", token.Serial)
+			_, _ = fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
+			_, _ = fmt.Fprintf(out, "  Description:  %s\n", token.Description)
+			_, _ = fmt.Fprintf(out, "  Token serial: %s\n", token.Serial)
 
 			key, err := keyProv.KeyInfo(token.SlotID, a.ID, a.Public)
 			if err != nil {
 				return errors.WithMessagef(err, "failed to get key on slot %d", token.SlotID)
 			}
-			fmt.Fprintf(out, "  Id:    %s\n", key.ID)
+			_, _ = fmt.Fprintf(out, "  Id:    %s\n", key.ID)
 			printIfNotEmpty("  Label", key.Label)
 			printIfNotEmpty("  Type", key.Type)
 			printIfNotEmpty("  Class", key.Class)
 			printIfNotEmpty("  Version", key.CurrentVersionID)
 			if key.CreationTime != nil {
-				fmt.Fprintf(out, "  Created: %s\n", key.CreationTime.Format(time.RFC3339))
+				_, _ = fmt.Fprintf(out, "  Created: %s\n", key.CreationTime.Format(time.RFC3339))
 			}
 
 			for k, v := range key.Meta {
-				fmt.Fprintf(out, "  %s: %s\n", k, v)
+				_, _ = fmt.Fprintf(out, "  %s: %s\n", k, v)
 			}
 			if key.PublicKey != "" {
-				fmt.Fprintf(out, "  Public key: \n%s\n", key.PublicKey)
+				_, _ = fmt.Fprintf(out, "  Public key: \n%s\n", key.PublicKey)
 			}
 		}
 	}
@@ -258,7 +258,7 @@ func (a *HsmRmKeyCmd) Run(ctx *Cli) error {
 			if err != nil {
 				return errors.WithMessagef(err, "unable to destroy key %q on slot %d", a.ID, token.SlotID)
 			}
-			fmt.Fprintf(ctx.Writer(), "destroyed key: %s\n", a.ID)
+			_, _ = fmt.Fprintf(ctx.Writer(), "destroyed key: %s\n", a.ID)
 			return nil
 		}
 	}

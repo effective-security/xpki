@@ -475,7 +475,7 @@ func EncodeCDP(cdp []string) (*pkix.Extension, error) {
 	return &ext, nil
 }
 
-// EncodeCDP returns CRLDP
+// EncodeCDPFull returns CRLDP
 func EncodeCDPFull(cdp []string, issuer asn1.RawValue) (*pkix.Extension, error) {
 	ext := pkix.Extension{
 		Id: oid.ExtensionCRLDistributionPoints,
@@ -518,7 +518,7 @@ func DecodeCDP(val []byte) ([]string, error) {
 	return list, nil
 }
 
-// DecodeCDP returns list of CDP
+// DecodeCDPFull returns list of CDP
 func DecodeCDPFull(val []byte) ([]string, []GeneralName, error) {
 	var crlDp []DistributionPoint
 	_, err := asn1.Unmarshal(val, &crlDp)
@@ -558,7 +558,7 @@ type DistributionPointName struct {
 	RelativeName pkix.RDNSequence `asn1:"optional,tag:1"`
 }
 
-// GeneralNames represents a General Names sequence as defined in RFC 5820
+// GeneralName represents a General Names sequence as defined in RFC 5820
 // section 4.2.1.6.
 //
 // GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
@@ -603,7 +603,7 @@ const (
 	nameTagRegisteredID  = 8
 )
 
-// Unmarshal parses an DER-encoded ASN.1 data structure and stores the result
+// Parse parses an DER-encoded ASN.1 data structure and stores the result
 // in the object.
 func (e *GeneralName) Parse(raw asn1.RawValue) error {
 	var tmp GeneralName

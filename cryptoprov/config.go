@@ -97,7 +97,9 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	defer cfr.Close()
+	defer func() {
+		_ = cfr.Close()
+	}()
 	tokenConfig := new(tokenConfig)
 
 	if strings.HasSuffix(filename, ".json") {

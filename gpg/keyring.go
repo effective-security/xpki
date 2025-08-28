@@ -7,7 +7,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/armor"
-	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp" //nolint:staticcheck
 )
 
 // KeyRing reads a openpgp.KeyRing from the given io.Reader which may then be

@@ -23,6 +23,7 @@ func Test_LoadGPGPrivateKey(t *testing.T) {
 
 	t.Run("PEM key", func(t *testing.T) {
 		pem, err := testca.GenerateRSAKeyInPEM(nil, 1024)
+		require.NoError(t, err)
 		_, err = cp.LoadGPGPrivateKey(now, pem)
 		require.NoError(t, err)
 	})

@@ -52,8 +52,7 @@ func (p *Provider) Sign(ctx context.Context, claims jwt.MapClaims) (string, erro
 	return "pat." + base64.RawURLEncoding.EncodeToString(protected), nil
 }
 
-// Claims returns claims from the Access Token,
-// or nil if `auth` is not Access Token
+// ParseToken parses JWT Token with data protection
 func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.VerifyConfig) (jwt.MapClaims, error) {
 	if !strings.HasPrefix(token, "pat.") {
 		if p.Provider == nil {

@@ -12,7 +12,9 @@ import (
 
 func TestKeys(t *testing.T) {
 	folder := path.Join(os.TempDir(), "test", "dpop-keys")
-	defer os.RemoveAll(folder)
+	defer func() {
+		_ = os.RemoveAll(folder)
+	}()
 
 	_, _, err := dpop.LoadKey("TestKeys")
 	assert.EqualError(t, err, "open TestKeys: no such file or directory")

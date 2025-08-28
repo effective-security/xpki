@@ -16,9 +16,9 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp" //nolint:staticcheck
 	"golang.org/x/crypto/openpgp/armor"
-	"golang.org/x/crypto/openpgp/packet"
+	"golang.org/x/crypto/openpgp/packet" //nolint:staticcheck
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "gpg")
@@ -371,7 +371,7 @@ func EncodePGPEntityToPEM(e *openpgp.Entity) ([]byte, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	w.Close()
+	_ = w.Close()
 	return b.Bytes(), nil
 }
 

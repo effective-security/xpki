@@ -184,7 +184,7 @@ func (r *RemoteKeySet) updateKeys() ([]jose.JSONWebKey, error) {
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to fetch keys")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
