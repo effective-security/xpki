@@ -13,7 +13,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/gpg"
-	"golang.org/x/crypto/openpgp/packet"
+	"golang.org/x/crypto/openpgp/packet" //nolint:staticcheck
 )
 
 // LoadGPGPrivateKey returns GPG private key.
@@ -122,7 +122,7 @@ func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 		if procType, ok := keyDER.Headers["Proc-Type"]; ok {
 			if strings.Contains(procType, "ENCRYPTED") {
 				if password != nil {
-					return x509.DecryptPEMBlock(keyDER, password)
+					return x509.DecryptPEMBlock(keyDER, password) //nolint:staticcheck
 				}
 				return nil, errors.Errorf("private key is encrypted")
 			}

@@ -19,7 +19,7 @@ import (
 	"github.com/effective-security/xpki/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/openpgp/packet"
+	"golang.org/x/crypto/openpgp/packet" //nolint:staticcheck
 )
 
 type sha256Test struct {
@@ -139,8 +139,8 @@ func TestOpenPGP_Hash256(t *testing.T) {
 		assert.Equal(t, tc.out, val, fmt.Sprintf("[%d] Hash %s", i, val))
 
 		r := sha256.New()
-		io.WriteString(r, tc.in[0:len(tc.in)/2])
-		io.WriteString(r, tc.in[len(tc.in)/2:])
+		_, _ = io.WriteString(r, tc.in[0:len(tc.in)/2])
+		_, _ = io.WriteString(r, tc.in[len(tc.in)/2:])
 
 		val = hex.EncodeToString(r.Sum(nil))
 		assert.Equal(t, tc.out, val, fmt.Sprintf("[%d] Resumable Hash %s", i, val))

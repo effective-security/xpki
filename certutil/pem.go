@@ -97,12 +97,12 @@ func ParseChainFromPEM(certificateChainPem []byte) ([]*x509.Certificate, error) 
 // encodeToPEM converts certificate to PEM format, with optional comments
 func encodeToPEM(out io.Writer, withComments bool, crt *x509.Certificate) error {
 	if withComments {
-		fmt.Fprintf(out, "#   Issuer: %s", NameToString(&crt.Issuer))
-		fmt.Fprintf(out, "\n#   Subject: %s", NameToString(&crt.Subject))
-		fmt.Fprint(out, "\n#   Validity")
-		fmt.Fprintf(out, "\n#       Not Before: %s", crt.NotBefore.UTC().Format(certTimeFormat))
-		fmt.Fprintf(out, "\n#       Not After : %s", crt.NotAfter.UTC().Format(certTimeFormat))
-		fmt.Fprint(out, "\n")
+		_, _ = fmt.Fprintf(out, "#   Issuer: %s", NameToString(&crt.Issuer))
+		_, _ = fmt.Fprintf(out, "\n#   Subject: %s", NameToString(&crt.Subject))
+		_, _ = fmt.Fprint(out, "\n#   Validity")
+		_, _ = fmt.Fprintf(out, "\n#       Not Before: %s", crt.NotBefore.UTC().Format(certTimeFormat))
+		_, _ = fmt.Fprintf(out, "\n#       Not After : %s", crt.NotAfter.UTC().Format(certTimeFormat))
+		_, _ = fmt.Fprint(out, "\n")
 	}
 
 	err := pem.Encode(out, &pem.Block{Type: "CERTIFICATE", Bytes: crt.Raw})
@@ -139,7 +139,7 @@ func EncodeToPEMString(withComments bool, certs ...*x509.Certificate) (string, e
 	}
 	pem := b.String()
 	pem = strings.TrimSpace(pem)
-	pem = strings.Replace(pem, "\n\n", "\n", -1)
+	pem = strings.ReplaceAll(pem, "\n\n", "\n")
 	return pem, nil
 }
 
@@ -305,7 +305,7 @@ func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 		if procType, ok := keyDER.Headers["Proc-Type"]; ok {
 			if strings.Contains(procType, "ENCRYPTED") {
 				if password != nil {
-					return x509.DecryptPEMBlock(keyDER, password)
+					return x509.DecryptPEMBlock(keyDER, password) //nolint:staticcheck
 				}
 				return nil, errors.Errorf("encrypted private key")
 			}

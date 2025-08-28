@@ -263,7 +263,7 @@ func (p *privateKeyGen) Label() string {
 }
 
 func (p *privateKeyGen) Public() crypto.PublicKey {
-	return p.PKCS11PrivateKey.PubKey
+	return p.PubKey
 }
 
 func (p *privateKeyGen) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {

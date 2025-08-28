@@ -4,10 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/testprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,13 +13,13 @@ import (
 	_ "github.com/effective-security/xpki/crypto11"
 )
 
-func inmemloader(_ cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
-	p, err := testprov.Init()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	return p, nil
-}
+// func inmemloader(_ cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
+// 	p, err := testprov.Init()
+// 	if err != nil {
+// 		return nil, errors.WithStack(err)
+// 	}
+// 	return p, nil
+// }
 
 func Test_LoadProvider(t *testing.T) {
 	_, _ = cryptoprov.Unregister("SoftHSM")
@@ -31,7 +29,9 @@ func Test_LoadProvider(t *testing.T) {
 
 	err = cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
 	assert.NoError(t, err)
-	defer cryptoprov.Unregister("SoftHSM")
+	defer func() {
+		_, _ = cryptoprov.Unregister("SoftHSM")
+	}()
 
 	p, err := cryptoprov.LoadProvider(SoftHSMConfig)
 	require.NoError(t, err)
@@ -41,7 +41,9 @@ func Test_LoadProvider(t *testing.T) {
 
 func Test_Load(t *testing.T) {
 	_ = cryptoprov.Register("SoftHSM", crypto11.LoadProvider)
-	defer cryptoprov.Unregister("SoftHSM")
+	defer func() {
+		_, _ = cryptoprov.Unregister("SoftHSM")
+	}()
 
 	//_ = cryptoprov.Register("testprov", inmemloader)
 	//defer cryptoprov.Unregister("testprov")

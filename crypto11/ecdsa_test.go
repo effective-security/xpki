@@ -82,6 +82,6 @@ func testEcdsaSigning(t *testing.T, key crypto.Signer, hashFunction crypto.Hash)
 	err = sig.unmarshalDER(sigDER)
 	require.NoError(t, err)
 
-	ecdsaPubkey := key.Public().(crypto.PublicKey).(*ecdsa.PublicKey)
+	ecdsaPubkey := key.Public().(*ecdsa.PublicKey)
 	assert.True(t, ecdsa.Verify(ecdsaPubkey, plaintextHash, sig.R, sig.S), "ECDSA Verify (hash %v): %v", hashFunction, err)
 }

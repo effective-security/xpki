@@ -265,7 +265,9 @@ func fetchRemoteCertificate(client *http.Client, certURL string) (fi *fetchedInt
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	var certData []byte
 	certData, err = io.ReadAll(resp.Body)
 	if err != nil {
@@ -381,8 +383,8 @@ func (b *Bundler) verifyChain(chain []*fetchedIntermediate) bool {
 // constructCertFileName returns a uniquely identifying file name for a certificate
 func constructCertFileName(cert *x509.Certificate) string {
 	// construct the filename as the CN with no period and space
-	name := strings.Replace(cert.Subject.CommonName, ".", "", -1)
-	name = strings.Replace(name, " ", "", -1)
+	name := strings.ReplaceAll(cert.Subject.CommonName, ".", "")
+	name = strings.ReplaceAll(name, " ", "")
 
 	// add SKI and serial number as extra identifier
 	name += fmt.Sprintf("_%x", cert.SubjectKeyId)
@@ -548,8 +550,8 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 	var ok bool
 	cert := certs[0]
 	if key != nil {
-		switch {
-		case cert.PublicKeyAlgorithm == x509.RSA:
+		switch cert.PublicKeyAlgorithm {
+		case x509.RSA:
 			var rsaPublicKey *rsa.PublicKey
 			if rsaPublicKey, ok = key.Public().(*rsa.PublicKey); !ok {
 				return nil, errors.New("key mismatch")
@@ -557,7 +559,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 			if cert.PublicKey.(*rsa.PublicKey).N.Cmp(rsaPublicKey.N) != 0 {
 				return nil, errors.New("key mismatch")
 			}
-		case cert.PublicKeyAlgorithm == x509.ECDSA:
+		case x509.ECDSA:
 			var ecdsaPublicKey *ecdsa.PublicKey
 			if ecdsaPublicKey, ok = key.Public().(*ecdsa.PublicKey); !ok {
 				return nil, errors.New("key mismatch")
@@ -569,9 +571,9 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 			return nil, errors.New("unsupported key")
 		}
 	} else {
-		switch {
-		case cert.PublicKeyAlgorithm == x509.RSA:
-		case cert.PublicKeyAlgorithm == x509.ECDSA:
+		switch cert.PublicKeyAlgorithm {
+		case x509.RSA:
+		case x509.ECDSA:
 		default:
 			return nil, errors.New("unsupported key")
 		}

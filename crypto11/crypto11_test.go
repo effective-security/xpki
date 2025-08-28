@@ -2,7 +2,6 @@ package crypto11
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/cockroachdb/errors"
@@ -11,21 +10,21 @@ import (
 // p11lib specifies PKCS11 Context for the loaded HSM module
 var p11lib *PKCS11Lib
 
-const projFolder = "../.."
+//const projFolder = "../.."
 
-func findConfigFilePath(baseName string) (string, error) {
-	wd, err := os.Getwd() // package dir
-	if err != nil {
-		return "", errors.WithMessage(err, "unable to determine current directory")
-	}
+// func findConfigFilePath(baseName string) (string, error) {
+// 	wd, err := os.Getwd() // package dir
+// 	if err != nil {
+// 		return "", errors.WithMessage(err, "unable to determine current directory")
+// 	}
 
-	projRoot, err := filepath.Abs(filepath.Join(wd, projFolder))
-	if err != nil {
-		return "", errors.WithMessage(err, "failed to determine project directory")
-	}
+// 	projRoot, err := filepath.Abs(filepath.Join(wd, projFolder))
+// 	if err != nil {
+// 		return "", errors.WithMessage(err, "failed to determine project directory")
+// 	}
 
-	return filepath.Join(projRoot, baseName), nil
-}
+// 	return filepath.Join(projRoot, baseName), nil
+// }
 
 // SoftHSMConfig provides location for PKCS11 config
 const SoftHSMConfig = "/tmp/xpki/softhsm_unittest.json"

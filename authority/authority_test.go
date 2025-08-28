@@ -33,8 +33,8 @@ var (
 )
 
 var (
-	falseVal = false
-	trueVal  = true
+	//falseVal = false
+	trueVal = true
 )
 
 type testSuite struct {
@@ -72,7 +72,7 @@ func (s *testSuite) SetupSuite() {
 	)
 
 	tmpDir := filepath.Join(os.TempDir(), "xpki", "certs")
-	os.MkdirAll(tmpDir, os.ModePerm)
+	_ = os.MkdirAll(tmpDir, os.ModePerm)
 
 	rootBundleFile = filepath.Join(tmpDir, "root_ca.pem")
 	s.Require().NoError(rootCA.SaveCertAndKey(rootBundleFile, "", false))

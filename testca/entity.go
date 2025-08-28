@@ -126,7 +126,7 @@ func (id *Entity) SaveCertAndKey(certFile string, keyFile string, withChain bool
 
 		_ = certutil.EncodeToPEM(fcert, true, certs...)
 
-		fcert.Close()
+		_ = fcert.Close()
 	}
 	return nil
 }

@@ -24,7 +24,7 @@ clean:
 		${PROJ_BIN}
 
 tools:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.3.0
 	go install github.com/go-phorce/cov-report/cmd/cov-report@latest
 	go install github.com/mattn/goveralls@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest

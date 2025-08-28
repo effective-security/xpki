@@ -67,7 +67,9 @@ func (a *CertInfoCmd) Run(ctx *Cli) error {
 		if err != nil {
 			return errors.WithMessage(err, "unable to create file")
 		}
-		defer f.Close()
+		defer func() {
+			_ = f.Close()
+		}()
 
 		_ = certutil.EncodeToPEM(f, true, list...)
 	}
@@ -153,7 +155,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	}
 
 	if bundleStatus.IsUntrusted() {
-		fmt.Fprintf(w, "ERROR: The cert is untrusted\n")
+		_, _ = fmt.Fprintf(w, "ERROR: The cert is untrusted\n")
 	}
 
 	chain := bundle.Chain
@@ -164,15 +166,15 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	print.Certificates(w, chain, false)
 
 	if len(bundleStatus.ExpiringSKIs) > 0 {
-		fmt.Fprintf(w, "\nWARNING: Expiring SKI:\n")
+		_, _ = fmt.Fprintf(w, "\nWARNING: Expiring SKI:\n")
 		for _, ski := range bundleStatus.ExpiringSKIs {
-			fmt.Fprintf(w, "  -- %s\n", ski)
+			_, _ = fmt.Fprintf(w, "  -- %s\n", ski)
 		}
 	}
 	if len(bundleStatus.Untrusted) > 0 {
-		fmt.Fprintf(w, "\nWARNING: Untrusted SKI:\n")
+		_, _ = fmt.Fprintf(w, "\nWARNING: Untrusted SKI:\n")
 		for _, ski := range bundleStatus.Untrusted {
-			fmt.Fprintf(w, "  -- %s\n", ski)
+			_, _ = fmt.Fprintf(w, "  -- %s\n", ski)
 		}
 	}
 
@@ -255,13 +257,13 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	if a.Revocation {
 
 		aggrStatus := ocsp.Unknown
-		fmt.Fprint(w, "\n============================= Revocation Info =============================\n")
+		_, _ = fmt.Fprint(w, "\n============================= Revocation Info =============================\n")
 
 		for _, crtInfo := range revInfo {
 			if crtInfo.err != nil {
-				fmt.Fprintf(w, "%s : ERROR: %s\n", crtInfo.crt.Subject.String(), crtInfo.err)
+				_, _ = fmt.Fprintf(w, "%s : ERROR: %s\n", crtInfo.crt.Subject.String(), crtInfo.err)
 			} else {
-				fmt.Fprintf(w, "%s: %s: %v\n", crtInfo.crt.Subject.String(), crtInfo.revokedType, statusMap[crtInfo.status])
+				_, _ = fmt.Fprintf(w, "%s: %s: %v\n", crtInfo.crt.Subject.String(), crtInfo.revokedType, statusMap[crtInfo.status])
 				if crtInfo.status == ocsp.Revoked {
 					aggrStatus = ocsp.Revoked
 				}
@@ -269,7 +271,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 		}
 
 		if aggrStatus == ocsp.Revoked {
-			fmt.Fprintf(w, "\nCertificate chain is revoked\n")
+			_, _ = fmt.Fprintf(w, "\nCertificate chain is revoked\n")
 		}
 	}
 
@@ -373,7 +375,9 @@ func postHTTP(client *http.Client, url string, contentType string, body io.Reade
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to post to %s", url)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	rbody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -388,7 +392,9 @@ func download(client *http.Client, url string) ([]byte, error) {
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to fetch from %s", url)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -226,14 +226,14 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		// NOTE: ${ISSUER_ID} was the old format, but has an issues in Helm
 		// added another template as `:ISSUER_ID`
 
-		crl = strings.Replace(cfg.AIA.CrlURL, "${ISSUER_ID}", bundle.SubjectID, -1)
-		crl = strings.Replace(crl, ":ISSUER_ID", bundle.SubjectID, -1)
+		crl = strings.ReplaceAll(cfg.AIA.CrlURL, "${ISSUER_ID}", bundle.SubjectID)
+		crl = strings.ReplaceAll(crl, ":ISSUER_ID", bundle.SubjectID)
 
-		aia = strings.Replace(cfg.AIA.AiaURL, "${ISSUER_ID}", bundle.SubjectID, -1)
-		aia = strings.Replace(aia, ":ISSUER_ID", bundle.SubjectID, -1)
+		aia = strings.ReplaceAll(cfg.AIA.AiaURL, "${ISSUER_ID}", bundle.SubjectID)
+		aia = strings.ReplaceAll(aia, ":ISSUER_ID", bundle.SubjectID)
 
-		ocsp = strings.Replace(cfg.AIA.OcspURL, "${ISSUER_ID}", bundle.SubjectID, -1)
-		ocsp = strings.Replace(ocsp, ":ISSUER_ID", bundle.SubjectID, -1)
+		ocsp = strings.ReplaceAll(cfg.AIA.OcspURL, "${ISSUER_ID}", bundle.SubjectID)
+		ocsp = strings.ReplaceAll(ocsp, ":ISSUER_ID", bundle.SubjectID)
 
 		crlRenewal = cfg.AIA.CRLRenewal
 		crlExpiry = cfg.AIA.CRLExpiry

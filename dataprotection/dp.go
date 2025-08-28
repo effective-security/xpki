@@ -21,7 +21,7 @@ type Provider interface {
 	PublicKey() crypto.PublicKey
 }
 
-// ProtectStruct returns encrypted object value in base64url encoded format
+// ProtectObject returns encrypted object value in base64url encoded format
 func ProtectObject(ctx context.Context, p Provider, v any) (string, error) {
 	js, err := json.Marshal(v)
 	if err != nil {

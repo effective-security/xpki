@@ -53,7 +53,7 @@ func (s *testSuite) SetupSuite() {
 }
 
 func (s *testSuite) TearDownSuite() {
-	os.RemoveAll(s.tmpdir)
+	_ = os.RemoveAll(s.tmpdir)
 }
 
 // HasText is a helper method to assert that the out stream contains the supplied

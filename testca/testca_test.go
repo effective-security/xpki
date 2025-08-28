@@ -268,8 +268,10 @@ func TestSaveCertAndKey(t *testing.T) {
 	)
 
 	tmpDir := filepath.Join(os.TempDir(), "testca")
-	os.MkdirAll(tmpDir, os.ModePerm)
-	defer os.RemoveAll(tmpDir)
+	_ = os.MkdirAll(tmpDir, os.ModePerm)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	serverCertFile := filepath.Join(tmpDir, "test-server.pem")
 	serverKeyFile := filepath.Join(tmpDir, "test-server-key.pem")
