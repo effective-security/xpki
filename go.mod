@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kms v1.45.0
 	github.com/cockroachdb/errors v1.12.0
 	github.com/effective-security/metrics v0.8.107
-	github.com/effective-security/x v0.15.70
+	github.com/effective-security/x v0.15.71
 	github.com/effective-security/xlog v0.10.45
 	github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/golang-jwt/jwt/v5 v5.3.0
