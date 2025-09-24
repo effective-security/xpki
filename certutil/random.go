@@ -2,7 +2,6 @@ package certutil
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"io"
 )
@@ -25,8 +24,28 @@ func Random(byteLength int) []byte {
 	return b
 }
 
-// RandomString returns a randomly generated string of the requested length.
-func RandomString(byteLength int) string {
-	rnd := Random(byteLength)
-	return base64.RawURLEncoding.EncodeToString(rnd)[:byteLength]
+// L uniformly random [A-Za-z0-9] characters
+const alpha62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+func RandomString(length int) string {
+	if length <= 0 {
+		return ""
+	}
+	out := make([]byte, 0, length)
+	tmp := make([]byte, 64)
+	for len(out) < length {
+		_, err := io.ReadFull(RandReader, tmp)
+		if err != nil {
+			panic(fmt.Sprintf("error reading random bytes: %s", err))
+		}
+		for _, v := range tmp {
+			if v < 248 { // 248 = floor(256/62)*62
+				out = append(out, alpha62[int(v%62)])
+				if len(out) == length {
+					break
+				}
+			}
+		}
+	}
+	return string(out)
 }
