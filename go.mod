@@ -12,7 +12,7 @@ require (
 	github.com/cockroachdb/errors v1.12.0
 	github.com/effective-security/metrics v0.8.108
 	github.com/effective-security/x v0.15.72
-	github.com/effective-security/xlog v0.10.45
+	github.com/effective-security/xlog v0.10.46
 	github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/googleapis/gax-go/v2 v2.15.0
