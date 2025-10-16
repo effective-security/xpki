@@ -46,9 +46,9 @@ func TestClaims(t *testing.T) {
 	c.Audience = []string{"aud1"}
 	c.Subject = "sub1"
 
-	assert.EqualError(t, c.VerifyAudience([]string{"t2"}), "token missing audience: t2")
-	assert.EqualError(t, c.VerifyIssuer("iss"), "invalid issuer: iss1, expected: iss")
-	assert.EqualError(t, c.VerifySubject("sub"), "invalid subject: sub1, expected: sub")
+	assert.EqualError(t, c.VerifyAudience([]string{"t2"}), "token missing audience")
+	assert.EqualError(t, c.VerifyIssuer("iss"), "invalid issuer")
+	assert.EqualError(t, c.VerifySubject("sub"), "invalid subject")
 
 	cfg := &VerifyConfig{
 		ExpectedIssuer:   c.Issuer,
@@ -124,7 +124,7 @@ func TestMapClaims(t *testing.T) {
 	assert.Equal(t, `{"aud":["t1"],"jti":"123"}`, c.Marshal())
 
 	err := c.VerifyAudience([]string{"t2"})
-	assert.EqualError(t, err, "token missing audience: t2")
+	assert.EqualError(t, err, "token missing audience")
 	err = c.VerifyIssuer("iss")
 	assert.EqualError(t, err, "iss claim not found")
 	err = c.VerifyExpiresAt(now, true)
@@ -147,11 +147,11 @@ func TestMapClaims(t *testing.T) {
 	assert.NotEqual(t, c2, c2c)
 
 	err = c2.VerifySubject("s")
-	assert.EqualError(t, err, "invalid subject: sFX, expected: s")
+	assert.EqualError(t, err, "invalid subject")
 	err = c2.VerifyIssuer("iss")
-	assert.EqualError(t, err, "invalid issuer: 123, expected: iss")
+	assert.EqualError(t, err, "invalid issuer")
 	err = c2.VerifyAudience([]string{"t2"})
-	assert.EqualError(t, err, "token missing audience: t2")
+	assert.EqualError(t, err, "token missing audience")
 	err = c2.VerifyIssuedAt(now, true)
 	assert.Contains(t, err.Error(), "after now:")
 	err = c2.VerifyNotBefore(now, true)

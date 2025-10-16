@@ -46,13 +46,13 @@ func TestSigner(t *testing.T) {
 	assert.Equal(t, http.MethodGet, res.Claims.HTTPMethod)
 
 	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedIssuer: "myissuer"}, rsReq)
-	assert.EqualError(t, err, "dpop: invalid issuer: ''")
+	assert.EqualError(t, err, "dpop: invalid issuer")
 	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedSubject: "mysubj"}, rsReq)
-	assert.EqualError(t, err, "dpop: invalid subject: ''")
+	assert.EqualError(t, err, "dpop: invalid subject")
 	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedAudience: "myau"}, rsReq)
-	assert.EqualError(t, err, "dpop: invalid audience: []")
+	assert.EqualError(t, err, "dpop: invalid audience")
 	_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{ExpectedNonce: "tqwueytr35r"}, rsReq)
-	assert.EqualError(t, err, "dpop: invalid nonce: ''")
+	assert.EqualError(t, err, "dpop: invalid nonce")
 
 	// test dpop via query
 	rsReq.URL.RawQuery += "&dpop=" + token

@@ -177,16 +177,16 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 		return nil, errors.WithMessagef(err, "dpop: unable to verify token")
 	}
 	if cfg.ExpectedIssuer != "" && claims.Issuer != cfg.ExpectedIssuer {
-		return nil, errors.Errorf("dpop: invalid issuer: '%s'", claims.Issuer)
+		return nil, errors.Errorf("dpop: invalid issuer")
 	}
 	if cfg.ExpectedSubject != "" && claims.Subject != cfg.ExpectedSubject {
-		return nil, errors.Errorf("dpop: invalid subject: '%s'", claims.Subject)
+		return nil, errors.Errorf("dpop: invalid subject")
 	}
 	if cfg.ExpectedAudience != "" && !claims.Audience.Contains(cfg.ExpectedAudience) {
-		return nil, errors.Errorf("dpop: invalid audience: %v", claims.Audience)
+		return nil, errors.Errorf("dpop: invalid audience")
 	}
 	if cfg.ExpectedNonce != "" && claims.Nonce != cfg.ExpectedNonce {
-		return nil, errors.Errorf("dpop: invalid nonce: '%s'", claims.Nonce)
+		return nil, errors.Errorf("dpop: invalid nonce")
 	}
 	tb, err := Thumbprint(pjwk)
 	if err != nil {

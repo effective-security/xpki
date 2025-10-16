@@ -116,16 +116,16 @@ func Test_SignSym(t *testing.T) {
 		ExpectedAudience: []string{"trusty.com"},
 	}
 	_, err = p1.ParseToken(ctx, token, cfg2)
-	assert.EqualError(t, err, "unable to verify token: invalid issuer: trusty.com, expected: trusty1.com")
+	assert.EqualError(t, err, "unable to verify token: invalid issuer")
 
 	cfg.ExpectedAudience = []string{"aud"}
 	_, err = p.ParseToken(ctx, token, cfg)
-	assert.EqualError(t, err, "unable to verify token: token missing audience: aud")
+	assert.EqualError(t, err, "unable to verify token: token missing audience")
 
 	cfg.ExpectedAudience = []string{"trusty.com"}
 	cfg.ExpectedSubject = "subj"
 	_, err = p.ParseToken(ctx, token, cfg)
-	assert.EqualError(t, err, "unable to verify token: invalid subject: denis@ekspand.com, expected: subj")
+	assert.EqualError(t, err, "unable to verify token: invalid subject")
 
 	parser := jwt.TokenParser{
 		ValidMethods: []string{"RS256"},
