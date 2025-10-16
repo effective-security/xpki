@@ -77,7 +77,7 @@ func (c *Claims) VerifyAudience(expected []string) error {
 
 	for _, a := range expected {
 		if !c.Audience.Contains(a) {
-			return errors.Errorf("token missing audience: %s", a)
+			return errors.Errorf("token missing audience")
 		}
 	}
 
@@ -141,7 +141,7 @@ func (c *Claims) VerifyIssuer(expected string) error {
 		return errors.Errorf("iss claim not found")
 	}
 	if !strings.EqualFold(c.Issuer, expected) {
-		return errors.Errorf("invalid issuer: %s, expected: %s", c.Issuer, expected)
+		return errors.Errorf("invalid issuer")
 	}
 	return nil
 }
@@ -155,7 +155,7 @@ func (c *Claims) VerifySubject(expected string) error {
 		return errors.Errorf("sub claim not found")
 	}
 	if !strings.EqualFold(c.Subject, expected) {
-		return errors.Errorf("invalid subject: %s, expected: %s", c.Subject, expected)
+		return errors.Errorf("invalid subject")
 	}
 	return nil
 }
@@ -602,7 +602,7 @@ func (c MapClaims) VerifyAudience(expected []string) error {
 
 	for _, a := range expected {
 		if !slices.ContainsString(aud, a) {
-			return errors.Errorf("token missing audience: %s", a)
+			return errors.Errorf("token missing audience")
 		}
 	}
 
@@ -667,7 +667,7 @@ func (c MapClaims) VerifyIssuer(expected string) error {
 		return errors.Errorf("iss claim not found")
 	}
 	if !strings.EqualFold(iss, expected) {
-		return errors.Errorf("invalid issuer: %s, expected: %s", iss, expected)
+		return errors.Errorf("invalid issuer")
 	}
 	return nil
 }
@@ -682,7 +682,7 @@ func (c MapClaims) VerifySubject(expected string) error {
 		return errors.Errorf("sub claim not found")
 	}
 	if !strings.EqualFold(sub, expected) {
-		return errors.Errorf("invalid subject: %s, expected: %s", sub, expected)
+		return errors.Errorf("invalid subject")
 	}
 	return nil
 }
