@@ -63,8 +63,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/effective-security/metrics v0.8.122 h1:NFUbVtFRdG7kujrv2Cgay/wCXMVnTPJYM9pWynqeGUo=
 github.com/effective-security/metrics v0.8.122/go.mod h1:kuhrZzZDgQaW6IBJKEC9+ql7Z2VXmwnefuBF3O0A62s=
-github.com/effective-security/x v0.15.80 h1:VAZi1VShl0igYXLpVKap/+YPtklai0Wf91VZwFfOamo=
-github.com/effective-security/x v0.15.80/go.mod h1:LoXVZlaJJ2X6NkkByGtSiwcx4JqtZ60KcHwQmMIrqnQ=
+github.com/effective-security/x v0.15.81 h1:XQMJxsKgeKOtgdVN7XZDvFCgm1aX1GiD9umy2L/qPbE=
+github.com/effective-security/x v0.15.81/go.mod h1:LoXVZlaJJ2X6NkkByGtSiwcx4JqtZ60KcHwQmMIrqnQ=
 github.com/effective-security/xlog v0.10.48 h1:ZDeRcnaqhtS5ecDmIjcH9HswLi9r2/d/qaRuFUxyInc=
 github.com/effective-security/xlog v0.10.48/go.mod h1:ybNSj1ADAPkc7NEIS6RshOMCtB/y2CIRGEGCMqk0tMk=
 github.com/envoyproxy/go-control-plane v0.13.5-0.20251024222203-75eaa193e329 h1:K+fnvUM0VZ7ZFJf0n4L/BRlnsb9pL/GuDG6FqaH+PwM=
