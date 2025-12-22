@@ -15,7 +15,7 @@ require (
 	github.com/effective-security/xlog v0.10.48
 	github.com/go-jose/go-jose/v3 v3.0.4
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/googleapis/gax-go/v2 v2.15.0
+	github.com/googleapis/gax-go/v2 v2.16.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/stretchr/testify v1.11.1
@@ -23,7 +23,7 @@ require (
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.34.0
 	google.golang.org/api v0.257.0
-	google.golang.org/protobuf v1.36.10
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
