@@ -3,7 +3,7 @@ module github.com/effective-security/xpki
 go 1.26.1
 
 require (
-	cloud.google.com/go/kms v1.29.0
+	cloud.google.com/go/kms v1.30.0
 	github.com/alecthomas/kong v1.15.0
 	github.com/aws/aws-sdk-go-v2 v1.41.6
 	github.com/aws/aws-sdk-go-v2/config v1.32.16
