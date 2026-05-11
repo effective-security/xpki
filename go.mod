@@ -12,7 +12,7 @@ require (
 	github.com/cockroachdb/errors v1.13.0
 	github.com/effective-security/metrics v0.8.133
 	github.com/effective-security/x v0.16.89
-	github.com/effective-security/xlog v0.10.52
+	github.com/effective-security/xlog v0.10.53
 	github.com/go-jose/go-jose/v3 v3.0.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/googleapis/gax-go/v2 v2.22.0
@@ -50,7 +50,7 @@ require (
 	github.com/cockroachdb/redact v1.1.8 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/getsentry/sentry-go v0.46.1 // indirect
+	github.com/getsentry/sentry-go v0.46.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
