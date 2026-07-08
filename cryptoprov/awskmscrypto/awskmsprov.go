@@ -284,29 +284,50 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 	logger.KV(xlog.DEBUG, "endpoint", p.endpoint, "slotID", slotID, "prefix", prefix)
 
 	ctx := context.Background()
-	opts := &kms.ListKeysInput{}
-
-	resp, err := p.kmsClient.ListKeys(ctx, opts)
-	if err != nil {
-		return nil, err
+	opts := &kms.ListKeysInput{
+		Limit: aws.Int32(100),
 	}
 
-	keys := resp.Keys
-	res := make([]cryptoprov.KeyInfo, 0, len(keys))
-	for _, k := range keys {
-		ki, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: k.KeyId})
+	res := make([]cryptoprov.KeyInfo, 0, 1000)
+	for {
+		resp, err := p.kmsClient.ListKeys(ctx, opts)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "failed to describe key, id=%s", *k.KeyId)
-		}
-		if ki.KeyMetadata.KeyState == types.KeyStatePendingDeletion {
-			continue
+			return nil, err
 		}
 
-		res = append(res, cryptoprov.KeyInfo{
-			ID:           aws.ToString(k.KeyId),
-			Meta:         keyMeta(ki),
-			CreationTime: ki.KeyMetadata.CreationDate,
-		})
+		logger.KV(xlog.DEBUG, "keys", len(resp.Keys))
+
+		keys := resp.Keys
+		for _, k := range keys {
+			ki, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: k.KeyId})
+			if err != nil {
+				// return nil, errors.WithMessagef(err, "failed to describe key, id=%s, arn=%s", aws.ToString(k.KeyId), aws.ToString(k.KeyArn))
+				logger.KV(xlog.ERROR,
+					"reason", "DescribeKey",
+					"id", aws.ToString(k.KeyId),
+					"arn", aws.ToString(k.KeyArn),
+					"error", err.Error(),
+				)
+				continue
+			}
+			if ki.KeyMetadata.KeyState == types.KeyStatePendingDeletion {
+				continue
+			}
+			if ki.KeyMetadata.KeyUsage != types.KeyUsageTypeSignVerify {
+				continue
+			}
+
+			res = append(res, cryptoprov.KeyInfo{
+				ID:           aws.ToString(k.KeyId),
+				Meta:         keyMeta(ki),
+				CreationTime: ki.KeyMetadata.CreationDate,
+			})
+		}
+
+		if !resp.Truncated {
+			break
+		}
+		opts.Marker = resp.NextMarker
 	}
 	return res, nil
 }

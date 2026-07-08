@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"os"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/x/print"
-	"golang.org/x/net/context"
 
 	// register supported
 	_ "github.com/effective-security/xpki/crypto11"
@@ -96,6 +96,7 @@ func (c *Cli) WithErrWriter(out io.Writer) *Cli {
 
 // AfterApply hook loads config
 func (c *Cli) AfterApply(app *kong.Kong, vars kong.Vars) error {
+	xlog.SetFormatter(xlog.NewPrettyFormatter(c.ErrWriter()))
 	if c.Debug {
 		xlog.SetGlobalLogLevel(xlog.DEBUG)
 	} else {
