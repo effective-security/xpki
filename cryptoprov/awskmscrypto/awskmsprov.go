@@ -35,6 +35,7 @@ func init() {
 // KmsClient interface
 type KmsClient interface {
 	CreateKey(context.Context, *kms.CreateKeyInput, ...func(*kms.Options)) (*kms.CreateKeyOutput, error)
+	CreateAlias(context.Context, *kms.CreateAliasInput, ...func(*kms.Options)) (*kms.CreateAliasOutput, error)
 	//IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error)
 	ListKeys(context.Context, *kms.ListKeysInput, ...func(*kms.Options)) (*kms.ListKeysOutput, error)
 	ScheduleKeyDeletion(context.Context, *kms.ScheduleKeyDeletionInput, ...func(*kms.Options)) (*kms.ScheduleKeyDeletionOutput, error)
@@ -149,8 +150,14 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 
 	keyID := aws.ToString(resp.KeyMetadata.KeyId)
 	arn := aws.ToString(resp.KeyMetadata.Arn)
-
 	logger.KV(xlog.INFO, "arn", arn, "id", keyID, "label", label)
+
+	if label != "" {
+		_, err := p.createAlias(ctx, keyID, label)
+		if err != nil {
+			logger.KV(xlog.WARNING, "reason", "CreateAlias", "id", keyID, "err", err.Error())
+		}
+	}
 
 	// 2. Retrieve public key from KMS
 	pubKeyResp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: &keyID})
@@ -198,8 +205,13 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 
 	keyID := aws.ToString(resp.KeyMetadata.KeyId)
 	arn := aws.ToString(resp.KeyMetadata.Arn)
-
 	logger.KV(xlog.INFO, "arn", arn, "id", keyID, "label", label)
+	if label != "" {
+		_, err := p.createAlias(ctx, keyID, label)
+		if err != nil {
+			logger.KV(xlog.WARNING, "reason", "CreateAlias", "id", keyID, "err", err.Error())
+		}
+	}
 
 	// 2. Retrieve public key from KMS
 	pubKeyResp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: &keyID})
@@ -214,6 +226,41 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	signer := NewSigner(keyID, label, resp.KeyMetadata.SigningAlgorithms, pub, p.kmsClient)
 
 	return signer, nil
+}
+
+// aliasFromLabel builds a KMS-valid alias name ("alias/<sanitized-label>") from
+// the provided label. KMS aliases only allow [a-zA-Z0-9:/_-]; any other rune is
+// replaced with '_'. The reserved "alias/aws/" prefix is avoided.
+func aliasFromLabel(label string) string {
+	replace := func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '/', r == '_', r == '-', r == ':':
+			return r
+		default:
+			return '_'
+		}
+	}
+	name := strings.TrimPrefix(strings.Map(replace, label), "aws/")
+	return "alias/" + name
+}
+
+// createAlias creates a KMS alias for the given key using the provided label.
+// The key already exists at this point, so an alias failure is logged as a
+// warning and treated as non-fatal. It returns the alias name that was used.
+func (p *Provider) createAlias(ctx context.Context, keyID, label string) (string, error) {
+	alias := aliasFromLabel(label)
+	if alias == "alias/" {
+		return "", errors.New("alias is empty")
+	}
+	if _, err := p.kmsClient.CreateAlias(ctx, &kms.CreateAliasInput{
+		AliasName:   aws.String(alias),
+		TargetKeyId: aws.String(keyID),
+	}); err != nil {
+		return "", errors.WithMessagef(err, "failed to create alias, id=%s, alias=%s", keyID, alias)
+	}
+	logger.KV(xlog.INFO, "id", keyID, "label", label, "alias", alias)
+	return alias, nil
 }
 
 // IdentifyKey returns key id and label for the given private key
