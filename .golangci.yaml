@@ -16,16 +16,13 @@ linters:
       - legacy
       - std-error-handling
     rules:
-      - path: (.+)\.go$
-        text: SA1019
+      # - path: (.+)\.go$
+      #   text: SA1019
       - linters:
           - revive
         path: _test\.go$
     paths:
       - .*_test\.go$
-      - third_party$
-      - builtin$
-      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

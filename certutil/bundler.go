@@ -564,7 +564,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 			if ecdsaPublicKey, ok = key.Public().(*ecdsa.PublicKey); !ok {
 				return nil, errors.New("key mismatch")
 			}
-			if cert.PublicKey.(*ecdsa.PublicKey).X.Cmp(ecdsaPublicKey.X) != 0 {
+			if !cert.PublicKey.(*ecdsa.PublicKey).Equal(ecdsaPublicKey) {
 				return nil, errors.New("key mismatch")
 			}
 		default:

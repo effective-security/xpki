@@ -174,8 +174,6 @@ func (priv *PKCS11PrivateKeyRSA) Decrypt(rand io.Reader, ciphertext []byte, opti
 			plaintext, err = priv.lib.decryptPKCS1v15(session, priv, ciphertext, 0)
 		} else {
 			switch o := options.(type) {
-			case *rsa.PKCS1v15DecryptOptions:
-				plaintext, err = priv.lib.decryptPKCS1v15(session, priv, ciphertext, o.SessionKeyLen)
 			case *rsa.OAEPOptions:
 				plaintext, err = priv.lib.decryptOAEP(session, priv, ciphertext, o.Hash, o.Label)
 			default:

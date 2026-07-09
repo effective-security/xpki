@@ -22,3 +22,11 @@ updates:
       google:
         patterns:
           - google.golang.org*
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all:
+        patterns:
+          - "*"

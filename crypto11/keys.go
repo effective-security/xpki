@@ -168,11 +168,6 @@ func (lib *PKCS11Lib) FindKeyPairOnSession(session pkcs11.SessionHandle, slot ui
 		return nil, errors.WithStack(err)
 	}
 	switch keyType {
-	case pkcs11.CKK_DSA:
-		if pub, err = lib.exportDSAPublicKey(session, pubHandle); err != nil {
-			return nil, errors.WithMessage(err, "exportDSAPublicKey")
-		}
-		return &PKCS11PrivateKeyDSA{key: &PKCS11PrivateKey{PKCS11Object{privHandle, slot}, pub}, lib: lib}, nil
 	case pkcs11.CKK_RSA:
 		if pub, err = lib.exportRSAPublicKey(session, pubHandle); err != nil {
 			return nil, errors.WithMessage(err, "exportRSAPublicKey")
@@ -198,8 +193,6 @@ func ConvertToPublic(priv crypto.PrivateKey) (crypto.PublicKey, error) {
 	case *PKCS11PrivateKeyRSA:
 		return t.Public(), nil
 	case *PKCS11PrivateKeyECDSA:
-		return t.Public(), nil
-	case *PKCS11PrivateKeyDSA:
 		return t.Public(), nil
 	}
 	return nil, errors.WithStack(errUnsupportedKeyType)
@@ -348,8 +341,6 @@ func (lib *PKCS11Lib) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, 
 	case *PKCS11PrivateKeyRSA:
 		p11o = &t.key.PKCS11Object
 	case *PKCS11PrivateKeyECDSA:
-		p11o = &t.key.PKCS11Object
-	case *PKCS11PrivateKeyDSA:
 		p11o = &t.key.PKCS11Object
 	default:
 		return "", "", errors.WithStack(errUnsupportedKeyType)

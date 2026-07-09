@@ -74,23 +74,6 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
 	if region != "" {
 		awsops = append(awsops, awsconfig.WithRegion(region))
 	}
-	if endpoint != "" {
-		// https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/endpoints/
-		customResolver := aws.EndpointResolverWithOptionsFunc(func(svc, reg string, options ...any) (aws.Endpoint, error) {
-			if svc == kms.ServiceID && reg == region {
-				ep := aws.Endpoint{
-					PartitionID:   "aws",
-					URL:           endpoint,
-					SigningRegion: region,
-				}
-				return ep, nil
-			}
-			// returning EndpointNotFoundError will allow the service to fallback to it's default resolution
-			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-		})
-		awsops = append(awsops, awsconfig.WithEndpointResolverWithOptions(customResolver))
-	}
-
 	id := os.Getenv("AWS_ACCESS_KEY_ID")
 	secret := os.Getenv("AWS_SECRET_ACCESS_KEY")
 	token := os.Getenv("AWS_SESSION_TOKEN")
@@ -103,7 +86,16 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
 		return nil, errors.WithStack(err)
 	}
 
-	p.kmsClient = KmsClientFactory(cfg)
+	var kmsops []func(*kms.Options)
+	if endpoint != "" {
+		// Use service-specific endpoint resolution via BaseEndpoint.
+		// https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/endpoints/
+		kmsops = append(kmsops, func(o *kms.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+		})
+	}
+
+	p.kmsClient = KmsClientFactory(cfg, kmsops...)
 
 	return p, nil
 }

@@ -315,19 +315,18 @@ func CRLValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Cert
 	}
 
 	// ensure the CRL is valid
-	certList, err := x509.ParseCRL(der)
+	certList, err := x509.ParseRevocationList(der)
 	if err != nil {
 		logger.KV(xlog.DEBUG, "crl", string(der))
 		return ocsp.Unknown, errors.WithMessagef(err, "failed to parse CRL")
 	}
 
-	err = issuer.CheckCRLSignature(certList)
+	err = certList.CheckSignatureFrom(issuer)
 	if err != nil {
 		return ocsp.Unknown, errors.WithMessage(err, "unable to verify CRL signature")
 	}
 
-	revokedList := (*certList).TBSCertList.RevokedCertificates
-	for _, cert := range revokedList {
+	for _, cert := range certList.RevokedCertificateEntries {
 		if crt.SerialNumber.Cmp(cert.SerialNumber) == 0 {
 			return ocsp.Revoked, nil
 		}
