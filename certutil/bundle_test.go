@@ -2,6 +2,9 @@ package certutil
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509/pkix"
 	"fmt"
 	"os"
@@ -135,6 +138,41 @@ func Test_LoadAndVerifyBundleFromPEM(t *testing.T) {
 	require.NoError(t, err)
 	_, err = CreateOCSPRequest(bundle.Cert, bundle.Cert, crypto.SHA256)
 	assert.EqualError(t, err, "invalid chain: issuer does not match")
+}
+
+func Test_Bundle_KeyMismatch(t *testing.T) {
+	t.Parallel()
+
+	certsPEM, err := os.ReadFile("testdata/test-server.pem")
+	require.NoError(t, err)
+	certs, err := ParseChainFromPEM(certsPEM)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(certs), 1)
+
+	t.Run("mismatch_type_RSA_vs_ECDSA", func(t *testing.T) {
+		t.Parallel()
+		// Create a bundler without roots; key mismatch is checked before verification.
+		b, err := NewBundler(nil, nil)
+		require.NoError(t, err)
+		// Generate an ECDSA key to mismatch an RSA certificate.
+		ecdsaKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		_, err = b.Bundle(certs, ecdsaKey)
+		assert.EqualError(t, err, "key mismatch")
+	})
+
+	t.Run("mismatch_modulus_RSA", func(t *testing.T) {
+		t.Parallel()
+		b, err := NewBundler(nil, nil)
+		require.NoError(t, err)
+		// Load an unrelated RSA private key that does not match the cert's public key.
+		keyPEM, err := os.ReadFile("../cryptoprov/testdata/test-key.pem")
+		require.NoError(t, err)
+		key, err := ParsePrivateKeyPEM(keyPEM)
+		require.NoError(t, err)
+		_, err = b.Bundle(certs, key)
+		assert.EqualError(t, err, "key mismatch")
+	})
 }
 
 func Test_SortBundlesByExpiration(t *testing.T) {

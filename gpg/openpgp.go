@@ -16,8 +16,8 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"golang.org/x/crypto/openpgp" //nolint:staticcheck
-	"golang.org/x/crypto/openpgp/armor"
+	"golang.org/x/crypto/openpgp"        //nolint:staticcheck
+	"golang.org/x/crypto/openpgp/armor"  //nolint:staticcheck
 	"golang.org/x/crypto/openpgp/packet" //nolint:staticcheck
 )
 

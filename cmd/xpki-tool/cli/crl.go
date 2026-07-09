@@ -32,9 +32,9 @@ func (a *CRLInfoCmd) Run(ctx *Cli) error {
 		return errors.WithMessage(err, "unable to load CRL file")
 	}
 
-	crl, err := x509.ParseCRL(der)
+	crl, err := x509.ParseRevocationList(der)
 	if err != nil {
-		return errors.WithMessage(err, "unable to prase CRL")
+		return errors.WithMessage(err, "unable to parse CRL")
 	}
 
 	print.CertificateList(ctx.Writer(), crl)
@@ -89,9 +89,9 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 			return err
 		}
 
-		crl, err := x509.ParseCRL(body)
+		crl, err := x509.ParseRevocationList(body)
 		if err != nil {
-			return errors.Wrapf(err, "unable to prase CRL")
+			return errors.Wrapf(err, "unable to parse CRL")
 		}
 		if a.Print {
 			_, _ = fmt.Fprintf(w, "=================================================\n")

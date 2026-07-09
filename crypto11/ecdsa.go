@@ -7,7 +7,6 @@ import (
 	"crypto/elliptic"
 	"encoding/asn1"
 	"io"
-	"math/big"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
@@ -133,11 +132,18 @@ func unmarshalEcParams(b []byte) (elliptic.Curve, error) {
 	return nil, errors.WithStack(errUnsupportedEllipticCurve)
 }
 
-func unmarshalEcPoint(b []byte, c elliptic.Curve) (x *big.Int, y *big.Int, err error) {
+// parseUncompressedECPublicKeyFromDER parses a PKCS#11 CKA_EC_POINT value,
+// which is a DER OCTET STRING wrapping an uncompressed SEC1 public key,
+// and returns the parsed ECDSA public key.
+func parseUncompressedECPublicKeyFromDER(b []byte, c elliptic.Curve) (*ecdsa.PublicKey, error) {
+	size := len(b)
+	if size < 2 {
+		return nil, errors.WithStack(errMalformedDER)
+	}
 	// Decoding an octet string in isolation seems to be too hard
 	// with encoding.asn1, so we do it manually. Look away now.
 	if b[0] != 4 {
-		return nil, nil, errMalformedDER
+		return nil, errors.WithStack(errMalformedDER)
 	}
 	var l, r int
 	if b[1] < 128 {
@@ -145,31 +151,37 @@ func unmarshalEcPoint(b []byte, c elliptic.Curve) (x *big.Int, y *big.Int, err e
 		r = 2
 	} else {
 		ll := int(b[1] & 127)
-		if ll > 2 { // unreasonably long
-			return nil, nil, errMalformedDER
+		// require at least one length byte and at most two (PKCS#11 points are small)
+		if ll == 0 || ll > 2 {
+			return nil, errors.WithStack(errMalformedDER)
+		}
+		// ensure there are enough bytes for the length itself
+		if size < 2+ll {
+			return nil, errors.WithStack(errMalformedDER)
 		}
 		l = 0
-		for i := int(0); i < ll; i++ {
+		for i := 0; i < ll; i++ {
 			l = 256*l + int(b[2+i])
 		}
 		r = ll + 2
 	}
-	if r+l > len(b) {
-		return nil, nil, errMalformedDER
+	// ensure total length fits in the buffer
+	if r < 0 || l < 0 || r > size || r+l > size {
+		return nil, errors.WithStack(errMalformedDER)
 	}
 	pointBytes := b[r:]
-	x, y = elliptic.Unmarshal(c, pointBytes)
-	if x == nil || y == nil {
-		err = errors.WithStack(errMalformedPoint)
+	pub, err := ecdsa.ParseUncompressedPublicKey(c, pointBytes)
+	if err != nil {
+		return nil, errors.WithStack(errMalformedPoint)
 	}
-	return
+	return pub, nil
 }
 
 // Export the public key corresponding to a private ECDSA key.
 func (lib *PKCS11Lib) exportECDSAPublicKey(session pkcs11.SessionHandle, pubHandle pkcs11.ObjectHandle) (crypto.PublicKey, error) {
 	var err error
 	var attributes []*pkcs11.Attribute
-	var pub ecdsa.PublicKey
+	var curve elliptic.Curve
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_ECDSA_PARAMS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, nil),
@@ -177,13 +189,14 @@ func (lib *PKCS11Lib) exportECDSAPublicKey(session pkcs11.SessionHandle, pubHand
 	if attributes, err = lib.Ctx.GetAttributeValue(session, pubHandle, template); err != nil {
 		return nil, errors.WithStack(err)
 	}
-	if pub.Curve, err = unmarshalEcParams(attributes[0].Value); err != nil {
+	if curve, err = unmarshalEcParams(attributes[0].Value); err != nil {
 		return nil, errors.WithStack(err)
 	}
-	if pub.X, pub.Y, err = unmarshalEcPoint(attributes[1].Value, pub.Curve); err != nil {
+	parsedPub, err := parseUncompressedECPublicKeyFromDER(attributes[1].Value, curve)
+	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return &pub, nil
+	return parsedPub, nil
 }
 
 // GenerateECDSAKeyPair creates an ECDSA private key using curve c.

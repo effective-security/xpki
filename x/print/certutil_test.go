@@ -3,7 +3,6 @@ package print_test
 import (
 	"bytes"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
 	"net/url"
@@ -76,16 +75,13 @@ func Test_CertificateList(t *testing.T) {
 	require.NoError(t, err)
 
 	sn := big.NewInt(204570238945)
-	res := &pkix.CertificateList{
-		TBSCertList: pkix.TBSCertificateList{
-			Version:    1,
-			ThisUpdate: producedAt,
-			NextUpdate: nextUpdate,
-			RevokedCertificates: []pkix.RevokedCertificate{
-				{
-					SerialNumber:   sn,
-					RevocationTime: producedAt,
-				},
+	res := &x509.RevocationList{
+		ThisUpdate: producedAt,
+		NextUpdate: nextUpdate,
+		RevokedCertificateEntries: []x509.RevocationListEntry{
+			{
+				SerialNumber:   sn,
+				RevocationTime: producedAt,
 			},
 		},
 	}

@@ -2,7 +2,6 @@ package print
 
 import (
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -143,19 +142,18 @@ func CertificateRequest(w io.Writer, crt *x509.CertificateRequest) {
 }
 
 // CertificateList prints CRL details
-func CertificateList(w io.Writer, crl *pkix.CertificateList) {
+func CertificateList(w io.Writer, crl *x509.RevocationList) {
 	now := time.Now()
-	issuedIn := now.Sub(crl.TBSCertList.ThisUpdate) / time.Minute * time.Minute
-	expiresIn := crl.TBSCertList.NextUpdate.Sub(now) / time.Minute * time.Minute
+	issuedIn := now.Sub(crl.ThisUpdate) / time.Minute * time.Minute
+	expiresIn := crl.NextUpdate.Sub(now) / time.Minute * time.Minute
 
-	_, _ = fmt.Fprintf(w, "Version: %d\n", crl.TBSCertList.Version)
-	_, _ = fmt.Fprintf(w, "Issuer: %s\n", crl.TBSCertList.Issuer.String())
-	_, _ = fmt.Fprintf(w, "Issued: %s (%s ago)\n", crl.TBSCertList.ThisUpdate.Local().String(), issuedIn.String())
-	_, _ = fmt.Fprintf(w, "Expires: %s (in %s)\n", crl.TBSCertList.NextUpdate.Local().String(), expiresIn.String())
+	_, _ = fmt.Fprintf(w, "Issuer: %s\n", crl.Issuer.String())
+	_, _ = fmt.Fprintf(w, "Issued: %s (%s ago)\n", crl.ThisUpdate.Local().String(), issuedIn.String())
+	_, _ = fmt.Fprintf(w, "Expires: %s (in %s)\n", crl.NextUpdate.Local().String(), expiresIn.String())
 
-	if len(crl.TBSCertList.RevokedCertificates) > 0 {
+	if len(crl.RevokedCertificateEntries) > 0 {
 		_, _ = fmt.Fprintf(w, "Revoked:\n")
-		for _, r := range crl.TBSCertList.RevokedCertificates {
+		for _, r := range crl.RevokedCertificateEntries {
 			_, _ = fmt.Fprintf(w, "  - %s | %s\n",
 				r.SerialNumber.String(),
 				r.RevocationTime.Local().Format(time.RFC3339))
