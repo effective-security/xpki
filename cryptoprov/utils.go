@@ -9,49 +9,9 @@ import (
 	"encoding/pem"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/gpg"
-	"golang.org/x/crypto/openpgp/packet" //nolint:staticcheck
 )
-
-// LoadGPGPrivateKey returns GPG private key.
-// The input key can be in PEM encoded format, or PKCS11 URI.
-func (c *Crypto) LoadGPGPrivateKey(creationTime time.Time, key []byte) (*packet.PrivateKey, error) {
-	var pk *packet.PrivateKey
-	var err error
-
-	keyPem := string(key)
-	if strings.HasPrefix(keyPem, "pkcs11") {
-		pkuri, err := ParsePrivateKeyURI(keyPem)
-		if err != nil {
-			return nil, err
-		}
-
-		provider, err := c.ByManufacturer(pkuri.Manufacturer(), pkuri.Model())
-		if err != nil {
-			return nil, err
-		}
-
-		s, err := provider.GetKey(pkuri.ID())
-		if err != nil {
-			return nil, err
-		}
-
-		pk, err = gpg.ConvertToPacketPrivateKey(creationTime, s)
-		if err != nil {
-			return nil, err
-		}
-
-	} else {
-		pk, err = gpg.ConvertPemToPgpPrivateKey(creationTime, key)
-		if err != nil {
-			return nil, errors.WithMessagef(err, "convert PEM key to PGP format: %v", key)
-		}
-	}
-	return pk, nil
-}
 
 // LoadPrivateKey returns crypto.PrivateKey.
 // The input key can be in PEM encoded format, or PKCS11 URI.

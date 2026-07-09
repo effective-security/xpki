@@ -7,7 +7,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"testing"
-	"time"
 
 	"github.com/effective-security/x/guid"
 	"github.com/effective-security/x/slices"
@@ -99,9 +98,6 @@ func Test_P11(t *testing.T) {
 		assert.Equal(t, "SoftHSM", pvkURI.Manufacturer())
 		assert.Equal(t, keyID, pvkURI.ID())
 
-		_, err = cp.LoadGPGPrivateKey(time.Now(), []byte(keyURI))
-		require.NoError(t, err)
-
 		_, pvk, err := cp.LoadPrivateKey([]byte(keyURI))
 		require.NoError(t, err)
 
@@ -172,9 +168,6 @@ func Test_P11(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "SoftHSM", pvkURI.Manufacturer())
 		assert.Equal(t, keyID, pvkURI.ID())
-
-		_, err = cp.LoadGPGPrivateKey(time.Now(), []byte(keyURI))
-		require.NoError(t, err)
 
 		_, _, err = cp.LoadPrivateKey([]byte(keyURI))
 		require.NoError(t, err)
