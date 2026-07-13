@@ -327,6 +327,8 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 		Limit: aws.Int32(100),
 	}
 
+	totalKeys := 0
+	signKeys := 0
 	res := make([]cryptoprov.KeyInfo, 0, 1000)
 	for {
 		resp, err := p.kmsClient.ListKeys(ctx, opts)
@@ -334,9 +336,8 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 			return nil, err
 		}
 
-		logger.KV(xlog.DEBUG, "keys", len(resp.Keys))
-
 		keys := resp.Keys
+		totalKeys += len(keys)
 		for _, k := range keys {
 			ki, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: k.KeyId})
 			if err != nil {
@@ -355,6 +356,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 			if ki.KeyMetadata.KeyUsage != types.KeyUsageTypeSignVerify {
 				continue
 			}
+			signKeys++
 
 			res = append(res, cryptoprov.KeyInfo{
 				ID:           aws.ToString(k.KeyId),
@@ -368,6 +370,8 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 		}
 		opts.Marker = resp.NextMarker
 	}
+	logger.KV(xlog.DEBUG, "total_keys", totalKeys, "sign_keys", signKeys)
+
 	return res, nil
 }
 
