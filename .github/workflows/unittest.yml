@@ -44,7 +44,7 @@ jobs:
             version:
               paths:
                 - '.VERSION'
-   
+
   UnitTest:
     needs:
       - detect-noop
@@ -69,7 +69,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-     
+
       - name: Go tools
         shell: bash
         run: |
@@ -102,12 +102,6 @@ jobs:
         env:
           GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GIT_USER: ${{ github.actor }}
-
-      - name: coveralls
-        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && needs.detect-noop.outputs.should_skip != 'true'
-        env:
-          COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make coveralls-github
 
       - name: Detect Version Changes
         # https://github.com/fkirc/skip-duplicate-actions
