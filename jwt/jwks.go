@@ -105,7 +105,7 @@ func (r *RemoteKeySet) GetKey(ctx context.Context, keyID string) (any, error) {
 	keys := r.keysFromCache()
 	for _, key := range keys {
 		if keyID == "" || key.KeyID == keyID {
-			return key, nil
+			return key.Key, nil
 		}
 	}
 	// If the kid doesn't match, check for new keys from the remote. This is the
