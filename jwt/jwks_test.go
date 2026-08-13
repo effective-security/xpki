@@ -2,11 +2,18 @@ package jwt_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xpki/jwt"
+	jose "github.com/go-jose/go-jose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,4 +72,43 @@ func Test_ParseJwks(t *testing.T) {
 		assert.NotNil(t, stdClaims.IssuedAt)
 		assert.Empty(t, stdClaims.Audience)
 	})
+}
+
+func Test_RemoteKeySet_GetKey_CacheHit(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	body, err := json.Marshal(jose.JSONWebKeySet{
+		Keys: []jose.JSONWebKey{
+			{Key: &priv.PublicKey, KeyID: "test-kid", Algorithm: "RS256", Use: "sig"},
+		},
+	})
+	require.NoError(t, err)
+
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	ks := jwt.NewRemoteKeySet(ctx, srv.URL)
+
+	// First call: cache miss, fetched fresh from the server.
+	key, err := ks.GetKey(ctx, "test-kid")
+	require.NoError(t, err)
+	_, ok := key.(*rsa.PublicKey)
+	assert.True(t, ok, "expected *rsa.PublicKey on cache miss, got %T", key)
+
+	// Second call: cache hit, fetched from the cache rather than the server.
+	key, err = ks.GetKey(ctx, "test-kid")
+	require.NoError(t, err)
+	_, ok = key.(*rsa.PublicKey)
+	assert.True(t, ok, "expected *rsa.PublicKey on cache hit, got %T", key)
+
+	// Confirms the second call came from cache rather than
+	// coincidentally succeeding via another real fetch.
+	assert.Equal(t, int32(1), atomic.LoadInt32(&hits), "server should only be hit once")
 }
