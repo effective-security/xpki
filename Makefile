@@ -26,7 +26,6 @@ clean:
 tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install github.com/go-phorce/cov-report/cmd/cov-report@latest
-	go install github.com/mattn/goveralls@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 
 version:
@@ -50,10 +49,6 @@ build: hashbin
 	echo "*** Building xpki-tool"
 	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/xpki-tool ./cmd/xpki-tool
 	md5sum ./bin/xpki-tool >> ./build_log.txt
-
-coveralls-github:
-	echo "Running coveralls"
-	goveralls -v -coverprofile=coverage.out -service=github -package ./...
 
 hsmconfig:
 	echo "*** Running hsmconfig"

@@ -63,7 +63,7 @@ func TestCertificateRequestName(t *testing.T) {
 
 	n := r.Name()
 	// GO does not recognize EmailAddress and skips SN in Names
-	assert.Equal(t, "SERIALNUMBER=DN_SN_1234,CN=ekspand.com,O=ekspand,ST=WA,C=US,1.2.840.113549.1.9.1=#0c0a6440746573742e636f6d", n.String())
+	assert.Equal(t, "SERIALNUMBER=DN_SN_1234,CN=ekspand.com,O=ekspand,ST=WA,C=US,1.2.840.113549.1.9.1=d@test.com", n.String())
 	assert.Equal(t, "DN_SN_1234", n.SerialNumber)
 	assert.Equal(t, "ekspand", n.Organization[0])
 	assert.Equal(t, "WA", n.Province[0])
