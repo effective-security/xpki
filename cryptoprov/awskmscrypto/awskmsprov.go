@@ -139,9 +139,9 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 
 	// 1. Create key in KMS
 	input := &kms.CreateKeyInput{
-		CustomerMasterKeySpec: types.CustomerMasterKeySpec(specuKeyPairSpec),
-		KeyUsage:              usage,
-		Description:           &label,
+		KeySpec:     types.KeySpec(specuKeyPairSpec),
+		KeyUsage:    usage,
+		Description: &label,
 	}
 	resp, err := p.kmsClient.CreateKey(ctx, input)
 	if err != nil {
@@ -180,23 +180,23 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 
 	ctx := context.Background()
 
-	var spec types.CustomerMasterKeySpec
+	var spec types.KeySpec
 	switch curve {
 	case elliptic.P256():
-		spec = types.CustomerMasterKeySpecEccNistP256
+		spec = types.KeySpecEccNistP256
 	case elliptic.P384():
-		spec = types.CustomerMasterKeySpecEccNistP384
+		spec = types.KeySpecEccNistP384
 	case elliptic.P521():
-		spec = types.CustomerMasterKeySpecEccNistP521
+		spec = types.KeySpecEccNistP521
 	default:
 		return nil, errors.New("unsupported curve")
 	}
 
 	// 1. Create key in KMS
 	input := &kms.CreateKeyInput{
-		CustomerMasterKeySpec: spec,
-		KeyUsage:              types.KeyUsageTypeSignVerify,
-		Description:           &label,
+		KeySpec:     spec,
+		KeyUsage:    types.KeyUsageTypeSignVerify,
+		Description: &label,
 	}
 	resp, err := p.kmsClient.CreateKey(ctx, input)
 	if err != nil {
