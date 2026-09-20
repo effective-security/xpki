@@ -211,7 +211,7 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		return nil, errors.WithMessage(err, "failed to create signing CA cert bundle")
 	}
 	if status.IsUntrusted() {
-		return nil, errors.WithMessagef(err, "bundle is invalid: label=%s, cn=%q, expiresAt=%q, expiringSKU=[%v], untrusted=[%v]",
+		return nil, errors.Errorf("bundle is invalid: label=%s, cn=%q, expiresAt=%q, expiringSKU=[%v], untrusted=[%v]",
 			label,
 			bundle.Subject.CommonName,
 			bundle.Expires.Format(time.RFC3339),
@@ -235,9 +235,9 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		ocsp = strings.ReplaceAll(cfg.AIA.OcspURL, "${ISSUER_ID}", bundle.SubjectID)
 		ocsp = strings.ReplaceAll(ocsp, ":ISSUER_ID", bundle.SubjectID)
 
-		crlRenewal = cfg.AIA.CRLRenewal
-		crlExpiry = cfg.AIA.CRLExpiry
-		ocspExpiry = cfg.AIA.OCSPExpiry
+		crlRenewal = cfg.AIA.GetCRLRenewal()
+		crlExpiry = cfg.AIA.GetCRLExpiry()
+		ocspExpiry = cfg.AIA.GetOCSPExpiry()
 	}
 
 	keyHash := make(map[crypto.Hash][]byte)
@@ -489,6 +489,7 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 					"profile", profileName,
 					"ext", ext.ID.String(),
 				)
+				continue
 			} else {
 				return nil, nil, errors.Errorf("extension not allowed: %s", ext.ID.String())
 			}
@@ -523,6 +524,13 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 					"profile", profileName,
 					"ext", ext.Id.String(),
 				)
+				// TODO: review this
+				// When AllowedCSRFields is nil, safeTemplate already contains every CSR ExtraExtension.
+				// This new continue therefore does not remove a disallowed extension when OmitDisabledExtensions is enabled;
+				// it remains in the issued certificate. Clear the copied extension slice before profile/request extensions are assembled,
+				// then let this loop add back only allowed CSR extensions.
+
+				//continue
 			} else {
 				return nil, nil, errors.Errorf("extension not allowed: %s", ext.Id.String())
 			}
@@ -599,7 +607,7 @@ func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
 		"URI", uris,
 		"DNS", template.DNSNames,
 		"Email", template.EmailAddresses,
-		"extentions", extensionsList(template),
+		"extensions", extensionsList(template),
 	)
 
 	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})

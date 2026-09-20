@@ -1,18 +1,23 @@
 package dpop
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
+	"cmp"
+
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/values"
 	jwtgo "github.com/effective-security/xpki/jwt"
-	"github.com/go-jose/go-jose/v3"
-	"github.com/go-jose/go-jose/v3/jwt"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
 
-// VerifyConfig expreses the possible options for validating a JWT
+// VerifyConfig expresses the possible options for validating a JWT
 type VerifyConfig struct {
 	// ExpectedIssuer validates the iss claim of a JWT matches this value
 	ExpectedIssuer string
@@ -22,7 +27,7 @@ type VerifyConfig struct {
 	ExpectedAudience string
 	// ExpectedNonce validates that the nonce claim of a JWT contains this value
 	ExpectedNonce string
-	// EnableQuery speciies to get `dpop` header from the QueryString
+	// EnableQuery specifies to get `dpop` header from the QueryString
 	EnableQuery bool
 }
 
@@ -78,8 +83,12 @@ type Result struct {
 	Thumbprint string
 }
 
+// parser verifies the proof signature only; temporal claims are checked in
+// VerifyClaims against a single per-call clock (TimeNowFn) so that the
+// freshness check and the exp/nbf checks cannot disagree.
 var parser = jwtgo.TokenParser{
-	UseJSONNumber: true,
+	UseJSONNumber:        true,
+	SkipClaimsValidation: true,
 }
 
 // VerifyRequestClaims returns DPoP claims, raw claims, key; or error
@@ -94,8 +103,8 @@ func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 
 	u := req.URL
 	coreURL := url.URL{
-		Scheme: values.StringsCoalesce(u.Scheme, "https"),
-		Host:   values.StringsCoalesce(u.Host, req.Host),
+		Scheme: cmp.Or(u.Scheme, "https"),
+		Host:   cmp.Or(u.Host, req.Host),
 		Path:   u.Path,
 	}
 
@@ -104,35 +113,18 @@ func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 
 // VerifyClaims returns DPoP claims, raw claims, key; or error
 func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error) {
-	pjwt, err := jwt.ParseSigned(phdr)
+	headers, err := proofHeaders(phdr)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "dpop: failed to parse header")
 	}
-
-	if len(pjwt.Headers) != 1 {
-		return nil, errors.New("dpop: token contains multiple headers")
+	pjwk, err := checkProofHeaders(headers)
+	if err != nil {
+		return nil, err
 	}
 
-	pjwtTyp, ok := pjwt.Headers[0].ExtraHeaders["typ"]
-	if !ok {
-		return nil, errors.New("dpop: typ field not found in header")
-	}
-
-	if pjwtTyp != jwtHeaderTypeDPOP {
-		return nil, errors.New("dpop: invalid typ header")
-	}
-
-	pjwk := pjwt.Headers[0].JSONWebKey
-	if pjwk == nil {
-		return nil, errors.New("dpop: jwk field not found in header")
-	}
-	if !pjwk.IsPublic() {
-		return nil, errors.New("dpop: jwk field in header must be public key")
-	}
-
-	algo := jose.SignatureAlgorithm(pjwt.Headers[0].Algorithm)
-	if !supportedSignatureAlgorithm[algo] {
-		return nil, errors.Errorf("dpop: alg not allowed: %s", algo)
+	pjwt, err := jwt.ParseSigned(phdr, supportedSignatureAlgorithms)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "dpop: failed to parse header")
 	}
 
 	claims := &jwtgo.Claims{}
@@ -168,8 +160,16 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 	if now.Sub(iat) > DefaultExpiration {
 		return nil, errors.Errorf("dpop: iat claim expired: %s", iat.String())
 	}
+	if iat.After(now.Add(jwtgo.DefaultTimeSkew)) {
+		return nil, errors.Errorf("dpop: iat claim is in the future: %s", iat.String())
+	}
+	if claims.Expiry != nil && now.After(claims.Expiry.Time()) {
+		return nil, errors.Errorf("dpop: token expired at %s", claims.Expiry.Time().String())
+	}
+	if claims.NotBefore != nil && now.Add(jwtgo.DefaultTimeSkew).Before(claims.NotBefore.Time()) {
+		return nil, errors.Errorf("dpop: token is not valid before %s", claims.NotBefore.Time().String())
+	}
 
-	jwtgo.TimeNowFn = TimeNowFn
 	_, err = parser.Parse(phdr, nil, func(token *jwtgo.Token) (any, error) {
 		return pjwk.Public().Key, nil
 	})
@@ -207,6 +207,103 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 	return res, nil
 }
 
+const jwsJSONPrefix = "{"
+
+func proofHeaders(phdr string) ([]jose.Header, error) {
+	if strings.HasPrefix(strings.TrimSpace(phdr), jwsJSONPrefix) {
+		jws, err := jose.ParseSigned(phdr, supportedSignatureAlgorithms)
+		if err != nil {
+			return nil, err
+		}
+		return headersFrom(jws), nil
+	}
+	if h, ok := compactJOSEHeader(phdr); ok {
+		return []jose.Header{h}, nil
+	}
+	pjwt, err := jwt.ParseSigned(phdr, supportedSignatureAlgorithms)
+	if err != nil {
+		return nil, err
+	}
+	return pjwt.Headers, nil
+}
+
+func headersFrom(jws *jose.JSONWebSignature) []jose.Header {
+	headers := make([]jose.Header, len(jws.Signatures))
+	for i, sig := range jws.Signatures {
+		headers[i] = sig.Header
+	}
+	return headers
+}
+
+type compactProtectedHeader struct {
+	Typ string           `json:"typ"`
+	Alg string           `json:"alg"`
+	JWK *jose.JSONWebKey `json:"jwk,omitempty"`
+}
+
+func compactJOSEHeader(phdr string) (jose.Header, bool) {
+	protected, rest, ok := strings.Cut(phdr, ".")
+	if !ok {
+		return jose.Header{}, false
+	}
+	if _, extra, ok := strings.Cut(rest, "."); !ok || strings.ContainsRune(extra, '.') {
+		return jose.Header{}, false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(protected)
+	if err != nil {
+		return jose.Header{}, false
+	}
+	var parsed compactProtectedHeader
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return jose.Header{}, false
+	}
+	extra := map[jose.HeaderKey]any{}
+	if parsed.Typ != "" {
+		extra[jose.HeaderType] = parsed.Typ
+	}
+	return jose.Header{
+		Algorithm:    parsed.Alg,
+		JSONWebKey:   parsed.JWK,
+		ExtraHeaders: extra,
+	}, true
+}
+
+func checkProofHeaders(headers []jose.Header) (*jose.JSONWebKey, error) {
+	if len(headers) != 1 {
+		return nil, errors.New("dpop: token contains multiple headers")
+	}
+
+	pjwtTyp, ok := headers[0].ExtraHeaders[jose.HeaderType]
+	if !ok {
+		return nil, errors.New("dpop: typ field not found in header")
+	}
+
+	if pjwtTyp != jwtHeaderTypeDPOP {
+		return nil, errors.New("dpop: invalid typ header")
+	}
+
+	pjwk := headers[0].JSONWebKey
+	if pjwk == nil {
+		return nil, errors.New("dpop: jwk field not found in header")
+	}
+	if !pjwk.IsPublic() {
+		return nil, errors.New("dpop: jwk field in header must be public key")
+	}
+
+	algo := jose.SignatureAlgorithm(headers[0].Algorithm)
+	if !supportedSignatureAlgorithm[algo] {
+		return nil, errors.Errorf("dpop: alg not allowed: %s", algo)
+	}
+	return pjwk, nil
+}
+
+// supportedSignatureAlgorithms is the allow-list passed to the go-jose parser
+// after compact header checks. Compact proofs decode the protected header first
+// so a private jwk or HMAC alg is rejected with a DPoP error rather than a
+// parse error. JSON serialization is parsed here so a multi-signature proof
+// can be rejected as multiple headers.
+var supportedSignatureAlgorithms = slices.Sorted(maps.Keys(supportedSignatureAlgorithm))
+
 var supportedSignatureAlgorithm = map[jose.SignatureAlgorithm]bool{
 	jose.RS256: true, // RSASSA-PKCS-v1.5 using SHA-256
 	jose.RS384: true, // RSASSA-PKCS-v1.5 using SHA-384
@@ -242,7 +339,7 @@ type TokenInfo struct {
 
 // GetTokenInfo returns token info, if it's JWT or nil otherwise
 func GetTokenInfo(t string) *TokenInfo {
-	pjwt, err := jwt.ParseSigned(t)
+	pjwt, err := jwt.ParseSigned(t, supportedSignatureAlgorithms)
 	if err != nil {
 		return nil
 	}

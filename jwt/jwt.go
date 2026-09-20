@@ -13,7 +13,7 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
-	"github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v4"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "jwt")
@@ -25,9 +25,9 @@ const (
 
 // Signer specifies JWT signer interface
 type Signer interface {
-	// SignClaims returns signed JWT token
+	// Sign returns a signed, compact-serialized JWT for the claims
 	Sign(ctx context.Context, claims MapClaims) (string, error)
-	// PublicKey is returned for assymetric signer
+	// PublicKey is returned for asymmetric signer
 	PublicKey() crypto.PublicKey
 	// Issuer returns name of the issuer
 	Issuer() string
@@ -37,13 +37,17 @@ type Signer interface {
 
 // Parser specifies JWT parser interface
 type Parser interface {
-	// ParseToken returns jwt.StandardClaims
+	// ParseToken verifies the token signature and standard claims and returns MapClaims
 	ParseToken(ctx context.Context, token string, cfg *VerifyConfig) (MapClaims, error)
 
+	// GetRevocation returns the revocation checker, or nil if none is set
 	GetRevocation() Revocation
+	// SetRevocation installs a revocation checker consulted by ParseToken
 	SetRevocation(Revocation)
 }
 
+// Revocation is an optional hook consulted by Parser.ParseToken after a
+// token is verified, and used by callers to revoke tokens.
 type Revocation interface {
 	// Validate validates token claims,
 	// it can be used to validate token revocation, etc.
@@ -74,6 +78,8 @@ type ProviderConfig struct {
 	// Keys specifies list of issuer's keys
 	Keys []*Key `json:"keys" yaml:"keys"`
 
+	// PrivateKey is a PEM-encoded key or a pkcs11: URI resolved through cryptoprov;
+	// when set, the provider signs with RS*/ES* instead of HS256 keys
 	PrivateKey string `json:"private_key" yaml:"private_key"`
 
 	// TokenExpiry specifies token expiration period
@@ -198,6 +204,9 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 		}
 
 		kid, key := p.currentKey()
+		if key == nil {
+			return nil, errors.Errorf("key not found: kid=%q", p.kid)
+		}
 		p.headers = map[string]any{
 			"kid": kid,
 		}
@@ -271,7 +280,7 @@ func (p *provider) GetRevocation() Revocation {
 	return p.revocation
 }
 
-// PublicKey is returned for assymetric signer
+// PublicKey is returned for asymmetric signer
 func (p *provider) PublicKey() crypto.PublicKey {
 	return p.verifyKey
 }

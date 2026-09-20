@@ -4,7 +4,6 @@
 // This package implements the standard Go crypto interfaces for:
 //   - RSA private keys and signatures
 //   - ECDSA private keys and signatures
-//   - DSA private keys and signatures
 //   - Random number generation
 //   - Session management
 //

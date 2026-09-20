@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/miekg/pkcs11"
 )
@@ -112,7 +111,7 @@ func (lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*c
 
 	var privHandle pkcs11.ObjectHandle
 	if privHandle, err = lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
-		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PRIVATE_KEY", "err", err.Error())
+		return nil, errors.WithMessagef(err, "private key %q", keyID)
 	}
 
 	attributes := []*pkcs11.Attribute{

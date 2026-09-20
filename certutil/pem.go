@@ -71,7 +71,7 @@ func ParseChainFromPEM(certificateChainPem []byte) ([]*x509.Certificate, error) 
 	list := make([]*x509.Certificate, 0)
 	var block *pem.Block
 	// trim white space around PEM
-	rest := []byte(strings.TrimSpace(string(certificateChainPem)))
+	rest := bytes.TrimSpace(certificateChainPem)
 	for len(rest) != 0 {
 		block, rest = pem.Decode(rest)
 		if block == nil {
@@ -89,7 +89,7 @@ func ParseChainFromPEM(certificateChainPem []byte) ([]*x509.Certificate, error) 
 			}
 			list = append(list, x509Certificate)
 		}
-		rest = []byte(strings.TrimSpace(string(rest)))
+		rest = bytes.TrimSpace(rest)
 	}
 	return list, nil
 }
@@ -158,7 +158,7 @@ func CreatePoolFromPEM(pemBytes []byte) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// LoadPEMFiles loads and concantenates PEM files into one slice
+// LoadPEMFiles loads and concatenates PEM files into one slice
 func LoadPEMFiles(files ...string) ([]byte, error) {
 	var pem []byte
 	for _, f := range files {
@@ -279,8 +279,10 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error) {
 }
 
 // ParsePrivateKeyPEMWithPassword parses and returns a PEM-encoded private
-// key. The private key may be a potentially encrypted PKCS#8, PKCS#1,
-// or elliptic private key.
+// key. The private key may be an unencrypted PKCS#8, PKCS#1, or SEC1 key,
+// or a legacy PEM block encrypted per RFC 1423 (Proc-Type: 4,ENCRYPTED);
+// encrypted PKCS#8 (ENCRYPTED PRIVATE KEY) is not supported. The key may be
+// RSA or ECDSA.
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.Signer, err error) {
 	keyDER, err := GetKeyDERFromPEM(keyPEM, password)
 	if err != nil {

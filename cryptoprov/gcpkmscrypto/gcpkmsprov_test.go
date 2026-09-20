@@ -9,9 +9,10 @@ import (
 	"io"
 	"testing"
 
+	"uuid"
+
 	kms "cloud.google.com/go/kms/apiv1"
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
 	"github.com/googleapis/gax-go/v2"
@@ -127,7 +128,7 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpSwQTzpTI9LFgLtdHAMHl0oEIgwf
 	}
 
 	for _, tc := range rsacases {
-		pvk, err := prov.GenerateRSAKey(fmt.Sprintf("RSA_%d_%s", tc.size, guid.MustCreate()), tc.size, 1)
+		pvk, err := prov.GenerateRSAKey(fmt.Sprintf("RSA_%d_%s", tc.size, uuid.NewV7().String()), tc.size, 1)
 		require.NoError(t, err)
 
 		keyID, _, err := prov.IdentifyKey(pvk)
@@ -156,7 +157,7 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpSwQTzpTI9LFgLtdHAMHl0oEIgwf
 	}
 
 	for _, tc := range eccases {
-		pvk, err := prov.GenerateECDSAKey(fmt.Sprintf("ECC_%s", guid.MustCreate()), tc.curve)
+		pvk, err := prov.GenerateECDSAKey(fmt.Sprintf("ECC_%s", uuid.NewV7().String()), tc.curve)
 		require.NoError(t, err)
 
 		keyID, _, err := prov.IdentifyKey(pvk)

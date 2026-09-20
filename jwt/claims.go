@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"slices"
+
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xlog"
 )
 
@@ -45,11 +47,11 @@ type Claims struct {
 
 	// Custom most common claims
 	Name          string `json:"name,omitempty"`
-	Profile       string `json:"profile ,omitempty"`
+	Profile       string `json:"profile,omitempty"`
 	Email         string `json:"email,omitempty"`
-	EmailVerified bool   `json:"email_verified ,omitempty"`
+	EmailVerified bool   `json:"email_verified,omitempty"`
 	Phone         string `json:"phone_number,omitempty"`
-	PhoneVerified bool   `json:"phone_number_verified ,omitempty"`
+	PhoneVerified bool   `json:"phone_number_verified,omitempty"`
 	// Role in the service
 	Role   string `json:"role,omitempty"`
 	Tenant string `json:"tenant,omitempty"`
@@ -352,7 +354,7 @@ func (c MapClaims) Strings(k string) []string {
 
 // String will return the named claim as a string,
 // if the underlying type is not a string,
-// it will try and co-oerce it to a string.
+// it will try and coerce it to a string.
 func (c MapClaims) String(k string) string {
 	if c == nil {
 		return ""
@@ -562,6 +564,19 @@ func (c MapClaims) Int64(k string) int64 {
 		return int64(tv)
 	case uint64:
 		return int64(tv)
+	case float64:
+		if math.IsNaN(tv) || math.IsInf(tv, 0) || tv < math.MinInt64 || tv >= math.MaxInt64 {
+			logger.KV(xlog.DEBUG, "reason", "out_of_range", "val", k, "type", fmt.Sprintf("%T", tv))
+			return 0
+		}
+		return int64(tv)
+	case json.Number:
+		i64, err := tv.Int64()
+		if err != nil {
+			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+			return 0
+		}
+		return i64
 	case string:
 		i64, err := strconv.ParseInt(tv, 10, 64)
 		if err != nil {
@@ -601,7 +616,7 @@ func (c MapClaims) VerifyAudience(expected []string) error {
 	}
 
 	for _, a := range expected {
-		if !slices.ContainsString(aud, a) {
+		if !slices.Contains(aud, a) {
 			return errors.Errorf("token missing audience")
 		}
 	}
@@ -739,8 +754,8 @@ func NewNumericDate(t time.Time) *NumericDate {
 
 	// While RFC 7519 technically states that NumericDate values may be
 	// non-integer values, we don't bother serializing timestamps in
-	// claims with sub-second accurancy and just round to the nearest
-	// second instead. Not convined sub-second accuracy is useful here.
+	// claims with sub-second accuracy and just round to the nearest
+	// second instead. Not combined sub-second accuracy is useful here.
 	out := NumericDate(t.Unix())
 	return &out
 }
@@ -803,7 +818,7 @@ func (s *Audience) UnmarshalJSON(b []byte) error {
 
 // Contains returns true if audience contains expected value
 func (s Audience) Contains(expected string) bool {
-	return slices.ContainsString(s, expected)
+	return slices.Contains(s, expected)
 }
 
 var userInfoClaims = []string{

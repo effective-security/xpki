@@ -27,6 +27,8 @@ func Random(byteLength int) []byte {
 // L uniformly random [A-Za-z0-9] characters
 const alpha62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
+// RandomString returns a random string of the given length over [0-9A-Za-z].
+// It panics if the random source fails.
 func RandomString(length int) string {
 	if length <= 0 {
 		return ""

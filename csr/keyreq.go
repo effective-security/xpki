@@ -11,13 +11,13 @@ import (
 )
 
 const (
-	// CurveP256 specifies curve P-256 for ESDCA
+	// CurveP256 specifies curve P-256 for ECDSA
 	CurveP256 = 256
 
-	// CurveP384 specifies curve P-384 for ESDCA
+	// CurveP384 specifies curve P-384 for ECDSA
 	CurveP384 = 384
 
-	// CurveP521 specifies curve P-521 for ESDCA
+	// CurveP521 specifies curve P-521 for ECDSA
 	CurveP521 = 521
 )
 

@@ -1,6 +1,7 @@
 package oauth2client
 
 import (
+	"context"
 	"crypto/rsa"
 	"net/http"
 	"net/url"
@@ -87,13 +88,19 @@ func (p *Client) SetClientSecret(s string) *Client {
 // from tokenURL using the provided clientID, clientSecret, and POST
 // body parameters.
 func (p *Client) CreateTokenRequest(v url.Values, authStyle oauth2.AuthStyle) (*http.Request, error) {
+	return p.CreateTokenRequestWithContext(context.Background(), v, authStyle)
+}
+
+// CreateTokenRequestWithContext is like CreateTokenRequest but binds the
+// request to ctx so the caller can cancel or time out the token exchange.
+func (p *Client) CreateTokenRequestWithContext(ctx context.Context, v url.Values, authStyle oauth2.AuthStyle) (*http.Request, error) {
 	if authStyle == oauth2.AuthStyleInParams {
 		v = cloneURLValues(v)
 		v.Set("client_id", p.cfg.ClientID)
 		v.Set("client_secret", p.cfg.ClientSecret)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, p.cfg.TokenURL, strings.NewReader(v.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.TokenURL, strings.NewReader(v.Encode()))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}

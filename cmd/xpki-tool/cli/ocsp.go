@@ -35,7 +35,7 @@ func (a *OCSPInfoCmd) Run(ctx *Cli) error {
 
 	res, err := ocsp.ParseResponse(der, nil)
 	if err != nil {
-		return errors.WithMessage(err, "unable to prase OCSP")
+		return errors.WithMessage(err, "unable to parse OCSP")
 	}
 
 	print.OCSPResponse(ctx.Writer(), res, true)
@@ -101,7 +101,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 
 	for _, url := range crt.OCSPServer {
 		logger.KV(xlog.DEBUG, "status", "fetching OCSP", "url", url)
-		status, der, err := OCSPValidation(client, crt, issuer, url)
+		status, der, err := OCSPValidation(ctx.Context(), client, crt, issuer, url)
 
 		if err != nil {
 			_, _ = fmt.Fprintf(w, "%s : ERROR: %s\n", url, err.Error())
@@ -118,7 +118,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 			if a.Print {
 				res, err := ocsp.ParseResponse(der, nil)
 				if err != nil {
-					return errors.Wrapf(err, "unable to prase OCSP")
+					return errors.Wrapf(err, "unable to parse OCSP")
 				}
 
 				print.OCSPResponse(w, res, true)

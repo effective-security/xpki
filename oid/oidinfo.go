@@ -108,8 +108,8 @@ var DisplayName = map[string]string{
 	"2.5.29.35":            "Authority KeyID",
 	"2.5.29.37":            "Extended KeyUsage",
 	"1.3.6.1.5.5.7.1.1":    "Authority Info Access",
-	"1.3.6.1.5.5.7.48.1":   "OCPS",
-	"1.3.6.1.5.5.7.48.1.5": "OCPS No Check",
+	"1.3.6.1.5.5.7.48.1":   "OCSP",
+	"1.3.6.1.5.5.7.48.1.5": "OCSP No Check",
 	"1.3.6.1.5.5.7.48.2":   "Issuers",
 }
 

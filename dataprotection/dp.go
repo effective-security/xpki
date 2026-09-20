@@ -17,7 +17,7 @@ type Provider interface {
 	Unprotect(ctx context.Context, protected []byte) ([]byte, error)
 	// IsReady returns true when provider has encryption keys
 	IsReady() bool
-	// PublicKey is returned for assymetric signer
+	// PublicKey is returned for asymmetric signer
 	PublicKey() crypto.PublicKey
 }
 

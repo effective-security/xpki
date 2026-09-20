@@ -12,14 +12,14 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	jose "github.com/go-jose/go-jose/v3"
+	jose "github.com/go-jose/go-jose/v4"
 )
 
 // Thumbprint returns key thumbprint
 func Thumbprint(k *jose.JSONWebKey) (string, error) {
 	tb, err := k.Thumbprint(crypto.SHA256)
 	if err != nil {
-		return "", errors.Errorf("dpop: unable to get thumprint")
+		return "", errors.Errorf("dpop: unable to get thumbprint")
 	}
 	return base64.RawURLEncoding.EncodeToString(tb), nil
 }

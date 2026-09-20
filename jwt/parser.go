@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xlog"
-	jose "github.com/go-jose/go-jose/v3"
+	jose "github.com/go-jose/go-jose/v4"
 )
 
 // ParserConfig provides JWT parser configuration
@@ -135,7 +136,7 @@ func (p *TokenParser) ParseUnverified(tokenString string, claims MapClaims) (tok
 	if method, ok := token.Header["alg"].(string); ok {
 		token.SigningMethod = method
 	} else {
-		return nil, nil, errors.WithMessage(err, "invalid token: no alg specified")
+		return nil, nil, errors.New("invalid token: no alg specified")
 	}
 
 	return token, parts, nil
@@ -204,7 +205,16 @@ func (p *parser) ParseToken(ctx context.Context, authorization string, cfg *Veri
 		}
 		keyID := ""
 		if kid, ok := token.Header["kid"]; ok {
-			keyID = kid.(string)
+			switch v := kid.(type) {
+			case string:
+				keyID = v
+			case json.Number:
+				keyID = v.String()
+			case float64:
+				keyID = strconv.FormatFloat(v, 'f', -1, 64)
+			default:
+				return nil, errors.Errorf("invalid kid header type: %T", kid)
+			}
 		}
 
 		return p.verifier.GetKey(ctx, keyID)

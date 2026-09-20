@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"slices"
+
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/oid"
 )
@@ -109,7 +110,7 @@ func (ext X509Extension) GetValue() ([]byte, error) {
 }
 
 // SignRequest stores a signature request, which contains the SAN,
-// the pen-encoded CSR, optional subject information, and the signature profile.
+// the PEM-encoded CSR, optional subject information, and the signature profile.
 //
 // Extensions provided in the request are copied into the certificate, as
 // long as they are in the allowed list for the issuer's policy.
@@ -194,7 +195,7 @@ func (r *CertificateRequest) Validate() error {
 
 // AddSAN adds a SAN value to the request
 func (r *CertificateRequest) AddSAN(s string) {
-	if found := slices.ContainsString(r.SAN, s); !found {
+	if found := slices.Contains(r.SAN, s); !found {
 		r.SAN = append(r.SAN, s)
 	}
 }
@@ -437,7 +438,9 @@ func SetSAN(template *x509.Certificate, SAN []string) {
 		if strings.Contains(san, "://") {
 			u, err := url.Parse(san)
 			if err != nil {
-				logger.KV(xlog.ERROR, "uri", san, "err", err)
+				// a nil *url.URL would panic inside x509 marshalling
+				logger.KV(xlog.ERROR, "reason", "skipped_invalid_uri", "uri", san, "err", err)
+				continue
 			}
 			template.URIs = append(template.URIs, u)
 		} else if ip := net.ParseIP(san); ip != nil {

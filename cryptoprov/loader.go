@@ -43,8 +43,8 @@ func Unregister(manufacturer string) (ProviderLoader, error) {
 
 // Registered returns registered providers
 func Registered() []string {
-	lockLoaders.Lock()
-	defer lockLoaders.Unlock()
+	lockLoaders.RLock()
+	defer lockLoaders.RUnlock()
 
 	list := []string{}
 	for m := range loaders {
@@ -61,7 +61,9 @@ func LoadProvider(configLocation string) (Provider, error) {
 	}
 
 	manufacturer := tc.Manufacturer()
+	lockLoaders.RLock()
 	loader, ok := loaders[manufacturer]
+	lockLoaders.RUnlock()
 	if !ok {
 		return nil, errors.Errorf("provider not registered: %s", manufacturer)
 	}

@@ -13,7 +13,7 @@ import (
 
 	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xpki/jwt"
-	jose "github.com/go-jose/go-jose/v3"
+	jose "github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

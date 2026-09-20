@@ -128,7 +128,7 @@ func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler,
 
 	if IntermediateStash != "" {
 		if _, err = os.Stat(IntermediateStash); err != nil && os.IsNotExist(err) {
-			logger.KV(xlog.DEBUG, "stach_folder", IntermediateStash)
+			logger.KV(xlog.DEBUG, "stash_folder", IntermediateStash)
 			err = os.MkdirAll(IntermediateStash, 0755)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create intermediate stash directory")
@@ -231,7 +231,11 @@ func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain
 	var key crypto.Signer
 	var err error
 	if len(keyPEM) != 0 {
-		key, err = ParsePrivateKeyPEM(keyPEM)
+		var pwd []byte
+		if password != "" {
+			pwd = []byte(password)
+		}
+		key, err = ParsePrivateKeyPEMWithPassword(keyPEM, pwd)
 		if err != nil {
 			return nil, err
 		}
@@ -418,7 +422,7 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 	var foundChains int
 
 	// Construct a verify chain as a reversed partial bundle,
-	// such that the certs are ordered by promxity to the root CAs.
+	// such that the certs are ordered by proximity to the root CAs.
 	var chain []*fetchedIntermediate
 	for i, cert := range certs {
 		var name string
@@ -606,7 +610,8 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 			// If the error was an unknown authority, try to fetch
 			// the intermediate specified in the AIA and add it to
 			// the intermediates bundle.
-			if _, ok := err.(x509.UnknownAuthorityError); !ok {
+			var unknownAuthority x509.UnknownAuthorityError
+			if !errors.As(err, &unknownAuthority) {
 				return nil, errors.WithMessage(err, "unable to verify the certificate chain")
 			}
 

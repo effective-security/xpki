@@ -20,6 +20,7 @@ key="$1"
 case $key in
     -p|--pin)
     HSM_PIN="$2"
+    HSM_PIN_VAL="$2"
     shift # past argument
     shift # past value
     ;;
@@ -188,7 +189,7 @@ softhsm2-util --show-slots --module "$HSM_MODULE" | grep -q "${HSM_SLOT}" || sof
 [[ ! -z "$CONFIG_FILE" ]] && echo -n { \"Manufacturer\" : \"SoftHSM\", \"Path\": \"$HSM_MODULE\", \"TokenLabel\": \"$HSM_SLOT\", \"Pin\": \"$HSM_PIN\" } > $CONFIG_FILE
 
 # echo "HSM_PIN_VAL=${HSM_PIN_VAL}"
-cat $CONFIG_FILE
+[[ ! -z "$CONFIG_FILE" ]] && cat "$CONFIG_FILE"
 
 if [[ "$LIST_SLOTS" == "YES" && "$PKCS11_TOOL" != "" ]]; then
     echo "*** Slots:"

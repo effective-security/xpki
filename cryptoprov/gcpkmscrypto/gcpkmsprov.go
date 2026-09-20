@@ -10,11 +10,11 @@ import (
 	"path"
 	"strings"
 	"time"
+	"uuid"
 
 	kms "cloud.google.com/go/kms/apiv1"
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/metricskey"
@@ -87,10 +87,12 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
 func parseKmsAttributes(attributes string) map[string]string {
 	var kmsAttributes = make(map[string]string)
 
-	attrs := strings.Split(attributes, ",")
-	for _, v := range attrs {
-		kmsAttr := strings.Split(v, "=")
-		kmsAttributes[strings.TrimSpace(kmsAttr[0])] = strings.TrimSpace(kmsAttr[1])
+	for v := range strings.SplitSeq(attributes, ",") {
+		name, value, ok := strings.Cut(v, "=")
+		if !ok {
+			continue
+		}
+		kmsAttributes[strings.TrimSpace(name)] = strings.TrimSpace(value)
 	}
 
 	return kmsAttributes
@@ -176,8 +178,11 @@ func (p *Provider) genKey(ctx context.Context, req *kmspb.CreateCryptoKeyRequest
 		}
 		time.Sleep(1 * time.Second)
 	}
+	if err != nil {
+		return nil, errors.WithMessagef(err, "public key is not available")
+	}
 
-	pub, err := parseKeyFromPEM([]byte(pubKeyResp.Pem))
+	pub, err := parseKeyFromPEM([]byte(pubKeyResp.GetPem()))
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to parse public key")
 	}
@@ -298,7 +303,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 	list := make([]cryptoprov.KeyInfo, 0)
 	for {
 		key, err := iter.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
@@ -434,9 +439,10 @@ func KmsLoader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 
 // KeyLabelAndID adds a date suffix to ID of a key
 func KeyLabelAndID(val string) (label string, id string) {
-	g := guid.MustCreate()
+	// TODO: use a better 4 bytes random string or time based value?
+	g := uuid.NewV4().String()
 	label = strings.ToLower(strings.TrimSuffix(val, "*"))
-	id = label + strings.ToLower(g[:4])
+	id = label + strings.ToLower(g[0:4])
 
 	if len(id) > 63 {
 		id = id[:63]

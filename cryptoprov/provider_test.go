@@ -5,11 +5,13 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"testing"
 
-	"github.com/effective-security/x/guid"
-	"github.com/effective-security/x/slices"
+	"slices"
+	"uuid"
+
 	"github.com/effective-security/xpki/crypto11"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
@@ -38,9 +40,9 @@ func TestRegistered(t *testing.T) {
 	l := cryptoprov.Registered()
 	require.NotEmpty(t, l)
 
-	assert.True(t, slices.ContainsString(l, inmemcrypto.ProviderName))
-	assert.True(t, slices.ContainsString(l, awskmscrypto.ProviderName))
-	assert.True(t, slices.ContainsString(l, gcpkmscrypto.ProviderName))
+	assert.True(t, slices.Contains(l, inmemcrypto.ProviderName))
+	assert.True(t, slices.Contains(l, awskmscrypto.ProviderName))
+	assert.True(t, slices.Contains(l, gcpkmscrypto.ProviderName))
 }
 
 func TestInmem(t *testing.T) {
@@ -79,7 +81,7 @@ func Test_P11(t *testing.T) {
 	assert.Nil(t, keyBytes)
 
 	t.Run("RSA-sign", func(t *testing.T) {
-		rsaKeyLabel := "rsa" + guid.MustCreate()
+		rsaKeyLabel := "rsa" + uuid.NewV7().String()
 		key, err := d.GenerateRSAKey(rsaKeyLabel, 1024, 1)
 		require.NoError(t, err)
 
@@ -114,7 +116,7 @@ func Test_P11(t *testing.T) {
 	})
 
 	t.Run("RSA-encrypt", func(t *testing.T) {
-		rsaKeyLabel := "rsa" + guid.MustCreate()
+		rsaKeyLabel := "rsa" + uuid.NewV7().String()
 		key, err := d.GenerateRSAKey(rsaKeyLabel, 1024, 2)
 		require.NoError(t, err)
 
@@ -141,16 +143,17 @@ func Test_P11(t *testing.T) {
 		decryptor, ok := pvk.(crypto.Decrypter)
 		assert.True(t, ok, "crypto.Decrypter not supported")
 
-		encrypted, err := rsa.EncryptPKCS1v15(rand.Reader, decryptor.Public().(*rsa.PublicKey), message)
+		// SoftHSM2 only implements OAEP with SHA-1/MGF1-SHA1
+		encrypted, err := rsa.EncryptOAEP(sha1.New(), rand.Reader, decryptor.Public().(*rsa.PublicKey), message, nil)
 		require.NoError(t, err)
 
-		decrypted, err := decryptor.Decrypt(rand.Reader, encrypted, nil)
+		decrypted, err := decryptor.Decrypt(rand.Reader, encrypted, &rsa.OAEPOptions{Hash: crypto.SHA1})
 		require.NoError(t, err)
 		assert.Equal(t, message, decrypted)
 	})
 
 	t.Run("ECDSA", func(t *testing.T) {
-		ecdsaKeyLabel := "ecdsa" + guid.MustCreate()
+		ecdsaKeyLabel := "ecdsa" + uuid.NewV7().String()
 		rsa, err := d.GenerateECDSAKey(ecdsaKeyLabel, elliptic.P256())
 		require.NoError(t, err)
 

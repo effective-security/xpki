@@ -30,10 +30,12 @@ func New(dp dataprotection.Provider, provider jwt.Provider) jwt.Provider {
 	}
 }
 
+// SetRevocation installs the revocation checker used for pat. tokens
 func (p *Provider) SetRevocation(r jwt.Revocation) {
 	p.revocation = r
 }
 
+// GetRevocation returns the revocation checker used for pat. tokens
 func (p *Provider) GetRevocation() jwt.Revocation {
 	return p.revocation
 }
@@ -96,7 +98,7 @@ func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.Verify
 	return claims, nil
 }
 
-// PublicKey is returned for assymetric signer
+// PublicKey is returned for asymmetric signer
 func (p *Provider) PublicKey() crypto.PublicKey {
 	return p.dp.PublicKey()
 }

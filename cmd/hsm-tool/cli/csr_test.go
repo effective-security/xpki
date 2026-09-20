@@ -4,7 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/effective-security/x/guid"
+	"uuid"
+
 	"github.com/stretchr/testify/suite"
 )
 
@@ -24,7 +25,7 @@ func TestCsrSuite(t *testing.T) {
 func (s *csrSuite) TestCreate() {
 	s.createRootCA()
 
-	label := "cert" + guid.MustCreate()
+	label := "cert" + uuid.NewV7().String()
 	cmd := CsrCreateCmd{
 		CsrProfile: "../../../authority/testdata/csrprofiles/trusty_client.yaml",
 		KeyLabel:   label,
@@ -48,7 +49,7 @@ func (s *csrSuite) TestGenCert() {
 		CAKey:      s.rootKey,
 		CAConfig:   "../../../authority/testdata/ca-config.bootstrap.yaml",
 		CsrProfile: "../../../authority/testdata/csrprofiles/trusty_server.yaml",
-		KeyLabel:   "server" + guid.MustCreate(),
+		KeyLabel:   "server" + uuid.NewV7().String(),
 		San:        []string{"ekspand.com", "ca@ekspand.com", "10.1.1.12"},
 		Profile:    "server",
 	}
@@ -72,7 +73,7 @@ func (s *csrSuite) TestSignCert() {
 	createCSR := CsrCreateCmd{
 		CsrProfile: "../../../authority/testdata/csrprofiles/delegated_l1_ca.yaml",
 		KeyLabel:   "*",
-		Output:     filepath.Join(s.tmpdir, "server"+guid.MustCreate()),
+		Output:     filepath.Join(s.tmpdir, "server"+uuid.NewV7().String()),
 	}
 	err := createCSR.Run(s.ctl)
 	s.Require().NoError(err)
@@ -109,7 +110,7 @@ func (s *testSuite) createRootCA() {
 		return
 	}
 
-	label := "root" + guid.MustCreate()
+	label := "root" + uuid.NewV7().String()
 	output := filepath.Join(s.tmpdir, label)
 
 	cmd := GenCertCmd{

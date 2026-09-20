@@ -82,7 +82,7 @@ func PrivKeyToPEM(priv any) []byte {
 		pemKey = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der})
 	case *ecdsa.PrivateKey:
 		der, _ := x509.MarshalECPrivateKey(key)
-		pemKey = pem.EncodeToMemory(&pem.Block{Type: "ECDSA PRIVATE KEY", Bytes: der})
+		pemKey = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 	default:
 		err = errors.New("unknown key type")
 	}

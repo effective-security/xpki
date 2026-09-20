@@ -5,7 +5,8 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/effective-security/x/guid"
+	"uuid"
+
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
@@ -197,7 +198,7 @@ Zc4ZwfH06sPhMqldBjjIfn8CseykrozZkgH1DzvsRhl510xvXovA7Qs=
 // TODO:
 func TestCSR(t *testing.T) {
 	crypto := inmemcrypto.NewProvider()
-	kr := csr.NewKeyRequest(crypto, "TestCSR"+guid.MustCreate(), "ECDSA", 256, csr.SigningKey)
+	kr := csr.NewKeyRequest(crypto, "TestCSR"+uuid.NewV7().String(), "ECDSA", 256, csr.SigningKey)
 
 	req := csr.CertificateRequest{
 		CommonName: "trusty.com",

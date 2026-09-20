@@ -7,7 +7,7 @@ import (
 	"crypto/rsa"
 
 	"github.com/cockroachdb/errors"
-	"github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v4"
 )
 
 // KeyInfo provides information about the key
@@ -19,7 +19,7 @@ type KeyInfo struct {
 	Key       any
 }
 
-// NewKeyInfo returns *SignerInfo
+// NewKeyInfo returns *KeyInfo
 func NewKeyInfo(k any) (*KeyInfo, error) {
 	ki := &KeyInfo{Key: k}
 	var pubKey crypto.PublicKey
@@ -30,13 +30,13 @@ func NewKeyInfo(k any) (*KeyInfo, error) {
 		ki.KeySize = typ.N.BitLen()
 		ki.IsPrivate = true
 		ki.Type = "RSA"
-		ki.Hash = hashAlgo(typ.Public)
+		ki.Hash = hashAlgo(typ.Public())
 		return ki, nil
 	case *ecdsa.PrivateKey:
 		ki.Type = "ECDSA"
 		ki.IsPrivate = true
 		ki.KeySize = typ.Curve.Params().BitSize
-		ki.Hash = hashAlgo(typ.Public)
+		ki.Hash = hashAlgo(typ.Public())
 		return ki, nil
 	case crypto.Signer:
 		pubKey = typ.Public()

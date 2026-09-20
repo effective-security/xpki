@@ -96,10 +96,13 @@ func ParseTokenURI(uri string) (TokenConfig, error) {
 	}
 
 	pinURI, err := url.Parse(pinSourceURI)
+	if err != nil {
+		return nil, errors.WithMessage(ErrInvalidURI, uri)
+	}
 	if pinURI.Opaque != "" && pinURI.Path == "" {
 		pinURI.Path = pinURI.Opaque
 	}
-	if err != nil || pinURI.Scheme != "file" || pinURI.Path == "" {
+	if pinURI.Scheme != "file" || pinURI.Path == "" {
 		return nil, errors.WithMessage(ErrInvalidURI, uri)
 	}
 

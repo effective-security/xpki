@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"uuid"
+
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/fileutil"
-	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/x/print"
@@ -269,7 +270,7 @@ func (a *HsmRmKeyCmd) Run(ctx *Cli) error {
 // prefixKeyLabel adds a date prefix to label for a key
 func prefixKeyLabel(label string) string {
 	if strings.HasSuffix(label, "*") {
-		g := guid.MustCreate()
+		g := uuid.NewV4().String()
 		t := time.Now().UTC()
 		label = strings.TrimSuffix(label, "*") +
 			fmt.Sprintf("_%04d%02d%02d%02d%02d%02d_%x", t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), g[:4])

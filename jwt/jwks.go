@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/cockroachdb/errors"
-	jose "github.com/go-jose/go-jose/v3"
+	jose "github.com/go-jose/go-jose/v4"
 )
 
 // KeySet is an interface for verifying JWT signatures.
@@ -35,14 +35,11 @@ func (s *StaticKeySet) GetKey(ctx context.Context, keyID string) (any, error) {
 	return nil, errors.Errorf("key not found: %s", keyID)
 }
 
-// NewRemoteKeySet returns a KeySet that can validate JSON web tokens by using HTTP
-// GETs to fetch JSON web token sets hosted at a remote URL. This is automatically
-// used by NewProvider using the URLs returned by OpenID Connect discovery, but is
-// exposed for providers that don't support discovery or to prevent round trips to the
-// discovery URL.
-//
-// The returned KeySet is a long lived verifier that caches keys based on any
-// keys change. Reuse a common remote key set instead of creating new ones as needed.
+// NewRemoteKeySet returns a KeySet that fetches a JWKS document from jwksURL
+// over HTTP. NewParser uses it when ParserConfig.JWKSURL is set. Keys are
+// fetched lazily on the first lookup and re-fetched when a requested key ID is
+// not cached; concurrent refreshes are coalesced. ctx bounds the lifetime of
+// every fetch. Reuse one RemoteKeySet per URL rather than creating new ones.
 func NewRemoteKeySet(ctx context.Context, jwksURL string) *RemoteKeySet {
 	return newRemoteKeySet(ctx, jwksURL)
 }
@@ -174,13 +171,13 @@ func (r *RemoteKeySet) keysFromRemote(ctx context.Context) ([]jose.JSONWebKey, e
 }
 
 func (r *RemoteKeySet) updateKeys() ([]jose.JSONWebKey, error) {
-	req, err := http.NewRequest("GET", r.jwksURL, nil)
+	req, err := http.NewRequestWithContext(r.ctx, http.MethodGet, r.jwksURL, nil)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to create request")
 	}
 	client := http.DefaultClient
 
-	resp, err := client.Do(req.WithContext(r.ctx))
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to fetch keys")
 	}

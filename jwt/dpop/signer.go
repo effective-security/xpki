@@ -8,8 +8,8 @@ import (
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/jwt"
-	"github.com/go-jose/go-jose/v3"
-	hjwt "github.com/go-jose/go-jose/v3/jwt"
+	"github.com/go-jose/go-jose/v4"
+	hjwt "github.com/go-jose/go-jose/v4/jwt"
 )
 
 type signer struct {
@@ -46,6 +46,8 @@ func (p *signer) JWKThumbprint() string {
 	return p.tp
 }
 
+// ForRequest creates a DPoP proof for the request method and URL and sets it
+// as the DPoP header; the proof is also returned.
 func ForRequest(p Signer, r *http.Request, extraClaims any) (string, error) {
 	token, err := p.Sign(r.Context(), r.Method, r.URL, extraClaims)
 	if err != nil {

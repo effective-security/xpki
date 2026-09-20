@@ -55,8 +55,10 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error) {
 }
 
 // ParsePrivateKeyPEMWithPassword parses and returns a PEM-encoded private
-// key. The private key may be a potentially encrypted PKCS#8, PKCS#1,
-// or elliptic private key.
+// key. The private key may be an unencrypted PKCS#8, PKCS#1, or SEC1 key,
+// or a legacy PEM block encrypted per RFC 1423 (Proc-Type: 4,ENCRYPTED);
+// encrypted PKCS#8 (ENCRYPTED PRIVATE KEY) is not supported. The key may be
+// RSA or ECDSA.
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.PrivateKey, err error) {
 	keyDER, err := GetPrivateKeyDERFromPEM(keyPEM, password)
 	if err != nil {
@@ -121,8 +123,8 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
 // LoadTLSKeyPair reads and parses a public/private key pair from a pair
 // of files. The files must contain PEM encoded data. The certificate file
 // may contain intermediate certificates following the leaf certificate to
-// form a certificate chain. On successful return, Certificate.Leaf will
-// be nil because the parsed form of the certificate is not retained.
+// form a certificate chain. On successful return, Certificate.Leaf holds
+// the parsed leaf certificate.
 func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, error) {
 	certPEMBlock, err := os.ReadFile(certFile)
 	if err != nil {
@@ -135,9 +137,10 @@ func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, err
 	return c.TLSKeyPair(certPEMBlock, keyPEMBlock)
 }
 
-// TLSKeyPair parses a public/private key pair from a pair of
-// PEM encoded data. On successful return, Certificate.Leaf will be nil because
-// the parsed form of the certificate is not retained.
+// TLSKeyPair parses a public/private key pair from PEM encoded data. The key
+// may be a PEM private key or a pkcs11: URI resolved through the registered
+// providers. On successful return, Certificate.Leaf holds the parsed leaf
+// certificate; no check is made that the key matches the certificate.
 func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error) {
 	var err error
 	var skippedBlockTypes []string

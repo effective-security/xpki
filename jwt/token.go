@@ -7,7 +7,7 @@ type ValidClaims interface {
 	Valid(cfg *VerifyConfig) error
 }
 
-// VerifyConfig expreses the possible options for validating a JWT
+// VerifyConfig expresses the possible options for validating a JWT
 type VerifyConfig struct {
 	// ExpectedIssuer validates the iss claim of a JWT matches this value
 	ExpectedIssuer string

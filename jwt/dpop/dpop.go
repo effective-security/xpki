@@ -27,7 +27,7 @@ const (
 
 // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop-04
 const (
-	// CnfThumbprint is the claim name for JKT thumbptint
+	// CnfThumbprint is the claim name for JKT thumbprint
 	CnfThumbprint          = "jkt"
 	claimNameForHTTPMethod = "htm"
 	claimNameForHTTPURL    = "htu"
@@ -47,9 +47,9 @@ type Signer interface {
 var TimeNowFn = time.Now
 
 // SetCnfClaim sets DPoP `cnf` claim
-func SetCnfClaim(claims map[string]any, thumprint string) {
+func SetCnfClaim(claims map[string]any, thumbprint string) {
 	claims["cnf"] = map[string]any{
-		CnfThumbprint: thumprint,
+		CnfThumbprint: thumbprint,
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"io"
 	"math/big"
-	"unsafe"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
@@ -161,7 +160,7 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
 
 // Decrypt decrypt a message using a RSA key.
 //
-// This completes the implemention of crypto.Decrypter for PKCS11PrivateKeyRSA.
+// This completes the implementation of crypto.Decrypter for PKCS11PrivateKeyRSA.
 //
 // Note that the SessionKeyLen option (for PKCS#1v1.5 decryption) is not supported.
 //
@@ -197,21 +196,14 @@ func (lib *PKCS11Lib) decryptPKCS1v15(session pkcs11.SessionHandle, priv *PKCS11
 }
 
 func (lib *PKCS11Lib) decryptOAEP(session pkcs11.SessionHandle, priv *PKCS11PrivateKeyRSA, ciphertext []byte, hashFunction crypto.Hash, label []byte) ([]byte, error) {
-	var err error
-	var hMech, mgf, sourceData, sourceDataLen uint
-	if hMech, mgf, _, err = hashToPKCS11(hashFunction); err != nil {
+	hMech, mgf, _, err := hashToPKCS11(hashFunction)
+	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	if len(label) > 0 {
-		sourceData = uint(uintptr(unsafe.Pointer(&label[0])))
-		sourceDataLen = uint(len(label))
-	}
-	parameters := concat(UlongToBytes(hMech),
-		UlongToBytes(mgf),
-		UlongToBytes(pkcs11.CKZ_DATA_SPECIFIED),
-		UlongToBytes(sourceData),
-		UlongToBytes(sourceDataLen))
-	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, parameters)}
+	// NewOAEPParams copies the label into C memory, so no Go pointer is
+	// smuggled through the mechanism parameter.
+	params := pkcs11.NewOAEPParams(hMech, mgf, pkcs11.CKZ_DATA_SPECIFIED, label)
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
 	if err = lib.Ctx.DecryptInit(session, mech, priv.key.Handle); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -252,14 +244,12 @@ func (lib *PKCS11Lib) signPSS(session pkcs11.SessionHandle, priv *PKCS11PrivateK
 	case rsa.PSSSaltLengthEqualsHash:
 		sLen = hLen
 	default:
+		if opts.SaltLength < 0 {
+			return nil, errors.WithStack(errUnsupportedRSAOptions)
+		}
 		sLen = uint(opts.SaltLength)
 	}
-	// TODO this is pretty horrible, maybe the PKCS#11 wrapper
-	// could be improved to help us out here
-	parameters := concat(UlongToBytes(hMech),
-		UlongToBytes(mgf),
-		UlongToBytes(sLen))
-	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_PSS, parameters)}
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_PSS, pkcs11.NewPSSParams(hMech, mgf, sLen))}
 	if err = lib.Ctx.SignInit(session, mech, priv.key.Handle); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -295,7 +285,7 @@ func (lib *PKCS11Lib) signPKCS1v15(session pkcs11.SessionHandle, priv *PKCS11Pri
 
 // Sign signs a message using a RSA key.
 //
-// This completes the implemention of crypto.Signer for PKCS11PrivateKeyRSA.
+// This completes the implementation of crypto.Signer for PKCS11PrivateKeyRSA.
 //
 // PKCS#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 //

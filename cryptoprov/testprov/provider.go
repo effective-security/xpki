@@ -10,8 +10,9 @@ import (
 	"io"
 	"strings"
 
+	"uuid"
+
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 )
 
@@ -111,7 +112,7 @@ type defaultIDGenerator struct {
 }
 
 func (g *defaultIDGenerator) Generate() string {
-	return guid.MustCreate()
+	return uuid.NewV7().String()
 }
 
 // Loader for Provider
@@ -186,7 +187,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 	}
 
 	if len(label) == 0 {
-		label = fmt.Sprintf("%x", guid.MustCreate())
+		label = uuid.NewV7().String()
 	}
 
 	id := p.Generate()
@@ -210,7 +211,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	}
 
 	if len(label) == 0 {
-		label = fmt.Sprintf("%x", guid.MustCreate())
+		label = uuid.NewV7().String()
 	}
 
 	id := p.Generate()

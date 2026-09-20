@@ -106,7 +106,7 @@ func Init(config TokenConfig) (*PKCS11Lib, error) {
 	if lib.Ctx == nil {
 		return nil, errors.WithMessage(errCannotOpenPKCS11, config.Path())
 	}
-	if err = lib.Ctx.Initialize(); err != nil && err.(pkcs11.Error) != pkcs11.CKR_CRYPTOKI_ALREADY_INITIALIZED {
+	if err = lib.Ctx.Initialize(); err != nil && !errors.Is(err, pkcs11.Error(pkcs11.CKR_CRYPTOKI_ALREADY_INITIALIZED)) {
 		return nil, errors.WithMessagef(err, "initialize PKCS#11 library: %s", config.Path())
 	}
 
@@ -134,7 +134,7 @@ func Init(config TokenConfig) (*PKCS11Lib, error) {
 	if err = lib.withSession(lib.Slot.id, func(session pkcs11.SessionHandle) error {
 		if flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
 			err = lib.Ctx.Login(session, pkcs11.CKU_USER, config.Pin())
-			if err != nil && err.(pkcs11.Error) != pkcs11.CKR_USER_ALREADY_LOGGED_IN {
+			if err != nil && !errors.Is(err, pkcs11.Error(pkcs11.CKR_USER_ALREADY_LOGGED_IN)) {
 				return errors.WithMessage(err, "login into PKCS#11 token")
 			}
 		}
@@ -190,11 +190,11 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 
 	pin := tokenConfig.Pin()
 	if strings.HasPrefix(pin, "file:") {
-		pb, err := os.ReadFile(strings.TrimLeft(pin, "file:"))
+		pb, err := os.ReadFile(strings.TrimPrefix(pin, "file:"))
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		tokenConfig.Pwd = string(pb)
+		tokenConfig.Pwd = strings.TrimSpace(string(pb))
 	}
 
 	return tokenConfig, nil

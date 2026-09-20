@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"uuid"
+
 	"github.com/effective-security/x/fileutil"
-	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
@@ -200,7 +201,7 @@ func (s *testSuite) TestShakenRoot() {
 	s.Require().NotEmpty(shaken.Extensions)
 
 	crypto := s.crypto.Default()
-	kr := csr.NewKeyRequest(crypto, "TestShakenRoot"+guid.MustCreate(), "ECDSA", 256, csr.SigningKey)
+	kr := csr.NewKeyRequest(crypto, "TestShakenRoot"+uuid.NewV7().String(), "ECDSA", 256, csr.SigningKey)
 	rootReq := csr.CertificateRequest{
 		CommonName: "[TEST] SHAKEN Root CA",
 		KeyRequest: kr,
@@ -219,7 +220,7 @@ func (s *testSuite) TestShakenRoot() {
 
 func (s *testSuite) TestIssuerSign() {
 	crypto := s.crypto.Default()
-	kr := csr.NewKeyRequest(crypto, "TestNewRoot"+guid.MustCreate(), "ECDSA", 256, csr.SigningKey)
+	kr := csr.NewKeyRequest(crypto, "TestNewRoot"+uuid.NewV7().String(), "ECDSA", 256, csr.SigningKey)
 	rootReq := csr.CertificateRequest{
 		CommonName: "[TEST] Trusty Root CA",
 		KeyRequest: kr,

@@ -42,7 +42,7 @@ func (c *configuration) generate() *Entity {
 		NotBefore:             c.getNotBefore(),
 		KeyUsage:              c.keyUsage,
 		ExtKeyUsage:           c.extKeyUsage,
-		Extensions:            c.extensions,
+		ExtraExtensions:       c.extensions,
 		IssuingCertificateURL: c.issuingCertificateURL,
 		OCSPServer:            c.ocspServer,
 		CRLDistributionPoints: c.crldpURL,

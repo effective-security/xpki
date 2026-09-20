@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/x509"
 	"fmt"
@@ -113,8 +114,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	var err error
 	var certBytes, cas []byte
 
-	// set roots to empty
-	roots := []byte("# empty Root bundle\n")
+	var roots []byte
 
 	certBytes, err = ctx.ReadFile(a.Cert)
 	if err != nil {
@@ -146,7 +146,27 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	}
 
 	w := ctx.Writer()
-	bundle, bundleStatus, err := certutil.VerifyBundleFromPEM(certBytes, cas, roots, opts...)
+	if a.Root == "" {
+		// Without an explicit trust store, anchor on the system roots rather
+		// than falling back to Force mode, which would accept any self-signed chain.
+		opts = append(opts, certutil.WithBundleFlavor(certutil.Optimal))
+	}
+	bundler, err := certutil.NewBundlerFromPEM(roots, cas, opts...)
+	if err != nil {
+		return errors.WithMessage(err, "unable to create bundler")
+	}
+	if a.Root == "" {
+		bundler.RootPool, err = x509.SystemCertPool()
+		if err != nil {
+			return errors.WithMessage(err, "unable to load system roots")
+		}
+	}
+	var bundle *certutil.Bundle
+	var bundleStatus *certutil.BundleStatus
+	verified, err := bundler.ChainFromPEM(certBytes, nil, "")
+	if err == nil {
+		bundle, bundleStatus, err = certutil.BuildBundle(verified)
+	}
 	if err != nil {
 		if crt, err2 := certutil.ParseFromPEM(certBytes); err2 == nil {
 			print.Certificate(w, crt, false)
@@ -212,12 +232,14 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 				//				fmt.Fprintf(w, "OCSP server is not present: %s\n", crt.Subject.String())
 			}
 
+			// Cli.Context lazily initializes; resolve it once before starting goroutines.
+			reqCtx := ctx.Context()
 			for _, url := range crt.OCSPServer {
 				wg.Add(1)
 				go func(URL string) {
 					defer wg.Done()
 
-					status, _, err := OCSPValidation(client, crt, issuer, URL)
+					status, _, err := OCSPValidation(reqCtx, client, crt, issuer, URL)
 					revInfoMutex.Lock()
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "OCSP"})
@@ -239,7 +261,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 				wg.Add(1)
 				go func(URL string) {
 					defer wg.Done()
-					status, err := CRLValidation(client, crt, issuer, URL)
+					status, err := CRLValidation(reqCtx, client, crt, issuer, URL)
 					revInfoMutex.Lock()
 					if err != nil || status == ocsp.Revoked {
 						revInfo = append(revInfo, &certRevInfo{crt: crt, status: status, err: err, url: URL, revokedType: "CRL"})
@@ -279,7 +301,7 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 }
 
 // OCSPValidation calls OCSP server and validate certificate
-func OCSPValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, []byte, error) {
+func OCSPValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, []byte, error) {
 	logger.KV(xlog.DEBUG, "fetching", "ocsp", "url", rawURL)
 
 	req, err := certutil.CreateOCSPRequest(crt, issuer, crypto.SHA256)
@@ -287,7 +309,7 @@ func OCSPValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Cer
 		return ocsp.Unknown, nil, err
 	}
 
-	der, err := postHTTP(client, rawURL, "application/ocsp-request", bytes.NewReader(req))
+	der, err := postHTTP(ctx, client, rawURL, "application/ocsp-request", bytes.NewReader(req))
 	if err != nil {
 		return ocsp.Unknown, nil, err
 	}
@@ -298,7 +320,7 @@ func OCSPValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Cer
 		return ocsp.Unknown, der, errors.WithMessagef(err, "failed to parse OCSP")
 	}
 
-	if res.NextUpdate.Before(time.Now()) {
+	if !res.NextUpdate.IsZero() && res.NextUpdate.Before(time.Now()) {
 		return ocsp.Unknown, der, errors.New("OCSP response is expired")
 	}
 
@@ -306,10 +328,10 @@ func OCSPValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Cer
 }
 
 // CRLValidation calls CRL Endpoint and check certificate in CRL
-func CRLValidation(client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error) {
+func CRLValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error) {
 	logger.KV(xlog.DEBUG, "fetching", "crl", "url", crlURL)
 
-	der, err := download(client, crlURL)
+	der, err := download(ctx, client, crlURL)
 	if err != nil {
 		return ocsp.Unknown, errors.WithStack(err)
 	}
@@ -369,8 +391,13 @@ func httpClient(proxy string, timeout time.Duration) (*http.Client, error) {
 	return c, nil
 }
 
-func postHTTP(client *http.Client, url string, contentType string, body io.Reader) ([]byte, error) {
-	resp, err := client.Post(url, contentType, body)
+func postHTTP(ctx context.Context, client *http.Client, url string, contentType string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "unable to create request to %s", url)
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to post to %s", url)
 	}
@@ -386,8 +413,12 @@ func postHTTP(client *http.Client, url string, contentType string, body io.Reade
 	return rbody, nil
 }
 
-func download(client *http.Client, url string) ([]byte, error) {
-	resp, err := client.Get(url)
+func download(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "unable to create request to %s", url)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to fetch from %s", url)
 	}
