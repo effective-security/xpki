@@ -7,7 +7,9 @@ bin/
 .docker/
 .DS_Store
 .codebase-memory
+AGENT.md
 CLAUDE.md
+PLAN.md
 
 debug
 debug.test
