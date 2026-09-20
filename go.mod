@@ -22,6 +22,7 @@ require (
 	golang.org/x/crypto v0.57.0
 	golang.org/x/oauth2 v0.37.0
 	google.golang.org/api v0.298.0
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -80,6 +81,5 @@ require (
 	google.golang.org/genproto v0.0.0-20260918162117-cecb64721679 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260918162117-cecb64721679 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260918162117-cecb64721679 // indirect
-	google.golang.org/grpc v1.84.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
