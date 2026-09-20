@@ -71,9 +71,7 @@ func TestPrivateKey(t *testing.T) {
 			actual      = ca.PrivateKey.(*ecdsa.PrivateKey)
 		)
 
-		assert.Equal(t, expected.D.String(), actual.D.String(), "bad D")
-		assert.Equal(t, expected.X.String(), actual.X.String(), "bad X")
-		assert.Equal(t, expected.Y.String(), actual.Y.String(), "bad Y")
+		assert.True(t, expected.Equal(actual), "private key mismatch")
 	})
 }
 

@@ -8,6 +8,8 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/x/ctl"
+	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/testca"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -15,7 +17,7 @@ type testSuite struct {
 	suite.Suite
 	tmpdir string
 	ctl    *Cli
-	// Out is the outpub buffer
+	// Out is the output buffer
 	Out bytes.Buffer
 
 	appFlags []string
@@ -70,7 +72,7 @@ func (s *testSuite) HasText(texts ...string) {
 func (s *testSuite) HasNoText(texts ...string) {
 	outStr := s.Out.String()
 	for _, t := range texts {
-		s.Contains(outStr, t)
+		s.NotContains(outStr, t)
 	}
 }
 
@@ -117,6 +119,38 @@ func (s *testSuite) TestCertValidate() {
 	cmd := CertValidateCmd{
 		Cert: "../../../x/print/testdata/trusty_peer_wfe.pem",
 	}
+	// expired chain from a private CA: with no --root the system trust store is
+	// used, so the chain must be rejected rather than accepted in Force mode
 	err := cmd.Run(s.ctl)
+	s.Error(err)
+	s.Contains(err.Error(), "unable to verify certificate")
+}
+
+func (s *testSuite) TestCertValidateWithRoot() {
+	root := testca.NewEntity(testca.Authority)
+	leaf := testca.NewEntity(testca.Issuer(root), testca.DNSName("localhost"))
+
+	rootPEM, err := certutil.EncodeToPEMString(false, root.Certificate)
+	s.Require().NoError(err)
+	leafPEM, err := certutil.EncodeToPEMString(false, leaf.Certificate)
+	s.Require().NoError(err)
+
+	rootFile := filepath.Join(s.tmpdir, "validate_root.pem")
+	leafFile := filepath.Join(s.tmpdir, "validate_leaf.pem")
+	s.Require().NoError(os.WriteFile(rootFile, []byte(rootPEM), 0600))
+	s.Require().NoError(os.WriteFile(leafFile, []byte(leafPEM), 0600))
+
+	s.Out.Reset()
+	cmd := CertValidateCmd{
+		Cert: leafFile,
+		Root: rootFile,
+	}
+	s.Require().NoError(cmd.Run(s.ctl))
+	s.HasText("localhost")
+	s.HasNoText("untrusted")
+
+	// the same leaf without the private root is not anchored anywhere
+	cmd = CertValidateCmd{Cert: leafFile}
+	err = cmd.Run(s.ctl)
 	s.Error(err)
 }

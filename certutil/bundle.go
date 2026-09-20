@@ -124,6 +124,7 @@ func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error) {
 	}
 
 	status = &BundleStatus{
+		Code:         c.Status.Code,
 		ExpiringSKIs: c.Status.ExpiringSKIs,
 		Untrusted:    c.Status.Untrusted,
 		Messages:     c.Status.Messages,

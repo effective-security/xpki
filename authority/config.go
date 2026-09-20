@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"slices"
+
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/slices"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/oid"
 	"github.com/jinzhu/copier"
@@ -68,7 +69,7 @@ type IssuerConfig struct {
 	RootBundleFile string `json:"root_bundle,omitempty" yaml:"root_bundle,omitempty"`
 
 	// OmitDisabledExtensions specifies to not fail a request,
-	// but omit not allowed extentions
+	// but omit not allowed extensions
 	OmitDisabledExtensions bool `json:"omit_disabled_extensions,omitempty" yaml:"omit_disabled_extensions,omitempty"`
 
 	// AIA specifies AIA configuration
@@ -251,12 +252,11 @@ func (p *CertProfile) AllowedExtensionsStrings() []string {
 // IsAllowed returns true, if a role is allowed to request this profile
 func (p *CertProfile) IsAllowed(role string) bool {
 	if len(p.DeniedRoles) > 0 &&
-		(slices.ContainsString(p.DeniedRoles, role) || slices.ContainsString(p.DeniedRoles, "*")) {
+		(slices.Contains(p.DeniedRoles, role) || slices.Contains(p.DeniedRoles, "*")) {
 		return false
 	}
-	if len(p.AllowedRoles) > 0 &&
-		(slices.ContainsString(p.AllowedRoles, role) || slices.ContainsString(p.AllowedRoles, "*")) {
-		return true
+	if len(p.AllowedRoles) > 0 {
+		return slices.Contains(p.AllowedRoles, role) || slices.Contains(p.AllowedRoles, "*")
 	}
 	return true
 }
@@ -308,7 +308,7 @@ func LoadConfig(path string) (*Config, error) {
 				}
 
 				if profile.IssuerLabel == iss.Label ||
-					(profile.IssuerLabel == "*" && slices.ContainsString(iss.AllowedProfiles, name)) {
+					(profile.IssuerLabel == "*" && slices.Contains(iss.AllowedProfiles, name)) {
 					iss.Profiles[name] = profile
 				}
 			}

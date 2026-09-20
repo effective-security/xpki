@@ -75,7 +75,7 @@ func (p symProvider) IsReady() bool {
 	return true
 }
 
-// PublicKey is returned for assymetric signer
+// PublicKey is returned for asymmetric signer
 func (p symProvider) PublicKey() crypto.PublicKey {
 	return nil
 }

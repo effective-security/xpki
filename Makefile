@@ -27,6 +27,7 @@ tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install github.com/go-phorce/cov-report/cmd/cov-report@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
+	go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
 
 version:
 	echo "*** building version"
@@ -65,3 +66,17 @@ start-local-kms:
 	echo "*** starting local-kms"
 	docker compose -f docker-compose.yml -p xpki-kms up -d --force-recreate --remove-orphans
 
+docs:
+	echo "*** generating Docs"
+	# generate the docs using specific packages
+	gomarkdoc ./crypto11 > ./Documentation/crypto11.md
+	gomarkdoc ./cryptoprov > ./Documentation/cryptoprov.md
+	gomarkdoc ./testca > ./Documentation/testca.md
+	# hsm-tool
+	echo "\`\`\`bash" > ./Documentation/cli/hsm-tool.md
+	bin/hsm-tool --help >> ./Documentation/cli/hsm-tool.md
+	echo "\`\`\`" >> ./Documentation/cli/hsm-tool.md
+	# xpki-tool
+	echo "\`\`\`bash" > ./Documentation/cli/xpki-tool.md
+	bin/xpki-tool --help >> ./Documentation/cli/xpki-tool.md
+	echo "\`\`\`" >> ./Documentation/cli/xpki-tool.md

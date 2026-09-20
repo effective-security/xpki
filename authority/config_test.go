@@ -173,6 +173,12 @@ func TestProfilePolicyIsAllowed(t *testing.T) {
 			allowed: false,
 		},
 		{
+			// a role missing from a non-empty AllowedRoles list is denied
+			policy:  policy1,
+			role:    "other",
+			allowed: false,
+		},
+		{
 			policy:  policy2,
 			role:    "any",
 			allowed: true,

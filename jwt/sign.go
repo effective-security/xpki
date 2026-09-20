@@ -278,7 +278,8 @@ func VerifySignature(algo, signingString, signature string, key any) error {
 		if err != nil {
 			return err
 		}
-		if EncodeSegment(sig) != signature {
+		// compare canonical encodings so non-canonical base64url spellings are rejected
+		if !hmac.Equal([]byte(EncodeSegment(sig)), []byte(signature)) {
 			return errors.Errorf("invalid signature")
 		}
 		return nil

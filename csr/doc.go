@@ -4,7 +4,7 @@
 // This package supports:
 //   - CSR generation with various key types (RSA, ECDSA)
 //   - CSR parsing and validation
-//   - Certificate profile-based CSR creation
+//   - Request and key-request types shared with the authority package
 //   - Extension handling for certificate requests
 //   - Key request generation for automated certificate enrollment
 //

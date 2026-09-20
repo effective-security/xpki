@@ -59,7 +59,7 @@ type KeyGenerator interface {
 	GetKey(keyID string) (crypto.PrivateKey, error)
 }
 
-// Provider defines an interface to work with crypto providers: HSM, SoftHSM, KMS, crytpto
+// Provider defines an interface to work with crypto providers: HSM, SoftHSM, KMS, crypto
 type Provider interface {
 	KeyGenerator
 	Manufacturer() string

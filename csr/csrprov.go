@@ -22,7 +22,7 @@ import (
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "csr")
 
-// Provider extends cryptoprov.Crypto functionality to support CSP procesing
+// Provider extends cryptoprov.Crypto functionality to support CSP processing
 // and certificate signing
 type Provider struct {
 	provider cryptoprov.Provider
@@ -98,6 +98,10 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 		err = errors.New("invalid key request")
 		return
 	}
+	if req.KeyRequest.prov == nil {
+		// requests decoded from JSON/YAML carry no provider
+		req.KeyRequest.prov = c.provider
+	}
 
 	logger.KV(xlog.TRACE, "algo", req.KeyRequest.Algo(), "size", req.KeyRequest.Size())
 
@@ -148,7 +152,9 @@ func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) 
 		if strings.Contains(san, "://") {
 			u, err := url.Parse(san)
 			if err != nil {
-				logger.KV(xlog.ERROR, "uri", san, "err", err)
+				// a nil *url.URL would panic inside x509 marshalling
+				logger.KV(xlog.ERROR, "reason", "skipped_invalid_uri", "uri", san, "err", err)
+				continue
 			}
 			template.URIs = append(template.URIs, u)
 		} else if ip := net.ParseIP(san); ip != nil {

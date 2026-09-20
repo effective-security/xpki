@@ -53,7 +53,7 @@ func realMain(args []string, out io.Writer, errout io.Writer, exit func(int)) {
 	if ctx != nil {
 		if cl.Debug {
 			// in DEBUG more print command line
-			_, _ = fmt.Fprintf(ctx.Stdout, "#\n# %s\n#\n", strings.Join(args, " "))
+			_, _ = fmt.Fprintf(ctx.Stderr, "#\n# %s\n#\n", strings.Join(args, " "))
 		}
 		err = ctx.Run(&cl.Cli)
 		ctx.FatalIfErrorf(err)

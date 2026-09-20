@@ -13,7 +13,7 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
-// AttributeNames maps PKCS11 atribute to string
+// AttributeNames maps PKCS11 attribute to string
 var AttributeNames = map[uint]string{
 	pkcs11.CKA_ID:       "ID",
 	pkcs11.CKA_LABEL:    "Label",
@@ -32,10 +32,10 @@ var ObjectClassNames = map[uint]string{
 
 // KeyTypeNames maps PKCS11 key type to string
 var KeyTypeNames = map[uint]string{
-	pkcs11.CKK_RSA:   "RSA",
-	pkcs11.CKK_DSA:   "DSA",
-	pkcs11.CKK_DH:    "DH",
-	pkcs11.CKK_ECDSA: "ECDSA",
+	pkcs11.CKK_RSA: "RSA",
+	pkcs11.CKK_DSA: "DSA",
+	pkcs11.CKK_DH:  "DH",
+	pkcs11.CKK_EC:  "ECDSA",
 }
 
 // UlongToBytes converts Ulong to []byte
@@ -46,19 +46,6 @@ func UlongToBytes(n uint) []byte {
 // BytesToUlong converts []byte to Ulong
 func BytesToUlong(bs []byte) (n uint) {
 	return *(*uint)(unsafe.Pointer(&bs[0])) // ugh
-}
-
-func concat(slices ...[]byte) []byte {
-	n := 0
-	for _, slice := range slices {
-		n += len(slice)
-	}
-	r := make([]byte, n)
-	n = 0
-	for _, slice := range slices {
-		n += copy(r[n:], slice)
-	}
-	return r
 }
 
 // Representation of a *DSA signature
@@ -126,7 +113,7 @@ func (lib *PKCS11Lib) generateKeyID() ([]byte, error) {
 	return []byte(label[:32]), nil
 }
 
-// Compute DSA/ECDSA signature and marshal the result in DER fform
+// Compute DSA/ECDSA signature and marshal the result in DER form
 func (lib *PKCS11Lib) dsaGeneric(slot uint, key pkcs11.ObjectHandle, mechanism uint, digest []byte) ([]byte, error) {
 	var err error
 	var sigBytes []byte

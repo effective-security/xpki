@@ -183,7 +183,7 @@ func (lib *PKCS11Lib) exportECDSAPublicKey(session pkcs11.SessionHandle, pubHand
 	var attributes []*pkcs11.Attribute
 	var curve elliptic.Curve
 	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_ECDSA_PARAMS, nil),
+		pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, nil),
 	}
 	if attributes, err = lib.Ctx.GetAttributeValue(session, pubHandle, template); err != nil {
@@ -263,12 +263,12 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 
 	publicKeyTemplate := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
-		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_ECDSA),
+		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_EC),
 		pkcs11.NewAttribute(pkcs11.CKA_TOKEN, true),
 		pkcs11.NewAttribute(pkcs11.CKA_VERIFY, true),
 		pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
 		pkcs11.NewAttribute(pkcs11.CKA_ID, id),
-		pkcs11.NewAttribute(pkcs11.CKA_ECDSA_PARAMS, parameters),
+		pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, parameters),
 	}
 	privateKeyTemplate := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
@@ -303,7 +303,7 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 
 // Sign signs a message using an ECDSA key.
 //
-// This completes the implemention of crypto.Signer for PKCS11PrivateKeyECDSA.
+// This completes the implementation of crypto.Signer for PKCS11PrivateKeyECDSA.
 //
 // PKCS#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 //

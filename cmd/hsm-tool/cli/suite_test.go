@@ -14,7 +14,7 @@ type testSuite struct {
 	suite.Suite
 	tmpdir string
 	ctl    *Cli
-	// Out is the outpub buffer
+	// Out is the output buffer
 	Out bytes.Buffer
 
 	appFlags []string
@@ -75,7 +75,7 @@ func (s *testSuite) HasText(texts ...string) {
 func (s *testSuite) HasNoText(texts ...string) {
 	outStr := s.Out.String()
 	for _, t := range texts {
-		s.Contains(outStr, t)
+		s.NotContains(outStr, t)
 	}
 }
 

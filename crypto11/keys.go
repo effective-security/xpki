@@ -173,7 +173,7 @@ func (lib *PKCS11Lib) FindKeyPairOnSession(session pkcs11.SessionHandle, slot ui
 			return nil, errors.WithMessage(err, "exportRSAPublicKey")
 		}
 		return &PKCS11PrivateKeyRSA{key: &PKCS11PrivateKey{PKCS11Object{privHandle, slot}, pub}, lib: lib}, nil
-	case pkcs11.CKK_ECDSA:
+	case pkcs11.CKK_EC:
 		if pub, err = lib.exportECDSAPublicKey(session, pubHandle); err != nil {
 			return nil, errors.WithMessage(err, "exportECDSAPublicKey")
 		}

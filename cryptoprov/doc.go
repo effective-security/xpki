@@ -2,7 +2,7 @@
 // across different providers and hardware security modules (HSMs).
 //
 // This package abstracts cryptographic operations to support:
-//   - PKCS#11 compatible HSMs via the crypto11 subpackage
+//   - PKCS#11 compatible HSMs via the sibling crypto11 package
 //   - AWS KMS for cloud-based key management
 //   - Google Cloud KMS for cloud-based key management
 //   - In-memory providers for testing and development
@@ -12,6 +12,7 @@
 // operations in a provider-agnostic way, allowing applications to switch
 // between different cryptographic backends without code changes.
 //
-// Configuration is typically done through YAML files that specify the
-// provider type and its specific settings.
+// Configuration is a small JSON or YAML token config whose Manufacturer field
+// selects a loader registered with Register; provider packages register
+// themselves in init(), so import them for side effects before calling Load.
 package cryptoprov

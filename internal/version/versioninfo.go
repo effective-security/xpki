@@ -3,6 +3,7 @@ package version
 import (
 	"fmt"
 	"runtime"
+	"strings"
 )
 
 // Info describes a version of an executable
@@ -17,15 +18,16 @@ type Info struct {
 
 // PopulateFromBuild will parse the major/minor values from the build string
 // the build string is expected to be in the format
-// major.minor-commit
+// [v]major.minor.commit[-dirty]
 // and can be populated from git using
 //
 //	GIT_VERSION := $(shell git describe --dirty --always --tags --long)
 //
 // and then using gofmt to substitute it into a template
 func (v *Info) PopulateFromBuild() {
-	_, _ = fmt.Sscanf(v.Build, "%d.%d.%d", &v.Major, &v.Minor, &v.Commit)
-	_, _ = fmt.Sscanf(v.Build, "%f-", &v.flt)
+	build := strings.TrimPrefix(v.Build, "v")
+	_, _ = fmt.Sscanf(build, "%d.%d.%d", &v.Major, &v.Minor, &v.Commit)
+	_, _ = fmt.Sscanf(build, "%f-", &v.flt)
 	v.flt = v.flt*1000000 + float32(v.Commit)
 	v.Runtime = runtime.Version()
 }

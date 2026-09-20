@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -346,6 +347,13 @@ func TestClaims_Int64(t *testing.T) {
 		"uint":   uint(123),
 		"uint32": uint32(132),
 		"uint64": uint64(164),
+		"f":      float64(1700000000),
+		"ffrac":  float64(12.9),
+		"fnan":   math.NaN(),
+		"finf":   math.Inf(1),
+		"fbig":   float64(1e19),
+		"jn":     json.Number("1700000001"),
+		"jnfrac": json.Number("1.5"),
 	}
 	c(o, "nil", int64(0))
 	c(o, "struct", int64(0))
@@ -358,6 +366,13 @@ func TestClaims_Int64(t *testing.T) {
 	c(o, "uint", int64(123))
 	c(o, "uint32", int64(132))
 	c(o, "uint64", int64(164))
+	c(o, "f", int64(1700000000))
+	c(o, "ffrac", int64(12))
+	c(o, "fnan", int64(0))
+	c(o, "finf", int64(0))
+	c(o, "fbig", int64(0))
+	c(o, "jn", int64(1700000001))
+	c(o, "jnfrac", int64(0))
 }
 
 func TestClaims_Bool(t *testing.T) {

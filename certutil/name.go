@@ -9,7 +9,7 @@ import (
 const certTimeFormat = "Jan _2 15:04:05 2006 GMT"
 
 // NameToString converts Name to string,
-// compatable with openssl output
+// compatible with openssl output
 func NameToString(name *pkix.Name) string {
 	parts := []string{}
 	for _, c := range name.Country {

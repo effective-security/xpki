@@ -11,8 +11,9 @@ import (
 	"fmt"
 	"io"
 
+	"uuid"
+
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/cryptoprov"
 )
@@ -126,7 +127,7 @@ type defaultIDGenerator struct {
 }
 
 func (g *defaultIDGenerator) Generate() string {
-	return guid.MustCreate()
+	return uuid.NewV7().String()
 }
 
 // Provider defines an interface to work with crypto providers
@@ -195,7 +196,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 	}
 
 	if len(label) == 0 {
-		label = fmt.Sprintf("%x", guid.MustCreate())
+		label = uuid.NewV7().String()
 	}
 
 	id := p.Generate()
@@ -219,7 +220,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	}
 
 	if len(label) == 0 {
-		label = fmt.Sprintf("%x", guid.MustCreate())
+		label = uuid.NewV7().String()
 	}
 
 	id := p.Generate()
@@ -241,7 +242,7 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 	return "", "", errors.Errorf("unsupported key: %T", priv)
 }
 
-// ExportKey returns PEM encoded pain text key
+// ExportKey returns PEM encoded plain text key
 func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 	var key []byte
 

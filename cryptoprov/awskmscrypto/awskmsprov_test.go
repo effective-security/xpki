@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/effective-security/x/guid"
+	"uuid"
+
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
 	"github.com/stretchr/testify/assert"
@@ -52,7 +53,7 @@ func Test_KmsProvider(t *testing.T) {
 	}
 
 	for _, tc := range rsacases {
-		pvk, err := prov.GenerateRSAKey(fmt.Sprintf("test_RSA_%d_%s", tc.size, guid.MustCreate()), tc.size, 1)
+		pvk, err := prov.GenerateRSAKey(fmt.Sprintf("test_RSA_%d_%s", tc.size, uuid.NewV7().String()), tc.size, 1)
 		require.NoError(t, err)
 
 		keyID, _, err := prov.IdentifyKey(pvk)
@@ -82,7 +83,7 @@ func Test_KmsProvider(t *testing.T) {
 	}
 
 	for _, tc := range eccases {
-		pvk, err := prov.GenerateECDSAKey(fmt.Sprintf("test_ECC_%s", guid.MustCreate()), tc.curve)
+		pvk, err := prov.GenerateECDSAKey(fmt.Sprintf("test_ECC_%s", uuid.NewV7().String()), tc.curve)
 		require.NoError(t, err)
 
 		keyID, _, err := prov.IdentifyKey(pvk)

@@ -28,7 +28,7 @@ func (a *CsrInfoCmd) Run(ctx *Cli) error {
 
 	csrv, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return errors.WithMessage(err, "unable to prase CSR")
+		return errors.WithMessage(err, "unable to parse CSR")
 	}
 
 	print.CertificateRequest(ctx.Writer(), csrv)

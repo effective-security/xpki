@@ -1,7 +1,7 @@
 # gomod-project.mk: this contains commonly used helpers for makefiles.
 SHELL=/bin/bash
 
-# Used envaronment variables:
+# Used environment variables:
 #
 # 	PROJ_DIR
 #		project's absolute root directory
@@ -19,7 +19,7 @@ SHELL=/bin/bash
 #		Git repo name consists of the org and project: github.com/go-phorce/go-makefile
 #
 #	PROJ_GOFILES
-#		List of all .go files in the project, exluding vendor and tools
+#		List of all .go files in the project, excluding vendor and tools
 #
 # Test flags:
 #
@@ -74,7 +74,7 @@ export PROJ_BIN=$(PROJ_ROOT)/bin
 export GOBIN=$(PROJ_ROOT)/bin
 export PATH := ${PATH}:${PROJ_BIN}
 
-# List of all .go files in the project, exluding vendor and tools
+# List of all .go files in the project, excluding vendor and tools
 PROJ_GOFILES = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -path "./.gopath/*" -not -path "./.tools/*")
 
 COVERAGE_EXCLUSIONS="/rt\.go|/bindata\.go|_test\.go|_mock\.go|main\.go"
@@ -94,7 +94,7 @@ endif
 ## Common targets/functions for golang projects
 # 	They assume that
 #	a) GOPATH has been set with an export GOPATH somewhere
-#	b) the Makefile variable PROJ_PACKAGE has been set to the name of the go pacakge to operate on
+#	b) the Makefile variable PROJ_PACKAGE has been set to the name of the go package to operate on
 #
 
 # go_test_cover will run go test on a package tree, with code coverage turned on, it writes coverage results
@@ -205,7 +205,7 @@ vulns:
 	echo "Running vulns"
 	govulncheck ${PROJ_PACKAGE}/...
 
-lint: fmt vet
+lint: fmt vet vulns
 	echo "Running lint"
 	golangci-lint run --timeout 20m0s ./...
 

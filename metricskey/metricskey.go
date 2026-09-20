@@ -16,7 +16,7 @@ var (
 	PerfCAOperation = metrics.Describe{
 		Type:         metrics.TypeSample,
 		Name:         "perf_ca",
-		Help:         "perf_ca provides the sample metrics of crypto operations",
+		Help:         "perf_ca provides the sample metrics of CA operations by issuer and action",
 		RequiredTags: []string{"issuer", "action"},
 	}
 
@@ -24,7 +24,7 @@ var (
 	PerfCASignRequest = metrics.Describe{
 		Type:         metrics.TypeSample,
 		Name:         "perf_ca_signreq",
-		Help:         "perf_ca_signreq provides the sample metrics of crypto operations",
+		Help:         "perf_ca_signreq provides the sample metrics of certificate sign requests by issuer and profile",
 		RequiredTags: []string{"issuer", "profile"},
 	}
 )

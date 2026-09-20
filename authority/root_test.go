@@ -6,7 +6,8 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"github.com/effective-security/x/guid"
+	"uuid"
+
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
@@ -30,7 +31,7 @@ var rootCfg = &authority.Config{
 
 func (s *testSuite) TestNewRoot() {
 	crypto := s.crypto.Default()
-	kr := csr.NewKeyRequest(crypto, "TestNewRoot"+guid.MustCreate(), "ECDSA", 384, csr.SigningKey)
+	kr := csr.NewKeyRequest(crypto, "TestNewRoot"+uuid.NewV7().String(), "ECDSA", 384, csr.SigningKey)
 	req := csr.CertificateRequest{
 		CommonName: "[TEST] Trusty Root CA",
 		KeyRequest: kr,

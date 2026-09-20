@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/x/guid"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
@@ -214,7 +215,7 @@ func (s *hsmSuite) Test_GenKey() {
 	s.Equal("validate RSA key: RSA key is too weak: 1024", err.Error())
 
 	cmd.Size = 2048
-	cmd.Output = filepath.Join(s.tmpdir, guid.MustCreate())
+	cmd.Output = filepath.Join(s.tmpdir, uuid.NewV7().String())
 
 	err = cmd.Run(s.ctl)
 	s.Require().NoError(err)

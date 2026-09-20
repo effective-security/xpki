@@ -6,14 +6,15 @@ import (
 	"crypto/rand"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/jwt/dpop"
-	"github.com/go-jose/go-jose/v3"
-	"github.com/go-jose/go-jose/v3/jwt"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -266,6 +267,179 @@ func TestVerifyClaims(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "dpop: iat claim expired")
 	})
+
+	rsReq.Method = http.MethodGet
+	rsReq.Host = "cisco.com"
+	rsReq.URL.Host = "cisco.com"
+	rsReq.URL.Path = "/api/signer"
+
+	complete := func() *testSigner {
+		return &testSigner{
+			signingKey:     jsk,
+			signer:         s,
+			withJTI:        true,
+			withHTTPMethod: true,
+			withHTTPURL:    true,
+		}
+	}
+
+	t.Run("no iat", func(t *testing.T) {
+		ts := complete()
+		ts.omitIssuedAt = true
+		err = ts.ForRequest(rsReq, nil)
+		require.NoError(t, err)
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		assert.EqualError(t, err, "dpop: claim not found: iat")
+	})
+
+	t.Run("iat in the future", func(t *testing.T) {
+		ts := complete()
+		err = ts.ForRequest(rsReq, map[string]any{
+			"iat": time.Now().Add(time.Hour).Unix(),
+		})
+		require.NoError(t, err)
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dpop: iat claim is in the future")
+	})
+
+	t.Run("exp expired", func(t *testing.T) {
+		ts := complete()
+		err = ts.ForRequest(rsReq, map[string]any{
+			"exp": time.Now().Add(-time.Minute).Unix(),
+		})
+		require.NoError(t, err)
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dpop: token expired at")
+	})
+
+	t.Run("nbf not yet valid", func(t *testing.T) {
+		ts := complete()
+		err = ts.ForRequest(rsReq, map[string]any{
+			"nbf": time.Now().Add(10 * time.Minute).Unix(),
+		})
+		require.NoError(t, err)
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dpop: token is not valid before")
+	})
+
+	t.Run("private jwk", func(t *testing.T) {
+		privSigner, err := jose.NewSigner(jsk, &jose.SignerOptions{
+			ExtraHeaders: map[jose.HeaderKey]any{
+				jose.HeaderType: "dpop+jwt",
+				"jwk": jose.JSONWebKey{
+					Key: ecKey,
+				},
+			},
+		})
+		require.NoError(t, err)
+		ts := &testSigner{
+			signingKey:     jsk,
+			signer:         privSigner,
+			withJTI:        true,
+			withHTTPMethod: true,
+			withHTTPURL:    true,
+		}
+		err = ts.ForRequest(rsReq, nil)
+		require.NoError(t, err)
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		assert.EqualError(t, err, "dpop: jwk field in header must be public key")
+	})
+
+	t.Run("invalid signature", func(t *testing.T) {
+		ts := complete()
+		err = ts.ForRequest(rsReq, nil)
+		require.NoError(t, err)
+
+		token := rsReq.Header.Get(dpop.HTTPHeader)
+		parts := strings.Split(token, ".")
+		require.Len(t, parts, 3)
+		parts[2] = strings.Repeat("A", len(parts[2]))
+		rsReq.Header.Set(dpop.HTTPHeader, strings.Join(parts, "."))
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dpop: unable to verify token")
+	})
+
+	t.Run("invalid claims", func(t *testing.T) {
+		obj, err := s.Sign([]byte("{"))
+		require.NoError(t, err)
+		token, err := obj.CompactSerialize()
+		require.NoError(t, err)
+		rsReq.Header.Set(dpop.HTTPHeader, token)
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dpop: claims not found in DPoP header")
+	})
+
+	t.Run("multiple signatures", func(t *testing.T) {
+		ms, err := jose.NewMultiSigner([]jose.SigningKey{jsk, jsk}, &jose.SignerOptions{
+			EmbedJWK: true,
+			ExtraHeaders: map[jose.HeaderKey]any{
+				jose.HeaderType: "dpop+jwt",
+			},
+		})
+		require.NoError(t, err)
+		obj, err := ms.Sign([]byte(`{"jti":"1"}`))
+		require.NoError(t, err)
+		rsReq.Header.Set(dpop.HTTPHeader, obj.FullSerialize())
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		assert.EqualError(t, err, "dpop: token contains multiple headers")
+	})
+
+	t.Run("unsupported alg", func(t *testing.T) {
+		hsKey := make([]byte, 32)
+		_, err := rand.Read(hsKey)
+		require.NoError(t, err)
+		hs := jose.SigningKey{
+			Algorithm: jose.HS256,
+			Key:       hsKey,
+		}
+		hsSigner, err := jose.NewSigner(hs, &jose.SignerOptions{
+			ExtraHeaders: map[jose.HeaderKey]any{
+				jose.HeaderType: "dpop+jwt",
+				"jwk": jose.JSONWebKey{
+					Key: &ecKey.PublicKey,
+				},
+			},
+		})
+		require.NoError(t, err)
+		ts := &testSigner{
+			signingKey:     hs,
+			signer:         hsSigner,
+			withJTI:        true,
+			withHTTPMethod: true,
+			withHTTPURL:    true,
+		}
+		err = ts.ForRequest(rsReq, nil)
+		require.NoError(t, err)
+
+		_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		assert.EqualError(t, err, "dpop: alg not allowed: HS256")
+	})
+
+	t.Run("valid", func(t *testing.T) {
+		ts := complete()
+		err = ts.ForRequest(rsReq, nil)
+		require.NoError(t, err)
+
+		res, err := dpop.VerifyRequestClaims(dpop.VerifyConfig{}, rsReq)
+		require.NoError(t, err)
+		require.NotNil(t, res.Claims)
+		assert.NotEmpty(t, res.Thumbprint)
+		assert.Equal(t, http.MethodGet, res.Claims.HTTPMethod)
+		assert.Equal(t, "https://cisco.com/api/signer", res.Claims.HTTPUri)
+	})
 }
 
 func TestGetCnfClaim(t *testing.T) {
@@ -326,6 +500,7 @@ type testSigner struct {
 	withJTI        bool
 	withHTTPMethod bool
 	withHTTPURL    bool
+	omitIssuedAt   bool
 }
 
 func (p *testSigner) ForRequest(r *http.Request, extraClaims any) error {
@@ -338,7 +513,9 @@ func (p *testSigner) ForRequest(r *http.Request, extraClaims any) error {
 	claims := &jwt.Claims{
 		NotBefore: jwt.NewNumericDate(notBefore),
 		Expiry:    jwt.NewNumericDate(exp),
-		IssuedAt:  jwt.NewNumericDate(now),
+	}
+	if !p.omitIssuedAt {
+		claims.IssuedAt = jwt.NewNumericDate(now)
 	}
 
 	if p.withJTI {
@@ -370,7 +547,7 @@ func (p *testSigner) ForRequest(r *http.Request, extraClaims any) error {
 		builder = builder.Claims(extraClaims)
 	}
 
-	token, err := builder.CompactSerialize()
+	token, err := builder.Serialize()
 	if err != nil {
 		return errors.WithStack(err)
 	}

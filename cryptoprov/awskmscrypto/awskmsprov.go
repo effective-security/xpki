@@ -104,10 +104,12 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
 func parseKmsAttributes(attributes string) map[string]string {
 	var kmsAttributes = make(map[string]string)
 
-	attrs := strings.Split(attributes, ",")
-	for _, v := range attrs {
-		kmsAttr := strings.Split(v, "=")
-		kmsAttributes[strings.TrimSpace(kmsAttr[0])] = strings.TrimSpace(kmsAttr[1])
+	for v := range strings.SplitSeq(attributes, ",") {
+		name, value, ok := strings.Cut(v, "=")
+		if !ok {
+			continue
+		}
+		kmsAttributes[strings.TrimSpace(name)] = strings.TrimSpace(value)
 	}
 
 	return kmsAttributes

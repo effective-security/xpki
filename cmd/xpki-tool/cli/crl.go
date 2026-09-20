@@ -66,12 +66,15 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 		return errors.WithMessage(err, "unable to parse PEM")
 	}
 
+	if len(list) == 0 {
+		return errors.New("certificate not found in PEM")
+	}
 	if !a.All {
 		// take only leaf cert
 		list = list[:1]
 	}
 
-	client, err := httpClient(a.Proxy, 3*time.Duration(ctx.Timeout))
+	client, err := httpClient(a.Proxy, time.Second*time.Duration(ctx.Timeout))
 	if err != nil {
 		return err
 	}
@@ -84,7 +87,7 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 		crldp := crt.CRLDistributionPoints[0]
 		logger.KV(xlog.DEBUG, "status", "fetching CRL", "url", crldp)
 
-		body, err := download(client, crldp)
+		body, err := download(ctx.Context(), client, crldp)
 		if err != nil {
 			return err
 		}
