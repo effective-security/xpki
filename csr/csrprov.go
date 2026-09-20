@@ -225,7 +225,9 @@ func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm {
 		case keySize >= 2048:
 			return x509.SHA256WithRSA
 		default:
-			return x509.SHA1WithRSA
+			// SHA-1 signatures are rejected by x509.CreateCertificate;
+			// SHA-256 is the floor for any key size.
+			return x509.SHA256WithRSA
 		}
 	case *ecdsa.PublicKey:
 		switch pub.Curve {
@@ -236,7 +238,7 @@ func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm {
 		case elliptic.P521():
 			return x509.ECDSAWithSHA512
 		default:
-			return x509.ECDSAWithSHA1
+			return x509.ECDSAWithSHA256
 		}
 	default:
 		return x509.UnknownSignatureAlgorithm

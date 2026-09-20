@@ -7,6 +7,8 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -264,4 +266,88 @@ func Test_SignPrivateKMS(t *testing.T) {
 	claims, err = p.ParseToken(ctx, token, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, std, claims)
+}
+
+// Test_ParseToken_SignatureBeforeClaims verifies that the signature is
+// checked before claims validation, so a tampered payload is reported as a
+// signature failure rather than as a claims failure (XPKI-069).
+func Test_ParseToken_SignatureBeforeClaims(t *testing.T) {
+	ctx := context.Background()
+	p, err := jwt.LoadProvider("testdata/jwtprov.json", nil)
+	require.NoError(t, err)
+
+	std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, 5*time.Minute, nil)
+	token, err := p.Sign(ctx, std)
+	require.NoError(t, err)
+
+	cfg := &jwt.VerifyConfig{
+		ExpectedIssuer:   p.Issuer(),
+		ExpectedSubject:  "denis@ekspand.com",
+		ExpectedAudience: []string{"trusty.com"},
+	}
+	_, err = p.ParseToken(ctx, token, cfg)
+	require.NoError(t, err)
+
+	t.Run("tampered_payload", func(t *testing.T) {
+		parts := strings.Split(token, ".")
+		require.Len(t, parts, 3)
+		payload, err := jwt.DecodeSegment(parts[1])
+		require.NoError(t, err)
+		tampered := jwt.MapClaims{}
+		require.NoError(t, json.Unmarshal(payload, &tampered))
+		tampered["sub"] = "attacker"
+		js, err := json.Marshal(tampered)
+		require.NoError(t, err)
+		parts[1] = jwt.EncodeSegment(js)
+
+		// the subject no longer matches cfg; with claims validated first
+		// this would have surfaced as "invalid subject"
+		_, err = p.ParseToken(ctx, strings.Join(parts, "."), cfg)
+		assert.EqualError(t, err, "unable to verify token: invalid signature")
+	})
+
+	t.Run("valid_signature_expired", func(t *testing.T) {
+		jwt.TimeNowFn = func() time.Time {
+			return time.Now().Add(24 * time.Hour)
+		}
+		defer func() { jwt.TimeNowFn = time.Now }()
+
+		_, err := p.ParseToken(ctx, token, cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unable to verify token: token expired at:")
+	})
+}
+
+func Test_ParseToken_FractionalExp(t *testing.T) {
+	ctx := context.Background()
+	p, err := jwt.LoadProvider("testdata/jwtprov.json", nil)
+	require.NoError(t, err)
+
+	cfg := &jwt.VerifyConfig{
+		ExpectedIssuer: p.Issuer(),
+	}
+
+	// The parser decodes claims as json.Number; a fractional exp must be
+	// validated like an integer one, not silently treated as absent.
+	t.Run("expired", func(t *testing.T) {
+		claims := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), nil, 5*time.Minute, nil)
+		claims["exp"] = float64(time.Now().Add(-time.Hour).Unix()) + 0.5
+		token, err := p.Sign(ctx, claims)
+		require.NoError(t, err)
+
+		_, err = p.ParseToken(ctx, token, cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "token expired at:")
+	})
+
+	t.Run("valid", func(t *testing.T) {
+		claims := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), nil, 5*time.Minute, nil)
+		claims["exp"] = float64(time.Now().Add(time.Hour).Unix()) + 0.5
+		token, err := p.Sign(ctx, claims)
+		require.NoError(t, err)
+
+		parsed, err := p.ParseToken(ctx, token, cfg)
+		require.NoError(t, err)
+		require.NotNil(t, parsed.Time("exp"))
+	})
 }

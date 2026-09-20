@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"reflect"
 	"strconv"
 	"strings"
@@ -433,14 +434,19 @@ func (c MapClaims) Time(k string) *time.Time {
 		t := time.Unix(int64(tv), 0)
 		return &t
 	case float64:
+		if math.IsNaN(tv) || math.IsInf(tv, 0) || tv < math.MinInt64 || tv >= math.MaxInt64 {
+			logClaimOutOfRange(k, tv)
+			return nil
+		}
 		t := time.Unix(int64(tv), 0)
 		return &t
 	case int:
 		t := time.Unix(int64(tv), 0)
 		return &t
 	case json.Number:
-		unix, err := tv.Int64()
+		unix, err := parseNumericDate(tv.String())
 		if err != nil {
+			logClaimParseError(k, tv, err)
 			return nil
 		}
 		t := time.Unix(unix, 0)
@@ -453,9 +459,9 @@ func (c MapClaims) Time(k string) *time.Time {
 			}
 			return &t
 		}
-		unix, err := strconv.ParseInt(tv, 10, 64)
+		unix, err := parseNumericDate(tv)
 		if err != nil {
-			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+			logClaimParseError(k, tv, err)
 			return nil
 		}
 		t := time.Unix(unix, 0)
@@ -466,7 +472,29 @@ func (c MapClaims) Time(k string) *time.Time {
 	}
 }
 
-// Int will return the named claim as an int
+// maxIntExclusive is the first float64 value above math.MaxInt. On 64-bit
+// targets float64(math.MaxInt) already rounds up to 2^63, on 32-bit targets
+// math.MaxInt is exactly representable, so the +1 keeps the bound exclusive
+// on both.
+const maxIntExclusive = float64(math.MaxInt) + 1
+
+// logClaimUnsupported records a claim whose type cannot be converted.
+func logClaimUnsupported(k string, v any) {
+	logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", v))
+}
+
+// logClaimOutOfRange records a claim whose value does not fit the target type.
+func logClaimOutOfRange(k string, v any) {
+	logger.KV(xlog.DEBUG, "reason", "out_of_range", "val", k, "type", fmt.Sprintf("%T", v))
+}
+
+// logClaimParseError records a claim whose textual value failed to parse.
+func logClaimParseError(k string, v any, err error) {
+	logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", v), "err", err.Error())
+}
+
+// Int will return the named claim as an int.
+// Values that do not fit in an int, or cannot be parsed, return 0.
 func (c MapClaims) Int(k string) int {
 	if c == nil {
 		return 0
@@ -481,30 +509,62 @@ func (c MapClaims) Int(k string) int {
 	case int32:
 		return int(tv)
 	case int64:
+		if tv < math.MinInt || tv > math.MaxInt {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return int(tv)
 	case uint:
+		if uint64(tv) > math.MaxInt {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return int(tv)
 	case uint32:
+		if uint64(tv) > math.MaxInt {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return int(tv)
 	case uint64:
+		if tv > math.MaxInt {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
+		return int(tv)
+	case float64:
+		if math.IsNaN(tv) || math.IsInf(tv, 0) || tv < math.MinInt || tv >= maxIntExclusive {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return int(tv)
 	case json.Number:
-		i, _ := tv.Int64()
-		return int(i)
+		i64, err := tv.Int64()
+		if err != nil {
+			logClaimParseError(k, tv, err)
+			return 0
+		}
+		if i64 < math.MinInt || i64 > math.MaxInt {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
+		return int(i64)
 	case string:
 		i, err := strconv.Atoi(tv)
 		if err != nil {
-			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+			logClaimParseError(k, tv, err)
 			return 0
 		}
 		return i
 	default:
-		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
+		logClaimUnsupported(k, tv)
 		return 0
 	}
 }
 
-// UInt64 will return the named claim as an uint64
+// UInt64 will return the named claim as an uint64.
+// Negative values, values that do not fit in an uint64, or values that
+// cannot be parsed, return 0.
 func (c MapClaims) UInt64(k string) uint64 {
 	if c == nil {
 		return 0
@@ -515,34 +575,57 @@ func (c MapClaims) UInt64(k string) uint64 {
 	}
 	switch tv := v.(type) {
 	case int:
+		if tv < 0 {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return uint64(tv)
 	case int32:
+		if tv < 0 {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return uint64(tv)
 	case int64:
+		if tv < 0 {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return uint64(tv)
 	case uint:
 		return uint64(tv)
 	case uint32:
 		return uint64(tv)
 	case uint64:
-		return uint64(tv)
-	case json.Number:
-		i, _ := tv.Int64()
-		return uint64(i)
-	case string:
-		i64, err := strconv.ParseUint(tv, 10, 64)
-		if err != nil {
-			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+		return tv
+	case float64:
+		if math.IsNaN(tv) || math.IsInf(tv, 0) || tv < 0 || tv >= math.MaxUint64 {
+			logClaimOutOfRange(k, tv)
 			return 0
 		}
-		return i64
+		return uint64(tv)
+	case json.Number:
+		u64, err := strconv.ParseUint(tv.String(), 10, 64)
+		if err != nil {
+			logClaimParseError(k, tv, err)
+			return 0
+		}
+		return u64
+	case string:
+		u64, err := strconv.ParseUint(tv, 10, 64)
+		if err != nil {
+			logClaimParseError(k, tv, err)
+			return 0
+		}
+		return u64
 	default:
-		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
+		logClaimUnsupported(k, tv)
 		return 0
 	}
 }
 
-// Int64 will return the named claim as an int64
+// Int64 will return the named claim as an int64.
+// Values that do not fit in an int64, or cannot be parsed, return 0.
 func (c MapClaims) Int64(k string) int64 {
 	if c == nil {
 		return 0
@@ -557,35 +640,43 @@ func (c MapClaims) Int64(k string) int64 {
 	case int32:
 		return int64(tv)
 	case int64:
-		return int64(tv)
+		return tv
 	case uint:
+		if uint64(tv) > math.MaxInt64 {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return int64(tv)
 	case uint32:
 		return int64(tv)
 	case uint64:
+		if tv > math.MaxInt64 {
+			logClaimOutOfRange(k, tv)
+			return 0
+		}
 		return int64(tv)
 	case float64:
 		if math.IsNaN(tv) || math.IsInf(tv, 0) || tv < math.MinInt64 || tv >= math.MaxInt64 {
-			logger.KV(xlog.DEBUG, "reason", "out_of_range", "val", k, "type", fmt.Sprintf("%T", tv))
+			logClaimOutOfRange(k, tv)
 			return 0
 		}
 		return int64(tv)
 	case json.Number:
 		i64, err := tv.Int64()
 		if err != nil {
-			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+			logClaimParseError(k, tv, err)
 			return 0
 		}
 		return i64
 	case string:
 		i64, err := strconv.ParseInt(tv, 10, 64)
 		if err != nil {
-			logger.KV(xlog.DEBUG, "val", k, "type", fmt.Sprintf("%T", tv), "err", err.Error())
+			logClaimParseError(k, tv, err)
 			return 0
 		}
 		return i64
 	default:
-		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
+		logClaimUnsupported(k, tv)
 		return 0
 	}
 }
@@ -742,7 +833,8 @@ func (c MapClaims) Valid(cfg *VerifyConfig) error {
 
 // NumericDate represents date and time as the number of seconds since the
 // epoch, ignoring leap seconds. Non-integer values can be represented
-// in the serialized format, but we round to the nearest second.
+// in the serialized format (RFC 7519 Section 2); they are accepted on
+// input and truncated to whole seconds, and always serialized as integers.
 // See RFC7519 Section 2: https://tools.ietf.org/html/rfc7519#section-2
 type NumericDate int64
 
@@ -766,16 +858,39 @@ func (n NumericDate) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON reads a date from its JSON representation.
+// Integer and fractional values are accepted, quoted or not; a fractional
+// value is truncated toward zero to whole seconds.
 func (n *NumericDate) UnmarshalJSON(b []byte) error {
 	s := strings.Trim(string(b), "\"")
 
-	f, err := strconv.ParseInt(s, 10, 64)
+	i, err := parseNumericDate(s)
 	if err != nil {
 		return errors.Errorf("expected number value to unmarshal NumericDate: %s", s)
 	}
 
-	*n = NumericDate(f)
+	*n = NumericDate(i)
 	return nil
+}
+
+// parseNumericDate parses a NumericDate value: an integer, or a decimal
+// number (optionally with an exponent) that is truncated toward zero to
+// whole seconds. The arithmetic is exact, so values near the int64 limits
+// are not disturbed by float64 rounding; anything that does not fit in an
+// int64 is an error.
+func parseNumericDate(s string) (int64, error) {
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i, nil
+	}
+	r, ok := new(big.Rat).SetString(s)
+	if !ok {
+		return 0, errors.Errorf("invalid numeric date: %s", s)
+	}
+	// big.Int.Quo truncates toward zero
+	i := new(big.Int).Quo(r.Num(), r.Denom())
+	if !i.IsInt64() {
+		return 0, errors.Errorf("numeric date out of range: %s", s)
+	}
+	return i.Int64(), nil
 }
 
 // Time returns time.Time representation of NumericDate.

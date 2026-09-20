@@ -131,6 +131,12 @@ parsing, TLS key-pair loading and AES-GCM helpers.
   attributes are not parsed (XPKI-027).
 - `Crypto` has no locking; `Add` after construction is not goroutine-safe and
   silently overwrites (XPKI-016). `New(nil, …)` panics (XPKI-026).
+- `file:` PIN content has trailing `\r`/`\n` stripped; other whitespace is part of the PIN.
+- `ParsePrivateKeyDER` accepts PKCS#8 (RSA, ECDSA, Ed25519), PKCS#1 and SEC1;
+  the parse error from each attempt is preserved (`errors.Join`) under
+  `failed to parse key`.
+- `TLSKeyPair`/`LoadTLSKeyPair` set `Certificate.Leaf` and return an error
+  when the private key's public half does not `Equal` the leaf's public key.
 - Errors are `cockroachdb/errors`; sentinels `ErrInvalidURI`, `ErrInvalidPrivateKeyURI`.
 
 ### Test layout
@@ -170,17 +176,26 @@ C toolchain (cgo) and dlopens the module named in the config.
   opens a session and always returns it. Sessions are never closed and the
   count is unbounded (XPKI-005). Only the default slot pool is created in
   `Init`; `withSession` on a slot without a pool blocks (XPKI-003); map access
-  is not fully locked (XPKI-002). Sign/Decrypt always use the default slot
-  (XPKI-004).
+  is not fully locked (XPKI-002). Sign/Decrypt use the slot recorded on the
+  key object (`PKCS11Object.Slot`), so keys found on other slots work.
 - `Init` tolerates `CKR_CRYPTOKI_ALREADY_INITIALIZED`, so several `PKCS11Lib`
   may share one module; `Close` does not finalize correctly (XPKI-001).
 - Token selection: serial OR label match, first wins; empty configured fields
-  match empty token fields (XPKI-006). `Pin` may be `file:<path>` (content trimmed).
-- RSA: exponent 65537; PSS needs explicit salt length or `EqualsHash`;
+  match empty token fields (XPKI-006). `Pin` may be `file:<path>` (trailing
+  line endings stripped, other whitespace kept).
+- RSA: exponent 65537; PSS accepts `PSSSaltLengthAuto` (largest salt that
+  fits, as `crypto/rsa`), `PSSSaltLengthEqualsHash` or an explicit length;
   PKCS#1 v1.5 and OAEP support SHA-1/224/256/384/512 (SoftHSM2 only does SHA-1
-  OAEP). OAEP/PSS parameters use `pkcs11.NewOAEPParams`/`NewPSSParams`.
+  OAEP), any other hash is rejected with `errUnsupportedRSAOptions`.
+  `Decrypt` accepts nil, `*rsa.PKCS1v15DecryptOptions` (SessionKeyLen 0 only)
+  or `*rsa.OAEPOptions`. OAEP/PSS parameters use
+  `pkcs11.NewOAEPParams`/`NewPSSParams`.
 - Public key export needs a separate `CKO_PUBLIC_KEY` object with the same ID/label.
-- `EnumKeys`/`ListKeys` return at most 100 objects (XPKI-008).
+- `EnumKeys`/`ListKeys`/`FindKeys` drain `C_FindObjects` in batches of 100
+  (`findAllObjects`), so large tokens are not truncated.
+- `DestroyKeyPairOnSlot` returns `errKeyNotFound` when neither the private
+  nor the public object exists; `ConvertToPublic` also accepts the wrapper
+  returned by `GenerateRSAKey`/`GenerateECDSAKey`.
 - Panics: `mustMarshal` at init, `BytesToUlong` on short input (XPKI-011),
   RSA `Sign(nil opts)` (same as stdlib). Everything else returns wrapped errors.
 
@@ -238,7 +253,12 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
   `ExtraExtensions`; the CA decides what to keep (XPKI-049).
 - `KeyRequest.prov` is unexported; `GenerateKeyAndRequest` injects the
   provider for requests decoded from JSON/YAML.
-- `X509Name` YAML/JSON keys are lowercase (`c`, `st`, `l`, `o`, `ou`, `email`).
+- `X509Name` YAML/JSON keys are lowercase (`c`, `st`, `l`, `o`, `ou`, `email`);
+  uppercase keys are silently ignored by the YAML decoder.
+- `SigAlgo`/`DefaultSigAlgo` never return SHA-1: RSA below 2048 and unknown
+  ECDSA curves fall back to SHA-256 (key size validation rejects them anyway).
+- `ParseObjectIdentifier` requires the whole string to be dotted decimals
+  (`^\d+(\.\d+)*$`).
 - `Signer` and `KeyRequestGen` interfaces are unused.
 
 Tests: `csrprov_test.go` and `TestCSR` need SoftHSM. No `testdata/`.
@@ -295,7 +315,7 @@ Tests: `authority_test.go` (suite) generates a 3-level chain with `testca`
 into `/tmp/xpki/certs/*` referenced by `testdata/ca-config.dev.yaml`, and
 registers `crypto11` and `awskmscrypto` (needs SoftHSM + local-kms).
 `testdata/invalid_*.json` drive validation errors; `testdata/csrprofiles/*.yaml`
-are used by `cmd/hsm-tool` tests (XPKI-065).
+are used by `cmd/hsm-tool` tests (lowercase `names` keys, see csr invariants).
 
 ## Package certutil
 
@@ -359,7 +379,12 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 - `provider.ParseToken` requires `kid` for HS tokens; `parser.ParseToken`
   refuses HS. `alg: none` is rejected. Numeric `kid` headers are stringified.
 - `RemoteKeySet` refreshes only on unknown `kid`, uses `http.DefaultClient`
-  without timeout (XPKI-070). Claims are validated before signature (XPKI-069).
+  without timeout (XPKI-070). `ParseWithClaims` verifies the signature before
+  validating claims. `MapClaims.Int/Int64/UInt64` return 0 (DEBUG log) on
+  overflow, negative-to-unsigned, or parse failure. `NumericDate` and
+  `MapClaims.Time` accept fractional seconds and truncate to whole seconds
+  with exact arithmetic (`parseNumericDate`), so a fractional `exp` is
+  still validated.
 - `MustNewProvider` panics; `TimeNowFn` is a mutable global used by tests.
 - go-jose v4 is used only for `JSONWebKey`/`JSONWebKeySet` types.
 
@@ -381,10 +406,11 @@ embedded real ID tokens; `Test_SignPrivateKMS` needs local-kms on `:14555`.
   compare `Result.Thumbprint` with the `cnf.jkt` claim.
 - **accesstoken**: `pat.<base64url(AES-GCM(json claims))>`; non-`pat.` tokens
   delegate to the inner `jwt.Provider`. No `exp` is added (XPKI-078);
-  `SetRevocation` is not forwarded (XPKI-077).
+  `SetRevocation` is forwarded to the inner provider.
 - **oauth2client**: `config.go` `Config`/`ClientConfig` (`env://` values via
   `x/configloader`), `client.go` `Client`, `CreateTokenRequest[WithContext]`,
-  `provider.go` registry lookups by provider id, email, domain. Registry
+  `provider.go` registry lookups by provider id, email, domain
+  (`ClientForEmail` returns nil unless the value is `local@domain`). Registry
   mutation is not goroutine-safe (XPKI-081).
 - **dataprotection**: `Provider` interface; `NewSymmetric(secret)` = HKDF-SHA256
   → AES-256-GCM, blob `nonce(12) || ciphertext || tag`, no key id (XPKI-083).
@@ -394,8 +420,8 @@ Tests are pure except `keys_test.go` writing under `os.TempDir()`.
 ## Helper packages
 
 - **armor**: `Decode` only; CRC24 required (XPKI-047); returns nil on malformed input, never panics. `testdata/` GPG keys incl. corrupted variants.
-- **oid**: exported maps are process-global; `KeyUsages` order is nondeterministic (XPKI-046).
-- **x/print**: writes to an `io.Writer`, ignores write errors, local time; `JSON` swallows marshal errors by design.
+- **oid**: exported maps are process-global; `KeyUsages` returns canonical names in RFC 5280 bit order, each bit once.
+- **x/print**: writes to an `io.Writer`, ignores write errors, local time; a zero `NextUpdate` prints `Expires: not set`; `JSON` swallows marshal errors by design.
 - **metricskey**: descriptors only; registered by consumers.
 - **internal/version**: `current.go` is generated by `make version` but tracked (XPKI-097); `PopulateFromBuild` strips a leading `v`.
 - **testca**: everything panics on failure (test-only). Defaults RSA-2048,
@@ -407,13 +433,18 @@ Tests are pure except `keys_test.go` writing under `os.TempDir()`.
 - **hsm-tool** (`cmd/hsm-tool`): `--cfg` provider config (or `inmem`/`plain`),
   `--crypto` extra providers, `--plain-key`, `-D`, `-l`. Commands: `hsm list`,
   `hsm info <id>`, `hsm generate`, `hsm remove <id>`, `csr create`,
-  `csr gen-cert`, `csr sign <csr>`. Output is JSON on stdout (`print.CertAndKey`);
+  `csr gen-cert`, `csr sign <csr>`. `hsm list/info/remove` select a token by
+  `--serial` or `--token` label (`tokenFilter`); `info` and `remove` fail with
+  `token not found` when a filter matches nothing. Output is JSON on stdout (`print.CertAndKey`);
   `--output PREFIX` writes `.pem/.csr/.key` (`.key` is 0600). Providers are
   blank-imported in `cli/cli.go` and loaded lazily by `CryptoProv()`.
 - **xpki-tool** (`cmd/xpki-tool`): `--timeout` seconds for HTTP. Commands:
   `csr-info`, `cert info`, `cert validate` (`--ca`, `--root`, `--revocation`,
-  `--with-aia`), `crl info`, `crl fetch`, `ocsp info`, `ocsp fetch`. HTTP
-  helpers take the CLI context.
+  `--with-aia`), `crl info`, `crl fetch` (needs `--output` or `--print`;
+  errors when no selected certificate has a CRL distribution point),
+  `ocsp info` (`--issuer` PEM verifies the response signature), `ocsp fetch`
+  (error when the certificate has no OCSP URL). HTTP helpers take the CLI
+  context; output paths use `filepath.Join`.
 - Exit codes: kong parse error → 80; `Run` error → 1; panic → 2. `-` as a
   file name reads stdin.
 - Tests: `cmd/hsm-tool/cli` uses testify mocks for providers, plus `csr_test.go`

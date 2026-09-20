@@ -59,12 +59,19 @@ func (lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 		_ = lib.Ctx.CloseSession(session)
 	}()
 
-	var privHandle, pubHandle pkcs11.ObjectHandle
-	if privHandle, err = lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
-		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PRIVATE_KEY", "err", err.Error())
+	// A missing half of the pair is tolerated; any other lookup failure
+	// (session or token error) is returned before anything is destroyed,
+	// so a transient error can not delete only one object of the pair.
+	privHandle, err := lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0))
+	if err != nil && !errors.Is(err, errKeyNotFound) {
+		return errors.WithMessagef(err, "find private key: slot=%d, key=%s", slotID, keyID)
 	}
-	if pubHandle, err = lib.findKey(session, keyID, "", pkcs11.CKO_PUBLIC_KEY, ^uint(0)); err != nil {
-		logger.KV(xlog.WARNING, "reason", "not_found", "type", "CKO_PUBLIC_KEY", "err", err.Error())
+	pubHandle, err := lib.findKey(session, keyID, "", pkcs11.CKO_PUBLIC_KEY, ^uint(0))
+	if err != nil && !errors.Is(err, errKeyNotFound) {
+		return errors.WithMessagef(err, "find public key: slot=%d, key=%s", slotID, keyID)
+	}
+	if privHandle == 0 && pubHandle == 0 {
+		return errors.WithMessagef(errKeyNotFound, "slot=%d, key=%s", slotID, keyID)
 	}
 
 	if privHandle != 0 {

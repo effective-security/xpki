@@ -321,6 +321,23 @@ func (s *testSuite) TestIssuerSign() {
 					{1, 3, 6, 1, 5, 5, 7, 1, 1},
 				},
 			},
+			// ocsp_csr does not set OCSPNoCheck, the request must supply the extension
+			"ocsp_csr": {
+				Usage:        []string{"ocsp signing"},
+				Expiry:       1 * csr.OneYear,
+				Backdate:     0,
+				AllowedNames: "ocsp.trusty.com",
+				OCSPNoCheck:  false,
+				AllowedCSRFields: &csr.AllowedFields{
+					Subject:  true,
+					DNSNames: false,
+					URIs:     false,
+				},
+				AllowedExtensions: []csr.OID{
+					{1, 3, 6, 1, 5, 5, 7, 48, 1, 5},
+					{1, 3, 6, 1, 5, 5, 7, 1, 1},
+				},
+			},
 			"default": {
 				Usage:        []string{"server auth", "signing", "key encipherment"},
 				Expiry:       1 * csr.OneYear,
@@ -508,6 +525,44 @@ func (s *testSuite) TestIssuerSign() {
 		s.Empty(crt.OCSPServer)
 		s.True(certutil.IsOCSPSigner(crt))
 		s.True(certutil.HasOCSPNoCheck(crt))
+	})
+
+	s.Run("ocsp_no_check_from_request", func() {
+		req := csr.CertificateRequest{
+			CommonName: "ocsp.trusty.com",
+			KeyRequest: kr,
+		}
+
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		s.Require().NoError(err)
+
+		// profile does not set ocsp_no_check; the extension comes from the request
+		sreq := csr.SignRequest{
+			Request: string(csrPEM),
+			Profile: "ocsp_csr",
+			Extensions: []csr.X509Extension{
+				{
+					ID:    csr.OID{1, 3, 6, 1, 5, 5, 7, 48, 1, 5},
+					Value: "0500",
+				},
+			},
+		}
+
+		crt, _, err := rootCA.Sign(sreq)
+		s.Require().NoError(err)
+		s.True(certutil.IsOCSPSigner(crt))
+		s.True(certutil.HasOCSPNoCheck(crt))
+		s.Empty(crt.CRLDistributionPoints)
+		s.Empty(crt.OCSPServer)
+
+		// without the extension in the request, the OCSP signer gets AIA and CDP
+		sreq.Extensions = nil
+		crt, _, err = rootCA.Sign(sreq)
+		s.Require().NoError(err)
+		s.True(certutil.IsOCSPSigner(crt))
+		s.False(certutil.HasOCSPNoCheck(crt))
+		s.NotEmpty(crt.CRLDistributionPoints)
+		s.NotEmpty(crt.OCSPServer)
 	})
 
 	s.Run("Valid L1", func() {

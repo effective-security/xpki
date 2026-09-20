@@ -106,7 +106,7 @@ Flags:
 ### xpki-tool crl fetch
 
 ```sh
-Usage: xpki-tool crl fetch --output=STRING <cert> [flags]
+Usage: xpki-tool crl fetch <cert> [flags]
 
 fetch CRL
 
@@ -117,10 +117,10 @@ Flags:
   -h, --help             Show context-sensitive help.
       --timeout=3        HTTP timeout in seconds
 
-      --output=STRING    output folder name
+      --output=STRING    output folder name; required unless --print is set
       --all              fetch entire chain
       --proxy=STRING     optional, proxy address or DC name
-      --print
+      --print            print the fetched CRL
 ```
 
 ### xpki-tool ocsp info
@@ -137,7 +137,8 @@ Flags:
   -h, --help             Show context-sensitive help.
       --timeout=3        HTTP timeout in seconds
 
-      --issuer=STRING
+      --issuer=STRING    optional, PEM file with the issuer certificate to
+                         verify the response signature
 ```
 
 ### xpki-tool ocsp fetch

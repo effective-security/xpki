@@ -40,10 +40,9 @@ TTL-based background refresh (XPKI-070).
 
 Redesign `crypto11` session handling: bounded session count with proper
 close on return, per-key slot usage, pool creation on demand, and a correct
-`Close()` that finalizes once per process (XPKI-001..005). Support
-`rsa.PSSSaltLengthAuto` and `*rsa.PKCS1v15DecryptOptions` (XPKI-009,
-XPKI-015). Consider dropping the remaining cgo `unsafe` helpers in
-`common.go` in favor of `encoding/binary`.
+`Close()` that finalizes once per process (XPKI-001..003, XPKI-005).
+Consider dropping the remaining cgo `unsafe` helpers in `common.go` in
+favor of `encoding/binary`.
 
 ## certutil bundler concurrency
 

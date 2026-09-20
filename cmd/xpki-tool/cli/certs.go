@@ -68,11 +68,16 @@ func (a *CertInfoCmd) Run(ctx *Cli) error {
 		if err != nil {
 			return errors.WithMessage(err, "unable to create file")
 		}
-		defer func() {
-			_ = f.Close()
-		}()
 
-		_ = certutil.EncodeToPEM(f, true, list...)
+		err = certutil.EncodeToPEM(f, true, list...)
+		if err != nil {
+			_ = f.Close()
+			return errors.WithMessagef(err, "unable to write certificates: %s", a.Out)
+		}
+		err = f.Close()
+		if err != nil {
+			return errors.WithMessagef(err, "unable to close file: %s", a.Out)
+		}
 	}
 
 	return nil

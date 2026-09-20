@@ -37,3 +37,18 @@ func Test_LoadConfig(t *testing.T) {
 	assert.NotNil(t, c.TokenSerial())
 	assert.NotNil(t, c.Attributes())
 }
+
+func Test_LoadTokenConfig_PinFileTrimmed(t *testing.T) {
+	dir := t.TempDir()
+	pinFile := filepath.Join(dir, "pin.txt")
+	// trailing line endings are removed, other whitespace is part of the PIN
+	require.NoError(t, os.WriteFile(pinFile, []byte(" s3 cret \r\n\n"), 0600))
+	cfgFile := filepath.Join(dir, "token.yaml")
+	cfg := "manufacturer: inmem\ntoken_label: unittest\npin: file:" + pinFile + "\n"
+	require.NoError(t, os.WriteFile(cfgFile, []byte(cfg), 0600))
+
+	c, err := cryptoprov.LoadTokenConfig(cfgFile)
+	require.NoError(t, err)
+	assert.Equal(t, " s3 cret ", c.Pin())
+	assert.Equal(t, "unittest", c.TokenLabel())
+}

@@ -10,6 +10,7 @@ import (
 	_ "crypto/sha512"
 	"testing"
 
+	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,22 +80,18 @@ func TestHardRSA(t *testing.T) {
 	}
 }
 
-// TODO: PSS
 func testRsaSigning(t *testing.T, key crypto.Signer, nbits int) {
 	testRsaSigningPKCS1v15(t, key, crypto.SHA1)
-	// testRsaSigningPKCS1v15(t, key, crypto.SHA224)
+	testRsaSigningPKCS1v15(t, key, crypto.SHA224)
 	testRsaSigningPKCS1v15(t, key, crypto.SHA256)
-	// testRsaSigningPKCS1v15(t, key, crypto.SHA384)
+	testRsaSigningPKCS1v15(t, key, crypto.SHA384)
+	testRsaSigningPKCS1v15(t, key, crypto.SHA512)
+	testRsaSigningPSS(t, key, crypto.SHA1)
+	testRsaSigningPSS(t, key, crypto.SHA256)
+	testRsaSigningPSS(t, key, crypto.SHA384)
 	if nbits > 1024 { // key too small for SHA512 with sLen=hLen
-		testRsaSigningPKCS1v15(t, key, crypto.SHA512)
+		testRsaSigningPSS(t, key, crypto.SHA512)
 	}
-	// testRsaSigningPSS(t, key, crypto.SHA1)
-	// testRsaSigningPSS(t, key, crypto.SHA224)
-	// testRsaSigningPSS(t, key, crypto.SHA256)
-	// testRsaSigningPSS(t, key, crypto.SHA384)
-	// if nbits > 1024 { // key too small for SHA512 with sLen=hLen
-	// 	// testRsaSigningPSS(t, key, crypto.SHA512)
-	// }
 }
 
 func testRsaSigningPKCS1v15(t *testing.T, key crypto.Signer, hashFunction crypto.Hash) {
@@ -113,27 +110,72 @@ func testRsaSigningPKCS1v15(t *testing.T, key crypto.Signer, hashFunction crypto
 	require.NoError(t, err)
 }
 
-// func testRsaSigningPSS(t *testing.T, key crypto.Signer, hashFunction crypto.Hash) {
-// 	var err error
-// 	var sig []byte
+// testRsaSigningPSS signs with every supported salt-length option and
+// verifies each signature with crypto/rsa using the same option.
+func testRsaSigningPSS(t *testing.T, key crypto.Signer, hashFunction crypto.Hash) {
+	plaintext := []byte("sign me with PSS")
+	h := hashFunction.New()
+	h.Write(plaintext)
+	plaintextHash := h.Sum([]byte{})
+	rsaPubkey := key.Public().(*rsa.PublicKey)
 
-// 	plaintext := []byte("sign me with PSS")
-// 	h := hashFunction.New()
-// 	h.Write(plaintext)
-// 	plaintextHash := h.Sum([]byte{})
+	saltLengths := []int{
+		rsa.PSSSaltLengthEqualsHash,
+		rsa.PSSSaltLengthAuto,
+		8,
+	}
+	for _, saltLength := range saltLengths {
+		pssOptions := &rsa.PSSOptions{SaltLength: saltLength, Hash: hashFunction}
+		sig, err := key.Sign(rand.Reader, plaintextHash, pssOptions)
+		require.NoError(t, err, "PSS sign: hash=%v salt=%d", hashFunction, saltLength)
 
-// 	pssOptions := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashFunction}
-// 	sig, err = key.Sign(rand.Reader, plaintextHash, pssOptions)
-// 	require.NoError(t, err)
+		err = rsa.VerifyPSS(rsaPubkey, hashFunction, plaintextHash, sig, pssOptions)
+		require.NoError(t, err, "PSS verify: hash=%v salt=%d", hashFunction, saltLength)
+	}
+}
 
-// 	rsaPubkey := key.Public().(crypto.PublicKey).(*rsa.PublicKey)
-// 	err = rsa.VerifyPSS(rsaPubkey, hashFunction, plaintextHash, sig, pssOptions)
-// 	require.NoError(t, err)
-// }
+func TestHardRSA_UnsupportedOptions(t *testing.T) {
+	priv, err := p11lib.GenerateRSAKeyPair(2048, Signing)
+	require.NoError(t, err)
+
+	digest := make([]byte, crypto.MD5.Size())
+
+	t.Run("pkcs1v15 unsupported hash", func(t *testing.T) {
+		_, err := priv.Sign(rand.Reader, digest, crypto.MD5)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errUnsupportedRSAOptions), "got %v", err)
+		assert.EqualError(t, err, "unsupported PKCS#1 v1.5 hash: MD5: crypto11/rsa: unsupported RSA option value")
+	})
+
+	t.Run("pss unsupported hash", func(t *testing.T) {
+		_, err := priv.Sign(rand.Reader, digest, &rsa.PSSOptions{Hash: crypto.MD5, SaltLength: rsa.PSSSaltLengthAuto})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errUnsupportedRSAOptions), "got %v", err)
+	})
+
+	t.Run("pss negative salt", func(t *testing.T) {
+		_, err := priv.Sign(rand.Reader, digest, &rsa.PSSOptions{Hash: crypto.SHA256, SaltLength: -3})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errUnsupportedRSAOptions), "got %v", err)
+	})
+
+	t.Run("decrypt unsupported options", func(t *testing.T) {
+		_, err := priv.Decrypt(rand.Reader, digest, crypto.SHA256)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errUnsupportedRSAOptions), "got %v", err)
+	})
+
+	t.Run("decrypt session key len", func(t *testing.T) {
+		_, err := priv.Decrypt(rand.Reader, digest, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 16})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errUnsupportedRSAOptions), "got %v", err)
+	})
+}
 
 // TODO: larger HASH, with label
 func testRsaEncryption(t *testing.T, key crypto.Decrypter, nbits int) { // nolint: unparam
 	testRsaEncryptionOAEP(t, key, crypto.SHA1, []byte{})
+	testRsaEncryptionPKCS1v15(t, key)
 	// testRsaEncryptionOAEP(t, key, crypto.SHA224, []byte{})
 	// if nbits > 1024 { // key too small for SHA256
 	// 	// testRsaEncryptionOAEP(t, key, crypto.SHA256, []byte{})
@@ -156,6 +198,23 @@ func testRsaEncryption(t *testing.T, key crypto.Decrypter, nbits int) { // nolin
 	// if nbits > 1024 {
 	// 	// testRsaEncryptionOAEP(t, key, crypto.SHA512, []byte{16, 17, 18})
 	// }
+}
+
+// testRsaEncryptionPKCS1v15 checks that nil options and an explicit
+// *rsa.PKCS1v15DecryptOptions both perform PKCS#1 v1.5 decryption.
+func testRsaEncryptionPKCS1v15(t *testing.T, key crypto.Decrypter) {
+	plaintext := []byte("encrypt me with PKCS#1 v1.5")
+	rsaPubkey := key.Public().(*rsa.PublicKey)
+	ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, rsaPubkey, plaintext)
+	require.NoError(t, err, "PKCS1v15 Encrypt")
+
+	decrypted, err := key.Decrypt(rand.Reader, ciphertext, nil)
+	require.NoError(t, err, "PKCS1v15 Decrypt with nil options")
+	assert.Equal(t, plaintext, decrypted)
+
+	decrypted, err = key.Decrypt(rand.Reader, ciphertext, &rsa.PKCS1v15DecryptOptions{})
+	require.NoError(t, err, "PKCS1v15 Decrypt with options")
+	assert.Equal(t, plaintext, decrypted)
 }
 
 func testRsaEncryptionOAEP(t *testing.T, key crypto.Decrypter, hashFunction crypto.Hash, label []byte) {

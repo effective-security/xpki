@@ -151,7 +151,7 @@ func (s *hsmSuite) Test_KeyInfo() {
 		},
 	}
 
-	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
+	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(6).Return(nil)
 	//mocked.On("EnumKeys", mock.Anything, mock.Anything, mock.Anything).Times(1).Return(nil)
 	mocked.On("KeyInfo", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocked.On("Manufacturer").Return("man123")
@@ -168,6 +168,32 @@ func (s *hsmSuite) Test_KeyInfo() {
 	cmd.Public = false
 	err = cmd.Run(s.ctl)
 	s.Require().NoError(err)
+
+	// filter by token label
+	cmd.Token = "label123"
+	err = cmd.Run(s.ctl)
+	s.Require().NoError(err)
+	s.HasText("Slot: 1", "Id:    123")
+
+	// filter by serial
+	cmd.Token = ""
+	cmd.Serial = "serial123-30589673"
+	err = cmd.Run(s.ctl)
+	s.Require().NoError(err)
+
+	// no token matches the label
+	cmd.Serial = ""
+	cmd.Token = "unknown_label"
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal(`token not found: serial="", label="unknown_label"`, err.Error())
+
+	// no token matches the serial
+	cmd.Token = ""
+	cmd.Serial = "unknown_serial"
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal(`token not found: serial="unknown_serial", label=""`, err.Error())
 
 	// assert that the expectations were met
 	mocked.AssertExpectations(s.T())
@@ -284,7 +310,7 @@ func (s *hsmSuite) Test_RmKey() {
 		},
 	}
 
-	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(2).Return(nil)
+	mocked.On("EnumTokens", mock.Anything, mock.Anything).Times(5).Return(nil)
 	mocked.On("DestroyKeyPairOnSlot", mock.Anything, "with_error").Return(errors.New("access denied"))
 	mocked.On("DestroyKeyPairOnSlot", mock.Anything, mock.Anything).Return(nil)
 	mocked.On("Manufacturer").Return("man123")
@@ -302,6 +328,25 @@ func (s *hsmSuite) Test_RmKey() {
 	cmd.ID = "123"
 	err = cmd.Run(s.ctl)
 	s.Require().NoError(err)
+
+	// filter by token label
+	cmd.Token = "label123"
+	err = cmd.Run(s.ctl)
+	s.Require().NoError(err)
+	s.HasText("destroyed key: 123")
+
+	// no token matches the label
+	cmd.Token = "unknown_label"
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal(`token not found: serial="", label="unknown_label"`, err.Error())
+
+	// no token matches the serial
+	cmd.Token = ""
+	cmd.Serial = "unknown_serial"
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal(`token not found: serial="unknown_serial", label=""`, err.Error())
 
 	// assert that the expectations were met
 	mocked.AssertExpectations(s.T())

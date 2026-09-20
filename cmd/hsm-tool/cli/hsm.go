@@ -30,7 +30,38 @@ type HsmLsKeyCmd struct {
 	Prefix string `help:"specifies key label prefix (optional)"`
 }
 
-const skipSerial = "--@--"
+// tokenFilter selects tokens by serial or label for the HSM commands.
+// An empty serial or label is not a filter value and never matches,
+// so a token whose field happens to equal a sentinel can not be selected.
+type tokenFilter struct {
+	serial string
+	label  string
+	// isDefaultSlot is true when no filter was specified,
+	// in which case only the default (current) slot is used.
+	isDefaultSlot bool
+}
+
+func newTokenFilter(serial, label string) tokenFilter {
+	return tokenFilter{
+		serial:        serial,
+		label:         label,
+		isDefaultSlot: serial == "" && label == "",
+	}
+}
+
+// matches returns true if the token is selected by the filter
+func (f tokenFilter) matches(token cryptoprov.TokenInfo) bool {
+	if f.isDefaultSlot {
+		return true
+	}
+	return (f.serial != "" && token.Serial == f.serial) ||
+		(f.label != "" && token.Label == f.label)
+}
+
+// errNotFound returns an error describing the filter that matched no token
+func (f tokenFilter) errNotFound() error {
+	return errors.Errorf("token not found: serial=%q, label=%q", f.serial, f.label)
+}
 
 // Run the command
 func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
@@ -40,19 +71,11 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 		return errors.Errorf("unsupported command for this crypto provider")
 	}
 
-	isDefaultSlot := a.Serial == "" && a.Token == ""
-	filterSerial := a.Serial
-	if filterSerial == "" {
-		filterSerial = skipSerial
-	}
-	filterLabel := a.Token
-	if filterLabel == "" {
-		filterLabel = skipSerial
-	}
+	filter := newTokenFilter(a.Serial, a.Token)
 
 	out := ctx.Writer()
 
-	tokens, err := keyProv.EnumTokens(isDefaultSlot)
+	tokens, err := keyProv.EnumTokens(filter.isDefaultSlot)
 	if err != nil {
 		return errors.WithMessagef(err, "failed to list tokens")
 	}
@@ -64,7 +87,7 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
 	}
 
 	for _, token := range tokens {
-		if isDefaultSlot || token.Serial == filterSerial || token.Label == filterLabel {
+		if filter.matches(token) {
 			_, _ = fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
 			printIfNotEmpty("  Manufacturer", token.Manufacturer)
 			printIfNotEmpty("  Model", token.Model)
@@ -114,16 +137,11 @@ func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
 		return errors.Errorf("unsupported command for this crypto provider")
 	}
 
-	filterSerial := a.Serial
-	isDefaultSlot := filterSerial == ""
-
-	if isDefaultSlot {
-		filterSerial = "--@--"
-	}
+	filter := newTokenFilter(a.Serial, a.Token)
 
 	out := ctx.Writer()
 
-	tokens, err := keyProv.EnumTokens(isDefaultSlot)
+	tokens, err := keyProv.EnumTokens(filter.isDefaultSlot)
 	if err != nil {
 		return errors.WithMessagef(err, "failed to list tokens")
 	}
@@ -134,8 +152,10 @@ func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
 		}
 	}
 
+	matched := false
 	for _, token := range tokens {
-		if isDefaultSlot || token.Serial == filterSerial {
+		if filter.matches(token) {
+			matched = true
 			_, _ = fmt.Fprintf(out, "Slot: %d\n", token.SlotID)
 			_, _ = fmt.Fprintf(out, "  Description:  %s\n", token.Description)
 			_, _ = fmt.Fprintf(out, "  Token serial: %s\n", token.Serial)
@@ -160,6 +180,9 @@ func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
 				_, _ = fmt.Fprintf(out, "  Public key: \n%s\n", key.PublicKey)
 			}
 		}
+	}
+	if !matched {
+		return filter.errNotFound()
 	}
 
 	return nil
@@ -241,20 +264,15 @@ func (a *HsmRmKeyCmd) Run(ctx *Cli) error {
 		return errors.Errorf("unsupported command for this crypto provider")
 	}
 
-	filterSerial := a.Serial
-	isDefaultSlot := a.Serial == ""
+	filter := newTokenFilter(a.Serial, a.Token)
 
-	if isDefaultSlot {
-		filterSerial = "--@--"
-	}
-
-	tokens, err := keyProv.EnumTokens(isDefaultSlot)
+	tokens, err := keyProv.EnumTokens(filter.isDefaultSlot)
 	if err != nil {
 		return errors.WithMessagef(err, "failed to list tokens")
 	}
 
 	for _, token := range tokens {
-		if isDefaultSlot || token.Serial == filterSerial {
+		if filter.matches(token) {
 			err := keyProv.DestroyKeyPairOnSlot(token.SlotID, a.ID)
 			if err != nil {
 				return errors.WithMessagef(err, "unable to destroy key %q on slot %d", a.ID, token.SlotID)
@@ -264,7 +282,7 @@ func (a *HsmRmKeyCmd) Run(ctx *Cli) error {
 		}
 	}
 
-	return nil
+	return filter.errNotFound()
 }
 
 // prefixKeyLabel adds a date prefix to label for a key

@@ -4,7 +4,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -45,14 +45,18 @@ func (a *CRLInfoCmd) Run(ctx *Cli) error {
 // CRLFetchCmd specifies flags for CRLFetch action
 type CRLFetchCmd struct {
 	Cert   string `kong:"arg" required:"" help:"certificate file name"`
-	Output string `required:"" help:"output folder name"`
+	Output string `help:"output folder name; required unless --print is set"`
 	All    bool   `help:"fetch entire chain"`
 	Proxy  string `help:"optional, proxy address or DC name"`
-	Print  bool
+	Print  bool   `help:"print the fetched CRL"`
 }
 
 // Run the command
 func (a *CRLFetchCmd) Run(ctx *Cli) error {
+	if a.Output == "" && !a.Print {
+		return errors.New("either --output or --print is required")
+	}
+
 	w := ctx.Writer()
 
 	// Load PEM
@@ -78,11 +82,13 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 	if err != nil {
 		return err
 	}
+	fetched := 0
 	for _, crt := range list {
 		if len(crt.CRLDistributionPoints) < 1 {
 			logger.KV(xlog.DEBUG, "reason", "CRL DP is not present", "CN", crt.Subject.String())
 			continue
 		}
+		fetched++
 
 		crldp := crt.CRLDistributionPoints[0]
 		logger.KV(xlog.DEBUG, "status", "fetching CRL", "url", crldp)
@@ -102,12 +108,15 @@ func (a *CRLFetchCmd) Run(ctx *Cli) error {
 		}
 
 		if a.Output != "" {
-			filename := path.Join(a.Output, fmt.Sprintf("%s.crl", certutil.GetIssuerID(crt)))
+			filename := filepath.Join(a.Output, fmt.Sprintf("%s.crl", certutil.GetIssuerID(crt)))
 			err = os.WriteFile(filename, body, 0644)
 			if err != nil {
 				return errors.Wrapf(err, "unable to write CRL: %s", filename)
 			}
 		}
+	}
+	if fetched == 0 {
+		return errors.New("no CRL distribution point found in the selected certificates")
 	}
 	return nil
 }

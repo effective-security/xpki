@@ -18,6 +18,10 @@ import (
 	"github.com/cockroachdb/errors"
 )
 
+// selfCertRSABits is the RSA key size used by MakeSelfCertRSA; 1024-bit keys
+// are rejected by crypto/rsa unless GODEBUG=rsa1024min=0.
+const selfCertRSABits = 2048
+
 // MakeSelfCertECDSA creates self-signed cert
 func MakeSelfCertECDSA(hours int) (*x509.Certificate, crypto.PrivateKey, error) {
 	// key pair
@@ -74,7 +78,7 @@ func MakeSelfCertECDSAPem(hours int) (pemCert, pemKey []byte, err error) {
 // MakeSelfCertRSA creates self-signed cert
 func MakeSelfCertRSA(hours int) (*x509.Certificate, crypto.PrivateKey, error) {
 	// rsa key pair
-	key, err := rsa.GenerateKey(crand.Reader, 1024)
+	key, err := rsa.GenerateKey(crand.Reader, selfCertRSABits)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}

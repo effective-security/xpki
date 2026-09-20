@@ -94,13 +94,61 @@ func TestAudience(t *testing.T) {
 func TestNumericDate(t *testing.T) {
 	var tim time.Time
 	assert.Nil(t, NewNumericDate(tim))
-	var val NumericDate
-	assert.EqualError(t, val.UnmarshalJSON([]byte(`"abc"`)), "expected number value to unmarshal NumericDate: abc")
-	assert.NoError(t, val.UnmarshalJSON([]byte(`"123"`)))
-	assert.NoError(t, val.UnmarshalJSON([]byte(`123`)))
-
 	var nn *NumericDate
 	assert.True(t, nn.Time().IsZero())
+
+	tcases := []struct {
+		in     string
+		exp    NumericDate
+		experr string
+	}{
+		{in: `123`, exp: 123},
+		{in: `"123"`, exp: 123},
+		{in: `-5`, exp: -5},
+		{in: `1516239022.5`, exp: 1516239022},
+		{in: `"1516239022.5"`, exp: 1516239022},
+		{in: `1516239022.999`, exp: 1516239022},
+		{in: `-1.9`, exp: -1},
+		{in: `1.5e9`, exp: 1500000000},
+		{in: `0`, exp: 0},
+		{in: `"abc"`, experr: "expected number value to unmarshal NumericDate: abc"},
+		{in: `""`, experr: "expected number value to unmarshal NumericDate: "},
+		{in: `null`, experr: "expected number value to unmarshal NumericDate: null"},
+		{in: `true`, experr: "expected number value to unmarshal NumericDate: true"},
+		{in: `NaN`, experr: "expected number value to unmarshal NumericDate: NaN"},
+		{in: `Inf`, experr: "expected number value to unmarshal NumericDate: Inf"},
+		{in: `1e300`, experr: "expected number value to unmarshal NumericDate: 1e300"},
+		{in: `9223372036854775808`, experr: "expected number value to unmarshal NumericDate: 9223372036854775808"},
+		// exact boundaries: float64 rounding must not move values across the int64 limits
+		{in: `9223372036854775807.0`, exp: math.MaxInt64},
+		{in: `9223372036854775807.999`, exp: math.MaxInt64},
+		{in: `-9223372036854775808.9`, exp: math.MinInt64},
+		{in: `9223372036854775808.0`, experr: "expected number value to unmarshal NumericDate: 9223372036854775808.0"},
+		{in: `-9223372036854775809`, experr: "expected number value to unmarshal NumericDate: -9223372036854775809"},
+		{in: `-9223372036854775808.0001e0`, exp: math.MinInt64},
+	}
+	for _, tc := range tcases {
+		t.Run(tc.in, func(t *testing.T) {
+			var val NumericDate
+			err := val.UnmarshalJSON([]byte(tc.in))
+			if tc.experr != "" {
+				assert.EqualError(t, err, tc.experr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.exp, val)
+			assert.Equal(t, time.Unix(int64(tc.exp), 0), val.Time())
+		})
+	}
+
+	t.Run("in_claims", func(t *testing.T) {
+		var c Claims
+		require.NoError(t, json.Unmarshal([]byte(`{"exp": 1516239022.75, "iat": "1516239000"}`), &c))
+		require.NotNil(t, c.Expiry)
+		assert.Equal(t, NumericDate(1516239022), *c.Expiry)
+		require.NotNil(t, c.IssuedAt)
+		assert.Equal(t, NumericDate(1516239000), *c.IssuedAt)
+	})
 }
 
 func TestMapClaims(t *testing.T) {
@@ -283,6 +331,20 @@ func TestClaims_Int(t *testing.T) {
 		"uint":   uint(123),
 		"uint32": uint32(132),
 		"uint64": uint64(164),
+		"i64max": int64(math.MaxInt64),
+		"i64min": int64(math.MinInt64),
+		"u64big": uint64(math.MaxUint64),
+		"ubig":   uint(math.MaxUint),
+		"f":      float64(1700000000),
+		"fneg":   float64(-12.9),
+		"fnan":   math.NaN(),
+		"finf":   math.Inf(-1),
+		"fbig":   float64(1e19),
+		"jn":     json.Number("1700000001"),
+		"jnneg":  json.Number("-42"),
+		"jnbig":  json.Number("9223372036854775808"),
+		"jnfrac": json.Number("1.5"),
+		"sbig":   "9223372036854775808",
 	}
 	c(o, "nil", 0)
 	c(o, "struct", 0)
@@ -295,6 +357,20 @@ func TestClaims_Int(t *testing.T) {
 	c(o, "uint", 123)
 	c(o, "uint32", 132)
 	c(o, "uint64", 164)
+	c(o, "i64max", math.MaxInt)
+	c(o, "i64min", math.MinInt)
+	c(o, "u64big", 0)
+	c(o, "ubig", 0)
+	c(o, "f", 1700000000)
+	c(o, "fneg", -12)
+	c(o, "fnan", 0)
+	c(o, "finf", 0)
+	c(o, "fbig", 0)
+	c(o, "jn", 1700000001)
+	c(o, "jnneg", -42)
+	c(o, "jnbig", 0)
+	c(o, "jnfrac", 0)
+	c(o, "sbig", 0)
 }
 
 func TestClaims_UInt64(t *testing.T) {
@@ -315,18 +391,48 @@ func TestClaims_UInt64(t *testing.T) {
 		"uint":   uint(123),
 		"uint32": uint32(132),
 		"uint64": uint64(164),
+		"n32":    int32(-32),
+		"n64":    int64(-64),
+		"u64max": uint64(math.MaxUint64),
+		"f":      float64(1700000000),
+		"ffrac":  float64(12.9),
+		"fneg":   float64(-1),
+		"fnan":   math.NaN(),
+		"finf":   math.Inf(1),
+		"fbig":   float64(1e20),
+		"jn":     json.Number("1700000001"),
+		"jnbig":  json.Number("18446744073709551615"),
+		"jnover": json.Number("18446744073709551616"),
+		"jnneg":  json.Number("-1"),
+		"jnfrac": json.Number("1.5"),
+		"sneg":   "-1",
 	}
 	c(o, "nil", uint64(0))
 	c(o, "struct", uint64(0))
 	c(o, "z", uint64(123))
 	c(o, "ze", uint64(0))
-	c(o, "n", uint64(0xffffffffffffffff))
+	c(o, "n", uint64(0))
 	c(o, "int", uint64(1))
 	c(o, "int32", uint64(32))
 	c(o, "int64", uint64(64))
 	c(o, "uint", uint64(123))
 	c(o, "uint32", uint64(132))
 	c(o, "uint64", uint64(164))
+	c(o, "n32", uint64(0))
+	c(o, "n64", uint64(0))
+	c(o, "u64max", uint64(math.MaxUint64))
+	c(o, "f", uint64(1700000000))
+	c(o, "ffrac", uint64(12))
+	c(o, "fneg", uint64(0))
+	c(o, "fnan", uint64(0))
+	c(o, "finf", uint64(0))
+	c(o, "fbig", uint64(0))
+	c(o, "jn", uint64(1700000001))
+	c(o, "jnbig", uint64(math.MaxUint64))
+	c(o, "jnover", uint64(0))
+	c(o, "jnneg", uint64(0))
+	c(o, "jnfrac", uint64(0))
+	c(o, "sneg", uint64(0))
 }
 
 func TestClaims_Int64(t *testing.T) {
@@ -354,6 +460,11 @@ func TestClaims_Int64(t *testing.T) {
 		"fbig":   float64(1e19),
 		"jn":     json.Number("1700000001"),
 		"jnfrac": json.Number("1.5"),
+		"jnbig":  json.Number("9223372036854775808"),
+		"u64max": uint64(math.MaxUint64),
+		"umax":   uint(math.MaxUint),
+		"u64ok":  uint64(math.MaxInt64),
+		"sbig":   "9223372036854775808",
 	}
 	c(o, "nil", int64(0))
 	c(o, "struct", int64(0))
@@ -373,6 +484,11 @@ func TestClaims_Int64(t *testing.T) {
 	c(o, "fbig", int64(0))
 	c(o, "jn", int64(1700000001))
 	c(o, "jnfrac", int64(0))
+	c(o, "jnbig", int64(0))
+	c(o, "u64max", int64(0))
+	c(o, "umax", int64(0))
+	c(o, "u64ok", int64(math.MaxInt64))
+	c(o, "sbig", int64(0))
 }
 
 func TestClaims_Bool(t *testing.T) {
@@ -442,6 +558,12 @@ func TestClaims_Time(t *testing.T) {
 		"float64": float64(1645187555),
 		"unixs":   "1645187555",
 		"json":    json.Number("1645187555"),
+		"jsonf":   json.Number("1645187555.75"),
+		"jsonbad": json.Number("abc"),
+		"unixf":   "1645187555.75",
+		"fnan":    math.NaN(),
+		"finf":    math.Inf(1),
+		"fbig":    float64(1e300),
 		"uint64":  uint64(1645187555),
 		"int64":   int64(1645187555),
 	}
@@ -457,6 +579,12 @@ func TestClaims_Time(t *testing.T) {
 	c(o, "uint64", &t3)
 	c(o, "int64", &t3)
 	c(o, "json", &t3)
+	c(o, "jsonf", &t3)
+	c(o, "jsonbad", nil)
+	c(o, "unixf", &t3)
+	c(o, "fnan", nil)
+	c(o, "finf", nil)
+	c(o, "fbig", nil)
 }
 
 func TestExpired(t *testing.T) {

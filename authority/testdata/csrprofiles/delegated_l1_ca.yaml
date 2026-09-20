@@ -4,11 +4,11 @@ key:
   algo: ecdsa
   size: 256
 names:
-  - C: US
-    ST: WA
-    L: Seattle
-    OU: Dev
-    O: Delegated Security, LLC
+  - c: US
+    st: WA
+    l: Seattle
+    ou: Dev
+    o: Delegated Security, LLC
 extensions:
   - id: 2.5.29.31
     critical: false

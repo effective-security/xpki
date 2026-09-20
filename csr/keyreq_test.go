@@ -20,8 +20,8 @@ func TestKeyRequest(t *testing.T) {
 		expalg x509.SignatureAlgorithm
 		experr string
 	}{
-		{"rsa", 512, x509.SHA1WithRSA, "validate RSA key: RSA key is too weak: 512"},
-		{"RSA", 1024, x509.SHA1WithRSA, "validate RSA key: RSA key is too weak: 1024"},
+		{"rsa", 512, x509.SHA256WithRSA, "validate RSA key: RSA key is too weak: 512"},
+		{"RSA", 1024, x509.SHA256WithRSA, "validate RSA key: RSA key is too weak: 1024"},
 		{"RSA", 2048, x509.SHA256WithRSA, ""},
 		{"RSA", 3072, x509.SHA384WithRSA, ""},
 		{"rsa", 4096, x509.SHA512WithRSA, ""},
@@ -30,7 +30,7 @@ func TestKeyRequest(t *testing.T) {
 		{"ecdsa", 521, x509.ECDSAWithSHA512, ""},
 		{"ECDSA", 384, x509.ECDSAWithSHA384, ""},
 		{"ECDSA", 256, x509.ECDSAWithSHA256, ""},
-		{"ECDSA", 128, x509.ECDSAWithSHA1, "validate ECDSA key: invalid curve size: 128"},
+		{"ECDSA", 128, x509.ECDSAWithSHA256, "validate ECDSA key: invalid curve size: 128"},
 		{"DSA", 256, x509.UnknownSignatureAlgorithm, "invalid algorithm: DSA"},
 	}
 

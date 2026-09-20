@@ -76,13 +76,13 @@ func (oid OID) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf(`"%v"`, asn1.ObjectIdentifier(oid))), nil
 }
 
-// ParseObjectIdentifier returns OID
+// oidRegexp matches a complete dotted-decimal OID such as "1.2.840.113549".
+var oidRegexp = regexp.MustCompile(`^\d+(\.\d+)*$`)
+
+// ParseObjectIdentifier parses a dotted-decimal OID string. The whole
+// string must be digits separated by single dots; anything else is an error.
 func ParseObjectIdentifier(oidString string) (oid asn1.ObjectIdentifier, err error) {
-	validOID, err := regexp.MatchString("\\d(\\.\\d+)*", oidString)
-	if err != nil {
-		return
-	}
-	if !validOID {
+	if !oidRegexp.MatchString(oidString) {
 		err = errors.Errorf("invalid OID: %q", oidString)
 		return
 	}
@@ -92,8 +92,7 @@ func ParseObjectIdentifier(oidString string) (oid asn1.ObjectIdentifier, err err
 	for i, intString := range segments {
 		oid[i], err = strconv.Atoi(intString)
 		if err != nil {
-			err = errors.WithMessagef(err, "invalid OID")
-			return
+			return nil, errors.WithMessage(err, "invalid OID")
 		}
 	}
 	return

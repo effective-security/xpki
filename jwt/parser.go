@@ -69,17 +69,18 @@ func (p *TokenParser) ParseWithClaims(tokenString string, cfg *VerifyConfig, cla
 		return nil, err
 	}
 
+	// Perform signature validation before looking at the claims,
+	// so that an unverified body never drives claims validation.
+	token.Signature = parts[2]
+	if err = VerifySignature(token.SigningMethod, strings.Join(parts[0:2], "."), token.Signature, key); err != nil {
+		return nil, err
+	}
+
 	// Validate Claims
 	if !p.SkipClaimsValidation {
 		if err := token.Claims.Valid(cfg); err != nil {
 			return nil, err
 		}
-	}
-
-	// Perform signature validation
-	token.Signature = parts[2]
-	if err = VerifySignature(token.SigningMethod, strings.Join(parts[0:2], "."), token.Signature, key); err != nil {
-		return nil, err
 	}
 
 	token.Valid = true

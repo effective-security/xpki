@@ -30,9 +30,14 @@ func New(dp dataprotection.Provider, provider jwt.Provider) jwt.Provider {
 	}
 }
 
-// SetRevocation installs the revocation checker used for pat. tokens
+// SetRevocation installs the revocation checker used for pat. tokens,
+// and forwards it to the wrapped jwt.Provider so that plain JWTs are
+// checked against the same revocation list.
 func (p *Provider) SetRevocation(r jwt.Revocation) {
 	p.revocation = r
+	if p.Provider != nil {
+		p.Provider.SetRevocation(r)
+	}
 }
 
 // GetRevocation returns the revocation checker used for pat. tokens

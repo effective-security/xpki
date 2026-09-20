@@ -141,15 +141,29 @@ func CertificateRequest(w io.Writer, crt *x509.CertificateRequest) {
 	}
 }
 
+// notSetValue is printed for optional timestamps that are absent.
+const notSetValue = "not set"
+
+// printExpires prints the "Expires:" line for an optional NextUpdate value.
+// A zero time (the field is OPTIONAL in CRLs and OCSP responses) is printed
+// as "not set" instead of the zero date.
+func printExpires(w io.Writer, now, nextUpdate time.Time) {
+	if nextUpdate.IsZero() {
+		_, _ = fmt.Fprintf(w, "Expires: %s\n", notSetValue)
+		return
+	}
+	expiresIn := nextUpdate.Sub(now) / time.Minute * time.Minute
+	_, _ = fmt.Fprintf(w, "Expires: %s (in %s)\n", nextUpdate.Local().String(), expiresIn.String())
+}
+
 // CertificateList prints CRL details
 func CertificateList(w io.Writer, crl *x509.RevocationList) {
 	now := time.Now()
 	issuedIn := now.Sub(crl.ThisUpdate) / time.Minute * time.Minute
-	expiresIn := crl.NextUpdate.Sub(now) / time.Minute * time.Minute
 
 	_, _ = fmt.Fprintf(w, "Issuer: %s\n", crl.Issuer.String())
 	_, _ = fmt.Fprintf(w, "Issued: %s (%s ago)\n", crl.ThisUpdate.Local().String(), issuedIn.String())
-	_, _ = fmt.Fprintf(w, "Expires: %s (in %s)\n", crl.NextUpdate.Local().String(), expiresIn.String())
+	printExpires(w, now, crl.NextUpdate)
 
 	if len(crl.RevokedCertificateEntries) > 0 {
 		_, _ = fmt.Fprintf(w, "Revoked:\n")
@@ -172,12 +186,11 @@ func OCSPResponse(w io.Writer, res *ocsp.Response, verboseExtensions bool) {
 	now := time.Now()
 	issuedIn := now.Sub(res.ProducedAt) / time.Minute * time.Minute
 	updatedIn := now.Sub(res.ThisUpdate) / time.Minute * time.Minute
-	expiresIn := res.NextUpdate.Sub(now) / time.Minute * time.Minute
 
 	_, _ = fmt.Fprintf(w, "Serial: %s\n", res.SerialNumber.String())
 	_, _ = fmt.Fprintf(w, "Issued: %s (%s ago)\n", res.ProducedAt.Local().String(), issuedIn.String())
 	_, _ = fmt.Fprintf(w, "Updated: %s (%s ago)\n", res.ThisUpdate.Local().String(), updatedIn.String())
-	_, _ = fmt.Fprintf(w, "Expires: %s (in %s)\n", res.NextUpdate.Local().String(), expiresIn.String())
+	printExpires(w, now, res.NextUpdate)
 	_, _ = fmt.Fprintf(w, "Status: %s\n", ocspStatusCode[res.Status])
 	if res.Status == ocsp.Revoked {
 		_, _ = fmt.Fprintf(w, "Revocation reason: %d\n", res.RevocationReason)

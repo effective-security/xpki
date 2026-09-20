@@ -1,10 +1,15 @@
 package crypto11
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rsa"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,4 +88,46 @@ func Test_DestroyKey(t *testing.T) {
 			assert.Contains(t, ki.Label, "Test_DestroyKey")
 		}
 	}
+}
+
+func Test_DestroyKey_NotFound(t *testing.T) {
+	slotID := p11lib.CurrentSlotID()
+	err := p11lib.DestroyKeyPairOnSlot(slotID, "Test_DestroyKey_NotFound_missing")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errKeyNotFound), "got %v", err)
+	assert.EqualError(t, err, fmt.Sprintf("slot=%d, key=Test_DestroyKey_NotFound_missing: crypto11: could not find PKCS#11 key", slotID))
+}
+
+func Test_ConvertToPublic(t *testing.T) {
+	rsaKey, err := p11lib.GenerateRSAKey("Test_ConvertToPublic_rsa", 2048, int(Signing))
+	require.NoError(t, err)
+	gen, ok := rsaKey.(*privateKeyGen)
+	require.True(t, ok)
+	t.Cleanup(func() {
+		_ = p11lib.DestroyKeyPairOnSlot(p11lib.CurrentSlotID(), gen.KeyID())
+	})
+
+	pub, err := ConvertToPublic(rsaKey)
+	require.NoError(t, err)
+	rsaPub, ok := pub.(*rsa.PublicKey)
+	require.True(t, ok)
+	assert.True(t, rsaPub.Equal(gen.Public()))
+
+	ecKey, err := p11lib.GenerateECDSAKey("Test_ConvertToPublic_ec", elliptic.P256())
+	require.NoError(t, err)
+	ecGen, ok := ecKey.(*privateKeyGen)
+	require.True(t, ok)
+	t.Cleanup(func() {
+		_ = p11lib.DestroyKeyPairOnSlot(p11lib.CurrentSlotID(), ecGen.KeyID())
+	})
+
+	pub, err = ConvertToPublic(ecKey)
+	require.NoError(t, err)
+	ecPub, ok := pub.(*ecdsa.PublicKey)
+	require.True(t, ok)
+	assert.True(t, ecPub.Equal(ecGen.Public()))
+
+	_, err = ConvertToPublic("not a key")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errUnsupportedKeyType), "got %v", err)
 }

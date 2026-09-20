@@ -38,7 +38,10 @@ func IsOCSPSigner(crt *x509.Certificate) bool {
 
 var oidOCSPNoCheck = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5}
 
-// HasOCSPNoCheck returns true if certificate has ocsp-no-check
+// HasOCSPNoCheck returns true if certificate has ocsp-no-check.
+// Both Extensions (populated on a parsed certificate) and ExtraExtensions
+// (populated on a template before signing) are inspected.
 func HasOCSPNoCheck(crt *x509.Certificate) bool {
-	return FindExtension(crt.Extensions, oidOCSPNoCheck) != nil
+	return FindExtension(crt.Extensions, oidOCSPNoCheck) != nil ||
+		FindExtension(crt.ExtraExtensions, oidOCSPNoCheck) != nil
 }

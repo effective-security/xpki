@@ -87,14 +87,17 @@ func (p *Provider) ClientForDomain(domain string) *Client {
 	return p.domains[domain]
 }
 
-// ClientForEmail returns Client by email
+// ClientForEmail returns Client by email, falling back to the client
+// configured for the email's domain. It returns nil for a value that is
+// not an address of the form local@domain.
 func (p *Provider) ClientForEmail(email string) *Client {
-	c := p.emails[email]
-	if c != nil {
+	local, domain, found := strings.Cut(email, "@")
+	if !found || local == "" || domain == "" || strings.Contains(domain, "@") {
+		return nil
+	}
+	if c := p.emails[email]; c != nil {
 		return c
 	}
-	parts := strings.Split(email, "@")
-	domain := parts[len(parts)-1]
 	return p.domains[domain]
 }
 

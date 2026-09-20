@@ -162,21 +162,25 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
 //
 // This completes the implementation of crypto.Decrypter for PKCS11PrivateKeyRSA.
 //
-// Note that the SessionKeyLen option (for PKCS#1v1.5 decryption) is not supported.
+// If options is nil or a *rsa.PKCS1v15DecryptOptions, PKCS#1 v1.5 decryption
+// is performed; a non-zero SessionKeyLen is not supported. If options is a
+// *rsa.OAEPOptions, OAEP decryption is performed.
 //
 // The underlying PKCS#11 implementation may impose further restrictions.
 func (priv *PKCS11PrivateKeyRSA) Decrypt(rand io.Reader, ciphertext []byte, options crypto.DecrypterOpts) (plaintext []byte, err error) {
 	logger.Trace("PKCS11PrivateKeyRSA.Decrypt")
 
-	err = priv.lib.withSession(priv.lib.Slot.id, func(session pkcs11.SessionHandle) error {
+	err = priv.lib.withSession(priv.key.Slot, func(session pkcs11.SessionHandle) error {
 		if options == nil {
 			plaintext, err = priv.lib.decryptPKCS1v15(session, priv, ciphertext, 0)
 		} else {
 			switch o := options.(type) {
+			case *rsa.PKCS1v15DecryptOptions: //nolint:staticcheck // deprecated in Go 1.26, still accepted for existing PKCS#1 v1.5 callers
+				plaintext, err = priv.lib.decryptPKCS1v15(session, priv, ciphertext, o.SessionKeyLen)
 			case *rsa.OAEPOptions:
 				plaintext, err = priv.lib.decryptOAEP(session, priv, ciphertext, o.Hash, o.Label)
 			default:
-				err = errUnsupportedRSAOptions
+				err = errors.WithStack(errUnsupportedRSAOptions)
 			}
 		}
 		return err
@@ -236,11 +240,19 @@ func (lib *PKCS11Lib) signPSS(session pkcs11.SessionHandle, priv *PKCS11PrivateK
 		return nil, errors.WithStack(err)
 	}
 	switch opts.SaltLength {
-	case rsa.PSSSaltLengthAuto: // parseltongue constant
-		// TODO we could (in principle) work out the biggest
-		// possible size from the key, but until someone has
-		// the effort to do that...
-		return nil, errors.WithStack(errUnsupportedRSAOptions)
+	case rsa.PSSSaltLengthAuto:
+		// Largest salt that fits, as crypto/rsa computes it:
+		// emLen - hLen - 2, where emLen is the octet length of the modulus.
+		pub, ok := priv.key.PubKey.(*rsa.PublicKey)
+		if !ok {
+			return nil, errors.WithStack(errMalformedRSAKey)
+		}
+		emLen := (pub.N.BitLen() - 1 + 7) / 8
+		maxSalt := emLen - int(hLen) - 2
+		if maxSalt < 0 {
+			return nil, errors.WithMessagef(errUnsupportedRSAOptions, "key too small for PSS with %s", opts.Hash)
+		}
+		sLen = uint(maxSalt)
 	case rsa.PSSSaltLengthEqualsHash:
 		sLen = hLen
 	default:
@@ -267,7 +279,10 @@ var pkcs1Prefix = map[crypto.Hash][]byte{
 func (lib *PKCS11Lib) signPKCS1v15(session pkcs11.SessionHandle, priv *PKCS11PrivateKeyRSA, digest []byte, hash crypto.Hash) (signature []byte, err error) {
 	logger.KV(xlog.TRACE, "session=0x", session, "obj=0x", priv.key.Handle)
 	/* Calculate T for EMSA-PKCS1-v1_5. */
-	oid := pkcs1Prefix[hash]
+	oid, ok := pkcs1Prefix[hash]
+	if !ok {
+		return nil, errors.WithMessagef(errUnsupportedRSAOptions, "unsupported PKCS#1 v1.5 hash: %s", hash)
+	}
 	T := make([]byte, len(oid)+len(digest))
 	copy(T[0:len(oid)], oid)
 	copy(T[len(oid):], digest)
@@ -289,13 +304,13 @@ func (lib *PKCS11Lib) signPKCS1v15(session pkcs11.SessionHandle, priv *PKCS11Pri
 //
 // PKCS#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 //
-// Note that (at present) the crypto.rsa.PSSSaltLengthAuto option is
-// not supported. The caller must either use
-// crypto.rsa.PSSSaltLengthEqualsHash (recommended) or pass an
-// explicit salt length. Moreover the underlying PKCS#11
-// implementation may impose further restrictions.
+// For PSS, rsa.PSSSaltLengthAuto uses the largest salt the key allows,
+// rsa.PSSSaltLengthEqualsHash uses the hash length, and a positive value is
+// used as-is. For PKCS#1 v1.5 the hash must be one of SHA-1, SHA-224,
+// SHA-256, SHA-384 or SHA-512; other hashes are rejected. The underlying
+// PKCS#11 implementation may impose further restrictions.
 func (priv *PKCS11PrivateKeyRSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	err = priv.lib.withSession(priv.lib.Slot.id, func(session pkcs11.SessionHandle) error {
+	err = priv.lib.withSession(priv.key.Slot, func(session pkcs11.SessionHandle) error {
 		switch typ := opts.(type) {
 		case *rsa.PSSOptions:
 			signature, err = priv.lib.signPSS(session, priv, digest, typ)

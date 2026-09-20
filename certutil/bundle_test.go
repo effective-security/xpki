@@ -5,12 +5,15 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509/pkix"
 	"fmt"
+	"io"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -403,3 +406,55 @@ aq+K7aVrgHkPnWeRiG6tl+ZA
 // Ov3LFPDNAbGF2wavwpCVolnVgHzPSFTEXN53DdXdVhcQ207P+zWNCNDF4Q33WSfm
 // Dw==
 // -----END CERTIFICATE-----`)
+
+// pubOnlySigner is a crypto.Signer stub whose public key is chosen by the test.
+type pubOnlySigner struct {
+	pub crypto.PublicKey
+}
+
+func (s pubOnlySigner) Public() crypto.PublicKey {
+	return s.pub
+}
+
+func (s pubOnlySigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
+	return nil, errors.New("pubOnlySigner: not implemented")
+}
+
+func Test_Bundle_KeyMismatch_Exponent(t *testing.T) {
+	t.Parallel()
+
+	certsPEM, err := os.ReadFile("testdata/test-server.pem")
+	require.NoError(t, err)
+	certs, err := ParseChainFromPEM(certsPEM)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(certs), 1)
+	certPub, ok := certs[0].PublicKey.(*rsa.PublicKey)
+	require.True(t, ok, "fixture must be an RSA certificate")
+
+	b, err := NewBundler(nil, nil)
+	require.NoError(t, err)
+
+	t.Run("same_modulus_different_exponent", func(t *testing.T) {
+		t.Parallel()
+		// Same N, different E: the old N-only comparison accepted this key.
+		pub := &rsa.PublicKey{
+			N: certPub.N,
+			E: certPub.E + 2,
+		}
+		_, err := b.Bundle(certs, pubOnlySigner{pub: pub})
+		assert.EqualError(t, err, "key mismatch")
+	})
+
+	t.Run("equal_key", func(t *testing.T) {
+		t.Parallel()
+		pub := &rsa.PublicKey{
+			N: certPub.N,
+			E: certPub.E,
+		}
+		// bundler has no roots, so the key check passes and verification fails later
+		_, err := b.Bundle(certs, pubOnlySigner{pub: pub})
+		if err != nil {
+			assert.NotEqual(t, "key mismatch", err.Error())
+		}
+	})
+}
