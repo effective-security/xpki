@@ -113,6 +113,13 @@ func TestProvider(t *testing.T) {
 	require.NotNil(t, cl)
 	cl = p.ClientForEmail("denis@customalias.com")
 	require.NotNil(t, cl)
+
+	// XPKI-082: values that are not local@domain addresses must not be
+	// looked up as a domain
+	for _, invalid := range []string{"", "custom.com", "@custom.com", "denis@", "@", "denis", "a@b@custom.com", "denis@custom.com@"} {
+		assert.Nil(t, p.ClientForEmail(invalid), "email=%q", invalid)
+	}
+	assert.Nil(t, p.ClientForEmail("denis@unknown.com"))
 	clcfg := cl.Config()
 	require.NotNil(t, clcfg)
 	assert.Equal(t, "consent", clcfg.Prompt)

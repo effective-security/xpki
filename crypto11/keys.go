@@ -75,6 +75,29 @@ func (lib *PKCS11Lib) findKey(session pkcs11.SessionHandle, keyID, label string,
 	return handles[0], nil
 }
 
+// findObjectsBatchSize is the maximum number of handles requested from a
+// single C_FindObjects call.
+const findObjectsBatchSize = 100
+
+// findAllObjects drains the C_FindObjects cursor opened by FindObjectsInit.
+// PKCS#11 allows a call to return fewer than the requested maximum while
+// more objects remain, so enumeration continues until an empty batch is
+// returned; tokens holding more than findObjectsBatchSize matching objects
+// are therefore not truncated.
+func (lib *PKCS11Lib) findAllObjects(session pkcs11.SessionHandle) ([]pkcs11.ObjectHandle, error) {
+	var all []pkcs11.ObjectHandle
+	for {
+		handles, _, err := lib.Ctx.FindObjects(session, findObjectsBatchSize)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		if len(handles) == 0 {
+			return all, nil
+		}
+		all = append(all, handles...)
+	}
+}
+
 // ListKeys returns key objects on the slot matching the key class and type
 func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error) {
 	var err error
@@ -92,8 +115,8 @@ func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keyt
 	defer func() {
 		_ = lib.Ctx.FindObjectsFinal(session)
 	}()
-	if handles, _, err = lib.Ctx.FindObjects(session, 100); err != nil {
-		return nil, errors.WithStack(err)
+	if handles, err = lib.findAllObjects(session); err != nil {
+		return nil, err
 	}
 
 	return handles, nil
@@ -118,8 +141,8 @@ func (lib *PKCS11Lib) FindKeys(session pkcs11.SessionHandle, keylabel string, ke
 	defer func() {
 		_ = lib.Ctx.FindObjectsFinal(session)
 	}()
-	if handles, _, err = lib.Ctx.FindObjects(session, 100); err != nil {
-		return nil, errors.WithStack(err)
+	if handles, err = lib.findAllObjects(session); err != nil {
+		return nil, err
 	}
 
 	return handles, nil
@@ -194,6 +217,9 @@ func ConvertToPublic(priv crypto.PrivateKey) (crypto.PublicKey, error) {
 		return t.Public(), nil
 	case *PKCS11PrivateKeyECDSA:
 		return t.Public(), nil
+	case *privateKeyGen:
+		// keys returned by GenerateRSAKey/GenerateECDSAKey wrap the PKCS#11 key
+		return ConvertToPublic(t.PrivateKey)
 	}
 	return nil, errors.WithStack(errUnsupportedKeyType)
 }

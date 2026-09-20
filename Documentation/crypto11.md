@@ -138,7 +138,7 @@ func BytesToUlong(bs []byte) (n uint)
 BytesToUlong converts \[\]byte to Ulong
 
 <a name="ConvertToPublic"></a>
-## func [ConvertToPublic](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L187>)
+## func [ConvertToPublic](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L208>)
 
 ```go
 func ConvertToPublic(priv crypto.PrivateKey) (crypto.PublicKey, error)
@@ -165,7 +165,7 @@ func UlongToBytes(n uint) []byte
 UlongToBytes converts Ulong to \[\]byte
 
 <a name="KeyIdentifier"></a>
-## type [KeyIdentifier](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L237-L240>)
+## type [KeyIdentifier](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L261-L264>)
 
 KeyIdentifier interface provides key ID and label
 
@@ -281,7 +281,7 @@ func (lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, 
 EnumTokens enumerates tokens
 
 <a name="PKCS11Lib.ExportKey"></a>
-### func \(\*PKCS11Lib\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L213>)
+### func \(\*PKCS11Lib\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L237>)
 
 ```go
 func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error)
@@ -290,7 +290,7 @@ func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error)
 ExportKey returns PKCS\#11 URI for specified key ID. It does not return key bytes.
 
 <a name="PKCS11Lib.FindKeyPair"></a>
-### func \(\*PKCS11Lib\) [FindKeyPair](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L131>)
+### func \(\*PKCS11Lib\) [FindKeyPair](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L152>)
 
 ```go
 func (lib *PKCS11Lib) FindKeyPair(keyID, label string) (crypto.PrivateKey, error)
@@ -301,7 +301,7 @@ FindKeyPair retrieves a previously created asymmetric key.
 Either \(but not both\) of id and label may be nil, in which case they are ignored.
 
 <a name="PKCS11Lib.FindKeyPairOnSession"></a>
-### func \(\*PKCS11Lib\) [FindKeyPairOnSession](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L152>)
+### func \(\*PKCS11Lib\) [FindKeyPairOnSession](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L173>)
 
 ```go
 func (lib *PKCS11Lib) FindKeyPairOnSession(session pkcs11.SessionHandle, slot uint, keyID, label string) (crypto.PrivateKey, error)
@@ -312,7 +312,7 @@ FindKeyPairOnSession retrieves a previously created asymmetric key, using a spec
 Either \(but not both\) of id and label may be nil, in which case they are ignored.
 
 <a name="PKCS11Lib.FindKeyPairOnSlot"></a>
-### func \(\*PKCS11Lib\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L138>)
+### func \(\*PKCS11Lib\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L159>)
 
 ```go
 func (lib *PKCS11Lib) FindKeyPairOnSlot(slot uint, keyID, label string) (crypto.PrivateKey, error)
@@ -323,7 +323,7 @@ FindKeyPairOnSlot retrieves a previously created asymmetric key, using a specifi
 Either \(but not both\) of id and label may be nil, in which case they are ignored.
 
 <a name="PKCS11Lib.FindKeys"></a>
-### func \(\*PKCS11Lib\) [FindKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L103>)
+### func \(\*PKCS11Lib\) [FindKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L124>)
 
 ```go
 func (lib *PKCS11Lib) FindKeys(session pkcs11.SessionHandle, keylabel string, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error)
@@ -341,7 +341,7 @@ func (lib *PKCS11Lib) GenRandom(data []byte) (n int, err error)
 GenRandom fills data with random bytes generated via PKCS\#11 using the default slot.
 
 <a name="PKCS11Lib.GenerateECDSAKey"></a>
-### func \(\*PKCS11Lib\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L313>)
+### func \(\*PKCS11Lib\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L337>)
 
 ```go
 func (lib *PKCS11Lib) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
@@ -402,7 +402,7 @@ The key will have a random ID.
 Only a limited set of named elliptic curves are supported. The underlying PKCS\#11 implementation may impose further restrictions.
 
 <a name="PKCS11Lib.GenerateRSAKey"></a>
-### func \(\*PKCS11Lib\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L290>)
+### func \(\*PKCS11Lib\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L314>)
 
 ```go
 func (lib *PKCS11Lib) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
@@ -461,7 +461,7 @@ The key will have a random ID.
 RSA private keys are generated with both sign and decrypt permissions, and a public exponent of 65537.
 
 <a name="PKCS11Lib.GetKey"></a>
-### func \(\*PKCS11Lib\) [GetKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L202>)
+### func \(\*PKCS11Lib\) [GetKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L226>)
 
 ```go
 func (lib *PKCS11Lib) GetKey(keyID string) (crypto.PrivateKey, error)
@@ -481,7 +481,7 @@ Identify returns the ID and label for a PKCS\#11 object.
 Either of these values may be used to retrieve the key for later use.
 
 <a name="PKCS11Lib.IdentifyKey"></a>
-### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L334>)
+### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L358>)
 
 ```go
 func (lib *PKCS11Lib) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error)
@@ -499,7 +499,7 @@ func (lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*c
 KeyInfo retrieves info about key with the specified id
 
 <a name="PKCS11Lib.ListKeys"></a>
-### func \(\*PKCS11Lib\) [ListKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L79>)
+### func \(\*PKCS11Lib\) [ListKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L100>)
 
 ```go
 func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error)
@@ -635,7 +635,7 @@ type PKCS11PrivateKeyRSA struct {
 ```
 
 <a name="PKCS11PrivateKeyRSA.Decrypt"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Decrypt](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L168>)
+### func \(\*PKCS11PrivateKeyRSA\) [Decrypt](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L170>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Decrypt(rand io.Reader, ciphertext []byte, options crypto.DecrypterOpts) (plaintext []byte, err error)
@@ -645,12 +645,12 @@ Decrypt decrypt a message using a RSA key.
 
 This completes the implementation of crypto.Decrypter for PKCS11PrivateKeyRSA.
 
-Note that the SessionKeyLen option \(for PKCS\#1v1.5 decryption\) is not supported.
+If options is nil or a \*rsa.PKCS1v15DecryptOptions, PKCS\#1 v1.5 decryption is performed; a non\-zero SessionKeyLen is not supported. If options is a \*rsa.OAEPOptions, OAEP decryption is performed.
 
 The underlying PKCS\#11 implementation may impose further restrictions.
 
 <a name="PKCS11PrivateKeyRSA.Public"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L315>)
+### func \(\*PKCS11PrivateKeyRSA\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L330>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Public() crypto.PublicKey
@@ -661,7 +661,7 @@ Public returns the public half of a private key.
 This partially implements the go.crypto.Signer and go.crypto.Decrypter interfaces for PKCS11PrivateKey. \(The remains of the implementation is in the key\-specific types.\)
 
 <a name="PKCS11PrivateKeyRSA.Sign"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L297>)
+### func \(\*PKCS11PrivateKeyRSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L312>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
@@ -673,10 +673,10 @@ This completes the implementation of crypto.Signer for PKCS11PrivateKeyRSA.
 
 PKCS\#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 
-Note that \(at present\) the crypto.rsa.PSSSaltLengthAuto option is not supported. The caller must either use crypto.rsa.PSSSaltLengthEqualsHash \(recommended\) or pass an explicit salt length. Moreover the underlying PKCS\#11 implementation may impose further restrictions.
+For PSS, rsa.PSSSaltLengthAuto uses the largest salt the key allows, rsa.PSSSaltLengthEqualsHash uses the hash length, and a positive value is used as\-is. For PKCS\#1 v1.5 the hash must be one of SHA\-1, SHA\-224, SHA\-256, SHA\-384 or SHA\-512; other hashes are rejected. The underlying PKCS\#11 implementation may impose further restrictions.
 
 <a name="PKCS11PrivateKeyRSA.Validate"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Validate](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L324>)
+### func \(\*PKCS11PrivateKeyRSA\) [Validate](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L339>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Validate() error

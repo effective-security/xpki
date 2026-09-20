@@ -90,7 +90,7 @@ func GcmEncrypt(plaintext []byte, key []byte) ([]byte, error)
 GcmEncrypt returns encrypted blob with GCM cipher
 
 <a name="GetPrivateKeyDERFromPEM"></a>
-## func [GetPrivateKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L73>)
+## func [GetPrivateKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L74>)
 
 ```go
 func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
@@ -99,7 +99,7 @@ func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
 GetPrivateKeyDERFromPEM parses a PEM\-encoded private key and returns DER\-format key bytes.
 
 <a name="ParsePrivateKeyDER"></a>
-## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L100>)
+## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L101>)
 
 ```go
 func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error)
@@ -108,7 +108,7 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error)
 ParsePrivateKeyDER parses a PKCS \#1, PKCS \#8, ECDSA DER\-encoded private key. The key must not be in PEM format.
 
 <a name="ParsePrivateKeyPEM"></a>
-## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L53>)
+## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L54>)
 
 ```go
 func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error)
@@ -117,7 +117,7 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error)
 ParsePrivateKeyPEM parses and returns a PEM\-encoded private key. The private key may be either an unencrypted PKCS\#8, PKCS\#1, or elliptic private key.
 
 <a name="ParsePrivateKeyPEMWithPassword"></a>
-## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L62>)
+## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L63>)
 
 ```go
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.PrivateKey, err error)
@@ -200,7 +200,7 @@ func (c *Crypto) Default() Provider
 Default returns a default crypto provider
 
 <a name="Crypto.LoadPrivateKey"></a>
-### func \(\*Crypto\) [LoadPrivateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L18>)
+### func \(\*Crypto\) [LoadPrivateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L19>)
 
 ```go
 func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
@@ -209,7 +209,7 @@ func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
 LoadPrivateKey returns crypto.PrivateKey. The input key can be in PEM encoded format, or PKCS11 URI.
 
 <a name="Crypto.LoadTLSKeyPair"></a>
-### func \(\*Crypto\) [LoadTLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L128>)
+### func \(\*Crypto\) [LoadTLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L132>)
 
 ```go
 func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, error)
@@ -236,13 +236,13 @@ func (c *Crypto) NewSignerFromPEM(caKey []byte) (crypto.Signer, error)
 NewSignerFromPEM generates a new crypto signer from PEM encoded blocks, or caKey contains PKCS\#11 Uri
 
 <a name="Crypto.TLSKeyPair"></a>
-### func \(\*Crypto\) [TLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L144>)
+### func \(\*Crypto\) [TLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L149>)
 
 ```go
 func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error)
 ```
 
-TLSKeyPair parses a public/private key pair from PEM encoded data. The key may be a PEM private key or a pkcs11: URI resolved through the registered providers. On successful return, Certificate.Leaf holds the parsed leaf certificate; no check is made that the key matches the certificate.
+TLSKeyPair parses a public/private key pair from PEM encoded data. The key may be a PEM private key or a pkcs11: URI resolved through the registered providers. On successful return, Certificate.Leaf holds the parsed leaf certificate. An error is returned when the private key does not match the leaf certificate's public key.
 
 <a name="KeyGenerator"></a>
 ## type [KeyGenerator](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L53-L60>)

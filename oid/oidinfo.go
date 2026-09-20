@@ -113,13 +113,29 @@ var DisplayName = map[string]string{
 	"1.3.6.1.5.5.7.48.2":   "Issuers",
 }
 
-// KeyUsages returns list of names
-func KeyUsages(ku x509.KeyUsage) []string {
-	list := make([]string, 0, len(KeyUsage))
+// keyUsageOrder lists the key usage bits in RFC 5280 bit order, so that
+// KeyUsages returns a deterministic list.
+var keyUsageOrder = []x509.KeyUsage{
+	x509.KeyUsageDigitalSignature,
+	x509.KeyUsageContentCommitment,
+	x509.KeyUsageKeyEncipherment,
+	x509.KeyUsageDataEncipherment,
+	x509.KeyUsageKeyAgreement,
+	x509.KeyUsageCertSign,
+	x509.KeyUsageCRLSign,
+	x509.KeyUsageEncipherOnly,
+	x509.KeyUsageDecipherOnly,
+}
 
-	for k, v := range KeyUsage {
+// KeyUsages returns the canonical names (from KeyUsageName) of the usage
+// bits set in ku, in RFC 5280 bit order. Each bit is reported once; the
+// "digital signature" alias accepted by KeyUsage is reported as "signing".
+func KeyUsages(ku x509.KeyUsage) []string {
+	list := make([]string, 0, len(keyUsageOrder))
+
+	for _, v := range keyUsageOrder {
 		if ku&v == v {
-			list = append(list, k)
+			list = append(list, KeyUsageName[v])
 		}
 	}
 

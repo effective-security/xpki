@@ -91,7 +91,7 @@ var (
 ```
 
 <a name="GenerateECDSAKeyInPEM"></a>
-## func [GenerateECDSAKeyInPEM](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L142>)
+## func [GenerateECDSAKeyInPEM](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L146>)
 
 ```go
 func GenerateECDSAKeyInPEM(rand io.Reader, c elliptic.Curve) ([]byte, error)
@@ -100,7 +100,7 @@ func GenerateECDSAKeyInPEM(rand io.Reader, c elliptic.Curve) ([]byte, error)
 GenerateECDSAKeyInPEM returns PEM encoded ECDSA key
 
 <a name="GenerateRSAKeyInPEM"></a>
-## func [GenerateRSAKeyInPEM](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L123>)
+## func [GenerateRSAKeyInPEM](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L127>)
 
 ```go
 func GenerateRSAKeyInPEM(rand io.Reader, size int) ([]byte, error)
@@ -118,7 +118,7 @@ func MakeInvalidCertsChainTSA(t *testing.T, hours int) (crypto.Signer, *x509.Cer
 MakeInvalidCertsChainTSA creates invalid TSA cert with several critical EKU extensions
 
 <a name="MakeSelfCertECDSA"></a>
-## func [MakeSelfCertECDSA](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L22>)
+## func [MakeSelfCertECDSA](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L26>)
 
 ```go
 func MakeSelfCertECDSA(hours int) (*x509.Certificate, crypto.PrivateKey, error)
@@ -127,7 +127,7 @@ func MakeSelfCertECDSA(hours int) (*x509.Certificate, crypto.PrivateKey, error)
 MakeSelfCertECDSA creates self\-signed cert
 
 <a name="MakeSelfCertECDSAPem"></a>
-## func [MakeSelfCertECDSAPem](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L52>)
+## func [MakeSelfCertECDSAPem](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L56>)
 
 ```go
 func MakeSelfCertECDSAPem(hours int) (pemCert, pemKey []byte, err error)
@@ -136,7 +136,7 @@ func MakeSelfCertECDSAPem(hours int) (pemCert, pemKey []byte, err error)
 MakeSelfCertECDSAPem creates self\-signed cert in PEM format
 
 <a name="MakeSelfCertRSA"></a>
-## func [MakeSelfCertRSA](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L75>)
+## func [MakeSelfCertRSA](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L79>)
 
 ```go
 func MakeSelfCertRSA(hours int) (*x509.Certificate, crypto.PrivateKey, error)
@@ -145,7 +145,7 @@ func MakeSelfCertRSA(hours int) (*x509.Certificate, crypto.PrivateKey, error)
 MakeSelfCertRSA creates self\-signed cert
 
 <a name="MakeSelfCertRSAPem"></a>
-## func [MakeSelfCertRSAPem](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L105>)
+## func [MakeSelfCertRSAPem](<https://github.com/effective-security/xpki/blob/main/testca/mkcert.go#L109>)
 
 ```go
 func MakeSelfCertRSAPem(hours int) (pemCert, pemKey []byte, err error)

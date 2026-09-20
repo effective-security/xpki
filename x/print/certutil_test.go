@@ -132,3 +132,37 @@ func TestCSRandCert(t *testing.T) {
 // 	}
 // 	return nil
 // }
+
+func Test_CertificateList_NoNextUpdate(t *testing.T) {
+	thisUpdate, err := time.Parse(time.RFC3339, "2012-11-01T22:08:41+00:00")
+	require.NoError(t, err)
+
+	res := &x509.RevocationList{
+		ThisUpdate: thisUpdate,
+	}
+
+	w := bytes.NewBuffer([]byte{})
+	print.CertificateList(w, res)
+	out := w.String()
+	assert.Contains(t, out, "Expires: not set\n")
+	assert.NotContains(t, out, "0001-01-01")
+}
+
+func Test_OCSPResponse_NoNextUpdate(t *testing.T) {
+	producedAt, err := time.Parse(time.RFC3339, "2012-11-01T22:08:41+00:00")
+	require.NoError(t, err)
+
+	res := &ocsp.Response{
+		ProducedAt:   producedAt,
+		ThisUpdate:   producedAt,
+		SerialNumber: big.NewInt(1),
+		Status:       ocsp.Good,
+	}
+
+	w := bytes.NewBuffer([]byte{})
+	print.OCSPResponse(w, res, false)
+	out := w.String()
+	assert.Contains(t, out, "Expires: not set\n")
+	assert.NotContains(t, out, "0001-01-01")
+	assert.Contains(t, out, "Status: good\n")
+}

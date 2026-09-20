@@ -194,7 +194,8 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		tokenConfig.Pwd = strings.TrimSpace(string(pb))
+		// only line endings are stripped so a PIN containing spaces is kept intact
+		tokenConfig.Pwd = strings.TrimRight(string(pb), "\r\n")
 	}
 
 	return tokenConfig, nil

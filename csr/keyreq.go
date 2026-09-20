@@ -176,7 +176,9 @@ func SigAlgo(algo string, size int) x509.SignatureAlgorithm {
 		case size >= 2048:
 			return x509.SHA256WithRSA
 		default:
-			return x509.SHA1WithRSA
+			// SHA-1 signatures are rejected by x509.CreateCertificate;
+			// SHA-256 is the floor for any key size.
+			return x509.SHA256WithRSA
 		}
 	case "ECDSA":
 		switch size {
@@ -187,7 +189,7 @@ func SigAlgo(algo string, size int) x509.SignatureAlgorithm {
 		case CurveP256:
 			return x509.ECDSAWithSHA256
 		default:
-			return x509.ECDSAWithSHA1
+			return x509.ECDSAWithSHA256
 		}
 	default:
 		return x509.UnknownSignatureAlgorithm

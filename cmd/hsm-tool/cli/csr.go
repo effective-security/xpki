@@ -154,8 +154,14 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 			return err
 		}
 
-		crt, _ := certutil.ParseFromPEM(certPEM)
-		pem, _ := certutil.EncodeToPEMString(a.PemInfo, crt)
+		crt, err := certutil.ParseFromPEM(certPEM)
+		if err != nil {
+			return errors.WithMessage(err, "parse certificate")
+		}
+		pem, err := certutil.EncodeToPEMString(a.PemInfo, crt)
+		if err != nil {
+			return errors.WithMessage(err, "encode certificate")
+		}
 		certPEM = []byte(pem + "\n")
 	} else {
 		issuer, err := authority.NewIssuer(isscfg, cryptoprov)
@@ -178,7 +184,10 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 			return errors.WithMessage(err, "sign request")
 		}
 
-		pem, _ := certutil.EncodeToPEMString(a.PemInfo, crt)
+		pem, err := certutil.EncodeToPEMString(a.PemInfo, crt)
+		if err != nil {
+			return errors.WithMessage(err, "encode certificate")
+		}
 		certPEM = []byte(pem + "\n")
 	}
 
@@ -260,7 +269,10 @@ func (a *CsrSignCmd) Run(ctx *Cli) error {
 	if err != nil {
 		return errors.WithMessage(err, "sign request")
 	}
-	pem, _ := certutil.EncodeToPEMString(a.PemInfo, crt)
+	pem, err := certutil.EncodeToPEMString(a.PemInfo, crt)
+	if err != nil {
+		return errors.WithMessage(err, "encode certificate")
+	}
 
 	if a.Output == "" {
 		print.CertAndKey(ctx.Writer(), nil, nil, []byte(pem+"\n"))

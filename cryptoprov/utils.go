@@ -3,6 +3,7 @@ package cryptoprov
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -98,13 +99,15 @@ func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 // ParsePrivateKeyDER parses a PKCS #1, PKCS #8, ECDSA DER-encoded
 // private key. The key must not be in PEM format.
 func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
-	generalKey, err := x509.ParsePKCS8PrivateKey(keyDER)
-	if err != nil {
-		generalKey, err = x509.ParsePKCS1PrivateKey(keyDER)
-		if err != nil {
-			generalKey, err = x509.ParseECPrivateKey(keyDER)
-			if err != nil {
-				return nil, errors.New("failed to parse key")
+	generalKey, pkcs8Err := x509.ParsePKCS8PrivateKey(keyDER)
+	if pkcs8Err != nil {
+		var pkcs1Err error
+		generalKey, pkcs1Err = x509.ParsePKCS1PrivateKey(keyDER)
+		if pkcs1Err != nil {
+			var ecErr error
+			generalKey, ecErr = x509.ParseECPrivateKey(keyDER)
+			if ecErr != nil {
+				return nil, errors.WithMessage(errors.Join(pkcs8Err, pkcs1Err, ecErr), "failed to parse key")
 			}
 		}
 	}
@@ -114,10 +117,11 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
 		return typ, nil
 	case *ecdsa.PrivateKey:
 		return typ, nil
+	case ed25519.PrivateKey:
+		return typ, nil
 	}
 
-	// should never reach here
-	return nil, errors.New("failed to parse key")
+	return nil, errors.Errorf("failed to parse key: unsupported key type %T", generalKey)
 }
 
 // LoadTLSKeyPair reads and parses a public/private key pair from a pair
@@ -140,7 +144,8 @@ func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, err
 // TLSKeyPair parses a public/private key pair from PEM encoded data. The key
 // may be a PEM private key or a pkcs11: URI resolved through the registered
 // providers. On successful return, Certificate.Leaf holds the parsed leaf
-// certificate; no check is made that the key matches the certificate.
+// certificate. An error is returned when the private key does not match
+// the leaf certificate's public key.
 func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error) {
 	var err error
 	var skippedBlockTypes []string
@@ -170,8 +175,8 @@ func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate,
 		return nil, errors.Errorf("tls: failed to find \"CERTIFICATE\" PEM block in certificate input after skipping PEM blocks of the following types: %v", skippedBlockTypes)
 	}
 
-	// We don't need to parse the public key for TLS, but we so do anyway
-	// to check that it looks sane and matches the private key.
+	// The leaf is parsed so that callers get Certificate.Leaf and so that
+	// the private key can be checked against the certificate.
 	cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -180,6 +185,18 @@ func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate,
 	_, cert.PrivateKey, err = c.LoadPrivateKey(keyPEMBlock)
 	if err != nil {
 		return nil, err
+	}
+
+	signer, ok := cert.PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, errors.Errorf("tls: private key of type %T does not implement crypto.Signer", cert.PrivateKey)
+	}
+	pub, ok := cert.Leaf.PublicKey.(interface{ Equal(crypto.PublicKey) bool })
+	if !ok {
+		return nil, errors.Errorf("tls: unsupported certificate public key type %T", cert.Leaf.PublicKey)
+	}
+	if !pub.Equal(signer.Public()) {
+		return nil, errors.New("tls: private key does not match certificate public key")
 	}
 
 	return cert, nil

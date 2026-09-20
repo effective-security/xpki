@@ -6,6 +6,7 @@ import (
 
 	"uuid"
 
+	"github.com/effective-security/xpki/certutil"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -129,4 +130,12 @@ func (s *testSuite) createRootCA() {
 	s.rootKey = output + ".key"
 	s.HasTextInFile(s.rootCert, "CERTIFICATE")
 	s.HasTextInFile(s.rootKey, "private")
+
+	// subject names from csrprofiles/root_ca.yaml must be applied
+	crt, err := certutil.LoadFromPEM(s.rootCert)
+	s.Require().NoError(err)
+	s.Equal("[TEST] One Root CA", crt.Subject.CommonName)
+	s.Equal([]string{"US"}, crt.Subject.Country)
+	s.Equal([]string{"WA"}, crt.Subject.Locality)
+	s.Equal([]string{"trusty.com"}, crt.Subject.Organization)
 }

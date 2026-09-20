@@ -2,6 +2,7 @@ package accesstoken_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,4 +145,49 @@ func TestATWithProvider(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, claims, c2)
 	})
+}
+
+// TestATRevokedPlainJWT verifies that SetRevocation is forwarded to the
+// wrapped jwt.Provider so revoked plain JWTs are rejected (XPKI-077).
+func TestATRevokedPlainJWT(t *testing.T) {
+	ctx := context.Background()
+	jp, err := jwt.LoadProvider("../testdata/jwtprov.json", nil)
+	require.NoError(t, err)
+
+	dp, err := dataprotection.NewSymmetric([]byte(`accesstoken`))
+	require.NoError(t, err)
+
+	v := &validator{
+		revoked: map[string]bool{},
+	}
+
+	p := accesstoken.New(dp, jp)
+	p.SetRevocation(v)
+	assert.Same(t, v, p.GetRevocation())
+	assert.Same(t, v, jp.GetRevocation())
+
+	claims := jwt.MapClaims{
+		"jti":   "plain-1",
+		"sub":   "123454",
+		"email": "denis@at.com",
+		"exp":   time.Now().Add(time.Minute).Unix(),
+	}
+
+	// sign a plain JWT with the wrapped provider, not a pat. token
+	jt, err := jp.Sign(ctx, claims)
+	require.NoError(t, err)
+	require.False(t, strings.HasPrefix(jt, "pat."))
+
+	_, err = p.ParseToken(ctx, jt, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, v.Revoke(ctx, jt, claims))
+	_, err = p.ParseToken(ctx, jt, nil)
+	assert.EqualError(t, err, "invalid token: revoked")
+
+	// pat. tokens are checked by the same revocation list
+	at, err := p.Sign(ctx, claims)
+	require.NoError(t, err)
+	_, err = p.ParseToken(ctx, at, nil)
+	assert.EqualError(t, err, "invalid token: revoked")
 }

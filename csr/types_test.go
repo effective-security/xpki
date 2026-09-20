@@ -76,7 +76,7 @@ func TestOIDJSONDecode(t *testing.T) {
 		err string
 	}{
 		{"1.12.1234", "OID JSON string not wrapped in quotes: 1.12.1234"},
-		{"\"1.abc\"", "invalid OID: strconv.Atoi: parsing \"abc\": invalid syntax"},
+		{"\"1.abc\"", "invalid OID: \"1.abc\""},
 	}
 
 	oid := new(OID)
@@ -84,5 +84,37 @@ func TestOIDJSONDecode(t *testing.T) {
 		err := oid.UnmarshalJSON([]byte(tc.oid))
 		require.Error(t, err)
 		assert.Equal(t, tc.err, err.Error())
+	}
+}
+
+func TestParseObjectIdentifier(t *testing.T) {
+	tcases := []struct {
+		in  string
+		exp OID
+		err string
+	}{
+		{"1.2.840.113549", OID{1, 2, 840, 113549}, ""},
+		{"2", OID{2}, ""},
+		{"", nil, `invalid OID: ""`},
+		{"1.abc", nil, `invalid OID: "1.abc"`},
+		{"abc1.2", nil, `invalid OID: "abc1.2"`},
+		{"1.2.3.", nil, `invalid OID: "1.2.3."`},
+		{".1.2", nil, `invalid OID: ".1.2"`},
+		{"1..2", nil, `invalid OID: "1..2"`},
+		{"1.2 3", nil, `invalid OID: "1.2 3"`},
+		{"1.2\n", nil, "invalid OID: \"1.2\\n\""},
+		{"1.99999999999999999999", nil, `invalid OID: strconv.Atoi: parsing "99999999999999999999": value out of range`},
+	}
+	for _, tc := range tcases {
+		t.Run(tc.in, func(t *testing.T) {
+			oid, err := ParseObjectIdentifier(tc.in)
+			if tc.err != "" {
+				require.EqualError(t, err, tc.err)
+				assert.Nil(t, oid)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.exp, OID(oid))
+		})
 	}
 }

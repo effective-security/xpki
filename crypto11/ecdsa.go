@@ -309,7 +309,7 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 //
 // The return value is a DER-encoded byteblock.
 func (priv *PKCS11PrivateKeyECDSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return priv.lib.dsaGeneric(priv.lib.Slot.id, priv.key.Handle, pkcs11.CKM_ECDSA, digest)
+	return priv.lib.dsaGeneric(priv.key.Slot, priv.key.Handle, pkcs11.CKM_ECDSA, digest)
 }
 
 // Public returns the public half of a private key.

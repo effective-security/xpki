@@ -1,9 +1,10 @@
 package cli
 
 import (
+	"crypto/x509"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -22,7 +23,7 @@ type OCSPCmd struct {
 // OCSPInfoCmd specifies flags for OCSP info command
 type OCSPInfoCmd struct {
 	In     string `kong:"arg" required:"" help:"OCSP file name"`
-	Issuer string
+	Issuer string `help:"optional, PEM file with the issuer certificate to verify the response signature"`
 }
 
 // Run the command
@@ -33,7 +34,19 @@ func (a *OCSPInfoCmd) Run(ctx *Cli) error {
 		return errors.WithMessage(err, "unable to load OCSP file")
 	}
 
-	res, err := ocsp.ParseResponse(der, nil)
+	var issuer *x509.Certificate
+	if a.Issuer != "" {
+		issuerPEM, err := ctx.ReadFile(a.Issuer)
+		if err != nil {
+			return errors.WithMessage(err, "unable to load issuer file")
+		}
+		issuer, err = certutil.ParseFromPEM(issuerPEM)
+		if err != nil {
+			return errors.WithMessage(err, "unable to parse issuer")
+		}
+	}
+
+	res, err := ocsp.ParseResponse(der, issuer)
 	if err != nil {
 		return errors.WithMessage(err, "unable to parse OCSP")
 	}
@@ -72,8 +85,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 	crt := list[0]
 
 	if len(crt.OCSPServer) < 1 {
-		logger.KV(xlog.DEBUG, "reason", "certificate does not have OCSP URL", "cn", crt.Subject.String())
-		return nil
+		return errors.Errorf("certificate does not have OCSP URL: %s", crt.Subject.String())
 	}
 
 	issuer := certutil.FindIssuer(crt, list, nil)
@@ -109,7 +121,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 			_, _ = fmt.Fprintf(w, "%s: %v\n", url, statusMap[status])
 
 			if a.Out != "" {
-				filename := path.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
+				filename := filepath.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
 				err = os.WriteFile(filename, der, 0644)
 				if err != nil {
 					return errors.Wrapf(err, "unable to write OCSP: %s", filename)

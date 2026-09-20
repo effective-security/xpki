@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/x/ctl"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/testca"
 	"github.com/stretchr/testify/suite"
+	"golang.org/x/crypto/ocsp"
 )
 
 type testSuite struct {
@@ -105,6 +107,57 @@ func (s *testSuite) TestOcspInfo() {
 	}
 	err := cmd.Run(s.ctl)
 	s.NoError(err)
+
+	// the response is not signed by this issuer
+	cmd.Issuer = "testdata/shaken.pem"
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "unable to parse OCSP")
+
+	cmd.Issuer = "testdata/not_found.pem"
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "unable to load issuer file")
+}
+
+func (s *testSuite) TestOcspInfoWithIssuer() {
+	root := testca.NewEntity(testca.Authority)
+	leaf := testca.NewEntity(testca.Issuer(root), testca.DNSName("localhost"))
+	other := testca.NewEntity(testca.Authority)
+
+	now := time.Now().UTC()
+	der, err := ocsp.CreateResponse(root.Certificate, root.Certificate, ocsp.Response{
+		Status:       ocsp.Good,
+		SerialNumber: leaf.Certificate.SerialNumber,
+		ThisUpdate:   now,
+		NextUpdate:   now.Add(time.Hour),
+	}, root.PrivateKey)
+	s.Require().NoError(err)
+
+	resFile := filepath.Join(s.tmpdir, "ocsp_info.res")
+	rootFile := filepath.Join(s.tmpdir, "ocsp_info_root.pem")
+	otherFile := filepath.Join(s.tmpdir, "ocsp_info_other.pem")
+	s.Require().NoError(os.WriteFile(resFile, der, 0600))
+	rootPEM, err := certutil.EncodeToPEMString(false, root.Certificate)
+	s.Require().NoError(err)
+	otherPEM, err := certutil.EncodeToPEMString(false, other.Certificate)
+	s.Require().NoError(err)
+	s.Require().NoError(os.WriteFile(rootFile, []byte(rootPEM), 0600))
+	s.Require().NoError(os.WriteFile(otherFile, []byte(otherPEM), 0600))
+
+	s.Out.Reset()
+	cmd := OCSPInfoCmd{
+		In:     resFile,
+		Issuer: rootFile,
+	}
+	s.Require().NoError(cmd.Run(s.ctl))
+	s.HasText(leaf.Certificate.SerialNumber.String(), "Status: good")
+
+	// signature does not verify with a different issuer
+	cmd.Issuer = otherFile
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "unable to parse OCSP")
 }
 
 func (s *testSuite) TestCertInfo() {
@@ -113,6 +166,79 @@ func (s *testSuite) TestCertInfo() {
 	}
 	err := cmd.Run(s.ctl)
 	s.NoError(err)
+}
+
+func (s *testSuite) TestCertInfoOut() {
+	in := "../../../x/print/testdata/trusty_peer_wfe.pem"
+	expected, err := certutil.LoadChainFromPEM(in)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(expected)
+
+	out := filepath.Join(s.T().TempDir(), "certinfo_out.pem")
+	cmd := CertInfoCmd{
+		In:  in,
+		Out: out,
+	}
+	s.Require().NoError(cmd.Run(s.ctl))
+
+	list, err := certutil.LoadChainFromPEM(out)
+	s.Require().NoError(err)
+	s.Require().Len(list, len(expected))
+	for i := range expected {
+		s.Equal(expected[i].Raw, list[i].Raw)
+	}
+
+	// output path in a missing folder
+	cmd.Out = filepath.Join(s.T().TempDir(), "missing", "certinfo_out.pem")
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "unable to create file")
+}
+
+func (s *testSuite) TestOcspFetchNoURL() {
+	root := testca.NewEntity(testca.Authority)
+	leaf := testca.NewEntity(testca.Issuer(root), testca.DNSName("localhost"))
+	s.Require().Empty(leaf.Certificate.OCSPServer)
+
+	leafPEM, err := certutil.EncodeToPEMString(false, leaf.Certificate)
+	s.Require().NoError(err)
+	leafFile := filepath.Join(s.tmpdir, "ocsp_fetch_leaf.pem")
+	s.Require().NoError(os.WriteFile(leafFile, []byte(leafPEM), 0600))
+
+	cmd := OCSPFetchCmd{
+		Cert: leafFile,
+	}
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "certificate does not have OCSP URL")
+}
+
+func (s *testSuite) TestCrlFetchFlags() {
+	cmd := CRLFetchCmd{
+		Cert: "../../../x/print/testdata/trusty_peer_wfe.pem",
+	}
+	err := cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal("either --output or --print is required", err.Error())
+}
+
+func (s *testSuite) TestCrlFetchNoDistributionPoint() {
+	root := testca.NewEntity(testca.Authority)
+	leaf := testca.NewEntity(testca.Issuer(root), testca.DNSName("localhost"))
+	s.Require().Empty(leaf.Certificate.CRLDistributionPoints)
+
+	leafPEM, err := certutil.EncodeToPEMString(false, leaf.Certificate)
+	s.Require().NoError(err)
+	leafFile := filepath.Join(s.tmpdir, "crl_fetch_leaf.pem")
+	s.Require().NoError(os.WriteFile(leafFile, []byte(leafPEM), 0600))
+
+	cmd := CRLFetchCmd{
+		Cert:  leafFile,
+		Print: true,
+	}
+	err = cmd.Run(s.ctl)
+	s.Require().Error(err)
+	s.Equal("no CRL distribution point found in the selected certificates", err.Error())
 }
 
 func (s *testSuite) TestCertValidate() {

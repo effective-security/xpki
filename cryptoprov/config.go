@@ -138,7 +138,9 @@ func LoadTokenConfig(filename string) (TokenConfig, error) {
 		if err != nil {
 			return nil, errors.WithMessagef(err, "unable to load PIN for configuration: %s", filename)
 		}
-		tokenConfig.Pwd = string(pb)
+		// PIN files commonly end with a newline, which C_Login would reject.
+		// Only line endings are stripped so a PIN containing spaces is kept intact.
+		tokenConfig.Pwd = strings.TrimRight(string(pb), "\r\n")
 	}
 
 	return tokenConfig, nil

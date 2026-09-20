@@ -1,6 +1,6 @@
 include .project/gomod-project.mk
-export GO111MODULE=on
 BUILD_FLAGS=
+export COVERAGE_EXCLUSIONS="tests|testca|main\.go|clisuite|testsuite\.go|mocks\.go"
 
 export AWS_ACCESS_KEY_ID=notusedbyemulator
 export AWS_SECRET_ACCESS_KEY=notusedbyemulator
