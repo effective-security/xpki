@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"sync"
 
 	"uuid"
 
@@ -30,18 +31,23 @@ func init() {
 // inMemProv stores keyID to signer mapping in memory.
 // Private keys are exportable.
 type inMemProv struct {
+	mu         sync.RWMutex
 	keyIDToPvk map[string]crypto.PrivateKey
 }
 
 // registerKey registers key for the given id in HSM
 func (h *inMemProv) registerKey(keyID string, pvk crypto.PrivateKey) {
 	logger.KV(xlog.TRACE, "id", keyID)
+	h.mu.Lock()
 	h.keyIDToPvk[keyID] = pvk
+	h.mu.Unlock()
 }
 
-// getSigner returns signer for the given key id in HSM
+// getKey returns the registered signer for the given key id.
 func (h *inMemProv) getKey(keyID string) (crypto.PrivateKey, error) {
+	h.mu.RLock()
 	pvk, ok := h.keyIDToPvk[keyID]
+	h.mu.RUnlock()
 	if !ok {
 		return nil, errors.Errorf("key not found: %s", keyID)
 	}
@@ -130,7 +136,9 @@ func (g *defaultIDGenerator) Generate() string {
 	return uuid.NewV7().String()
 }
 
-// Provider defines an interface to work with crypto providers
+// Provider stores exportable RSA and ECDSA keys and supports concurrent key
+// generation, lookup, and PEM export. Token configuration must remain unchanged
+// while the provider is in use.
 type Provider struct {
 	idGenerator
 	rsaKeyGenerator

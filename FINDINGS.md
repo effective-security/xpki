@@ -38,7 +38,7 @@ drift; the symbol name is the stable reference.
 | XPKI-007 | crypto11                              | `config.go` `Init`                                             | Loaded module (`pkcs11.New`) leaks on every error path after load                                                                                  | bug         | Open           |
 | XPKI-011 | crypto11                              | `common.go` `BytesToUlong`                                     | Panics on empty input and reads out of bounds on short attribute values                                                                            | bug         | Open           |
 | XPKI-016 | cryptoprov                            | `provider.go` `Crypto.Add`/`ByManufacturer`                    | No synchronization; duplicate check in `Add` is unreachable (key already includes model)                                                           | race        | Open           |
-| XPKI-017 | cryptoprov/inmemcrypto, testprov      | `provider.go` `keyIDToPvk`                                     | Key map written by `Generate*` and read by `GetKey` without a lock (used by `authority/ocsp.go`)                                                   | race        | **In Progress** ([testprov Fixed](#xpki-017-testprov--tp1); inmemcrypto pending) |
+| XPKI-017 | cryptoprov/inmemcrypto, testprov      | `provider.go` `keyIDToPvk`                                     | Key map written by `Generate*` and read by `GetKey` without a lock (used by `authority/ocsp.go`)                                                   | race        | **Fixed** ([details](#xpki-017--im1)) |
 | XPKI-018 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Close`                                        | Sets embedded `KmsClient` to nil unsynchronized; later `Sign` panics                                                                               | race        | Open           |
 | XPKI-019 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GenerateRSAKey`                               | `purpose==2` sets ASYMMETRIC_DECRYPT with a SIGN algorithm; 4096-bit forces SHA512 while `Sign` picks digest from opts                             | correctness | Open           |
 | XPKI-020 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GetKey`, `keyVersionName`, `ExportKey`        | `cryptoKeyVersions/1` hard-coded; rotated keys sign/destroy the wrong version                                                                      | correctness | Open           |
@@ -108,6 +108,39 @@ drift; the symbol name is the stable reference.
 
 ## Fixed items
 
+### XPKI-017 — IM1
+
+**Fully Fixed on 2026-09-21.** IM1 synchronizes the `inmemcrypto` key map
+with an RWMutex for registration and lookup. Generation, signing, and PEM
+serialization remain outside the lock. Lookups preserve signer identity;
+exports retain an empty URI and caller-owned PKCS#1/SEC1 PEM bytes. Token
+configuration must remain unchanged during use. Updated the codemap and
+regenerated the API documentation.
+
+The `testprov` portion was fixed by [TP1](#xpki-017-testprov--tp1) on
+2026-09-20. Both package portions are now implemented and verified;
+**XPKI-017 and batch IM1 are Fixed**.
+
+Validation:
+
+- `go test -race ./cryptoprov/inmemcrypto -run '^TestConcurrentKeyOperations$' -count=1 -timeout=60s`
+  reproduced registration/lookup races before the fix.
+- `go test -race ./cryptoprov/inmemcrypto -run '^TestConcurrentKeyOperations$' -count=5 -cpu=1,4,8 -timeout=120s`
+  passed afterward. It checks simultaneous RSA/ECDSA generation, lookup,
+  and export; unique IDs; exact missing-key errors; signer identity;
+  PKCS#1/SEC1 parsing; signatures from original/exported keys; and PEM buffer
+  independence when callers modify returned bytes.
+- `go test ./cryptoprov/inmemcrypto -run '^$' -bench '^BenchmarkGetKey$' -benchmem -benchtime=100ms -count=5 -cpu=1`
+  passed before/after on the same Go 1.27 linux/amd64 host. Median hits
+  were 12.25 → 17.15 ns/op with 0 allocations; misses were 1902 → 1983
+  ns/op with 512 B / 9 allocations. Key generation is excluded from timing;
+  these serial lookups do not measure mixed-workload throughput.
+- `make test RACE=true TEST_FLAGS=-count=1` passed with SoftHSM/local-kms
+  fixtures and no cached results, including both providers' concurrency tests.
+- `make lint` passed with zero issues. `make build docs` and `make covtest`
+  passed; aggregate coverage was **90.2%** (some unchanged packages used
+  cached coverage results).
+
 ### XPKI-017-testprov — TP1
 
 **testprov portion Fixed on 2026-09-20.** The test provider's private map
@@ -115,7 +148,8 @@ now uses an RWMutex for registration and lookup. Key generation, signing,
 decryption, and URI formatting remain outside the map lock. Signer identity,
 missing-key errors, and URI-only export with nil key bytes are preserved.
 Documented concurrent operations and immutable token configuration.
-**XPKI-017 remains In Progress:** `inmemcrypto` still needs batch IM1.
+The remaining `inmemcrypto` portion was completed by [IM1](#xpki-017--im1)
+on 2026-09-21; **XPKI-017 is now Fixed**.
 
 Validation:
 

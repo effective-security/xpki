@@ -59,7 +59,7 @@ consumers. Nothing in the library imports `cmd/`.
 | PKCS#11 token / key enumeration            | `crypto11/provider.go`, `crypto11/util.go`                                   | `EnumTokens`, `EnumKeys`, `KeyInfo`, `DestroyKeyPairOnSlot`                                                                   |
 | AWS KMS                                    | `cryptoprov/awskmscrypto/awskmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `Signer`                                                                             |
 | GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `KeyLabelAndID`, `Crc32c`                                                            |
-| In-memory keys                             | `cryptoprov/inmemcrypto/provider.go`                                         | `NewProvider`, `Loader`, `ProviderName`                                                                                       |
+| In-memory keys                             | `cryptoprov/inmemcrypto/provider.go`, `concurrency_test.go`                   | `NewProvider`, `Loader`, `ProviderName`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                   |
 | Test-provider key registry                 | `cryptoprov/testprov/provider.go`, `concurrency_test.go`                     | `Init`, `Loader`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                                        |
 | CSR request types                          | `csr/csr.go`                                                                 | `CertificateRequest`, `SignRequest`, `X509Subject`, `X509Name`, `X509Extension`, `AllowedFields`                              |
 | CSR create / sign / parse                  | `csr/csrprov.go`, `csr/csr.go`                                               | `NewProvider`, `GenerateKeyAndRequest`, `CreateRequestAndExportKey`, `SignRequest`, `Parse`, `ParsePEM`                       |
@@ -221,12 +221,13 @@ Invariants: KMS providers call the SDKs with `context.Background()` (ROADMAP);
 `KmsClientFactory` package vars are the test seams; AWS `EnumKeys` is a full
 account scan with one `DescribeKey` per key (XPKI-032); GCP always uses
 `cryptoKeyVersions/1` (XPKI-020) and `Close` must be called to release gRPC;
-`Signer.Sign` with nil opts panics (XPKI-025); the `inmemcrypto` key map remains
-unsynchronized (XPKI-017, pending IM1); `inmemcrypto.NewProvider()` is used at
-runtime by `authority/ocsp.go` for delegated responder keys. The `testprov`
-registry uses an RWMutex for map publication and lookup (XPKI-017-testprov,
-Fixed in TP1). Key generation, signing, decryption, and URI formatting run
-outside the map lock. Lookups retain signer identity; export returns the same
+`Signer.Sign` with nil opts panics (XPKI-025); `inmemcrypto.NewProvider()` is
+used at runtime by `authority/ocsp.go` for delegated responder keys. Both
+`inmemcrypto` and `testprov` registries use an RWMutex for map publication
+and lookup (XPKI-017, Fixed by IM1 and TP1). Key generation, signing,
+decryption, and export serialization/formatting run outside the map lock.
+Lookups retain signer identity. `inmemcrypto` exports caller-owned PKCS#1
+(RSA) or SEC1 (ECDSA) PEM bytes with an empty URI; `testprov` exports a
 PKCS#11 URI with nil key bytes. Token configuration passed to `Loader` must
 remain unchanged during use. Metrics: `metricskey.PerfCryptoOperation`.
 
@@ -236,10 +237,13 @@ testify mock via `KmsClientFactory`. `gcpkmscrypto/coverage_test.go` additionall
 uses a local gRPC KMS server for real SDK iterator pagination, disabled-key
 filtering, and permission errors, and the existing mock for provider failures.
 `inmemcrypto`, `testprov` are pure.
-`testprov/concurrency_test.go` overlaps generation with lookup/export on one
-provider and checks every generated key's identity, URI, signature, and RSA
-decryption. Its `BenchmarkGetKey` measures serial hits/misses with key
-generation outside the timed loop.
+`inmemcrypto/concurrency_test.go` and `testprov/concurrency_test.go` overlap
+generation with lookup/export on one provider and check generated key
+identity, missing-key behavior, and signatures. The former also verifies
+PKCS#1/SEC1 parsing, signing with exported keys, and independent PEM buffers;
+the latter verifies URI-only export and RSA decryption. Each package's
+`BenchmarkGetKey` measures serial hits/misses with key generation outside
+the timed loop.
 
 ## Package csr
 
