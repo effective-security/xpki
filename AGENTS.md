@@ -103,6 +103,7 @@ Do not start by grepping the tree.
 - This module has no gomock-generated interfaces; do not introduce mocks
   unless the package under test cannot be exercised directly (KMS clients
   are the existing exception).
+- add `t.Parallel()` for tests that can run in parallel.
 
 ### Tools
 

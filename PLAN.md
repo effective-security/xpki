@@ -17,6 +17,7 @@ below and excluded from the pending queue.
 | XC2 | [XPKI-105](FINDINGS.md#xpki-105--xc2) | **Fixed** | 2026-09-20 |
 | TC1 | [XPKI-062](FINDINGS.md#xpki-062--tc1), [XPKI-107](FINDINGS.md#xpki-107--tc1) | **Fixed** | 2026-09-20 |
 | TP1 | [XPKI-017-testprov](FINDINGS.md#xpki-017-testprov--tp1) | **Fixed** (testprov portion) | 2026-09-20 |
+| IM1 | [XPKI-017-inmemcrypto](FINDINGS.md#xpki-017--im1) | **Fixed** (completes XPKI-017) | 2026-09-21 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -71,8 +72,8 @@ results).
 uses an RWMutex for registration/lookup; generation, signing, decryption,
 and URI formatting remain outside the lock. Signer identity, missing-key
 errors, and URI-only export with nil key bytes are preserved. Token
-configuration must remain immutable during use. **The overall XPKI-017
-finding remains In Progress; IM1 / inmemcrypto is still pending.**
+configuration must remain immutable during use. The remaining inmemcrypto
+portion was completed by IM1 on 2026-09-21; **XPKI-017 is now Fixed**.
 
 Validation: `go test -race ./cryptoprov/testprov -run '^TestConcurrentKeyOperations$' -count=1 -timeout=60s`
 reproduced data races and a concurrent-map crash before the fix.
@@ -88,6 +89,33 @@ The same-host Go 1.27 linux/amd64 comparison used
 `go test ./cryptoprov/testprov -run '^$' -bench '^BenchmarkGetKey$' -benchmem -benchtime=100ms -count=5 -cpu=1`.
 Median hits were 12.79 → 17.97 ns/op with 0 allocations; misses were
 1842 → 1935 ns/op with 512 B / 9 allocations. Key generation is excluded
+from timing; these serial lookup results do not measure mixed-workload
+throughput.
+
+**IM1 / XPKI-017-inmemcrypto — Fixed on 2026-09-21:** the provider's map
+uses an RWMutex for registration/lookup; generation, signing, and PEM
+serialization stay outside the lock. Lookups retain signer identity;
+exports remain caller-owned PKCS#1/SEC1 PEM bytes with an empty URI.
+Documented immutable token configuration and concurrent operations, updated
+the codemap, and regenerated the API reference. **XPKI-017 is fully Fixed**
+now that both IM1 and TP1 are implemented and verified.
+
+Validation: `go test -race ./cryptoprov/inmemcrypto -run '^TestConcurrentKeyOperations$' -count=1 -timeout=60s`
+reproduced registration/lookup races before the fix.
+`go test -race ./cryptoprov/inmemcrypto -run '^TestConcurrentKeyOperations$' -count=5 -cpu=1,4,8 -timeout=120s`
+passed afterward, checking concurrent RSA/ECDSA generation/lookup/export,
+unique IDs, exact missing-key errors, signer identity, PKCS#1/SEC1 parsing,
+signatures with original/exported keys, and independent mutable PEM buffers.
+`make test RACE=true TEST_FLAGS=-count=1` passed with SoftHSM/local-kms
+fixtures and no cached results, including both providers' concurrency tests.
+`make lint` passed with zero issues; `make build docs` and `make covtest`
+passed (**90.2%** aggregate coverage; some unchanged packages used cached
+coverage results).
+
+The same-host Go 1.27 linux/amd64 comparison used
+`go test ./cryptoprov/inmemcrypto -run '^$' -bench '^BenchmarkGetKey$' -benchmem -benchtime=100ms -count=5 -cpu=1`.
+Median hits were 12.25 → 17.15 ns/op with 0 allocations; misses were
+1902 → 1983 ns/op with 512 B / 9 allocations. Key generation is excluded
 from timing; these serial lookup results do not measure mixed-workload
 throughput.
 
@@ -145,7 +173,6 @@ the test prerequisites below can move a small preparatory change earlier.
 | JW2 | `jwt` | 066, 104; 100-jwt | P1 / 35 | Medium: kid compatibility and custom headers | Standalone key-ID policy |
 | CU2 | `certutil` | 035 | P1 / 34 | High: cache ownership and lock contention | Exported mutable fields |
 | CP1 | `cryptoprov` | 016, 026; 099-cryptoprov, 100-cryptoprov | P1 / 34 | Medium: duplicate registrations and nil constructors | Duplicate/replacement policy |
-| IM1 | `cryptoprov/inmemcrypto` | 017-inmemcrypto | P1 / 34 | Medium: key-map locking and export behavior | None |
 | GC1 | `cryptoprov/gcpkmscrypto` | 018, 023, 025-gcpkmscrypto | P1 / 34 | Medium: close/sign lifecycle and checksum validation | Nil signer-options contract |
 | AU3 | `authority` | 055 | P1 / 34 | High: live maps and pointer ownership | Snapshot/mutation contract |
 | OA1 | `jwt/oauth2client` | 081, 080 | P1 / 34 | High: registry consistency and mutable config pointers | Scope of unused verification settings |
@@ -383,21 +410,19 @@ required to add a simple lock. CP2 needs no benchmark. CP1 also owns its
 ### cryptoprov/inmemcrypto — IM1; cryptoprov/testprov — TP1
 
 These are **two separate batches**, even though their findings and designs
-are similar. **TP1 is Fixed (2026-09-20); IM1 remains pending**, so the
-overall XPKI-017 finding is **In Progress**.
+are similar. **TP1 is Fixed (2026-09-20) and IM1 is Fixed (2026-09-21)**;
+the overall XPKI-017 finding is now **Fixed**.
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-017-inmemcrypto — HIGH / race / 34 | [provider.go](cryptoprov/inmemcrypto/provider.go) generates into keyIDToPvk while GetKey/export reads it without a lock. Protect map publication/lookup; keep expensive key generation outside the map lock. | **Partial:** `Test_GenerateKeys`, `TestSignRSA`, `TestSignECDSA` in [provider_test.go](cryptoprov/inmemcrypto/provider_test.go) validate serial key identity, export, and signatures. Add simultaneous generation/lookup/export on one provider and verify every returned key. This provider is used by production delegated OCSP code. |
+| XPKI-017-inmemcrypto — HIGH / race / 34 — **Fixed (IM1, 2026-09-21)** | [provider.go](cryptoprov/inmemcrypto/provider.go) protects map publication/lookup with an RWMutex. Generation, signing, and PEM serialization remain outside the lock. Signer identity, missing-key errors, and PKCS#1/SEC1 export are preserved for this provider used by delegated OCSP code. | **Verified:** [concurrency_test.go](cryptoprov/inmemcrypto/concurrency_test.go) reproduced the race, then passed five repetitions at each of 1/4/8 CPUs. It checks generation/lookup/export overlap, key identity, parsed exports, signatures from original/exported keys, and independent PEM buffers. Serial lookup benchmarks, the uncached full race suite, lint, build/docs and coverage passed; see [completed batches](#completed-batches). |
 | XPKI-017-testprov — MEDIUM / race / 24 — **Fixed (TP1, 2026-09-20)** | [provider.go](cryptoprov/testprov/provider.go) now protects map publication/lookup with an RWMutex. Generation and cryptographic operations remain outside the lock; signer identity, missing-key errors and URI-only export are preserved. | **Verified:** [concurrency_test.go](cryptoprov/testprov/concurrency_test.go) reproduced the map race/crash, then passed five repetitions at each of 1/4/8 CPUs. It checks concurrent generation/lookup/export through the public API, signatures and RSA decryption. Serial lookup benchmarks, the uncached full race suite, lint, build/docs and coverage passed; see [completed batches](#completed-batches). |
 
-Regression risk is medium for IM1 and low–medium for completed TP1.
-**Benchmark recommended for IM1**, especially if locking could cover key
-generation: GetKey hit/miss and mixed generation/lookup, with key generation
-measured separately. TP1's serial hit/miss comparison is recorded above;
-mixed operations were validated for correctness under the race detector,
-without a throughput benchmark. Mandatory race tests are more important
-than a microbenchmark for a narrow mutex fix.
+Regression risk is medium for completed IM1 and low–medium for completed TP1.
+Both serial hit/miss benchmark comparisons are recorded above with generation
+outside the timed loop. Mixed operations passed correctness checks under the
+race detector; no mixed-workload throughput benchmark was run. Both fixes
+lock only map access, preserving parallel generation and cryptographic work.
 
 ### cryptoprov/gcpkmscrypto — GC1, GC2, GC3
 
@@ -599,14 +624,15 @@ No benchmark is needed for either finding.
 ## Benchmark and race-test protocol
 
 No `Benchmark*` functions were found during the original planning review.
-TP1 now adds and records `BenchmarkGetKey` for serial hit/miss lookups.
+TP1 and IM1 now add and record `BenchmarkGetKey` for each provider's serial
+hit/miss lookups.
 Other baselines below still need to be created where marked required.
 
 | Finding(s) | Before-fix benchmark decision | What to record |
 | --- | --- | --- |
 | 002, 005 (PK1) | **Required** for pool redesign/performance fix | ns/op, allocs/op, open/live sessions, throughput and bounded completion under contention |
 | 016 (CP1) | **Recommended**; minimal race fix need not wait | lookup latency/allocations and mixed registration throughput |
-| 017-inmemcrypto (IM1) | **Recommended** | hit/miss lookup and map publication overhead, excluding key generation from the isolated measurement |
+| 017-inmemcrypto (IM1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.25 → 17.15 ns/op, 0 allocations; misses 1902 → 1983 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |
 | 017-testprov (TP1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.79 → 17.97 ns/op, 0 allocations; misses 1842 → 1935 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |
 | 018 (GC1) | **Not required** for close-only synchronization; conditional if all RPCs are serialized | if needed, sign/client-acquisition contention with a controlled client |
 | 024 (GC3) | **Required**, using deterministic timing | retry count, readiness/cancellation latency, allocations; distinguish wall time from CPU work |
