@@ -11,25 +11,25 @@ The module is `github.com/effective-security/xpki` and targets Go 1.27.
 
 ## Packages
 
-| Package                       | Purpose                                                                                         |
-| ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| `cryptoprov`                  | Provider abstraction (`Provider`, `KeyManager`, `Crypto`), config loading, key URIs, PEM helpers |
-| `crypto11`                    | PKCS#11 provider (HSM, SoftHSM): `crypto.Signer`/`crypto.Decrypter` backed by device keys        |
-| `cryptoprov/awskmscrypto`     | AWS KMS provider                                                                                  |
-| `cryptoprov/gcpkmscrypto`     | Google Cloud KMS provider                                                                         |
-| `cryptoprov/inmemcrypto`      | In-memory provider for tests and development                                                     |
-| `csr`                         | CSR generation and parsing, key requests, SAN and CRL distribution point encoding                 |
-| `authority`                   | Certificate Authority: issuers, certificate profiles, `Sign`, OCSP and CRL signing                |
-| `certutil`                    | Certificate, PEM, chain and bundle helpers, hashes, OCSP request creation                         |
-| `jwt`                         | JWT signing and verification, claims, static and remote JWKS key sets                             |
-| `jwt/dpop`                    | DPoP proof creation and verification (RFC 9449)                                                   |
-| `jwt/accesstoken`             | Opaque access-token helpers on top of `jwt`                                                       |
-| `jwt/oauth2client`            | OAuth2 client for token endpoints                                                                 |
-| `dataprotection`              | Symmetric AEAD protection of small payloads and JSON objects                                      |
-| `armor`                       | Armored (PEM-like) block decoding                                                                 |
-| `oid`                         | Human-readable names for key usages and object identifiers                                        |
-| `x/print`                     | Pretty printers for certificates, CSRs, CRLs and OCSP responses                                   |
-| `testca`                      | Test-only CA and certificate generator                                                            |
+| Package                   | Purpose                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------ |
+| `cryptoprov`              | Provider abstraction (`Provider`, `KeyManager`, `Crypto`), config loading, key URIs, PEM helpers |
+| `crypto11`                | PKCS#11 provider (HSM, SoftHSM): `crypto.Signer`/`crypto.Decrypter` backed by device keys        |
+| `cryptoprov/awskmscrypto` | AWS KMS provider                                                                                 |
+| `cryptoprov/gcpkmscrypto` | Google Cloud KMS provider                                                                        |
+| `cryptoprov/inmemcrypto`  | In-memory provider for tests and development                                                     |
+| `csr`                     | CSR generation and parsing, key requests, SAN and CRL distribution point encoding                |
+| `authority`               | Certificate Authority: issuers, certificate profiles, `Sign`, OCSP and CRL signing               |
+| `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP request creation                        |
+| `jwt`                     | JWT signing and verification, claims, static and remote JWKS key sets                            |
+| `jwt/dpop`                | DPoP proof creation and verification (RFC 9449)                                                  |
+| `jwt/accesstoken`         | Opaque access-token helpers on top of `jwt`                                                      |
+| `jwt/oauth2client`        | OAuth2 client for token endpoints                                                                |
+| `dataprotection`          | Symmetric AEAD protection of small payloads and JSON objects                                     |
+| `armor`                   | Armored (PEM-like) block decoding                                                                |
+| `oid`                     | Human-readable names for key usages and object identifiers                                       |
+| `x/print`                 | Pretty printers for certificates, CSRs, CRLs and OCSP responses                                  |
+| `testca`                  | Test-only CA and certificate generator                                                           |
 
 See [`Documentation/codemap.md`](Documentation/codemap.md) for entry points
 and invariants per package, [`FINDINGS.md`](FINDINGS.md) for known defects,
@@ -76,7 +76,11 @@ AWS KMS (`awskmscrypto`, manufacturer `AWSKMS`):
 In-memory (`inmemcrypto`, manufacturer `inmem`):
 
 ```json
-{ "Manufacturer": "inmem", "TokenLabel": "inmem_unittest", "Pin": "file:inmem_pin.txt" }
+{
+  "Manufacturer": "inmem",
+  "TokenLabel": "inmem_unittest",
+  "Pin": "file:inmem_pin.txt"
+}
 ```
 
 `Pin` accepts a literal value, `file:<path>`, or an environment reference,
@@ -97,7 +101,7 @@ authority:
     - label: TrustyCA
       type: trusty
       cert: /tmp/xpki/certs/l2_ca.pem
-      key: /tmp/xpki/certs/l2_ca.key      # PEM file or pkcs11: URI
+      key: /tmp/xpki/certs/l2_ca.key # PEM file or pkcs11: URI
       ca_bundle: /tmp/xpki/certs/l1_ca.pem
       root_bundle: /tmp/xpki/certs/root_ca.pem
       aia:
@@ -111,8 +115,8 @@ profiles:
     backdate: 30m
     usages: [signing, key encipherment, server auth]
     allowed_extensions:
-      - 1.3.6.1.5.5.7.1.1   # AIA
-      - 2.5.29.17           # SAN
+      - 1.3.6.1.5.5.7.1.1 # AIA
+      - 2.5.29.17 # SAN
 ```
 
 A profile controls validity, key usages, allowed extensions, name and SAN
@@ -244,8 +248,15 @@ xpki-tool cert info server.pem
 
 ## Development
 
-Requirements: Go 1.27, SoftHSM2 (`softhsm2-util`) and `opensc` for the
-PKCS#11 tests, Docker for the local AWS KMS emulator.
+Requirements: Go 1.27, a C compiler for PKCS#11/cgo, SoftHSM2
+(`softhsm2-util` and its module), and Docker for the local AWS KMS emulator.
+Generating a new test PIN also requires `openssl`.
+
+`make hsmconfig` builds `bin/hsm-tool`, initializes the test token using
+`softhsm2-util`, then verifies the generated configuration and PIN with
+`bin/hsm-tool --cfg /tmp/xpki/softhsm_unittest.json hsm list`.
+OpenSC (`pkcs11-tool`) is optional: it is needed only when invoking
+`scripts/config-softhsm.sh` directly with `--list-slots` or `--list-object`.
 
 ```sh
 make tools            # golangci-lint, cov-report, govulncheck
@@ -277,6 +288,8 @@ local-kms and requires 80% total coverage. Merges to `main` are tagged from
 Read [`AGENTS.md`](AGENTS.md) for coding, error handling, testing and
 documentation rules, and keep [`Documentation/codemap.md`](Documentation/codemap.md)
 current in the same change as the code.
+
+Generated API reference (`make docs`, gomarkdoc, do not edit): [Documentation/api](Documentation/api)
 
 ## License
 

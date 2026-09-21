@@ -5,16 +5,23 @@ import (
 	"crypto"
 	"crypto/x509"
 	"os"
+	"sync"
 
 	"github.com/effective-security/xpki/certutil"
 )
 
 // Entity is a certificate and private key.
+// An Entity must not be copied after first use.
 type Entity struct {
 	Issuer      *Entity
 	PrivateKey  crypto.Signer
 	Certificate *x509.Certificate
-	NextSN      int64
+	// NextSN is the serial number to allocate on the next IncrementSN call.
+	// Read or write it directly only when no IncrementSN or Issue calls,
+	// including NewEntity calls using this entity as Issuer, are in flight.
+	NextSN int64
+
+	serialMu sync.Mutex
 }
 
 // NewEntity creates a new CA.
@@ -29,9 +36,15 @@ func NewEntity(opts ...Option) *Entity {
 }
 
 // Issue issues a new Entity with this one as its parent.
+// Concurrent calls are safe if the issuer's fields and option data remain
+// unchanged and its private key supports concurrent signing.
+// The caller's option slice is not modified; this issuer takes precedence
+// over any Issuer option in opts.
 func (id *Entity) Issue(opts ...Option) *Entity {
-	opts = append(opts, Issuer(id))
-	return NewEntity(opts...)
+	options := make([]Option, len(opts)+1)
+	copy(options, opts)
+	options[len(opts)] = Issuer(id)
+	return NewEntity(options...)
 }
 
 // PFX wraps the certificate and private key in an encrypted PKCS#12 packet. The
@@ -60,13 +73,15 @@ func (id *Entity) ChainPool() *x509.CertPool {
 	return chain
 }
 
-// IncrementSN returns the next serial number.
+// IncrementSN returns the current NextSN and increments it atomically with
+// respect to other IncrementSN calls on this entity.
 func (id *Entity) IncrementSN() int64 {
-	defer func() {
-		id.NextSN++
-	}()
+	id.serialMu.Lock()
+	defer id.serialMu.Unlock()
 
-	return id.NextSN
+	sn := id.NextSN
+	id.NextSN++
+	return sn
 }
 
 // Root returns root CA for this entity.

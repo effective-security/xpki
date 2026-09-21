@@ -26,9 +26,8 @@ type testSuite struct {
 }
 
 func (s *testSuite) SetupSuite() {
-	s.tmpdir = filepath.Join(os.TempDir(), "/tests/xpki", "xpki-tool")
-	err := os.MkdirAll(s.tmpdir, 0777)
-	s.Require().NoError(err)
+	// Keep fixtures isolated from overlapping test processes (XPKI-105).
+	s.tmpdir = s.T().TempDir()
 
 	s.ctl = &Cli{}
 
@@ -54,10 +53,6 @@ func (s *testSuite) SetupSuite() {
 	if err != nil {
 		s.FailNow("unexpected error parsing: %+v", err)
 	}
-}
-
-func (s *testSuite) TearDownSuite() {
-	_ = os.RemoveAll(s.tmpdir)
 }
 
 // HasText is a helper method to assert that the out stream contains the supplied

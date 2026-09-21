@@ -9,7 +9,6 @@ bin/
 .codebase-memory
 AGENT.md
 CLAUDE.md
-PLAN.md
 
 debug
 debug.test

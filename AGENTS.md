@@ -137,6 +137,21 @@ run `make lint` or the race detector; run both locally.
   `FINDINGS.md` with the next free ID and reference the ID from a code
   comment. Larger API or contract changes go to `ROADMAP.md`.
 
+#### Track remediation status
+
+- In the same change as each verified fix, mark its `FINDINGS.md` index row
+  **Fixed** and retain it. Add the finding ID, batch, completion date, concise
+  change summary, and actual validation commands/results under **Fixed items**.
+  Do not delete completed findings or reuse their IDs.
+- Update `PLAN.md` when present, even if it is ignored by Git: explicitly mark
+  the finding and batch **Fixed**, record the same date and validation, and
+  move completed batches out of the pending queue. Update their assessment
+  rows so they do not still describe missing implementation or tests.
+- A finding spanning multiple packages is Fixed only after every linked
+  portion is implemented and verified. Record partial progress and remaining
+  work without closing the whole finding or batch. Record validation limits;
+  do not describe planned or unavailable checks as passed.
+
 #### Keep `Documentation/codemap.md` current
 
 Update the codemap in the **same change** when you add functionality or
@@ -155,6 +170,8 @@ The map must stay the navigation index: concept → file → entry points →
 invariants. If you had to grep to find something that belongs there, add
 the row.
 
+For package docs, use after changes `make docs`
+
 ## REPOSITORY MAP
 
 Start here instead of grepping the tree.
@@ -164,9 +181,11 @@ Start here instead of grepping the tree.
   dependencies, test layout, build and CI.
 - **[`README.md`](README.md)** — high-level overview, package table,
   configuration samples and quick-start code.
-- **[`FINDINGS.md`](FINDINGS.md)** — known defects, referenced by ID from
+- **[`FINDINGS.md`](FINDINGS.md)** — known defects and verified fixes, referenced by ID from
   code comments. Read it before "fixing" surprising behavior: it may
   already be recorded, with the compatibility decision still open.
+- **[`PLAN.md`](PLAN.md)**, when present — remediation batches, pending work,
+  and explicit completion status; keep it synchronized with `FINDINGS.md`.
 - **[`ROADMAP.md`](ROADMAP.md)** — larger planned work.
 - **[`cmd/hsm-tool/README.md`](cmd/hsm-tool/README.md)** and
   **[`cmd/xpki-tool/README.md`](cmd/xpki-tool/README.md)** — CLI usage.
