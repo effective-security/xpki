@@ -51,15 +51,22 @@ build: hashbin
 	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/xpki-tool ./cmd/xpki-tool
 	md5sum ./bin/xpki-tool >> ./build_log.txt
 
-hsmconfig:
+.PHONY: test-scripts
+test-scripts:
+	bash scripts/config-softhsm_test.sh
+
+hsmconfig: test-scripts
 	echo "*** Running hsmconfig"
+	go build ${BUILD_FLAGS} -o "${PROJ_ROOT}/bin/hsm-tool" ./cmd/hsm-tool
 	mkdir -p ~/softhsm2 /tmp/xpki
 	./scripts/config-softhsm.sh \
 		--pin-file ~/softhsm2/xpki_pin_unittest.txt \
 		--generate-pin \
 		-s xpki_unittest \
 		-o /tmp/xpki/softhsm_unittest.json \
-		--list-slots --list-object --delete
+		--delete
+	SOFTHSM2_CONF="$${SOFTHSM2_CONF_DIR:-$$HOME/.config/softhsm2}/softhsm2.conf" \
+		"${PROJ_ROOT}/bin/hsm-tool" --cfg /tmp/xpki/softhsm_unittest.json hsm list
 	echo ""
 
 start-local-kms:
@@ -68,10 +75,13 @@ start-local-kms:
 
 docs:
 	echo "*** generating Docs"
-	# generate the docs using specific packages
-	gomarkdoc ./crypto11 > ./Documentation/crypto11.md
-	gomarkdoc ./cryptoprov > ./Documentation/cryptoprov.md
-	gomarkdoc ./testca > ./Documentation/testca.md
+	rm -rf Documentation/api
+	mkdir -p Documentation/api
+	for pkg in $$(go list ./... | grep -v '/tests/'); do \
+		out=Documentation/api/$$(echo $$pkg | sed 's#${REPO_NAME}/##; s#/#_#g').md; \
+		gomarkdoc --output $$out --repository.default-branch main $$pkg || exit 1; \
+	done
+	echo "API reference written to Documentation/api"
 	# hsm-tool
 	echo "\`\`\`bash" > ./Documentation/cli/hsm-tool.md
 	bin/hsm-tool --help >> ./Documentation/cli/hsm-tool.md

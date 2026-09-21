@@ -76,7 +76,7 @@ jobs:
           make tools
 
       - name: Install softhsm2
-        run: sudo apt-get install softhsm2 opensc
+        run: sudo apt-get install softhsm2
 
       - name: Prepare
         run: make vars generate hsmconfig start-local-kms

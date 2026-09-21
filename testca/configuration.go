@@ -13,6 +13,7 @@ import (
 	"net/mail"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -128,7 +129,7 @@ var (
 	// DefaultCommonName is the default subject CommonName.
 	DefaultCommonName = "[TEST]"
 
-	cnCounter int64
+	cnCounter atomic.Int64
 )
 
 func (c *configuration) getSubject() pkix.Name {
@@ -136,13 +137,11 @@ func (c *configuration) getSubject() pkix.Name {
 		return *c.subject
 	}
 
-	var cn string
-	if cnCounter == 0 {
-		cn = DefaultCommonName
-	} else {
-		cn = fmt.Sprintf("%s #%d", DefaultCommonName, cnCounter)
+	number := cnCounter.Add(1) - 1
+	cn := DefaultCommonName
+	if number != 0 {
+		cn = fmt.Sprintf("%s #%d", DefaultCommonName, number)
 	}
-	cnCounter++
 
 	return pkix.Name{
 		Country:       DefaultCountry,

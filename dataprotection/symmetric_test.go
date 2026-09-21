@@ -24,6 +24,7 @@ func TestNewSymmetric(t *testing.T) {
 	assert.Equal(t, plaintext, unprotected)
 
 	// modify the data
+	// XPKI-106: equal random nonce bytes leave this input unchanged.
 	protected[0] = protected[1]
 	_, err = p.Unprotect(ctx, protected)
 	assert.EqualError(t, err, "failed to unprotect: cipher: message authentication failed")

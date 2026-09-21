@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"uuid"
 
@@ -18,17 +19,22 @@ import (
 
 // inMemProv stores keyID to signer mapping in memory. Private keys are not exportable.
 type inMemProv struct {
+	mu         sync.RWMutex
 	keyIDToPvk map[string]crypto.PrivateKey
 }
 
 // registerKey registers key for the given id in HSM
 func (h *inMemProv) registerKey(keyID string, pvk crypto.PrivateKey) {
+	h.mu.Lock()
 	h.keyIDToPvk[keyID] = pvk
+	h.mu.Unlock()
 }
 
-// getSigner returns signer for the given key id in HSM
+// getKey returns the registered signer for the given key id.
 func (h *inMemProv) getKey(keyID string) (crypto.PrivateKey, error) {
+	h.mu.RLock()
 	pvk, ok := h.keyIDToPvk[keyID]
+	h.mu.RUnlock()
 	if !ok {
 		return nil, errors.Errorf("key not found: %s", keyID)
 	}
@@ -125,7 +131,9 @@ func Loader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
 	return p, nil
 }
 
-// Provider defines an interface to work with crypto providers
+// Provider stores non-exportable keys for tests and supports concurrent key
+// generation, lookup, and URI export. Token configuration must remain unchanged
+// while the provider is in use.
 type Provider struct {
 	idGenerator
 	rsaKeyGenerator
