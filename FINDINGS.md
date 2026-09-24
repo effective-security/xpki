@@ -55,13 +55,13 @@ drift; the symbol name is the stable reference.
 | XPKI-034 | cryptoprov/awskmscrypto               | `awskmsprov.go` `Init`                                         | Env credentials forced into a static provider; redundant with SDK chain, non-refreshable                                                           | correctness | Open           |
 | XPKI-035 | certutil                              | `bundler.go` `verifyChain`/`fetchIntermediates`                | `Bundler` mutates `KnownIssuers` and `IntermediatePool` per call; concurrent `Bundle` panics                                                       | race        | Open           |
 | XPKI-036 | certutil                              | `bundler.go` `Bundler.Bundle`                                  | Empty cert list returns `(nil, nil)`                                                                                                               | bug         | Needs Approval |
-| XPKI-037 | certutil                              | `bundler.go` `fetchRemoteCertificate`                          | AIA fetch: no status check, unbounded `io.ReadAll`, no context, body logged in full                                                                | security    | Open           |
+| XPKI-037 | certutil                              | `bundler.go` `fetchRemoteCertificate`                          | AIA fetch: no status check, unbounded `io.ReadAll`, no context, body logged in full                                                                | security    | **Fixed** ([details](#xpki-037--cu1)) |
 | XPKI-038 | certutil                              | `bundle.go` `SortBundlesByExpiration`                          | Sorts the caller's slice in place with unstable `sort.Slice`                                                                                       | correctness | Needs Approval |
-| XPKI-039 | certutil                              | `bundler.go` `fetchIntermediates`                              | `seen[url]` set only on success; failing AIA URLs re-fetched each iteration                                                                        | performance | Open           |
-| XPKI-041 | certutil                              | `bundler.go` `NewBundler`                                      | No roots + `WithBundleFlavor(Optimal)` leaves `RootPool` nil, so `x509.Verify` trusts system roots                                                 | security    | Open           |
+| XPKI-039 | certutil                              | `bundler.go` `fetchIntermediates`                              | `seen[url]` set only on success; failing AIA URLs re-fetched each iteration                                                                        | performance | **Fixed** ([details](#xpki-039--cu1)) |
+| XPKI-041 | certutil                              | `bundler.go` `NewBundler`                                      | No roots + `WithBundleFlavor(Optimal)` leaves `RootPool` nil, so `x509.Verify` trusts system roots                                                 | security    | **Fixed** ([details](#xpki-041--cu1)) |
 | XPKI-042 | certutil                              | `bundle.go` `BuildBundle`                                      | Dereferences `c.Status`/`c.Cert` without nil checks                                                                                                | bug         | Open           |
 | XPKI-043 | certutil                              | `pem.go` `ParsePrivateKeyPEMWithPassword`                      | PKCS#8 `ENCRYPTED PRIVATE KEY` unsupported; falls through to an opaque error; doc claims support                                                   | correctness | Open           |
-| XPKI-044 | certutil                              | `bundler.go` `HTTPClient`                                      | Exported global documented as used for all HTTP requests but never read                                                                            | docs        | Open           |
+| XPKI-044 | certutil                              | `bundler.go` `HTTPClient`                                      | Exported global documented as used for all HTTP requests but never read                                                                            | docs        | **Fixed** ([details](#xpki-044--cu1)) |
 | XPKI-045 | certutil                              | `bundle.go` `ExpiresInHours`                                   | Doc says "rounded up"; integer division truncates                                                                                                  | docs        | Open           |
 | XPKI-047 | armor                                 | `armor.go` `Decode`                                            | CRC24 trailer mandatory; RFC 9580 requires accepting armor without it                                                                              | correctness | Open           |
 | XPKI-049 | authority                             | `issuer.go` `Sign` (`safeTemplate = *requesterCsrTemplate`)    | All CSR `ExtraExtensions` (KU/EKU/SAN/…) copied into the template; empty `AllowedExtensions` allows every OID                                      | security    | **Fixed** ([details](#xpki-049--au1)) |
@@ -107,6 +107,123 @@ drift; the symbol name is the stable reference.
 | XPKI-107 | testca                                | `entity.go` `Issue`                                           | Appending the issuer overwrites caller option-slice storage when capacity remains and races when the slice is reused concurrently                      | race        | **Fixed** ([details](#xpki-107--tc1)) |
 
 ## Fixed items
+
+### XPKI-037 — CU1
+
+**Fixed on 2026-09-24.** Approved API: a context-aware entry point.
+`Bundler.BundleContext(ctx, certs, key)` and `ChainFromPEMContext` are new,
+and `Bundle`/`ChainFromPEM` call them with `context.Background()`.
+`fetchRemoteCertificate` now:
+
+- builds each request with `http.NewRequestWithContext`, under a deadline of
+  the client `Timeout`, or 3s when a configured client has none;
+- rejects any status other than 200, even when the body is a valid
+  certificate;
+- reads at most 1 MiB (`maxAIAResponseSize`) and rejects larger bodies rather
+  than truncating them;
+- never logs or returns response bytes. Diagnostics name the URL, status and
+  byte count.
+
+When the context is done during an AIA fetch, the traversal stops and the
+error matches `ctx.Err()` with `errors.Is`. The CLI `cert validate` passes
+its command context.
+
+Validation passed:
+
+- Before the fix, `bundler_aia_test.go` failed on the unfixed code. A 500
+  or 404 response carrying a valid certificate was accepted, and so was a
+  2 MiB chunked PEM body. A stalled server with a zero-timeout client hung
+  `Bundle` past the 10s watchdog. The debug log contained the response body
+  (`data="aia-body-marker..."`).
+- After the fix, `TestBundlerAIAResponseValidation` (200 DER, 200 PEM padded
+  to exactly 1 MiB, 500/404 with valid bytes, oversized chunked),
+  `TestBundlerAIAStalledResponse` (returns after the 3s default) and
+  `TestBundlerAIADoesNotLogBody` pass. `TestBundlerAIACancellation` covers
+  cancellation: no further URL is fetched, and a cancelled context does not
+  matter when no fetch is needed. It fails (watchdog) when the request
+  context is replaced by `context.Background()`.
+- `make test RACE=true TEST_FLAGS=-count=1` passed across the repository with
+  SoftHSM and local-kms fixtures. `make lint` passed with zero issues.
+  `make build docs` regenerated the API docs. `make covtest` passed at
+  **90.4%** aggregate.
+
+### XPKI-039 — CU1
+
+**Fixed on 2026-09-24.** `fetchIntermediates` marks an AIA URL as seen
+*before* fetching it, so each URL is requested at most once per `Bundle` call,
+whether the fetch fails or returns a known certificate. The URL and signature
+sets are now separate maps. The sets are per call, so a later call retries a
+URL that failed.
+
+Validation passed:
+
+- `TestBundlerAIARequestsPerTraversal` puts a failing URL first in every
+  certificate's AIA list, at depths 1, 2 and 4. Before the fix the failing
+  URL was fetched 3, 5 and 9 times (2·depth+1). After the fix it is fetched
+  once, each issuer once, and a warm second call makes no request.
+  `TestBundlerAIARetriesOnNextCall` asserts that a duplicate URL is fetched
+  once and that it recovers on the next call.
+- `BenchmarkBundlerAIAFailingURL` compared before and after with
+  `-count=5 -cpu=1,4` (benchstat, p=0.008). Depth 1/2/4/8 went from 3/5/9/17
+  to 1 failed request per op, and from 4/7/13/25 to 2/3/5/9 total requests.
+  Wall time fell 10–18% on a loopback server, bytes per op fell 39–45%, and
+  allocations fell 25–30%.
+- Suite, lint and coverage results are as listed for XPKI-037.
+
+### XPKI-041 — CU1
+
+**Fixed on 2026-09-24.** Approved policy: system roots require an explicit
+opt-in.
+
+- New `WithSystemRoots(bool)` adds the explicit roots to
+  `x509.SystemCertPool()`.
+- The flavor is resolved after all options. The default is Optimal with
+  trust roots (explicit roots or system roots) and Force without them. The
+  last `WithBundleFlavor` wins.
+- `NewBundler` rejects Optimal without trust roots, and any unknown flavor.
+- `VerifyOptions().Roots` is never nil, and an Optimal `Bundle` whose
+  exported `RootPool` was reset to nil fails with "no trust roots
+  configured".
+- `xpki-tool cert validate` now requests Optimal together with
+  `WithSystemRoots(--root == "")`, instead of assigning `RootPool` after
+  construction.
+
+Compatibility: `NewBundler(nil, …, WithBundleFlavor(Optimal))` now returns
+an error instead of trusting the system roots. Callers that want system trust
+must pass `WithSystemRoots(true)`. `cert validate --root <file without
+certificates>` now fails. Before the fix it fell back to Force and accepted
+the chain.
+
+Validation passed:
+
+- A throwaway probe on the unfixed code ran a subprocess with
+  `SSL_CERT_FILE` set to a generated root. In it,
+  `NewBundler(nil, nil, WithBundleFlavor(Optimal))` accepted a chain that
+  anchors only in that system root. The new CLI case
+  `TestPKICommandInputErrors/validate_empty_roots` failed against the
+  unfixed `certs.go`/`bundler.go`.
+- `TestNewBundlerTrustRoots` covers nil, empty and explicit roots × default,
+  Force, Optimal, both option orders and `WithSystemRoots(false)`. It
+  asserts the resolved flavor, the exact error, and that an unknown root
+  fails with `UnknownAuthorityError`. It also covers an unknown flavor and a
+  `RootPool` cleared after construction.
+- `TestBundlerSystemRoots` re-runs itself with `SSL_CERT_FILE`/`SSL_CERT_DIR`
+  set to a generated root. It checks that system roots are trusted only
+  with `WithSystemRoots`, that they combine with explicit roots, and that
+  Force ignores them. It is skipped on darwin/windows, where the variables
+  do not replace the platform store; it ran on Linux.
+- Suite, lint and coverage results are as listed for XPKI-037.
+
+### XPKI-044 — CU1
+
+**Fixed on 2026-09-24.** The unused `certutil.HTTPClient` is now marked
+`Deprecated`, and its comment says that it is never read and points callers
+to `WithHTTPClient`. The global was deliberately not activated.
+`WithHTTPClient` documents the timeout, status and size rules.
+
+Validation passed: `TestBundlerAIAUsesInjectedClient` asserts that the
+injected transport carries exactly one round trip. `make lint` (staticcheck
+SA1019) reports no use of the deprecated variable.
 
 ### XPKI-049 — AU1
 

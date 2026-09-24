@@ -145,30 +145,21 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 		return err
 	}
 
-	opts := []certutil.Option{
+	w := ctx.Writer()
+	// Without an explicit trust store, anchor on the system roots rather
+	// than falling back to Force mode, which would accept any self-signed chain.
+	bundler, err := certutil.NewBundlerFromPEM(roots, cas,
 		certutil.WithHTTPClient(client),
 		certutil.WithAIA(a.WithAIA),
-	}
-
-	w := ctx.Writer()
-	if a.Root == "" {
-		// Without an explicit trust store, anchor on the system roots rather
-		// than falling back to Force mode, which would accept any self-signed chain.
-		opts = append(opts, certutil.WithBundleFlavor(certutil.Optimal))
-	}
-	bundler, err := certutil.NewBundlerFromPEM(roots, cas, opts...)
+		certutil.WithSystemRoots(a.Root == ""),
+		certutil.WithBundleFlavor(certutil.Optimal),
+	)
 	if err != nil {
 		return errors.WithMessage(err, "unable to create bundler")
 	}
-	if a.Root == "" {
-		bundler.RootPool, err = x509.SystemCertPool()
-		if err != nil {
-			return errors.WithMessage(err, "unable to load system roots")
-		}
-	}
 	var bundle *certutil.Bundle
 	var bundleStatus *certutil.BundleStatus
-	verified, err := bundler.ChainFromPEM(certBytes, nil, "")
+	verified, err := bundler.ChainFromPEMContext(ctx.Context(), certBytes, nil, "")
 	if err == nil {
 		bundle, bundleStatus, err = certutil.BuildBundle(verified)
 	}

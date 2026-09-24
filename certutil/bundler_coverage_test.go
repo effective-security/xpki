@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func bundlerCA(t *testing.T, name string, parent *testca.Entity, opts ...testca.Option) *testca.Entity {
+func bundlerCA(t testing.TB, name string, parent *testca.Entity, opts ...testca.Option) *testca.Entity {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)

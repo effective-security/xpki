@@ -224,6 +224,10 @@ bundle, status, err := certutil.LoadAndVerifyBundleFromPEM(
 )
 ```
 
+Without a root file the bundler only checks that each certificate signs the
+previous one (`Force`). To verify against the platform trust store, pass
+`certutil.WithSystemRoots(true)`; system roots are never trusted implicitly.
+
 ### Issue and verify JWTs
 
 ```go

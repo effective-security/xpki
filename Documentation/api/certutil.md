@@ -8,6 +8,19 @@ import "github.com/effective-security/xpki/certutil"
 
 Package certutil provides utilities to work with certificates.
 
+A Bundler builds and verifies certificate chains. It trusts only the roots it is given, plus the platform trust store when WithSystemRoots\(true\) is set; without trust roots it defaults to Force, which checks signatures only. AIA downloads \(WithAIA\) are bounded by the WithHTTPClient timeout and the context given to BundleContext:
+
+```
+b, err := certutil.NewBundler(nil, intermediates,
+	certutil.WithSystemRoots(true),
+	certutil.WithAIA(true),
+)
+if err != nil {
+	return err
+}
+chain, err := b.BundleContext(ctx, []*x509.Certificate{leaf}, nil)
+```
+
 ## Index
 
 - [Constants](<#constants>)
@@ -71,8 +84,10 @@ Package certutil provides utilities to work with certificates.
   - [func NewBundler\(roots, intermediates \[\]\*x509.Certificate, opt ...Option\) \(\*Bundler, error\)](<#NewBundler>)
   - [func NewBundlerFromPEM\(rootBundlePEM, intBundlePEM \[\]byte, opt ...Option\) \(\*Bundler, error\)](<#NewBundlerFromPEM>)
   - [func \(b \*Bundler\) Bundle\(certs \[\]\*x509.Certificate, key crypto.Signer\) \(\*Chain, error\)](<#Bundler.Bundle>)
+  - [func \(b \*Bundler\) BundleContext\(ctx context.Context, certs \[\]\*x509.Certificate, key crypto.Signer\) \(\*Chain, error\)](<#Bundler.BundleContext>)
   - [func \(b \*Bundler\) ChainFromFile\(bundleFile, keyFile string, password string\) \(\*Chain, error\)](<#Bundler.ChainFromFile>)
   - [func \(b \*Bundler\) ChainFromPEM\(certsRaw, keyPEM \[\]byte, password string\) \(\*Chain, error\)](<#Bundler.ChainFromPEM>)
+  - [func \(b \*Bundler\) ChainFromPEMContext\(ctx context.Context, certsRaw, keyPEM \[\]byte, password string\) \(\*Chain, error\)](<#Bundler.ChainFromPEMContext>)
   - [func \(b \*Bundler\) VerifyOptions\(\) x509.VerifyOptions](<#Bundler.VerifyOptions>)
 - [type Chain](<#Chain>)
 - [type KeyInfo](<#KeyInfo>)
@@ -82,6 +97,7 @@ Package certutil provides utilities to work with certificates.
   - [func WithBundleFlavor\(flavor BundleFlavor\) Option](<#WithBundleFlavor>)
   - [func WithHTTPClient\(client \*http.Client\) Option](<#WithHTTPClient>)
   - [func WithKeyUsages\(usages ...x509.ExtKeyUsage\) Option](<#WithKeyUsages>)
+  - [func WithSystemRoots\(enable bool\) Option](<#WithSystemRoots>)
 
 
 ## Constants
@@ -97,7 +113,9 @@ const (
 
 ## Variables
 
-<a name="HTTPClient"></a>HTTPClient is an instance of http.Client that will be used for all HTTP requests.
+<a name="HTTPClient"></a>HTTPClient is not read by this package.
+
+Deprecated: AIA downloads use the client passed to WithHTTPClient, or a client with a 3s timeout when none is given; setting this variable has no effect \(XPKI\-044\).
 
 ```go
 var HTTPClient = http.DefaultClient
@@ -182,7 +200,7 @@ func EncodeToPEMString(withComments bool, certs ...*x509.Certificate) (string, e
 EncodeToPEMString converts certificates to PEM format, with optional comments
 
 <a name="ExpiryTime"></a>
-## func [ExpiryTime](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L686>)
+## func [ExpiryTime](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L779>)
 
 ```go
 func ExpiryTime(chain []*x509.Certificate) (notAfter time.Time)
@@ -575,7 +593,7 @@ func (b *Bundle) ExpiresInHours() time.Duration
 ExpiresInHours returns cert expiration rounded up in hours
 
 <a name="BundleFlavor"></a>
-## type [BundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L32>)
+## type [BundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L38>)
 
 BundleFlavor is named optimization strategy on certificate chain selection when bundling.
 
@@ -633,7 +651,7 @@ func (b *BundleStatus) IsUntrusted() bool
 IsUntrusted returns true if the cert's issuers are not trusted
 
 <a name="Bundler"></a>
-## type [Bundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L52-L57>)
+## type [Bundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L66-L71>)
 
 A Bundler contains the certificate pools for producing certificate bundles. It contains any intermediates and root certificates that should be used.
 
@@ -647,7 +665,7 @@ type Bundler struct {
 ```
 
 <a name="LoadBundler"></a>
-### func [LoadBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L109>)
+### func [LoadBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L138>)
 
 ```go
 func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler, error)
@@ -656,25 +674,25 @@ func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler,
 LoadBundler creates a new Bundler from the files passed in; these files should contain a list of valid root certificates and a list of valid intermediate certificates, respectively.
 
 <a name="NewBundler"></a>
-### func [NewBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L159>)
+### func [NewBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L192>)
 
 ```go
 func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundler, error)
 ```
 
-NewBundler returns Bundler
+NewBundler returns a Bundler that trusts roots, plus the system roots with WithSystemRoots, and uses intermediates to build chains. The flavor defaults to Optimal with trust roots and to Force without them; Optimal without trust roots is an error, so a Bundler never trusts system roots implicitly. RootPool is nil only when there are no trust roots.
 
 <a name="NewBundlerFromPEM"></a>
-### func [NewBundlerFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L145>)
+### func [NewBundlerFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L174>)
 
 ```go
 func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundler, error)
 ```
 
-NewBundlerFromPEM creates a new Bundler from PEM\-encoded root certificates and intermediate certificates. If caBundlePEM is nil, the resulting Bundler can only do "Force" bundle.
+NewBundlerFromPEM creates a new Bundler from PEM\-encoded root certificates and intermediate certificates. Without root certificates the default flavor is Force; see NewBundler.
 
 <a name="Bundler.Bundle"></a>
-### func \(\*Bundler\) [Bundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L541>)
+### func \(\*Bundler\) [Bundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L619>)
 
 ```go
 func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, error)
@@ -682,8 +700,17 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 
 Bundle takes an X509 certificate \(already in the Certificate structure\), a private key as crypto.Signer in one of the appropriate formats \(i.e. \*rsa.PrivateKey or \*ecdsa.PrivateKey, or even a opaque key\), using them to build a certificate bundle.
 
+<a name="Bundler.BundleContext"></a>
+### func \(\*Bundler\) [BundleContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L627>)
+
+```go
+func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, key crypto.Signer) (*Chain, error)
+```
+
+BundleContext is Bundle with a context that bounds and cancels AIA downloads. When ctx is done during an AIA download, the returned error matches ctx.Err\(\) with errors.Is. An Optimal Bundler whose RootPool is nil fails instead of verifying against the system roots.
+
 <a name="Bundler.ChainFromFile"></a>
-### func \(\*Bundler\) [ChainFromFile](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L207>)
+### func \(\*Bundler\) [ChainFromFile](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L261>)
 
 ```go
 func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*Chain, error)
@@ -692,7 +719,7 @@ func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*C
 ChainFromFile takes a set of files containing the PEM\-encoded leaf certificate \(optionally along with some intermediate certs\), the PEM\-encoded private key and returns the bundle built from that key and the certificate\(s\).
 
 <a name="Bundler.ChainFromPEM"></a>
-### func \(\*Bundler\) [ChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L230>)
+### func \(\*Bundler\) [ChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L284>)
 
 ```go
 func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain, error)
@@ -700,17 +727,26 @@ func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain
 
 ChainFromPEM builds a certificate chain from the set of byte slices containing the PEM or DER\-encoded certificate\(s\), private key.
 
+<a name="Bundler.ChainFromPEMContext"></a>
+### func \(\*Bundler\) [ChainFromPEMContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L290>)
+
+```go
+func (b *Bundler) ChainFromPEMContext(ctx context.Context, certsRaw, keyPEM []byte, password string) (*Chain, error)
+```
+
+ChainFromPEMContext is ChainFromPEM with a context that bounds and cancels AIA downloads; see BundleContext.
+
 <a name="Bundler.VerifyOptions"></a>
-### func \(\*Bundler\) [VerifyOptions](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L196>)
+### func \(\*Bundler\) [VerifyOptions](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L246>)
 
 ```go
 func (b *Bundler) VerifyOptions() x509.VerifyOptions
 ```
 
-VerifyOptions generates an x509 VerifyOptions structure that can be used for verifying certificates.
+VerifyOptions returns the x509.VerifyOptions used by Optimal bundling. Roots is never nil: without a RootPool it is an empty pool, so the options never fall back to the system roots.
 
 <a name="Chain"></a>
-## type [Chain](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L497-L508>)
+## type [Chain](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L575-L586>)
 
 Chain contains a certificate and its trust chain. It is intended to store the most widely applicable chain, with shortness an explicit goal.
 
@@ -754,7 +790,7 @@ func NewKeyInfo(k any) (*KeyInfo, error)
 NewKeyInfo returns \*KeyInfo
 
 <a name="Option"></a>
-## type [Option](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L74>)
+## type [Option](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L89>)
 
 An Option sets options such as allowed key usages, etc.
 
@@ -763,7 +799,7 @@ type Option func(*options)
 ```
 
 <a name="WithAIA"></a>
-### func [WithAIA](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L93>)
+### func [WithAIA](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L110>)
 
 ```go
 func WithAIA(enable bool) Option
@@ -772,30 +808,39 @@ func WithAIA(enable bool) Option
 WithAIA lets to enable downloading issuers from AIA.
 
 <a name="WithBundleFlavor"></a>
-### func [WithBundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L86>)
+### func [WithBundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L103>)
 
 ```go
 func WithBundleFlavor(flavor BundleFlavor) Option
 ```
 
-WithBundleFlavor lets to specify bundle build Optimal or Force. Force is by default
+WithBundleFlavor selects Optimal or Force chain building. Without this option the flavor is Optimal when the Bundler has trust roots \(explicit roots or WithSystemRoots\) and Force otherwise. NewBundler rejects Optimal without trust roots and any other flavor value; the last option wins.
 
 <a name="WithHTTPClient"></a>
-### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L100>)
+### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L129>)
 
 ```go
 func WithHTTPClient(client *http.Client) Option
 ```
 
-WithHTTPClient lets to specify http.Client for downloading AIA.
+WithHTTPClient sets the client for AIA downloads. Each request is bounded by the client's Timeout, or 3s when it is zero, and by the context given to BundleContext. Only a 200 response of at most 1 MiB is parsed. Without this option a client with a 3s timeout is used.
 
 <a name="WithKeyUsages"></a>
-### func [WithKeyUsages](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L78>)
+### func [WithKeyUsages](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L93>)
 
 ```go
 func WithKeyUsages(usages ...x509.ExtKeyUsage) Option
 ```
 
 WithKeyUsages lets you set which Extended Key Usage values are acceptable. By default x509.ExtKeyUsageAny will be used.
+
+<a name="WithSystemRoots"></a>
+### func [WithSystemRoots](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L119>)
+
+```go
+func WithSystemRoots(enable bool) Option
+```
+
+WithSystemRoots adds the platform trust store \(x509.SystemCertPool\) to the explicit roots. It is the only way a Bundler trusts system roots: without it, Optimal verification uses the explicit roots alone \(XPKI\-041\).
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

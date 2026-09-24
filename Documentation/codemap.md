@@ -74,7 +74,7 @@ consumers. Nothing in the library imports `cmd/`.
 | Certificate policies, SKI                  | `authority/extensions.go`                                                    | `addPolicies`, `CTPoisonOID`, `SCTListOID`                                                                                    |
 | Root bootstrap / cert files                | `authority/root.go`, `authority/util.go`                                     | `NewRoot`, `Issuer.GenCert`                                                                                                   |
 | PEM parse / encode                         | `certutil/pem.go`                                                            | `ParseFromPEM`, `ParseChainFromPEM`, `Load*FromPEM`, `EncodeToPEM*`, `ParsePrivateKeyPEM*`, `EncodePrivateKeyToPEM`           |
-| Chain bundling / verification              | `certutil/bundler.go`, `certutil/bundle.go`                                  | `NewBundler*`, `LoadBundler`, `Bundler.Bundle`, `VerifyBundleFromPEM`, `LoadAndVerifyBundleFromPEM`, `Bundle`, `BundleStatus` |
+| Chain bundling / verification              | `certutil/bundler.go`, `certutil/bundle.go`                                  | `NewBundler*`, `LoadBundler`, `Bundler.Bundle`/`BundleContext`, `VerifyBundleFromPEM`, `LoadAndVerifyBundleFromPEM`, `Bundle`, `BundleStatus` |
 | Hashes, thumbprints, IDs                   | `certutil/hash.go`, `certutil/cert_id.go`                                    | `Digest`, `SHA1*`, `SHA256*`, `NewHash`, `GetThumbprintStr`, `GetSubjectID`, `GetIssuerID`                                    |
 | Key info (type, size, hash, JWK)           | `certutil/keyinfo.go`                                                        | `NewKeyInfo`, `KeyInfo`                                                                                                       |
 | OCSP request, extensions                   | `certutil/ocsp.go`, `certutil/extensions.go`                                 | `CreateOCSPRequest`, `FindExtension`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                        |
@@ -377,7 +377,7 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
 | File            | Role                                                                                                                                                            |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pem.go`        | Parse/encode certificates, public and private keys (PKCS#8 → PKCS#1 → SEC1; RSA/ECDSA/Ed25519 parse, RSA/ECDSA encode; legacy `Proc-Type: 4,ENCRYPTED` decrypt) |
-| `bundler.go`    | `Bundler`, options (`WithKeyUsages`, `WithBundleFlavor`, `WithAIA`, `WithHTTPClient`), `Chain`, `Bundle()`, AIA fetch, expiry checks, `IntermediateStash`       |
+| `bundler.go`    | `Bundler`, options (`WithKeyUsages`, `WithBundleFlavor`, `WithAIA`, `WithHTTPClient`, `WithSystemRoots`), `Chain`, `Bundle`/`BundleContext`, `ChainFromPEM[Context]`, AIA fetch, expiry checks, `IntermediateStash` |
 | `bundle.go`     | `Bundle`/`BundleStatus`, `VerifyBundleFromPEM`, `LoadAndVerifyBundleFromPEM`, `BuildBundle`, `FindIssuer`, `SortBundlesByExpiration`                            |
 | `hash.go`       | Hash name maps, `Digest`, `SHA1*`, `SHA256*`, `HashToHex/Base64URL`, `ParseHexDigestWithPrefix`                                                                 |
 | `cert_id.go`    | `GetThumbprintStr` (SHA-1 of DER), `GetSubjectKeyID`, `GetAuthorityKeyID`, `GetSubjectID`, `GetIssuerID`                                                        |
@@ -394,18 +394,38 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   `IntermediatePool`, fetches AIA intermediates on unknown authority when
   `WithAIA(true)`, ranks chains shortest-then-longest-expiring, and strips the
   root unless the leaf has OCSP servers and the chain is ≤ 2. "Expiring" is
-  less than 720h left. Nil roots make `NewBundler` force the `Force` flavor.
+  less than 720h left.
+- Trust roots (XPKI-041): the flavor defaults to `Optimal` with trust roots
+  (explicit roots or `WithSystemRoots(true)`) and `Force` without them; the
+  last `WithBundleFlavor` wins. `NewBundler` rejects `Optimal` without trust
+  roots and unknown flavors. System roots are trusted only through
+  `WithSystemRoots`, which adds explicit roots to `x509.SystemCertPool()`.
+  `VerifyOptions().Roots` is never nil, and an `Optimal` `Bundle` with a nil
+  `RootPool` fails, so no path verifies against ambient system trust.
+- AIA fetch (XPKI-037, XPKI-039): each request uses `NewRequestWithContext`
+  with the `BundleContext` context and a deadline of the client `Timeout`, or
+  3s when it is zero. Only a 200 response of at most 1 MiB is parsed, and the
+  body is never logged. Each URL is requested at most once per `Bundle` call,
+  including failures; the next call retries. A done context stops the
+  traversal and the returned error matches `ctx.Err()`.
 - `Bundler` is not goroutine-safe (XPKI-035). `Bundle` of an empty list returns
   `(nil, nil)` (XPKI-036). Only RSA/ECDSA leaf keys accepted.
 - Process-global: `IntermediateStash` (fetched intermediates written `0644`),
-  `HTTPClient` (unused, XPKI-044), `RandReader`. Default AIA client timeout 3s.
+  `RandReader`. `HTTPClient` is deprecated and never read (XPKI-044); use
+  `WithHTTPClient`. Default AIA client timeout 3s.
 - `ParseChainFromPEM` returns the parsed prefix and an error on trailing garbage.
 
 Tests: `testdata/` holds a Mozilla root bundle, 229 intermediates, test server
 chain and hash fixtures; `TestKeyInfoKMS` needs local-kms.
 `bundler_coverage_test.go` uses fresh `testca` chains, temporary files and local
 HTTP servers for AIA fetching, caching, validation, and expiry behavior; it
-restores `IntermediateStash` and runs serially. `bundler_ranking_test.go` tests
+restores `IntermediateStash` and runs serially. `bundler_aia_test.go` uses a
+per-path counting AIA server for response limits, stalls, cancellation,
+per-traversal request counts (`BenchmarkBundlerAIAFailingURL`) and log
+content; `export_test.go` exposes the body limit. `bundler_roots_test.go`
+covers flavor/root resolution and re-runs itself in a subprocess with
+`SSL_CERT_FILE`/`SSL_CERT_DIR` set to a generated root to test system trust
+(skipped on darwin/windows). `bundler_ranking_test.go` tests
 internal chain selection. `pem_coverage_test.go` covers malformed encodings
 and file errors without adding private-key fixtures.
 
