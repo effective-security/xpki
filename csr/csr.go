@@ -113,9 +113,11 @@ func (ext X509Extension) GetValue() ([]byte, error) {
 // the PEM-encoded CSR, optional subject information, and the signature profile.
 //
 // Extensions provided in the request are copied into the certificate, as
-// long as they are in the allowed list for the issuer's policy.
-// Extensions requested in the CSR are ignored, except for those processed by
-// CreateCSR (mainly subjectAltName).
+// long as they are in the allowed list for the issuer's policy (an empty
+// list allows all). Extensions requested in the CSR are copied only when
+// explicitly allowed; key usages, SAN, basic constraints, key identifiers
+// and OCSP no-check are always taken from the profile and permitted CSR
+// fields instead.
 type SignRequest struct {
 	SAN          []string        `json:"san" yaml:"san"`
 	Request      string          `json:"certificate_request" yaml:"certificate_request"`
@@ -130,11 +132,13 @@ type SignRequest struct {
 	// If provided, NotBefore will be used without modification (except
 	// for canonicalization) as the value of the notBefore field of the
 	// certificate. In particular no backdating adjustment will be made
-	// when NotBefore is provided.
+	// when NotBefore is provided. The signer rejects a NotBefore earlier
+	// than now minus the profile backdate.
 	NotBefore time.Time `json:"-" yaml:"-"`
 	// If provided, NotAfter will be used without modification (except
-	// for canonicalization) as the value of the notAfter field of the
-	// certificate.
+	// for canonicalization and clipping to the issuer's NotAfter) as the
+	// value of the notAfter field of the certificate. The signer rejects a
+	// NotAfter that is not after NotBefore or exceeds the profile expiry.
 	NotAfter time.Time `json:"-" yaml:"-"`
 }
 

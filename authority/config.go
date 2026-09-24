@@ -18,6 +18,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// wildcardIssuer is the issuer_label of profiles shared by issuers that
+// list them in allowed_profiles.
+const wildcardIssuer = "*"
+
 var (
 	// DefaultCRLRenewal specifies default duration for CRL renewal
 	DefaultCRLRenewal = 12 * time.Hour // 12 hours
@@ -75,7 +79,10 @@ type IssuerConfig struct {
 	// AIA specifies AIA configuration
 	AIA *AIAConfig `json:"aia,omitempty" yaml:"aia,omitempty"`
 
-	// AllowedProfiles if populated, allows only specified profiles
+	// AllowedProfiles, if populated, restricts the issuer to the listed
+	// profiles, both issuer-specific and wildcard (`issuer_label: "*"`)
+	// ones. If empty, the issuer gets its issuer-specific profiles and no
+	// wildcard profiles (XPKI-057).
 	AllowedProfiles []string `json:"allowed_profiles" yaml:"allowed_profiles"`
 
 	// Profiles are populated after loading
@@ -179,8 +186,16 @@ type CertProfile struct {
 	Expiry   csr.Duration `json:"expiry" yaml:"expiry"`
 	Backdate csr.Duration `json:"backdate" yaml:"backdate"`
 
+	// Extensions are added to every certificate issued with the profile.
+	// They take precedence over request and CSR extensions with the same OID.
 	Extensions []csr.X509Extension `json:"extensions" yaml:"extensions"`
 
+	// AllowedExtensions lists extension OIDs that a request may supply.
+	// For SignRequest.Extensions (trusted RA) an empty list allows all.
+	// For CSR extensions (untrusted) an empty list allows none, and key
+	// usages, SAN, basic constraints, key identifiers and OCSP no-check
+	// are never taken from a CSR (XPKI-049). A CSR AIA or CRL DP is
+	// ignored when the issuer generates its own.
 	AllowedExtensions []csr.OID `json:"allowed_extensions" yaml:"allowed_extensions"`
 
 	// AllowedNames specifies a RegExp to check for allowed names.
@@ -202,6 +217,7 @@ type CertProfile struct {
 	// AllowedFields provides booleans for fields in the CSR.
 	// If a AllowedFields is not present in a CertProfile,
 	// all of these fields may be copied from the CSR into the signed certificate.
+	// CSR extensions are governed by AllowedExtensions, never by this list.
 	// If a AllowedFields *is* present in a CertProfile,
 	// only those fields with a `true` value in the AllowedFields may
 	// be copied from the CSR to the signed certificate.
@@ -307,10 +323,15 @@ func LoadConfig(path string) (*Config, error) {
 					}
 				}
 
-				if profile.IssuerLabel == iss.Label ||
-					(profile.IssuerLabel == "*" && slices.Contains(iss.AllowedProfiles, name)) {
+				if issuerHasProfile(iss, name, profile) {
 					iss.Profiles[name] = profile
 				}
+			}
+
+			if len(iss.AllowedProfiles) > 0 && iss.AIA != nil && iss.AIA.DelegatedOCSPProfile != "" &&
+				!slices.Contains(iss.AllowedProfiles, iss.AIA.DelegatedOCSPProfile) {
+				return nil, errors.Errorf("issuer %q: delegated_ocsp_profile %q is not in allowed_profiles",
+					iss.Label, iss.AIA.DelegatedOCSPProfile)
 			}
 		}
 	}
@@ -320,6 +341,19 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// issuerHasProfile reports whether the profile applies to the issuer:
+// issuer-specific profiles apply unless a populated allowed_profiles
+// omits them; wildcard profiles apply only when listed (XPKI-057).
+func issuerHasProfile(iss *IssuerConfig, name string, profile *CertProfile) bool {
+	switch profile.IssuerLabel {
+	case iss.Label:
+		return len(iss.AllowedProfiles) == 0 || slices.Contains(iss.AllowedProfiles, name)
+	case wildcardIssuer:
+		return slices.Contains(iss.AllowedProfiles, name)
+	}
+	return false
 }
 
 // DefaultCertProfile returns default CertProfile
@@ -337,6 +371,10 @@ func (p *CertProfile) Validate() error {
 		return errors.New("no usages specified")
 	} else if _, _, unk := p.Usages(); len(unk) > 0 {
 		return errors.Errorf("unknown usage: %s", strings.Join(unk, ","))
+	}
+
+	if err := p.validateExtensions(); err != nil {
+		return err
 	}
 
 	for _, policy := range p.Policies {
@@ -381,7 +419,28 @@ func (p *CertProfile) Validate() error {
 	return nil
 }
 
-// IsAllowedExtention returns true of the extension is allowed
+// validateExtensions rejects profiles that define an extension OID twice,
+// which would produce a certificate that does not parse (XPKI-050).
+func (p *CertProfile) validateExtensions() error {
+	for i, ext := range p.Extensions {
+		for _, prev := range p.Extensions[:i] {
+			if prev.ID.Equal(ext.ID) {
+				return errors.Errorf("duplicate extension: %s", ext.ID.String())
+			}
+		}
+		id := asn1.ObjectIdentifier(ext.ID)
+		if len(p.Policies) > 0 && id.Equal(oid.ExtensionCertificatePolicies) {
+			return errors.Errorf("extension %s conflicts with profile policies", ext.ID.String())
+		}
+		if p.OCSPNoCheck && id.Equal(oid.OCSPNoCheck) {
+			return errors.Errorf("extension %s conflicts with ocsp_no_check", ext.ID.String())
+		}
+	}
+	return nil
+}
+
+// IsAllowedExtention returns true if a SignRequest may supply the extension.
+// An empty AllowedExtensions allows every extension from the trusted RA.
 func (p *CertProfile) IsAllowedExtention(oid csr.OID) bool {
 	if len(p.AllowedExtensions) == 0 {
 		// if non specified, then all allowed
@@ -393,6 +452,13 @@ func (p *CertProfile) IsAllowedExtention(oid csr.OID) bool {
 		}
 	}
 	return false
+}
+
+// allowsCSRExtension returns true if a CSR may supply the extension: it must
+// be listed in AllowedExtensions, and an empty list allows none (XPKI-049).
+func (p *CertProfile) allowsCSRExtension(id asn1.ObjectIdentifier) bool {
+	other := csr.OID(id)
+	return slices.ContainsFunc(p.AllowedExtensions, other.Equal)
 }
 
 // FindExtension returns extension, or nil
@@ -429,7 +495,7 @@ func (c *Config) Validate() error {
 			if profile.IssuerLabel == "" {
 				return errors.Errorf("profile has no issuer label: %s", name)
 			}
-			if profile.IssuerLabel != "*" && !issuers[profile.IssuerLabel] {
+			if profile.IssuerLabel != wildcardIssuer && !issuers[profile.IssuerLabel] {
 				return errors.Errorf("%q issuer not found for %q profile", profile.IssuerLabel, name)
 			}
 		}

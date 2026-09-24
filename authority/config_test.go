@@ -1,6 +1,10 @@
 package authority_test
 
 import (
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -193,5 +197,106 @@ func TestProfilePolicyIsAllowed(t *testing.T) {
 	for _, tc := range tcases {
 		assert.Equal(t, tc.allowed, tc.policy.IsAllowed(tc.role), "[%s] %s: Allowed->%v, Denied->%v",
 			tc.policy.IssuerLabel, tc.role, tc.policy.AllowedRoles, tc.policy.DeniedRoles)
+	}
+}
+
+const allowedProfilesConfig = `
+authority:
+  issuers:
+    - label: nil_list
+    - label: empty_list
+      allowed_profiles: []
+    - label: populated
+      allowed_profiles: [named_populated, wild_listed]
+profiles:
+  named_nil:
+    issuer_label: nil_list
+    expiry: 1h
+    usages: [signing]
+  named_empty:
+    issuer_label: empty_list
+    expiry: 1h
+    usages: [signing]
+  named_populated:
+    issuer_label: populated
+    expiry: 1h
+    usages: [signing]
+  named_populated_unlisted:
+    issuer_label: populated
+    expiry: 1h
+    usages: [signing]
+  wild_listed:
+    issuer_label: "*"
+    expiry: 1h
+    usages: [signing]
+  wild_unlisted:
+    issuer_label: "*"
+    expiry: 1h
+    usages: [signing]
+`
+
+// TestLoadConfigAllowedProfiles verifies XPKI-057: a populated
+// allowed_profiles filters issuer-specific and wildcard profiles alike.
+func TestLoadConfigAllowedProfiles(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "ca-config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(allowedProfilesConfig), 0o600))
+
+	cfg, err := authority.LoadConfig(path)
+	require.NoError(t, err)
+	got := map[string][]string{}
+	for _, iss := range cfg.Authority.Issuers {
+		got[iss.Label] = slices.Sorted(maps.Keys(iss.Profiles))
+	}
+	assert.Equal(t, map[string][]string{
+		"nil_list":   {"named_nil"},
+		"empty_list": {"named_empty"},
+		"populated":  {"named_populated", "wild_listed"},
+	}, got)
+	assert.NotContains(t, cfg.Authority.Issuers[2].Profiles, "named_populated_unlisted")
+	assert.NotContains(t, cfg.Authority.Issuers[2].Profiles, "wild_unlisted")
+	// the unfiltered profile set is retained
+	assert.Len(t, cfg.Profiles, 6)
+}
+
+func TestLoadConfigAllowedProfilesDelegatedOCSP(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, allowed, want string
+	}{
+		{name: "not listed", allowed: "[named]", want: `issuer "ca": delegated_ocsp_profile "ocsp" is not in allowed_profiles`},
+		{name: "listed", allowed: "[named, ocsp]"},
+		{name: "no list", allowed: "[]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			config := `
+authority:
+  issuers:
+    - label: ca
+      allowed_profiles: ` + tc.allowed + `
+      aia:
+        delegated_ocsp_profile: ocsp
+profiles:
+  named:
+    issuer_label: ca
+    expiry: 1h
+    usages: [signing]
+  ocsp:
+    issuer_label: ca
+    expiry: 1h
+    usages: [ocsp signing]
+`
+			path := filepath.Join(t.TempDir(), "ca-config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(config), 0o600))
+			cfg, err := authority.LoadConfig(path)
+			if tc.want != "" {
+				require.EqualError(t, err, tc.want)
+				assert.Nil(t, cfg)
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, cfg.Authority.Issuers[0].Profiles, "ocsp")
+		})
 	}
 }

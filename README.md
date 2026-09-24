@@ -123,6 +123,16 @@ A profile controls validity, key usages, allowed extensions, name and SAN
 policies, and path length. Requester CSR fields not permitted by the profile
 are dropped or rejected at `Issuer.Sign`.
 
+`allowed_extensions` governs extensions from two sources. For the trusted
+`SignRequest.Extensions` an empty list allows all. For the untrusted CSR an
+empty list allows none, and key usage, EKU, SAN, basic constraints, key
+identifiers and OCSP no-check are never taken from a CSR; the SAN is rebuilt
+from the `allowed_fields` names. An allow-listed CSR AIA or CRL DP is kept
+only when the issuer does not generate one. Explicit `NotBefore`/`NotAfter`
+must fit the profile: lifetime no longer than `expiry`, `NotBefore` no earlier
+than now minus `backdate`. A populated `allowed_profiles` on an issuer limits it
+to the listed profiles, issuer-specific and `issuer_label: "*"` alike.
+
 ### JWT provider
 
 ```yaml

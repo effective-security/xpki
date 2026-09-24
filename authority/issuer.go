@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,9 +28,52 @@ import (
 	"github.com/effective-security/xpki/oid"
 )
 
+// defaultBackdate applies when a profile does not set backdate.
+const defaultBackdate = 5 * time.Minute
+
 var (
 	supportedKeyHash = []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512}
+
+	// allCSRFields is used when a profile has no allowed_fields.
+	allCSRFields = csr.AllowedFields{
+		Subject:        true,
+		DNSNames:       true,
+		IPAddresses:    true,
+		EmailAddresses: true,
+		URIs:           true,
+	}
+
+	// csrDeniedExtensions are derived from the profile or from the permitted
+	// CSR fields and are never copied from a CSR, even when allow-listed
+	// (XPKI-049). A trusted SignRequest may still supply them.
+	csrDeniedExtensions = []asn1.ObjectIdentifier{
+		oid.ExtensionSubjectKeyID,
+		oid.ExtensionKeyUsage,
+		oid.ExtensionSubjectAltName,
+		oid.ExtensionBasicConstraints,
+		oid.ExtensionAuthorityKeyID,
+		oid.ExtensionExtendedKeyUsage,
+		oid.OCSPNoCheck,
+	}
 )
+
+// isCSRDeniedExtension reports whether a CSR may never supply the extension.
+func isCSRDeniedExtension(id asn1.ObjectIdentifier) bool {
+	return slices.ContainsFunc(csrDeniedExtensions, id.Equal)
+}
+
+// isIssuerGeneratedExtension reports whether the template fields already
+// produce the extension, so an allow-listed CSR copy must not override it.
+// Extensions generated as ExtraExtensions are found by OID instead.
+func isIssuerGeneratedExtension(template *x509.Certificate, id asn1.ObjectIdentifier) bool {
+	switch {
+	case id.Equal(oid.ExtensionAuthorityInfoAccess):
+		return len(template.OCSPServer) > 0 || len(template.IssuingCertificateURL) > 0
+	case id.Equal(oid.ExtensionCRLDistributionPoints):
+		return len(template.CRLDistributionPoints) > 0
+	}
+	return false
+}
 
 // Issuer of certificates
 type Issuer struct {
@@ -366,33 +410,33 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 		"req_ext", raReq.ExtensionsIDs(),
 	)
 
-	requesterCsrTemplate.SignatureAlgorithm = ca.sigAlgo
-
-	// Copy out only the fields from the CSR authorized by policy.
-	safeTemplate := x509.Certificate{}
-	// If the profile contains no explicit whitelist, assume that all fields
-	// should be copied from the CSR.
-	if profile.AllowedCSRFields == nil {
-		safeTemplate = *requesterCsrTemplate
-	} else {
-		if profile.AllowedCSRFields.Subject {
-			safeTemplate.Subject = requesterCsrTemplate.Subject
-		}
-		if profile.AllowedCSRFields.DNSNames {
-			safeTemplate.DNSNames = requesterCsrTemplate.DNSNames
-		}
-		if profile.AllowedCSRFields.IPAddresses {
-			safeTemplate.IPAddresses = requesterCsrTemplate.IPAddresses
-		}
-		if profile.AllowedCSRFields.URIs {
-			safeTemplate.URIs = requesterCsrTemplate.URIs
-		}
-		if profile.AllowedCSRFields.EmailAddresses {
-			safeTemplate.EmailAddresses = requesterCsrTemplate.EmailAddresses
-		}
-		safeTemplate.PublicKeyAlgorithm = requesterCsrTemplate.PublicKeyAlgorithm
-		safeTemplate.PublicKey = requesterCsrTemplate.PublicKey
-		safeTemplate.SignatureAlgorithm = requesterCsrTemplate.SignatureAlgorithm
+	// Copy out only the fields from the CSR authorized by policy (XPKI-049).
+	// CSR extensions are never copied wholesale; see csrExtensions below.
+	safeTemplate := x509.Certificate{
+		PublicKeyAlgorithm: requesterCsrTemplate.PublicKeyAlgorithm,
+		PublicKey:          requesterCsrTemplate.PublicKey,
+		SignatureAlgorithm: ca.sigAlgo,
+	}
+	// If the profile contains no explicit allow-list, the subject and
+	// SAN fields are copied from the CSR, still subject to the regexes.
+	fields := profile.AllowedCSRFields
+	if fields == nil {
+		fields = &allCSRFields
+	}
+	if fields.Subject {
+		safeTemplate.Subject = requesterCsrTemplate.Subject
+	}
+	if fields.DNSNames {
+		safeTemplate.DNSNames = requesterCsrTemplate.DNSNames
+	}
+	if fields.IPAddresses {
+		safeTemplate.IPAddresses = requesterCsrTemplate.IPAddresses
+	}
+	if fields.URIs {
+		safeTemplate.URIs = requesterCsrTemplate.URIs
+	}
+	if fields.EmailAddresses {
+		safeTemplate.EmailAddresses = requesterCsrTemplate.EmailAddresses
 	}
 
 	/*
@@ -468,19 +512,32 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 		safeTemplate.SerialNumber = new(big.Int).SetBytes(serialNumber)
 	}
 
+	// One extension per OID (XPKI-050). Raw extensions are kept in the order
+	// profile `extensions`, SignRequest, CSR; the first one for an OID wins.
+	// fillTemplate then replaces any raw policies or OCSP no-check when the
+	// profile sets them. Any other kept raw extension overrides the value
+	// x509.CreateCertificate would build from template fields (KU, EKU,
+	// basic constraints, SKI/AKI, SAN, AIA, CRL DP); the CSR cannot supply
+	// those, except an AIA or CRL DP the issuer does not generate.
 	for _, ext := range profile.Extensions {
+		id := asn1.ObjectIdentifier(ext.ID)
+		if certutil.FindExtension(safeTemplate.ExtraExtensions, id) != nil {
+			return nil, nil, errors.Errorf("duplicate profile extension: %s", id.String())
+		}
 		raw, err := ext.GetValue()
 		if err != nil {
 			return nil, nil, errors.WithStack(err)
 		}
 
 		safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{
-			Id:       asn1.ObjectIdentifier(ext.ID),
+			Id:       id,
 			Critical: ext.Critical,
 			Value:    raw,
 		})
 	}
 
+	// The SignRequest comes from a trusted RA: an empty allow-list allows
+	// every extension, including profile-owned OIDs.
 	for _, ext := range raReq.Extensions {
 		if !profile.IsAllowedExtention(ext.ID) {
 			if ca.cfg.OmitDisabledExtensions {
@@ -490,66 +547,75 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 					"ext", ext.ID.String(),
 				)
 				continue
-			} else {
-				return nil, nil, errors.Errorf("extension not allowed: %s", ext.ID.String())
 			}
+			return nil, nil, errors.Errorf("extension not allowed: %s", ext.ID.String())
 		}
 		id := asn1.ObjectIdentifier(ext.ID)
-		if certutil.FindExtension(safeTemplate.ExtraExtensions, id) == nil {
-			raw, err := ext.GetValue()
-			if err != nil {
-				return nil, nil, err
-			}
-
-			safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{
-				Id:       asn1.ObjectIdentifier(ext.ID),
-				Critical: ext.Critical,
-				Value:    raw,
-			})
-		} else {
+		if certutil.FindExtension(safeTemplate.ExtraExtensions, id) != nil {
 			logger.KV(xlog.TRACE,
 				"reason", "skipped_from_sign_request",
 				"used", "profile_extension",
 				"profile", profileName,
 				"ext", id.String(),
 			)
+			continue
 		}
+		raw, err := ext.GetValue()
+		if err != nil {
+			return nil, nil, errors.WithStack(err)
+		}
+
+		safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, pkix.Extension{
+			Id:       id,
+			Critical: ext.Critical,
+			Value:    raw,
+		})
 	}
 
+	// The CSR is untrusted (XPKI-049): profile-owned OIDs are always dropped,
+	// and other extensions need an explicit allow-list entry. The accepted
+	// ones are appended after fillTemplate so issuer-generated values win.
+	var csrExtensions []pkix.Extension
 	for _, ext := range requesterCsrTemplate.ExtraExtensions {
-		if !profile.IsAllowedExtention(csr.OID(ext.Id)) {
+		if isCSRDeniedExtension(ext.Id) {
+			logger.KV(xlog.TRACE,
+				"reason", "profile_owned",
+				"profile", profileName,
+				"ext", ext.Id.String(),
+			)
+			continue
+		}
+		if !profile.allowsCSRExtension(ext.Id) {
 			if ca.cfg.OmitDisabledExtensions {
 				logger.KV(xlog.TRACE,
 					"reason", "not_allowed",
 					"profile", profileName,
 					"ext", ext.Id.String(),
 				)
-				// TODO: review this
-				// When AllowedCSRFields is nil, safeTemplate already contains every CSR ExtraExtension.
-				// This new continue therefore does not remove a disallowed extension when OmitDisabledExtensions is enabled;
-				// it remains in the issued certificate. Clear the copied extension slice before profile/request extensions are assembled,
-				// then let this loop add back only allowed CSR extensions.
-
-				//continue
-			} else {
-				return nil, nil, errors.Errorf("extension not allowed: %s", ext.Id.String())
+				continue
 			}
+			return nil, nil, errors.Errorf("extension not allowed: %s", ext.Id.String())
 		}
-		if certutil.FindExtension(safeTemplate.ExtraExtensions, ext.Id) == nil {
-			safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, ext)
-		} else {
-			logger.KV(xlog.TRACE,
-				"reason", "skipped_from_csr",
-				"profile", profileName,
-				"ext", ext.Id.String(),
-			)
-		}
+		csrExtensions = append(csrExtensions, ext)
 	}
 	csr.SetSAN(&safeTemplate, raReq.SAN)
 
 	err = ca.fillTemplate(&safeTemplate, profile, raReq.NotBefore, raReq.NotAfter)
 	if err != nil {
 		return nil, nil, errors.WithMessagef(err, "failed to populate template")
+	}
+
+	for _, ext := range csrExtensions {
+		if certutil.FindExtension(safeTemplate.ExtraExtensions, ext.Id) != nil ||
+			isIssuerGeneratedExtension(&safeTemplate, ext.Id) {
+			logger.KV(xlog.TRACE,
+				"reason", "skipped_from_csr",
+				"profile", profileName,
+				"ext", ext.Id.String(),
+			)
+			continue
+		}
+		safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, ext)
 	}
 
 	var certTBS = safeTemplate
@@ -588,6 +654,11 @@ func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
 
 	if template.NotAfter.After(caCert.NotAfter) {
 		template.NotAfter = caCert.NotAfter
+		if !template.NotBefore.Before(template.NotAfter) {
+			return nil, errors.Errorf("certificate NotBefore %s is not before issuer NotAfter %s",
+				template.NotBefore.UTC().Format(time.RFC3339),
+				caCert.NotAfter.UTC().Format(time.RFC3339))
+		}
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, caCert, template.PublicKey, ca.signer)
@@ -639,12 +710,12 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 		eku []x509.ExtKeyUsage
 		ku  x509.KeyUsage
 
-		expiry          = profile.Expiry.TimeDuration()
 		isOCSPResponder = false
 	)
 
-	if expiry == 0 && notAfter.IsZero() {
-		return errors.Errorf("expiry is not set")
+	notBefore, notAfter, err = validityWindow(profile, time.Now(), notBefore, notAfter)
+	if err != nil {
+		return err
 	}
 
 	// The third value returned from Usages is a list of unknown key usages.
@@ -655,24 +726,8 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 		return errors.Errorf("invalid profile: no key usages")
 	}
 
-	if notBefore.IsZero() {
-		backdate := -1 * profile.Backdate.TimeDuration()
-		if backdate == 0 {
-			backdate = -5 * time.Minute
-		}
-		notBefore = time.Now().Round(time.Minute).Add(backdate)
-	}
-	if notAfter.IsZero() {
-		notAfter = notBefore.Add(expiry)
-	}
-
-	// TODO: ensure that time from CSR does no exceed allowed in profile
-	if template.NotBefore.IsZero() || template.NotBefore.Before(notBefore) {
-		template.NotBefore = notBefore.UTC()
-	}
-	if template.NotAfter.IsZero() || notAfter.Before(template.NotAfter) {
-		template.NotAfter = notAfter.UTC()
-	}
+	template.NotBefore = notBefore
+	template.NotAfter = notAfter
 	template.KeyUsage = ku
 	template.ExtKeyUsage = eku
 
@@ -716,12 +771,52 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	}
 	if profile.OCSPNoCheck {
 		ocspNoCheckExtension := pkix.Extension{
-			Id:       asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5},
+			Id:       oid.OCSPNoCheck,
 			Critical: false,
 			Value:    []byte{0x05, 0x00},
 		}
-		template.ExtraExtensions = append(template.ExtraExtensions, ocspNoCheckExtension)
+		// the profile value replaces one supplied by the request (XPKI-050)
+		template.ExtraExtensions = setExtension(template.ExtraExtensions, ocspNoCheckExtension)
 	}
 
 	return nil
+}
+
+// validityWindow returns the certificate validity for the requested times
+// (XPKI-054). Zero times take the profile defaults: NotBefore is now rounded
+// to a minute minus backdate (default 5m), NotAfter is NotBefore plus expiry.
+// Explicit times must fall in the profile envelope: NotBefore no earlier than
+// now minus backdate, NotAfter after NotBefore, and a lifetime no longer
+// than the profile expiry. A profile without expiry needs an explicit
+// NotAfter and has no lifetime bound; LoadConfig rejects such profiles.
+func validityWindow(profile *CertProfile, now, notBefore, notAfter time.Time) (time.Time, time.Time, error) {
+	expiry := profile.Expiry.TimeDuration()
+	if expiry == 0 && notAfter.IsZero() {
+		return time.Time{}, time.Time{}, errors.New("expiry is not set")
+	}
+
+	backdate := profile.Backdate.TimeDuration()
+	if backdate == 0 {
+		backdate = defaultBackdate
+	}
+	if notBefore.IsZero() {
+		notBefore = now.Round(time.Minute).Add(-backdate)
+	} else if earliest := now.Truncate(time.Minute).Add(-backdate); notBefore.Before(earliest) {
+		return time.Time{}, time.Time{}, errors.Errorf("NotBefore %s is earlier than allowed %s",
+			notBefore.UTC().Format(time.RFC3339),
+			earliest.UTC().Format(time.RFC3339))
+	}
+	if notAfter.IsZero() {
+		notAfter = notBefore.Add(expiry)
+	}
+
+	if !notAfter.After(notBefore) {
+		return time.Time{}, time.Time{}, errors.Errorf("invalid validity: NotAfter %s is not after NotBefore %s",
+			notAfter.UTC().Format(time.RFC3339),
+			notBefore.UTC().Format(time.RFC3339))
+	}
+	if lifetime := notAfter.Sub(notBefore); expiry > 0 && lifetime > expiry {
+		return time.Time{}, time.Time{}, errors.Errorf("validity %s exceeds profile expiry %s", lifetime, expiry)
+	}
+	return notBefore.UTC(), notAfter.UTC(), nil
 }

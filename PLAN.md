@@ -18,6 +18,7 @@ below and excluded from the pending queue.
 | TC1 | [XPKI-062](FINDINGS.md#xpki-062--tc1), [XPKI-107](FINDINGS.md#xpki-107--tc1) | **Fixed** | 2026-09-20 |
 | TP1 | [XPKI-017-testprov](FINDINGS.md#xpki-017-testprov--tp1) | **Fixed** (testprov portion) | 2026-09-20 |
 | IM1 | [XPKI-017-inmemcrypto](FINDINGS.md#xpki-017--im1) | **Fixed** (completes XPKI-017) | 2026-09-21 |
+| AU1 | [XPKI-049](FINDINGS.md#xpki-049--au1), [XPKI-050](FINDINGS.md#xpki-050--au1), [XPKI-054](FINDINGS.md#xpki-054--au1), [XPKI-057](FINDINGS.md#xpki-057--au1) | **Fixed** | 2026-09-24 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -119,6 +120,49 @@ Median hits were 12.25 → 17.15 ns/op with 0 allocations; misses were
 from timing; these serial lookup results do not measure mixed-workload
 throughput.
 
+**AU1 / XPKI-049, 050, 054, 057 — Fixed on 2026-09-24:** the decisions were
+approved on 2026-09-24:
+
+- **049.** CSR extensions are deny-by-default: an empty `allowed_extensions`
+  allows none from the CSR, while RA `SignRequest.Extensions` keep "empty =
+  all". SKI, KU, SAN, BasicConstraints, AKI, EKU and OCSP no-check are never
+  taken from a CSR. The RA may still supply them. An allow-listed CSR AIA or
+  CRL DP is kept only when the issuer generates none, which preserves the
+  SHAKEN delegate CSR flow. The template is built from `allowed_fields` only
+  (nil = subject and all SANs).
+- **050.** One extension per OID. Raw extensions resolve as profile
+  `extensions` > RA > CSR. Profile `policies`/`ocsp_no_check` replace any raw
+  copy. For other template-built OIDs (KU, EKU, basic constraints, SKI/AKI,
+  SAN, AIA, CRL DP) a kept raw profile or RA extension overrides the
+  profile-derived value. `Validate` rejects repeated or colliding profile
+  OIDs.
+- **054.** Explicit times outside the envelope are rejected: NotBefore
+  before now − backdate, NotAfter not after NotBefore, or lifetime longer
+  than expiry. Issuer clipping fails when no validity remains.
+- **057.** A populated `allowed_profiles` filters named and wildcard
+  profiles alike and must include `delegated_ocsp_profile`.
+
+The new `authority/README.md` documents the flow and the per-extension
+source table. The codemap, README, `csr.SignRequest` docs and API docs are
+updated, and the ROADMAP item is removed.
+
+Validation: the new `authority/issuer_policy_test.go` and `config_test.go`
+cases failed before the fix. A hostile CSR obtained `keyCertSign`, a
+code-signing EKU, a forged AKI/SKI and OCSP no-check. A CSR SAN bypassed
+`allowed_fields` and the DNS regex, a CSR CRL DP overrode the issuer's,
+duplicate OIDs produced unparsable certificates, and populated
+`allowed_profiles` did not filter named profiles. A throwaway probe on
+unfixed `HEAD` issued reversed-validity, overlong and 24h-backdated
+certificates. After the fix, `make test RACE=true TEST_FLAGS=-count=1` passed
+with SoftHSM/local-kms fixtures. `make lint` passed with zero issues.
+`make build docs` passed, and `make covtest` passed at **90.4%** aggregate
+(authority fresh; unchanged packages used cached coverage results). No
+benchmark was needed (AU1 is policy-only). Compatibility: CSRs with
+non-profile-owned extensions under an empty allow-list are now rejected (or
+dropped with `omit_disabled_extensions`). CSR `otherName` SANs are no longer
+issued. An RA sending only `NotAfter = now + expiry` must shorten it by the
+backdate.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -162,7 +206,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| AU1 | `authority` | 049, 050, 054, 057 | P0 / 46 | High: issuance policy and existing RA integrations | 049, 054, 057 |
 | CU1 | `certutil` | 037, 041, 039, 044 | P1 / 36 | High: trust roots, network limits, AIA recovery | Trust semantics for 041 |
 | JW1 | `jwt` | 070, 071, 072 | P1 / 36 | High: rotation, cancellation, key selection | Missing-kid and PublicKeys contract |
 | DP1 | `jwt/dpop` | 075, 076, 074 | P1 / 36 | High: proof acceptance and public verification API | 075 |
@@ -201,8 +244,8 @@ the test prerequisites below can move a small preparatory change earlier.
 
 Execution dependencies:
 
-- Treat AU1 as the first policy workstream. Do not hold AU2's outage fixes
-  behind the policy migration decision; review the two batches separately.
+- AU1 is **Fixed (2026-09-24)**. AU2 remains a separate review; its lock
+  changes must keep the AU1 extension and validity rules in `Issuer.Sign`.
 - Specify CU1's trust/client options before CU2 changes cache ownership.
   Keep CU2 independently reviewable; avoid holding a global mutex during AIA I/O.
 - CU4 precedes XC1's nil-issuer assertion update. The CLI portion must verify
@@ -277,19 +320,19 @@ not creation of a nonexistent formatter check or vulnerability target.
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-049 — CRITICAL / security / 46 | [Issuer.Sign](authority/issuer.go) copies the CSR template when `AllowedCSRFields` is nil; copied `ExtraExtensions` survive later field policy. Empty extension allow-list allows all, and the CSR omit branch does not remove copied extensions. Build the template from permitted fields, apply extension policy once, and make profile-owned KU/EKU/SAN constraints authoritative. Migration must explicitly address empty allow-lists. | **Partial:** `TestIssuerSignExtensions` in [issuer_coverage_test.go](authority/issuer_coverage_test.go) asserts exact extension absence/value and signatures, but sets non-nil allowed fields; it misses the dangerous default and CSR-omit case. Add hostile signed CSRs, nil versus explicit allowed fields, empty/populated allow-lists, deny versus omit, and assertions on the parsed issued certificate. Do not claim arbitrary CA issuance without proving it: CSR parsing already strips BasicConstraints. |
-| XPKI-050 — HIGH / correctness / 33 | `Sign` appends profile extensions to a template that may already contain the CSR OID. Produce exactly one extension per OID with documented profile/request/CSR precedence and a parsable certificate. | **Partial:** “profile wins” covers profile versus RA request, not profile versus a copied CSR extension. Add conflicting and identical CSR/profile values, repeated profile OIDs, and assert parsed extension count, criticality, and bytes. |
-| XPKI-054 — HIGH / correctness / 33 | [fillTemplate](authority/issuer.go) accepts explicit request times without bounding them by profile lifetime; no inverted-range rejection. Enforce an agreed profile/backdate/issuer validity envelope, rejecting invalid intervals. | **Partial:** `TestIssuerSign` and `TestIssuerTemplateErrors` cover ordinary validity and missing expiry. Add exact boundary cases, overlong explicit expiry, excessive backdating, equal/reversed times, and issuer-expiry clipping. Preserve deliberate shorter lifetimes. |
-| XPKI-057 — HIGH / correctness / 33 | [LoadConfig](authority/config.go) applies `AllowedProfiles` only to wildcard profiles; issuer-specific profiles bypass it. Make the allow-list contract explicit and apply it consistently after migration. | **Partial:** [config_test.go](authority/config_test.go) verifies config loads and profile validation, not the selected-profile matrix. Add named/wildcard issuer × nil/empty/populated allow-list cases and exact map-key absence assertions. |
+| XPKI-049 — CRITICAL / security / 46 — **Fixed (AU1, 2026-09-24)** | [Issuer.Sign](authority/issuer.go) builds the template from `allowed_fields` only, never copies CSR extensions wholesale, always drops `csrDeniedExtensions` from the CSR, requires explicit allow-listing for other CSR OIDs (empty = none), and lets issuer-generated AIA/CRL DP win. RA extensions keep "empty = all". | **Covered:** [issuer_policy_test.go](authority/issuer_policy_test.go) uses hostile signed CSRs with nil/explicit fields, empty/populated allow-lists, deny versus omit, SAN bypass, issuer-generated CRL DP/AIA and RA-owned EKU, asserting on the parsed issued certificate. |
+| XPKI-050 — HIGH / correctness / 33 — **Fixed (AU1, 2026-09-24)** | One extension per OID. Raw extensions resolve as profile `extensions` > RA > CSR; profile `policies`/`ocsp_no_check` replace any raw copy (`setExtension`); other kept raw extensions override template-built values. `Validate` and `Sign` reject repeated or colliding profile OIDs. | **Covered:** `TestSignExtensionPrecedence`, `TestSignProfileGeneratedExtensionsWin` and `TestProfileValidateExtensions` assert extension count, criticality and bytes. |
+| XPKI-054 — HIGH / correctness / 33 — **Fixed (AU1, 2026-09-24)** | [validityWindow](authority/issuer.go) rejects NotBefore before now − backdate, NotAfter not after NotBefore, and lifetime > expiry; shorter lifetimes and future NotBefore are kept; issuer clipping fails when nothing remains. | **Covered:** `TestValidityWindow` (fixed clock, exact boundaries) and `TestSignValidity` (through `Sign`, issuer clipping). |
+| XPKI-057 — HIGH / correctness / 33 — **Fixed (AU1, 2026-09-24)** | `issuerHasProfile` in [config.go](authority/config.go) applies a populated `allowed_profiles` to named and wildcard profiles; empty keeps named only; a populated list must include `delegated_ocsp_profile`. | **Covered:** `TestLoadConfigAllowedProfiles` (named/wildcard × nil/empty/populated, exact key absence) and `TestLoadConfigAllowedProfilesDelegatedOCSP`. |
 | XPKI-051 — HIGH / bug / 35 | [CreateDelegatedOCSPSigner](authority/ocsp.go) holds `ca.lock` while `Sign` calls `Profile`, which needs that lock for reading. Separate responder coordination from profile lookup; fresh creation and renewal must terminate. | **Absent for the failing branch:** `TestOCSPResponderReuse` explicitly preloads the cache to avoid the deadlock. Add fresh creation and renewal with a deadline, verify the responder chain/EKU, and use a subprocess or controlled timeout so the pre-fix reproduction cannot hang the suite. |
 | XPKI-052 — HIGH / race / 34 | Non-delegated responder initialization and fallback reads are unprotected. Publish one coherent responder snapshot and coordinate renewal without recursive locking. | **Partial:** [TestSignOCSPResponses](authority/ocsp_coverage_test.go) parses and checks actual responses, but calls serially. Add synchronized concurrent cold-start and renewal tests that actually overlap writes and reads under `-race`. |
 | XPKI-053 — HIGH / bug / 35 | `SignOCSP` logs responder creation failure then dereferences `ca.responder`, which can be nil. Return a wrapped error when no usable responder exists; specify whether a still-valid cached responder may be used. | **Absent:** success/reuse tests do not inject initial creation or renewal failure. Assert the actual returned error, no panic, and no response from an expired/missing responder; separately test an allowed valid-cache fallback. |
 | XPKI-055 — HIGH / race / 34 | [Authority](authority/authority.go) mutates registry maps without locks; [Issuer.Profiles](authority/issuer.go) returns a live map after releasing its read lock. Synchronize registries and define snapshot/ownership rules for maps and pointed-to profiles. | **Partial:** `TestNewAuthority` and extension tests validate serial lookup and live profile identity. Add concurrent registration/lookups/enumeration, iteration during writes, and caller mutation of returned snapshots. A shallow map copy alone does not make mutable `*CertProfile` values safe. |
 | XPKI-058 — LOW / bug / 15, **claim partly disproved** | `IssuerConfig.Type` lacks tags, but an actual `yaml.Unmarshal` into this type loaded `type: ocsp` as `"ocsp"` with no error. JSON marshaling emitted `"Type":"ocsp"`. Revalidate/replace the YAML-loss description; add explicit tags only for an agreed serialization format. | **Partial:** config tests do not assert Type. Add YAML/JSON decoding and round-trip key-casing assertions. Avoid treating this as an outage fix or changing accepted legacy JSON casing unintentionally. |
 
-AU1 has high compatibility risk: configs and RA requests that previously
-issued certificates may be rejected. Use a migration fixture set, including
-root bootstrap and delegated responder profiles. AU2/AU3 need one documented
+AU1 is Fixed; its compatibility notes are recorded under Completed batches.
+The existing root bootstrap, delegated OCSP and SHAKEN delegate fixtures still
+issue. AU2/AU3 need one documented
 lock order; avoid callbacks or signing while holding a registry mutex.
 **Benchmarks:** AU2 needs a concurrent OCSP/cache baseline before redesign
 (warm cache, cold initialization, renewal; separate coordination from crypto

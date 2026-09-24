@@ -64,14 +64,14 @@ drift; the symbol name is the stable reference.
 | XPKI-044 | certutil                              | `bundler.go` `HTTPClient`                                      | Exported global documented as used for all HTTP requests but never read                                                                            | docs        | Open           |
 | XPKI-045 | certutil                              | `bundle.go` `ExpiresInHours`                                   | Doc says "rounded up"; integer division truncates                                                                                                  | docs        | Open           |
 | XPKI-047 | armor                                 | `armor.go` `Decode`                                            | CRC24 trailer mandatory; RFC 9580 requires accepting armor without it                                                                              | correctness | Open           |
-| XPKI-049 | authority                             | `issuer.go` `Sign` (`safeTemplate = *requesterCsrTemplate`)    | All CSR `ExtraExtensions` (KU/EKU/SAN/…) copied into the template; empty `AllowedExtensions` allows every OID                                      | security    | Needs Approval |
-| XPKI-050 | authority                             | `issuer.go` `Sign` profile extensions                          | Profile `Extensions` appended without dedupe against CSR extensions; `CreateCertificate` output then fails to parse                                | correctness | Open           |
+| XPKI-049 | authority                             | `issuer.go` `Sign` (`safeTemplate = *requesterCsrTemplate`)    | All CSR `ExtraExtensions` (KU/EKU/SAN/…) copied into the template; empty `AllowedExtensions` allows every OID                                      | security    | **Fixed** ([details](#xpki-049--au1)) |
+| XPKI-050 | authority                             | `issuer.go` `Sign` profile extensions                          | Profile `Extensions` appended without dedupe against CSR extensions; `CreateCertificate` output then fails to parse                                | correctness | **Fixed** ([details](#xpki-050--au1)) |
 | XPKI-051 | authority                             | `ocsp.go` `CreateDelegatedOCSPSigner`                          | Holds `ca.lock` then calls `ca.Sign` → `ca.Profile` → `RLock`: deadlock when `delegated_ocsp_profile` is set                                       | bug         | Open           |
 | XPKI-052 | authority                             | `ocsp.go` `SignOCSP` non-delegated branch                      | `ca.responder` read/written without the lock                                                                                                       | race        | Open           |
 | XPKI-053 | authority                             | `ocsp.go` `SignOCSP`                                           | Fallback `responder = ca.responder` may be nil → `responder.Cert` panics                                                                           | bug         | Open           |
-| XPKI-054 | authority                             | `issuer.go` `Sign`/`fillTemplate`                              | `SignRequest.NotBefore/NotAfter` not bounded by profile expiry; inverted range not rejected                                                        | correctness | Needs Approval |
+| XPKI-054 | authority                             | `issuer.go` `Sign`/`fillTemplate`                              | `SignRequest.NotBefore/NotAfter` not bounded by profile expiry; inverted range not rejected                                                        | correctness | **Fixed** ([details](#xpki-054--au1)) |
 | XPKI-055 | authority                             | `authority.go` maps                                            | `Authority` maps and `Issuer.Profiles()` live map have no synchronization                                                                          | race        | Open           |
-| XPKI-057 | authority                             | `config.go` `AllowedProfiles`                                  | Only filters wildcard (`issuer_label: "*"`) profiles, contrary to the field doc                                                                    | correctness | Needs Approval |
+| XPKI-057 | authority                             | `config.go` `AllowedProfiles`                                  | Only filters wildcard (`issuer_label: "*"`) profiles, contrary to the field doc                                                                    | correctness | **Fixed** ([details](#xpki-057--au1)) |
 | XPKI-058 | authority                             | `config.go` `IssuerConfig.Type`                                | No json/yaml tag; `type:` in YAML is silently dropped                                                                                              | bug         | Open           |
 | XPKI-059 | csr                                   | `csr.go` `SetSAN`, `csrprov.go` `SignRequest`                  | No SAN dedupe or DNS validation; `nil` keeps CSR SANs but empty slice clears them (undocumented)                                                   | correctness | Open           |
 | XPKI-062 | testca                                | `configuration.go` `cnCounter`, `entity.go` `NextSN`           | Global common-name and per-issuer serial counters incremented without synchronization                                                               | race        | **Fixed** ([details](#xpki-062--tc1)) |
@@ -107,6 +107,129 @@ drift; the symbol name is the stable reference.
 | XPKI-107 | testca                                | `entity.go` `Issue`                                           | Appending the issuer overwrites caller option-slice storage when capacity remains and races when the slice is reused concurrently                      | race        | **Fixed** ([details](#xpki-107--tc1)) |
 
 ## Fixed items
+
+### XPKI-049 — AU1
+
+**Fixed on 2026-09-24.** Approved policy: deny-by-default for CSR
+extensions, while the trusted `SignRequest` keeps its old rule. `Issuer.Sign`
+now builds the template only from CSR fields permitted by `allowed_fields`.
+With `allowed_fields` nil, that is the subject and all SAN fields, still
+regex-checked. CSR extensions are no longer copied wholesale:
+
+- SKI, KU, SAN, BasicConstraints, AKI, EKU and OCSP no-check
+  (`csrDeniedExtensions`) are always dropped from a CSR, even when
+  allow-listed.
+- Other CSR extensions need an explicit `allowed_extensions` entry; an empty
+  list allows none. `omit_disabled_extensions` chooses between drop and
+  reject.
+- An allow-listed CSR AIA or CRL DP is kept only when the issuer generates
+  none. This keeps the SHAKEN delegate flow in
+  `testdata/csrprofiles/delegated_l1_ca.yaml` working.
+- `SignRequest.Extensions` still allows everything on an empty list and may
+  supply profile-owned OIDs (for example, a critical timestamping EKU).
+
+The broken omit branch (TODO) is gone. `SignRequest` docs, README, codemap
+and the new `authority/README.md` describe the per-extension source rules.
+The ROADMAP item is removed.
+
+Compatibility: a CSR carrying a non-profile-owned extension under a profile
+with an empty `allowed_extensions` is now rejected, or dropped with
+`omit_disabled_extensions`. A raw CSR SAN is always rebuilt from its parsed
+names, so `otherName` SAN entries from a CSR are no longer issued.
+
+Validation passed:
+
+- New tests in `authority/issuer_policy_test.go` reproduced the defect
+  before the fix. A hostile signed CSR obtained `keyCertSign`, a code-signing
+  EKU, a forged AKI/SKI and OCSP no-check under the default policy.
+  `allowed_fields.dns=false` plus an allow-listed SAN let `evil.example.com`
+  past the DNS regex, and a CSR CRL DP overrode the issuer's own.
+  `TestSignCSRProfileOwnedExtensions`, `TestSignCSRSANBypassesFieldPolicy`
+  and `TestSignCSRIssuerGeneratedExtensions` failed before the fix and pass
+  after it. `TestSignCSRExtensionAllowList`, `TestSignCSRIssuerGeneratedAIA`
+  (added after the fix) and `TestSignRAMayOverrideOwnedExtensions` pin the
+  allow-list, AIA and trusted-RA rules.
+- `make test RACE=true TEST_FLAGS=-count=1` passed across the repository with
+  SoftHSM and local-kms fixtures.
+- `make lint` passed with zero issues. `make build docs` regenerated the
+  authority and csr API docs. `make covtest` passed at **90.4%** aggregate:
+  authority ran fresh, and unchanged packages used cached coverage results.
+
+### XPKI-050 — AU1
+
+**Fixed on 2026-09-24.** Each issued certificate carries exactly one
+extension per OID. The ordering is OID-specific:
+
+- Raw extensions are kept in the order profile `extensions`, then
+  `SignRequest`, then CSR. The first one for an OID wins.
+- Certificate policies and OCSP no-check: when the profile sets `policies` or
+  `ocsp_no_check`, fillTemplate replaces any raw copy through `setExtension`.
+- KU, EKU, basic constraints, SKI/AKI, SAN, AIA and CRL DP: a kept raw
+  profile or `SignRequest` extension overrides the value
+  `x509.CreateCertificate` builds from template fields. This is how an RA
+  supplies a critical timestamping EKU. The profile-derived value does not
+  win over it. The CSR cannot supply these OIDs, except an AIA or CRL DP the
+  issuer does not generate (XPKI-049).
+
+`CertProfile.Validate` rejects repeated `extensions` OIDs and raw OIDs that
+collide with `policies` or `ocsp_no_check`. `Sign` rejects a repeated OID
+in an unvalidated profile.
+
+Validation passed:
+
+- `TestSignExtensionPrecedence`, `TestSignProfileGeneratedExtensionsWin` and
+  `TestProfileValidateExtensions` failed before the fix. CreateCertificate
+  output did not parse ("duplicate extension"), and a CSR value beat the
+  request value. After the fix they assert one extension per OID and the
+  exact bytes and criticality. Suite, lint and coverage results are as
+  listed for XPKI-049.
+
+### XPKI-054 — AU1
+
+**Fixed on 2026-09-24.** Approved policy: reject requests outside the
+envelope. `validityWindow` computes the defaults as before. It rejects an
+explicit NotBefore earlier than now − backdate (default 5m, with minute
+truncation), a NotAfter not after NotBefore, and a lifetime longer than the
+profile expiry. Shorter lifetimes and future NotBefore values are allowed.
+`sign` still clips NotAfter to the issuer NotAfter, and now fails if that
+leaves no validity.
+
+Compatibility: an RA that sends only `NotAfter = now + expiry` is rejected
+when the default backdate makes the lifetime exceed expiry. Such an RA must
+send NotAfter ≤ NotBefore + expiry.
+
+Validation passed:
+
+- `TestValidityWindow` checks exact boundaries against a fixed clock,
+  including the default and profile backdate, overlong, equal, reversed,
+  excessive backdate, future NotBefore and no-expiry cases.
+- `TestSignValidity` covers the same rules through `Sign`, including
+  issuer-expiry clipping and a NotBefore past the issuer NotAfter. Before
+  the fix it failed at that case: no error was returned.
+- A throwaway probe against the unfixed `HEAD`, in a temporary worktree,
+  issued a reversed-validity certificate (NotAfter one hour before
+  NotBefore). It also issued a 48h certificate on a 1h profile and a
+  certificate backdated 24h.
+- Suite, lint and coverage results are as listed for XPKI-049.
+
+### XPKI-057 — AU1
+
+**Fixed on 2026-09-24.** Approved policy: a populated list filters every
+profile. `issuerHasProfile` attaches issuer-specific profiles unless a
+populated `allowed_profiles` omits them. Wildcard profiles attach only when
+listed. An empty list keeps the previous behavior: named profiles, no
+wildcards. `LoadConfig` fails when a populated list omits the issuer's
+`delegated_ocsp_profile`. The field doc, codemap, README and
+`authority/README.md` state the contract.
+
+Validation passed:
+
+- `TestLoadConfigAllowedProfiles` covers named/wildcard × nil/empty/populated
+  lists and asserts the exact map keys, including absent ones.
+  `TestLoadConfigAllowedProfilesDelegatedOCSP` covers the delegated-profile
+  check. Both failed with the previous selection logic swapped back in and
+  pass after the fix.
+- Suite, lint and coverage results are as listed for XPKI-049.
 
 ### XPKI-017 — IM1
 
@@ -246,12 +369,9 @@ Validation passed:
 
 - **XPKI-036 / XPKI-038** change exported return values (`Bundle` returning an
   error for empty input; `SortBundlesByExpiration` returning a copy).
-- **XPKI-049** is the most important open item. The safe rule is to build
-  `safeTemplate` from an explicit field list and treat an empty
-  `allowed_extensions` as deny-all, but that rejects CSRs that today issue
-  successfully; profiles in deployed configs must be checked first.
-- **XPKI-054 / XPKI-057** tighten policy in ways that may reject requests
-  from existing RA integrations.
+- **XPKI-049 / XPKI-054 / XPKI-057** were approved and fixed by AU1 on
+  2026-09-24; see their Fixed items for the chosen policy and compatibility
+  notes.
 - **XPKI-075 / XPKI-078** require new API surface (`ath`/replay cache in
   `dpop.VerifyConfig`; expiry policy for `pat.` tokens).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail

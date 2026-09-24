@@ -15,14 +15,6 @@ with `context.Background()` and a `Sign` can hang on a network stall. Add
 `ctx` to the interfaces (or context-aware variants), thread it through
 `csr.Provider`, `authority.Issuer.Sign` and `jwt`. Related: XPKI-024.
 
-## Certificate authority: deny-by-default extension policy
-
-`Issuer.Sign` copies every requester CSR extension into the template and an
-empty `allowed_extensions` means "allow all" (XPKI-049). Move to an explicit
-field allow-list, make empty mean deny, and add a migration note for
-profiles that rely on the current behavior. Bound `SignRequest.NotBefore` /
-`NotAfter` by the profile (XPKI-054) in the same release.
-
 ## DPoP: replay protection and access-token binding
 
 Implement RFC 9449 `jti` replay cache and `ath` binding in `jwt/dpop`

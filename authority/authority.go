@@ -97,7 +97,7 @@ func (s *Authority) AddIssuer(issuer *Issuer) error {
 	s.issuers[issuer.Label()] = issuer
 	s.issuersByKeyID[issuer.SubjectKID()] = issuer
 	for profileName, profile := range issuer.Profiles() {
-		if profile.IssuerLabel == "*" {
+		if profile.IssuerLabel == wildcardIssuer {
 			continue
 		}
 

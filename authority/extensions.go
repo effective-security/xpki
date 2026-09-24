@@ -8,6 +8,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/oid"
 )
 
 type policyInformation struct {
@@ -86,12 +87,24 @@ func addPolicies(template *x509.Certificate, policies []csr.CertificatePolicy, c
 		return errors.WithStack(err)
 	}
 
-	template.ExtraExtensions = append(template.ExtraExtensions, pkix.Extension{
-		Id:       asn1.ObjectIdentifier{2, 5, 29, 32},
+	// the profile policies replace any supplied by the request (XPKI-050)
+	template.ExtraExtensions = setExtension(template.ExtraExtensions, pkix.Extension{
+		Id:       oid.ExtensionCertificatePolicies,
 		Critical: critical,
 		Value:    asn1Bytes,
 	})
 	return nil
+}
+
+// setExtension replaces the extension with the same OID in list, or appends it.
+func setExtension(list []pkix.Extension, ext pkix.Extension) []pkix.Extension {
+	for i := range list {
+		if list[i].Id.Equal(ext.Id) {
+			list[i] = ext
+			return list
+		}
+	}
+	return append(list, ext)
 }
 
 // computeSKI derives an SKI from the certificate's public key in a

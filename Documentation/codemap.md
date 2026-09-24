@@ -268,7 +268,8 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
   (unvalidated). `SetSAN(t, nil)` keeps CSR SANs; `SetSAN(t, []string{})`
   clears them (XPKI-059).
 - `Parse` keeps every CSR extension except BasicConstraints in
-  `ExtraExtensions`; the CA decides what to keep (XPKI-049).
+  `ExtraExtensions`; `authority.Issuer.Sign` decides what to keep (XPKI-049,
+  fixed: deny-by-default for CSR extensions).
 - `KeyRequest.prov` is unexported; `GenerateKeyAndRequest` injects the
   provider for requests decoded from JSON/YAML.
 - `X509Name` YAML/JSON keys are lowercase (`c`, `st`, `l`, `o`, `ou`, `email`);
@@ -300,15 +301,22 @@ In-process CA. Config → `Authority` → `Issuer` → `Sign`.
 | `extensions.go` | Certificate Policies ASN.1, SKI, CT OIDs                                                                                                         |
 | `root.go`       | `NewRoot`: key + CSR + self-signed root                                                                                                          |
 | `util.go`       | `Issuer.GenCert`: key, CSR, sign, write files (existing files renamed `.bak`)                                                                    |
+| `README.md`     | Configuration and signing flow diagrams, per-extension source table (profile / SignRequest / CSR), validity envelope                            |
 
 ### Config
 
 See README for a sample. Key rules: profile name = `SignRequest.Profile`
-(`default` if empty); `issuer_label: "*"` profiles are wildcard and filtered by
-`allowed_profiles`; `expiry`/`backdate` are `csr.Duration`; `usages` names come
-from `oid.KeyUsage`/`oid.ExtKeyUsage`; `allowed_extensions` empty means all
-allowed (XPKI-049); `allowed_fields` nil means copy everything from the CSR;
-`extensions` values accept `hex:`, `base64:` or bare. `IssuerConfig.Type` has
+(`default` if empty); `issuer_label: "*"` profiles are wildcard. A populated
+issuer `allowed_profiles` restricts the issuer to the listed profiles, named and
+wildcard alike; empty keeps named profiles and no wildcard ones; a populated
+list must include the issuer's `delegated_ocsp_profile` (`issuerHasProfile`,
+XPKI-057). `expiry`/`backdate` are `csr.Duration`; `usages` names come
+from `oid.KeyUsage`/`oid.ExtKeyUsage`; `allowed_extensions` empty allows every
+`SignRequest` extension but no CSR extension (`IsAllowedExtention` vs.
+`allowsCSRExtension`, XPKI-049); `allowed_fields` nil means copy the subject and
+all SAN fields from the CSR (never its extensions); `extensions` values accept
+`hex:`, `base64:` or bare, and `Validate` rejects repeated OIDs and OIDs that
+collide with `policies`/`ocsp_no_check` (XPKI-050). `IssuerConfig.Type` has
 no yaml tag (XPKI-058). AIA `crl_expiry`, `ocsp_expiry`, `crl_renewal` are
 `time.Duration` with defaults applied through the `Get*` accessors.
 
@@ -317,13 +325,26 @@ no yaml tag (XPKI-058). AIA `crl_expiry`, `ocsp_expiry`, `crl_renewal` are
 - Profile: key usages, CA constraints, SKI, AIA/OCSP/CRL URLs (`${ISSUER_ID}`
   or `:ISSUER_ID` → issuer SKID), policies, OCSP no-check, `extensions`,
   expiry and backdate (NotBefore = now rounded to a minute minus backdate,
-  default 5m; NotAfter = NotBefore + expiry, capped at the issuer NotAfter).
+  default 5m; NotAfter = NotBefore + expiry, capped at the issuer NotAfter;
+  `validityWindow`).
 - `SignRequest` (trusted RA): `Subject` merge, `SAN` (non-nil replaces CSR
-  SANs), `Extensions` (subject to `allowed_extensions`; with
+  SANs), `Extensions` (subject to `allowed_extensions`, empty = all, and may
+  include profile-owned OIDs such as a critical EKU; with
   `omit_disabled_extensions` disallowed ones are dropped, otherwise rejected),
-  `NotBefore`/`NotAfter` (unbounded, XPKI-054), `Profile`.
-- CSR (untrusted): subject/SANs per `allowed_fields`, public key, and today
-  all CSR extensions (XPKI-049).
+  `NotBefore`/`NotAfter` (bounded: NotBefore ≥ now − backdate, NotAfter >
+  NotBefore, lifetime ≤ expiry; rejected otherwise, XPKI-054), `Profile`.
+- CSR (untrusted): subject/SANs per `allowed_fields`, public key, and only
+  extensions listed in `allowed_extensions` (empty = none; disallowed ones
+  follow `omit_disabled_extensions`). `csrDeniedExtensions` (SKI, KU, SAN,
+  BasicConstraints, AKI, EKU, OCSP no-check) are always dropped; an AIA or
+  CRL DP is dropped when the issuer generates one (XPKI-049).
+- One extension per OID (XPKI-050). Raw extensions are kept in the order
+  profile `extensions` > `SignRequest` > CSR (first per OID wins); a repeated
+  profile OID fails `Sign`. Profile `policies`/`ocsp_no_check` then replace
+  any raw copy (`setExtension`). For KU, EKU, basic constraints, SKI/AKI, SAN,
+  AIA and CRL DP, a kept raw profile or `SignRequest` extension overrides the
+  template-built value in `x509.CreateCertificate`; the CSR cannot supply
+  these, except an AIA/CRL DP the issuer does not generate.
 
 ### Invariants
 
@@ -341,7 +362,11 @@ are used by `cmd/hsm-tool` tests (lowercase `names` keys, see csr invariants).
 `ocsp_coverage_test.go` verifies direct responses and cached delegated responders
 with fresh `testca` certificates; fresh delegated creation remains blocked by
 XPKI-051. `issuer_coverage_test.go` exercises proof signatures, extension
-policies, and internal template validation.
+policies, and internal template validation. `issuer_policy_test.go` covers the
+AU1 issuance policy with hostile signed CSRs (profile-owned OIDs, SAN bypass,
+allow-list/omit matrix, issuer-generated CRL DP), extension precedence, and
+`validityWindow` against a fixed clock. `config_test.go` has the
+`allowed_profiles` named/wildcard × nil/empty/populated matrix.
 
 ## Package certutil
 
