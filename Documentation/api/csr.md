@@ -117,7 +117,7 @@ const (
 ```
 
 <a name="DecodeCDP"></a>
-## func [DecodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L508>)
+## func [DecodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L512>)
 
 ```go
 func DecodeCDP(val []byte) ([]string, error)
@@ -135,7 +135,7 @@ func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm
 DefaultSigAlgo returns an appropriate X.509 signature algorithm given the CA's private key.
 
 <a name="EncodeCDP"></a>
-## func [EncodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L457>)
+## func [EncodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L461>)
 
 ```go
 func EncodeCDP(cdp []string) (*pkix.Extension, error)
@@ -144,7 +144,7 @@ func EncodeCDP(cdp []string) (*pkix.Extension, error)
 EncodeCDP returns CRLDP
 
 <a name="EncodeCDPFull"></a>
-## func [EncodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L482>)
+## func [EncodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L486>)
 
 ```go
 func EncodeCDPFull(cdp []string, issuer asn1.RawValue) (*pkix.Extension, error)
@@ -153,7 +153,7 @@ func EncodeCDPFull(cdp []string, issuer asn1.RawValue) (*pkix.Extension, error)
 EncodeCDPFull returns CRLDP
 
 <a name="FindAttr"></a>
-## func [FindAttr](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L400>)
+## func [FindAttr](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L404>)
 
 ```go
 func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pkix.AttributeTypeAndValue
@@ -162,7 +162,7 @@ func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pki
 FindAttr returns attribute
 
 <a name="Parse"></a>
-## func [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L222>)
+## func [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L226>)
 
 ```go
 func Parse(csrBytes []byte) (*x509.Certificate, error)
@@ -180,7 +180,7 @@ func ParseObjectIdentifier(oidString string) (oid asn1.ObjectIdentifier, err err
 ParseObjectIdentifier parses a dotted\-decimal OID string. The whole string must be digits separated by single dots; anything else is an error.
 
 <a name="ParsePEM"></a>
-## func [ParsePEM](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L270>)
+## func [ParsePEM](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L274>)
 
 ```go
 func ParsePEM(csrPEM []byte) (*x509.Certificate, error)
@@ -189,7 +189,7 @@ func ParsePEM(csrPEM []byte) (*x509.Certificate, error)
 ParsePEM takes an incoming certificate request and builds a certificate template from it.
 
 <a name="PopulateName"></a>
-## func [PopulateName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L370>)
+## func [PopulateName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L374>)
 
 ```go
 func PopulateName(raSubject *X509Subject, csrSubject pkix.Name) pkix.Name
@@ -198,7 +198,7 @@ func PopulateName(raSubject *X509Subject, csrSubject pkix.Name) pkix.Name
 PopulateName has functionality similar to Name, except it fills the fields of the resulting pkix.Name with req's if the subject's corresponding fields are empty
 
 <a name="SetSAN"></a>
-## func [SetSAN](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L419>)
+## func [SetSAN](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L423>)
 
 ```go
 func SetSAN(template *x509.Certificate, SAN []string)
@@ -267,7 +267,7 @@ type CertificatePolicyQualifier struct {
 ```
 
 <a name="CertificateRequest"></a>
-## type [CertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L160-L173>)
+## type [CertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L164-L177>)
 
 A CertificateRequest encapsulates the API interface to the certificate request functionality.
 
@@ -289,7 +289,7 @@ type CertificateRequest struct {
 ```
 
 <a name="CertificateRequest.AddSAN"></a>
-### func \(\*CertificateRequest\) [AddSAN](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L197>)
+### func \(\*CertificateRequest\) [AddSAN](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L201>)
 
 ```go
 func (r *CertificateRequest) AddSAN(s string)
@@ -298,7 +298,7 @@ func (r *CertificateRequest) AddSAN(s string)
 AddSAN adds a SAN value to the request
 
 <a name="CertificateRequest.Name"></a>
-### func \(\*CertificateRequest\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L284>)
+### func \(\*CertificateRequest\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L288>)
 
 ```go
 func (r *CertificateRequest) Name() pkix.Name
@@ -307,7 +307,7 @@ func (r *CertificateRequest) Name() pkix.Name
 Name returns the PKIX name for the request.
 
 <a name="CertificateRequest.Validate"></a>
-### func \(\*CertificateRequest\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L178>)
+### func \(\*CertificateRequest\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L182>)
 
 ```go
 func (r *CertificateRequest) Validate() error
@@ -316,7 +316,7 @@ func (r *CertificateRequest) Validate() error
 Validate provides the default validation logic for certificate authority certificates. The only requirement here is that the certificate have a non\-empty subject field.
 
 <a name="DistributionPoint"></a>
-## type [DistributionPoint](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L552-L556>)
+## type [DistributionPoint](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L556-L560>)
 
 DistributionPoint defines CDP as per RFC 5280, 4.2.1.14
 
@@ -329,7 +329,7 @@ type DistributionPoint struct {
 ```
 
 <a name="DistributionPointName"></a>
-## type [DistributionPointName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L559-L562>)
+## type [DistributionPointName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L563-L566>)
 
 DistributionPointName is a part of DistributionPoint
 
@@ -395,7 +395,7 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error
 UnmarshalYAML handles decoding our custom json serialization for Durations
 
 <a name="GeneralName"></a>
-## type [GeneralName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L587-L594>)
+## type [GeneralName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L591-L598>)
 
 GeneralName represents a General Names sequence as defined in RFC 5820 section 4.2.1.6.
 
@@ -434,7 +434,7 @@ type GeneralName struct {
 ```
 
 <a name="DecodeCDPFull"></a>
-### func [DecodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L525>)
+### func [DecodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L529>)
 
 ```go
 func DecodeCDPFull(val []byte) ([]string, []GeneralName, error)
@@ -443,7 +443,7 @@ func DecodeCDPFull(val []byte) ([]string, []GeneralName, error)
 DecodeCDPFull returns list of CDP
 
 <a name="GeneralName.Parse"></a>
-### func \(\*GeneralName\) [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L611>)
+### func \(\*GeneralName\) [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L615>)
 
 ```go
 func (e *GeneralName) Parse(raw asn1.RawValue) error
@@ -687,11 +687,11 @@ func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) 
 SignRequest signs a certificate request
 
 <a name="SignRequest"></a>
-## type [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L119-L139>)
+## type [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L121-L143>)
 
 SignRequest stores a signature request, which contains the SAN, the PEM\-encoded CSR, optional subject information, and the signature profile.
 
-Extensions provided in the request are copied into the certificate, as long as they are in the allowed list for the issuer's policy. Extensions requested in the CSR are ignored, except for those processed by CreateCSR \(mainly subjectAltName\).
+Extensions provided in the request are copied into the certificate, as long as they are in the allowed list for the issuer's policy \(an empty list allows all\). Extensions requested in the CSR are copied only when explicitly allowed; key usages, SAN, basic constraints, key identifiers and OCSP no\-check are always taken from the profile and permitted CSR fields instead.
 
 ```go
 type SignRequest struct {
@@ -705,17 +705,19 @@ type SignRequest struct {
     // If provided, NotBefore will be used without modification (except
     // for canonicalization) as the value of the notBefore field of the
     // certificate. In particular no backdating adjustment will be made
-    // when NotBefore is provided.
+    // when NotBefore is provided. The signer rejects a NotBefore earlier
+    // than now minus the profile backdate.
     NotBefore time.Time `json:"-" yaml:"-"`
     // If provided, NotAfter will be used without modification (except
-    // for canonicalization) as the value of the notAfter field of the
-    // certificate.
+    // for canonicalization and clipping to the issuer's NotAfter) as the
+    // value of the notAfter field of the certificate. The signer rejects a
+    // NotAfter that is not after NotBefore or exceeds the profile expiry.
     NotAfter time.Time `json:"-" yaml:"-"`
 }
 ```
 
 <a name="SignRequest.ExtensionsIDs"></a>
-### func \(\*SignRequest\) [ExtensionsIDs](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L150>)
+### func \(\*SignRequest\) [ExtensionsIDs](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L154>)
 
 ```go
 func (r *SignRequest) ExtensionsIDs() []string
@@ -724,7 +726,7 @@ func (r *SignRequest) ExtensionsIDs() []string
 ExtensionsIDs returns list of extension IDs in the request
 
 <a name="SignRequest.SubjectCommonName"></a>
-### func \(\*SignRequest\) [SubjectCommonName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L142>)
+### func \(\*SignRequest\) [SubjectCommonName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L146>)
 
 ```go
 func (r *SignRequest) SubjectCommonName() string
@@ -796,7 +798,7 @@ type X509Subject struct {
 ```
 
 <a name="X509Subject.Name"></a>
-### func \(\*X509Subject\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L295>)
+### func \(\*X509Subject\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L299>)
 
 ```go
 func (s *X509Subject) Name() pkix.Name

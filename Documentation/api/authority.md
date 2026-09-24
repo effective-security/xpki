@@ -155,7 +155,7 @@ func OCSPReasonStringToCode(reason string) (reasonCode int, err error)
 OCSPReasonStringToCode tries to convert a reason string to an integer code
 
 <a name="AIAConfig"></a>
-## type [AIAConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L86-L110>)
+## type [AIAConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L93-L117>)
 
 AIAConfig contains AIA configuration info
 
@@ -188,7 +188,7 @@ type AIAConfig struct {
 ```
 
 <a name="AIAConfig.Copy"></a>
-### func \(\*AIAConfig\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L127>)
+### func \(\*AIAConfig\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L134>)
 
 ```go
 func (c *AIAConfig) Copy() *AIAConfig
@@ -197,7 +197,7 @@ func (c *AIAConfig) Copy() *AIAConfig
 Copy returns new copy
 
 <a name="AIAConfig.GetCRLExpiry"></a>
-### func \(\*AIAConfig\) [GetCRLExpiry](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L145>)
+### func \(\*AIAConfig\) [GetCRLExpiry](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L152>)
 
 ```go
 func (c *AIAConfig) GetCRLExpiry() time.Duration
@@ -206,7 +206,7 @@ func (c *AIAConfig) GetCRLExpiry() time.Duration
 GetCRLExpiry specifies value in 72h format for duration of CRL next update time
 
 <a name="AIAConfig.GetCRLRenewal"></a>
-### func \(\*AIAConfig\) [GetCRLRenewal](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L161>)
+### func \(\*AIAConfig\) [GetCRLRenewal](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L168>)
 
 ```go
 func (c *AIAConfig) GetCRLRenewal() time.Duration
@@ -215,7 +215,7 @@ func (c *AIAConfig) GetCRLRenewal() time.Duration
 GetCRLRenewal specifies value in 8h format for duration of CRL renewal before next update time
 
 <a name="AIAConfig.GetOCSPExpiry"></a>
-### func \(\*AIAConfig\) [GetOCSPExpiry](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L153>)
+### func \(\*AIAConfig\) [GetOCSPExpiry](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L160>)
 
 ```go
 func (c *AIAConfig) GetOCSPExpiry() time.Duration
@@ -336,7 +336,7 @@ func (s *Authority) Profiles() map[string]*CertProfile
 Profiles returns profiles map
 
 <a name="CAConfig"></a>
-## type [CAConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L37-L46>)
+## type [CAConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L41-L50>)
 
 CAConfig contains configuration info for CA
 
@@ -354,7 +354,7 @@ type CAConfig struct {
 ```
 
 <a name="CAConstraint"></a>
-## type [CAConstraint](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L231-L234>)
+## type [CAConstraint](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L247-L250>)
 
 CAConstraint specifies various CA constraints on the signed certificate. CAConstraint would verify against \(and override\) the CA extensions in the given CSR.
 
@@ -366,7 +366,7 @@ type CAConstraint struct {
 ```
 
 <a name="CertProfile"></a>
-## type [CertProfile](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L169-L226>)
+## type [CertProfile](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L176-L242>)
 
 CertProfile provides certificate profile
 
@@ -384,8 +384,16 @@ type CertProfile struct {
     Expiry   csr.Duration `json:"expiry" yaml:"expiry"`
     Backdate csr.Duration `json:"backdate" yaml:"backdate"`
 
+    // Extensions are added to every certificate issued with the profile.
+    // They take precedence over request and CSR extensions with the same OID.
     Extensions []csr.X509Extension `json:"extensions" yaml:"extensions"`
 
+    // AllowedExtensions lists extension OIDs that a request may supply.
+    // For SignRequest.Extensions (trusted RA) an empty list allows all.
+    // For CSR extensions (untrusted) an empty list allows none, and key
+    // usages, SAN, basic constraints, key identifiers and OCSP no-check
+    // are never taken from a CSR (XPKI-049). A CSR AIA or CRL DP is
+    // ignored when the issuer generates its own.
     AllowedExtensions []csr.OID `json:"allowed_extensions" yaml:"allowed_extensions"`
 
     // AllowedNames specifies a RegExp to check for allowed names.
@@ -407,6 +415,7 @@ type CertProfile struct {
     // AllowedFields provides booleans for fields in the CSR.
     // If a AllowedFields is not present in a CertProfile,
     // all of these fields may be copied from the CSR into the signed certificate.
+    // CSR extensions are governed by AllowedExtensions, never by this list.
     // If a AllowedFields *is* present in a CertProfile,
     // only those fields with a `true` value in the AllowedFields may
     // be copied from the CSR to the signed certificate.
@@ -432,7 +441,7 @@ type CertProfile struct {
 ```
 
 <a name="CertProfile.AllowedExtensionsStrings"></a>
-### func \(\*CertProfile\) [AllowedExtensionsStrings](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L244>)
+### func \(\*CertProfile\) [AllowedExtensionsStrings](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L260>)
 
 ```go
 func (p *CertProfile) AllowedExtensionsStrings() []string
@@ -441,7 +450,7 @@ func (p *CertProfile) AllowedExtensionsStrings() []string
 AllowedExtensionsStrings returns slice of strings
 
 <a name="CertProfile.Copy"></a>
-### func \(\*CertProfile\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L237>)
+### func \(\*CertProfile\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L253>)
 
 ```go
 func (p *CertProfile) Copy() *CertProfile
@@ -450,7 +459,7 @@ func (p *CertProfile) Copy() *CertProfile
 Copy returns new copy
 
 <a name="CertProfile.FindExtension"></a>
-### func \(\*CertProfile\) [FindExtension](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L399>)
+### func \(\*CertProfile\) [FindExtension](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L465>)
 
 ```go
 func (p *CertProfile) FindExtension(oid asn1.ObjectIdentifier) *csr.X509Extension
@@ -459,7 +468,7 @@ func (p *CertProfile) FindExtension(oid asn1.ObjectIdentifier) *csr.X509Extensio
 FindExtension returns extension, or nil
 
 <a name="CertProfile.IsAllowed"></a>
-### func \(\*CertProfile\) [IsAllowed](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L253>)
+### func \(\*CertProfile\) [IsAllowed](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L269>)
 
 ```go
 func (p *CertProfile) IsAllowed(role string) bool
@@ -468,16 +477,16 @@ func (p *CertProfile) IsAllowed(role string) bool
 IsAllowed returns true, if a role is allowed to request this profile
 
 <a name="CertProfile.IsAllowedExtention"></a>
-### func \(\*CertProfile\) [IsAllowedExtention](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L385>)
+### func \(\*CertProfile\) [IsAllowedExtention](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L444>)
 
 ```go
 func (p *CertProfile) IsAllowedExtention(oid csr.OID) bool
 ```
 
-IsAllowedExtention returns true of the extension is allowed
+IsAllowedExtention returns true if a SignRequest may supply the extension. An empty AllowedExtensions allows every extension from the trusted RA.
 
 <a name="CertProfile.Usages"></a>
-### func \(\*CertProfile\) [Usages](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L444>)
+### func \(\*CertProfile\) [Usages](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L510>)
 
 ```go
 func (p *CertProfile) Usages() (ku x509.KeyUsage, eku []x509.ExtKeyUsage, unk []string)
@@ -486,7 +495,7 @@ func (p *CertProfile) Usages() (ku x509.KeyUsage, eku []x509.ExtKeyUsage, unk []
 Usages parses the list of key uses in the profile, translating them to a list of X.509 key usages and extended key usages. The unknown uses are collected into a slice that is also returned.
 
 <a name="CertProfile.Validate"></a>
-### func \(\*CertProfile\) [Validate](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L331>)
+### func \(\*CertProfile\) [Validate](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L365>)
 
 ```go
 func (p *CertProfile) Validate() error
@@ -495,7 +504,7 @@ func (p *CertProfile) Validate() error
 Validate returns an error if the profile is invalid
 
 <a name="Config"></a>
-## type [Config](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L31-L34>)
+## type [Config](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L35-L38>)
 
 Config provides configuration for Certification Authority
 
@@ -507,7 +516,7 @@ type Config struct {
 ```
 
 <a name="LoadConfig"></a>
-### func [LoadConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L266>)
+### func [LoadConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L282>)
 
 ```go
 func LoadConfig(path string) (*Config, error)
@@ -516,7 +525,7 @@ func LoadConfig(path string) (*Config, error)
 LoadConfig loads the configuration file stored at the path and returns the configuration.
 
 <a name="Config.Copy"></a>
-### func \(\*Config\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L113>)
+### func \(\*Config\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L120>)
 
 ```go
 func (c *Config) Copy() *Config
@@ -525,7 +534,7 @@ func (c *Config) Copy() *Config
 Copy returns new copy
 
 <a name="Config.DefaultCertProfile"></a>
-### func \(\*Config\) [DefaultCertProfile](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L326>)
+### func \(\*Config\) [DefaultCertProfile](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L360>)
 
 ```go
 func (c *Config) DefaultCertProfile() *CertProfile
@@ -534,7 +543,7 @@ func (c *Config) DefaultCertProfile() *CertProfile
 DefaultCertProfile returns default CertProfile
 
 <a name="Config.Validate"></a>
-### func \(\*Config\) [Validate](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L410>)
+### func \(\*Config\) [Validate](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L476>)
 
 ```go
 func (c *Config) Validate() error
@@ -543,7 +552,7 @@ func (c *Config) Validate() error
 Validate returns an error if the configuration is invalid
 
 <a name="Issuer"></a>
-## type [Issuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L35-L59>)
+## type [Issuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L79-L103>)
 
 Issuer of certificates
 
@@ -554,7 +563,7 @@ type Issuer struct {
 ```
 
 <a name="CreateIssuer"></a>
-### func [CreateIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L197>)
+### func [CreateIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L241>)
 
 ```go
 func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, signer crypto.Signer) (*Issuer, error)
@@ -563,7 +572,7 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 CreateIssuer returns Issuer created directly from crypto.Signer, this method is mostly used for testing
 
 <a name="NewIssuer"></a>
-### func [NewIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L148>)
+### func [NewIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L192>)
 
 ```go
 func NewIssuer(cfg *IssuerConfig, prov *cryptoprov.Crypto) (*Issuer, error)
@@ -572,7 +581,7 @@ func NewIssuer(cfg *IssuerConfig, prov *cryptoprov.Crypto) (*Issuer, error)
 NewIssuer creates Issuer from provided configuration
 
 <a name="NewIssuerWithBundles"></a>
-### func [NewIssuerWithBundles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L153>)
+### func [NewIssuerWithBundles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L197>)
 
 ```go
 func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, rootPem []byte) (*Issuer, error)
@@ -581,7 +590,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 NewIssuerWithBundles creates Issuer from provided configuration
 
 <a name="Issuer.AddProfile"></a>
-### func \(\*Issuer\) [AddProfile](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L141>)
+### func \(\*Issuer\) [AddProfile](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L185>)
 
 ```go
 func (ca *Issuer) AddProfile(label string, p *CertProfile)
@@ -590,7 +599,7 @@ func (ca *Issuer) AddProfile(label string, p *CertProfile)
 AddProfile adds CertProfile
 
 <a name="Issuer.AiaURL"></a>
-### func \(\*Issuer\) [AiaURL](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L82>)
+### func \(\*Issuer\) [AiaURL](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L126>)
 
 ```go
 func (ca *Issuer) AiaURL() string
@@ -599,7 +608,7 @@ func (ca *Issuer) AiaURL() string
 AiaURL returns AIA URL
 
 <a name="Issuer.Bundle"></a>
-### func \(\*Issuer\) [Bundle](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L62>)
+### func \(\*Issuer\) [Bundle](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L106>)
 
 ```go
 func (ca *Issuer) Bundle() *certutil.Bundle
@@ -617,7 +626,7 @@ func (ca *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error)
 CreateDelegatedOCSPSigner create OCSP signing certificate, if needed, or returns an existing one. if the delegation is not allowed, the CA Signer is returned
 
 <a name="Issuer.CrlExpiry"></a>
-### func \(\*Issuer\) [CrlExpiry](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L117>)
+### func \(\*Issuer\) [CrlExpiry](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L161>)
 
 ```go
 func (ca *Issuer) CrlExpiry() time.Duration
@@ -626,7 +635,7 @@ func (ca *Issuer) CrlExpiry() time.Duration
 CrlExpiry is duration for CRL next update interval
 
 <a name="Issuer.CrlRenewal"></a>
-### func \(\*Issuer\) [CrlRenewal](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L112>)
+### func \(\*Issuer\) [CrlRenewal](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L156>)
 
 ```go
 func (ca *Issuer) CrlRenewal() time.Duration
@@ -635,7 +644,7 @@ func (ca *Issuer) CrlRenewal() time.Duration
 CrlRenewal is duration for CRL renewal interval
 
 <a name="Issuer.CrlURL"></a>
-### func \(\*Issuer\) [CrlURL](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L72>)
+### func \(\*Issuer\) [CrlURL](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L116>)
 
 ```go
 func (ca *Issuer) CrlURL() string
@@ -653,7 +662,7 @@ func (ca *Issuer) GenCert(crypto cryptoprov.Provider, req *csr.CertificateReques
 GenCert creates certificate and stores key and certs to specified location
 
 <a name="Issuer.KeyHash"></a>
-### func \(\*Issuer\) [KeyHash](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L102>)
+### func \(\*Issuer\) [KeyHash](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L146>)
 
 ```go
 func (ca *Issuer) KeyHash(h crypto.Hash) []byte
@@ -662,7 +671,7 @@ func (ca *Issuer) KeyHash(h crypto.Hash) []byte
 KeyHash returns key hash
 
 <a name="Issuer.Label"></a>
-### func \(\*Issuer\) [Label](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L87>)
+### func \(\*Issuer\) [Label](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L131>)
 
 ```go
 func (ca *Issuer) Label() string
@@ -671,7 +680,7 @@ func (ca *Issuer) Label() string
 Label returns label of the issuer
 
 <a name="Issuer.NameHash"></a>
-### func \(\*Issuer\) [NameHash](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L107>)
+### func \(\*Issuer\) [NameHash](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L151>)
 
 ```go
 func (ca *Issuer) NameHash(h crypto.Hash) []byte
@@ -680,7 +689,7 @@ func (ca *Issuer) NameHash(h crypto.Hash) []byte
 NameHash returns name hash
 
 <a name="Issuer.OcspExpiry"></a>
-### func \(\*Issuer\) [OcspExpiry](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L122>)
+### func \(\*Issuer\) [OcspExpiry](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L166>)
 
 ```go
 func (ca *Issuer) OcspExpiry() time.Duration
@@ -689,7 +698,7 @@ func (ca *Issuer) OcspExpiry() time.Duration
 OcspExpiry is duration for OCSP next update interval
 
 <a name="Issuer.OcspURL"></a>
-### func \(\*Issuer\) [OcspURL](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L77>)
+### func \(\*Issuer\) [OcspURL](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L121>)
 
 ```go
 func (ca *Issuer) OcspURL() string
@@ -698,7 +707,7 @@ func (ca *Issuer) OcspURL() string
 OcspURL returns OCSP URL
 
 <a name="Issuer.PEM"></a>
-### func \(\*Issuer\) [PEM](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L67>)
+### func \(\*Issuer\) [PEM](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L111>)
 
 ```go
 func (ca *Issuer) PEM() string
@@ -707,7 +716,7 @@ func (ca *Issuer) PEM() string
 PEM returns PEM encoded certs for the issuer
 
 <a name="Issuer.Profile"></a>
-### func \(\*Issuer\) [Profile](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L127>)
+### func \(\*Issuer\) [Profile](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L171>)
 
 ```go
 func (ca *Issuer) Profile(name string) *CertProfile
@@ -716,7 +725,7 @@ func (ca *Issuer) Profile(name string) *CertProfile
 Profile returns CertProfile
 
 <a name="Issuer.Profiles"></a>
-### func \(\*Issuer\) [Profiles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L134>)
+### func \(\*Issuer\) [Profiles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L178>)
 
 ```go
 func (ca *Issuer) Profiles() map[string]*CertProfile
@@ -725,7 +734,7 @@ func (ca *Issuer) Profiles() map[string]*CertProfile
 Profiles returns CertProfiles
 
 <a name="Issuer.Sign"></a>
-### func \(\*Issuer\) [Sign](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L341>)
+### func \(\*Issuer\) [Sign](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L385>)
 
 ```go
 func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
@@ -743,7 +752,7 @@ func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error)
 SignOCSP return an OCSP response.
 
 <a name="Issuer.SignProof"></a>
-### func \(\*Issuer\) [SignProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L298>)
+### func \(\*Issuer\) [SignProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L342>)
 
 ```go
 func (ca *Issuer) SignProof(data []byte) (string, error)
@@ -752,7 +761,7 @@ func (ca *Issuer) SignProof(data []byte) (string, error)
 SignProof returns base64 URL encoded signature of the data
 
 <a name="Issuer.Signer"></a>
-### func \(\*Issuer\) [Signer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L97>)
+### func \(\*Issuer\) [Signer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L141>)
 
 ```go
 func (ca *Issuer) Signer() crypto.Signer
@@ -761,7 +770,7 @@ func (ca *Issuer) Signer() crypto.Signer
 Signer returns crypto.Signer
 
 <a name="Issuer.SubjectKID"></a>
-### func \(\*Issuer\) [SubjectKID](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L92>)
+### func \(\*Issuer\) [SubjectKID](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L136>)
 
 ```go
 func (ca *Issuer) SubjectKID() string
@@ -770,7 +779,7 @@ func (ca *Issuer) SubjectKID() string
 SubjectKID returns Subject Key ID
 
 <a name="Issuer.VerifyProof"></a>
-### func \(\*Issuer\) [VerifyProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L314>)
+### func \(\*Issuer\) [VerifyProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L358>)
 
 ```go
 func (ca *Issuer) VerifyProof(data []byte, proof string) error
@@ -779,7 +788,7 @@ func (ca *Issuer) VerifyProof(data []byte, proof string) error
 VerifyProof verifies the signature
 
 <a name="IssuerConfig"></a>
-## type [IssuerConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L49-L83>)
+## type [IssuerConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L53-L90>)
 
 IssuerConfig contains configuration info for the issuing certificate
 
@@ -813,7 +822,10 @@ type IssuerConfig struct {
     // AIA specifies AIA configuration
     AIA *AIAConfig `json:"aia,omitempty" yaml:"aia,omitempty"`
 
-    // AllowedProfiles if populated, allows only specified profiles
+    // AllowedProfiles, if populated, restricts the issuer to the listed
+    // profiles, both issuer-specific and wildcard (`issuer_label: "*"`)
+    // ones. If empty, the issuer gets its issuer-specific profiles and no
+    // wildcard profiles (XPKI-057).
     AllowedProfiles []string `json:"allowed_profiles" yaml:"allowed_profiles"`
 
     // Profiles are populated after loading
@@ -822,7 +834,7 @@ type IssuerConfig struct {
 ```
 
 <a name="IssuerConfig.Copy"></a>
-### func \(\*IssuerConfig\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L120>)
+### func \(\*IssuerConfig\) [Copy](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L127>)
 
 ```go
 func (c *IssuerConfig) Copy() *IssuerConfig
@@ -831,7 +843,7 @@ func (c *IssuerConfig) Copy() *IssuerConfig
 Copy returns new copy
 
 <a name="IssuerConfig.GetDisabled"></a>
-### func \(\*IssuerConfig\) [GetDisabled](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L140>)
+### func \(\*IssuerConfig\) [GetDisabled](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L147>)
 
 ```go
 func (c *IssuerConfig) GetDisabled() bool
