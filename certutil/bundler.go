@@ -1,6 +1,8 @@
 package certutil
 
 import (
+	"cmp"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -25,7 +27,11 @@ import (
 // When unspecified, downloaded intermediates are not saved.
 var IntermediateStash string
 
-// HTTPClient is an instance of http.Client that will be used for all HTTP requests.
+// HTTPClient is not read by this package.
+//
+// Deprecated: AIA downloads use the client passed to WithHTTPClient, or a
+// client with a 3s timeout when none is given; setting this variable has no
+// effect (XPKI-044).
 var HTTPClient = http.DefaultClient
 
 // BundleFlavor is named optimization strategy on certificate chain selection when bundling.
@@ -38,6 +44,14 @@ const (
 
 	// Force means the bundler only verifies the input as a valid bundle, not optimization is done.
 	Force BundleFlavor = "force"
+)
+
+const (
+	// defaultAIATimeout bounds one AIA request when the client has no Timeout.
+	defaultAIATimeout = 3 * time.Second
+	// maxAIAResponseSize bounds an AIA response body; larger responses are
+	// rejected rather than truncated.
+	maxAIAResponseSize = 1 << 20
 )
 
 const (
@@ -57,17 +71,18 @@ type Bundler struct {
 }
 
 type options struct {
-	keyUsages []x509.ExtKeyUsage
-	withAIA   bool
-	client    *http.Client
-	flavor    BundleFlavor
+	keyUsages   []x509.ExtKeyUsage
+	withAIA     bool
+	systemRoots bool
+	client      *http.Client
+	// flavor is empty unless WithBundleFlavor was given; NewBundler resolves it.
+	flavor BundleFlavor
 }
 
 var defaultOptions = options{
 	keyUsages: []x509.ExtKeyUsage{
 		x509.ExtKeyUsageAny,
 	},
-	flavor: Optimal,
 }
 
 // An Option sets options such as allowed key usages, etc.
@@ -81,8 +96,10 @@ func WithKeyUsages(usages ...x509.ExtKeyUsage) Option {
 	}
 }
 
-// WithBundleFlavor lets to specify bundle build Optimal or Force.
-// Force is by default
+// WithBundleFlavor selects Optimal or Force chain building. Without this
+// option the flavor is Optimal when the Bundler has trust roots (explicit
+// roots or WithSystemRoots) and Force otherwise. NewBundler rejects Optimal
+// without trust roots and any other flavor value; the last option wins.
 func WithBundleFlavor(flavor BundleFlavor) Option {
 	return func(o *options) {
 		o.flavor = flavor
@@ -96,7 +113,19 @@ func WithAIA(enable bool) Option {
 	}
 }
 
-// WithHTTPClient lets to specify http.Client for downloading AIA.
+// WithSystemRoots adds the platform trust store (x509.SystemCertPool) to the
+// explicit roots. It is the only way a Bundler trusts system roots: without
+// it, Optimal verification uses the explicit roots alone (XPKI-041).
+func WithSystemRoots(enable bool) Option {
+	return func(o *options) {
+		o.systemRoots = enable
+	}
+}
+
+// WithHTTPClient sets the client for AIA downloads. Each request is bounded
+// by the client's Timeout, or 3s when it is zero, and by the context given
+// to BundleContext. Only a 200 response of at most 1 MiB is parsed. Without
+// this option a client with a 3s timeout is used.
 func WithHTTPClient(client *http.Client) Option {
 	return func(o *options) {
 		o.client = client
@@ -141,7 +170,7 @@ func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler,
 
 // NewBundlerFromPEM creates a new Bundler from PEM-encoded root certificates and
 // intermediate certificates.
-// If caBundlePEM is nil, the resulting Bundler can only do "Force" bundle.
+// Without root certificates the default flavor is Force; see NewBundler.
 func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundler, error) {
 	roots, err := ParseChainFromPEM(rootBundlePEM)
 	if err != nil {
@@ -155,16 +184,31 @@ func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bund
 	return NewBundler(roots, intermediates, opt...)
 }
 
-// NewBundler returns Bundler
+// NewBundler returns a Bundler that trusts roots, plus the system roots with
+// WithSystemRoots, and uses intermediates to build chains. The flavor
+// defaults to Optimal with trust roots and to Force without them; Optimal
+// without trust roots is an error, so a Bundler never trusts system roots
+// implicitly. RootPool is nil only when there are no trust roots.
 func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundler, error) {
 	opts := defaultOptions
-
-	if len(roots) == 0 {
-		opts.flavor = Force
-	}
-
 	for _, o := range opt {
 		o(&opts)
+	}
+
+	hasRoots := len(roots) > 0 || opts.systemRoots
+	switch opts.flavor {
+	case "":
+		opts.flavor = Force
+		if hasRoots {
+			opts.flavor = Optimal
+		}
+	case Force:
+	case Optimal:
+		if !hasRoots {
+			return nil, errors.New("optimal bundle requires trust roots: provide roots or WithSystemRoots")
+		}
+	default:
+		return nil, errors.Errorf("unsupported bundle flavor %q", opts.flavor)
 	}
 
 	b := &Bundler{
@@ -173,8 +217,13 @@ func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundl
 		opts:             opts,
 	}
 
-	// RootPool will be nil if roots is empty
-	if len(roots) > 0 {
+	if opts.systemRoots {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			return nil, errors.WithMessage(err, "unable to load system roots")
+		}
+		b.RootPool = pool
+	} else if len(roots) > 0 {
 		b.RootPool = x509.NewCertPool()
 	}
 
@@ -191,11 +240,16 @@ func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundl
 	return b, nil
 }
 
-// VerifyOptions generates an x509 VerifyOptions structure that can be
-// used for verifying certificates.
+// VerifyOptions returns the x509.VerifyOptions used by Optimal bundling.
+// Roots is never nil: without a RootPool it is an empty pool, so the options
+// never fall back to the system roots.
 func (b *Bundler) VerifyOptions() x509.VerifyOptions {
+	roots := b.RootPool
+	if roots == nil {
+		roots = x509.NewCertPool()
+	}
 	return x509.VerifyOptions{
-		Roots:         b.RootPool,
+		Roots:         roots,
 		Intermediates: b.IntermediatePool,
 		KeyUsages:     b.opts.keyUsages,
 	}
@@ -228,6 +282,12 @@ func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*C
 // ChainFromPEM builds a certificate chain from the set of byte
 // slices containing the PEM or DER-encoded certificate(s), private key.
 func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain, error) {
+	return b.ChainFromPEMContext(context.Background(), certsRaw, keyPEM, password)
+}
+
+// ChainFromPEMContext is ChainFromPEM with a context that bounds and cancels
+// AIA downloads; see BundleContext.
+func (b *Bundler) ChainFromPEMContext(ctx context.Context, certsRaw, keyPEM []byte, password string) (*Chain, error) {
 	var key crypto.Signer
 	var err error
 	if len(keyPEM) != 0 {
@@ -249,7 +309,7 @@ func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain
 		return nil, errors.New("failed to parse certificates")
 	}
 
-	return b.Bundle(certs, key)
+	return b.BundleContext(ctx, certs, key)
 }
 
 type fetchedIntermediate struct {
@@ -260,43 +320,53 @@ type fetchedIntermediate struct {
 // fetchRemoteCertificate retrieves a single URL pointing to a certificate
 // and attempts to first parse it as a DER-encoded certificate; if
 // this fails, it attempts to decode it as a PEM-encoded certificate.
-func fetchRemoteCertificate(client *http.Client, certURL string) (fi *fetchedIntermediate, err error) {
+// The request is bounded by the client Timeout, or defaultAIATimeout when it
+// is zero, and by ctx. Only a 200 response of at most maxAIAResponseSize is
+// parsed; errors and logs never include the response body (XPKI-037).
+func fetchRemoteCertificate(ctx context.Context, client *http.Client, certURL string) (*fetchedIntermediate, error) {
 	logger.KV(xlog.DEBUG, "status", "fetching remote certificate", "url", certURL)
-	var resp *http.Response
-	resp, err = client.Get(certURL)
-	if err != nil {
-		logger.KV(xlog.DEBUG, "status", "failed HTTP get", "url", certURL, "err", err.Error())
-		return
-	}
 
+	ctx, cancel := context.WithTimeout(ctx, cmp.Or(client.Timeout, defaultAIATimeout))
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, certURL, nil)
+	if err != nil {
+		return nil, errors.Wrapf(err, "invalid AIA URL %s", certURL)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to fetch %s", certURL)
+	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
-	var certData []byte
-	certData, err = io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("unexpected HTTP status %d from %s", resp.StatusCode, certURL)
+	}
+
+	certData, err := io.ReadAll(io.LimitReader(resp.Body, maxAIAResponseSize+1))
 	if err != nil {
-		logger.KV(xlog.DEBUG, "status", "failed read body", "url", certURL, "err", err.Error())
-		return
+		return nil, errors.Wrapf(err, "failed to read %s", certURL)
+	}
+	if len(certData) > maxAIAResponseSize {
+		return nil, errors.Errorf("response from %s exceeds %d bytes", certURL, maxAIAResponseSize)
 	}
 
 	crt, err := x509.ParseCertificate(certData)
 	if err != nil {
-		logger.KV(xlog.DEBUG, "status", "failed to parse certificate", "data", string(certData), "err", err.Error())
-
 		crt, err = ParseFromPEM(certData)
 		if err != nil {
-			logger.KV(xlog.DEBUG, "status", "failed to parse certificate", "err", err.Error())
-			return
+			return nil, errors.WithMessagef(err, "failed to parse %d bytes from %s", len(certData), certURL)
 		}
 	}
 
-	fi = &fetchedIntermediate{Cert: crt, Name: constructCertFileName(crt)}
-	return
+	return &fetchedIntermediate{Cert: crt, Name: constructCertFileName(crt)}, nil
 }
 
 func httpClient(timeout time.Duration) *http.Client {
 	if timeout == 0 {
-		timeout = 3 * time.Second
+		timeout = defaultAIATimeout
 	}
 	c := &http.Client{
 		Timeout: timeout,
@@ -405,8 +475,10 @@ func constructCertFileName(cert *x509.Certificate) string {
 // the list of intermediates to be used for verification. This will
 // not add any new certificates to the root pool; if the ultimate
 // issuer is not trusted, fetching the certificate here will not change
-// that.
-func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
+// that. Each URL is requested at most once per call, whether it fails or
+// not (XPKI-039); a later call retries it. It stops with the context error
+// when ctx is done.
+func (b *Bundler) fetchIntermediates(ctx context.Context, certs []*x509.Certificate) error {
 	if IntermediateStash != "" {
 		if _, err := os.Stat(IntermediateStash); err != nil && os.IsNotExist(err) {
 			logger.KV(xlog.INFO, "reason", "creating intermediate stash directory", "folder", IntermediateStash)
@@ -417,8 +489,9 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 			}
 		}
 	}
-	// stores URLs and certificate signatures that have been seen
-	seen := map[string]bool{}
+	// AIA URLs requested and certificate signatures seen during this traversal
+	seenURLs := map[string]bool{}
+	seenCerts := map[string]bool{}
 	var foundChains int
 
 	// Construct a verify chain as a reversed partial bundle,
@@ -435,12 +508,12 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 		}
 
 		chain = append([]*fetchedIntermediate{{cert, name}}, chain...)
-		seen[string(cert.Signature)] = true
+		seenCerts[string(cert.Signature)] = true
 	}
 
 	client := b.opts.client
 	if client == nil {
-		client = httpClient(time.Second * 3)
+		client = httpClient(defaultAIATimeout)
 	}
 
 	// Verify the chain and store valid intermediates in the chain.
@@ -460,29 +533,34 @@ func (b *Bundler) fetchIntermediates(certs []*x509.Certificate) (err error) {
 			foundChains++
 		}
 		for _, url := range current.Cert.IssuingCertificateURL {
-			if seen[url] {
-
+			if seenURLs[url] {
 				continue
 			}
-			var crt *fetchedIntermediate
-			if b.opts.withAIA {
-				crt, err = fetchRemoteCertificate(client, url)
-				if err != nil {
-					continue
-				}
-
-				if seen[string(crt.Cert.Signature)] {
-					logger.KV(xlog.DEBUG, "status", "fetched certificate is known")
-					continue
-				}
-				seen[url] = true
-				seen[string(crt.Cert.Signature)] = true
-				chain = append([]*fetchedIntermediate{crt}, chain...)
-				advanced = true
-				break
-			} else {
+			if !b.opts.withAIA {
 				logger.KV(xlog.DEBUG, "reason", "AIA fetch disabled", "url", url)
+				continue
 			}
+
+			// Mark before fetching, so a failing URL is not retried on backtrack.
+			seenURLs[url] = true
+			crt, err := fetchRemoteCertificate(ctx, client, url)
+			if err != nil {
+				logger.KV(xlog.DEBUG, "reason", "AIA fetch failed", "url", url, "err", err.Error())
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return errors.Wrapf(ctxErr, "AIA fetch of %s interrupted", url)
+				}
+				continue
+			}
+
+			sig := string(crt.Cert.Signature)
+			if seenCerts[sig] {
+				logger.KV(xlog.DEBUG, "status", "fetched certificate is known", "url", url)
+				continue
+			}
+			seenCerts[sig] = true
+			chain = append([]*fetchedIntermediate{crt}, chain...)
+			advanced = true
+			break
 		}
 
 		if !advanced {
@@ -539,6 +617,14 @@ func (b *Chain) buildHostnames() {
 // formats (i.e. *rsa.PrivateKey or *ecdsa.PrivateKey, or even a opaque key), using them to
 // build a certificate bundle.
 func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, error) {
+	return b.BundleContext(context.Background(), certs, key)
+}
+
+// BundleContext is Bundle with a context that bounds and cancels AIA
+// downloads. When ctx is done during an AIA download, the returned error
+// matches ctx.Err() with errors.Is. An Optimal Bundler whose RootPool is nil
+// fails instead of verifying against the system roots.
+func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, key crypto.Signer) (*Chain, error) {
 	if len(certs) == 0 {
 		return nil, nil
 	}
@@ -599,6 +685,10 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 		}
 		bundle.Chain = certs
 	} else {
+		// XPKI-041: x509.Verify with nil Roots would use the system roots.
+		if b.RootPool == nil {
+			return nil, errors.New("no trust roots configured")
+		}
 		// disallow self-signed cert
 		if cert.CheckSignatureFrom(cert) == nil {
 			return nil, errors.New("self-signed certificate")
@@ -615,9 +705,12 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 				return nil, errors.WithMessage(err, "unable to verify the certificate chain")
 			}
 
-			searchErr := b.fetchIntermediates(certs)
+			searchErr := b.fetchIntermediates(ctx, certs)
 			if searchErr != nil {
 				logger.KV(xlog.DEBUG, "reason", "search failed", "err", searchErr.Error())
+				if ctx.Err() != nil {
+					return nil, errors.WithMessage(searchErr, "unable to verify the certificate chain")
+				}
 				return nil, errors.WithMessage(err, "unable to verify the certificate chain")
 			}
 

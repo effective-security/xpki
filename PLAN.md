@@ -19,6 +19,7 @@ below and excluded from the pending queue.
 | TP1 | [XPKI-017-testprov](FINDINGS.md#xpki-017-testprov--tp1) | **Fixed** (testprov portion) | 2026-09-20 |
 | IM1 | [XPKI-017-inmemcrypto](FINDINGS.md#xpki-017--im1) | **Fixed** (completes XPKI-017) | 2026-09-21 |
 | AU1 | [XPKI-049](FINDINGS.md#xpki-049--au1), [XPKI-050](FINDINGS.md#xpki-050--au1), [XPKI-054](FINDINGS.md#xpki-054--au1), [XPKI-057](FINDINGS.md#xpki-057--au1) | **Fixed** | 2026-09-24 |
+| CU1 | [XPKI-037](FINDINGS.md#xpki-037--cu1), [XPKI-041](FINDINGS.md#xpki-041--cu1), [XPKI-039](FINDINGS.md#xpki-039--cu1), [XPKI-044](FINDINGS.md#xpki-044--cu1) | **Fixed** | 2026-09-24 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -163,6 +164,43 @@ dropped with `omit_disabled_extensions`). CSR `otherName` SANs are no longer
 issued. An RA sending only `NotAfter = now + expiry` must shorten it by the
 backdate.
 
+**CU1 / XPKI-037, 041, 039, 044 — Fixed on 2026-09-24:** approved decisions
+were an explicit system-root opt-in (041) and a new context-aware entry
+point (037).
+
+- **041.** `WithSystemRoots(bool)` is the only way to trust
+  `x509.SystemCertPool()`. The flavor is resolved after all options: Optimal
+  with trust roots, Force without them, and the last `WithBundleFlavor`
+  wins. `NewBundler` rejects Optimal without trust roots and unknown
+  flavors. `VerifyOptions().Roots` is never nil, and an Optimal `Bundle`
+  with a nil `RootPool` fails. `xpki-tool cert validate` uses
+  `WithSystemRoots` instead of assigning `RootPool`.
+- **037.** `BundleContext`/`ChainFromPEMContext` are new, and
+  `Bundle`/`ChainFromPEM` delegate with `context.Background()`. Each AIA
+  request uses `NewRequestWithContext` with a deadline of the client
+  `Timeout`, or 3s when it is zero. Only a 200 response of at most 1 MiB is
+  parsed, and body bytes are never logged or returned.
+- **039.** A URL is marked as seen before it is fetched, so it is requested
+  at most once per call. The next call retries it.
+- **044.** `HTTPClient` is marked `Deprecated` as unused; it was not
+  activated.
+
+Docs: codemap invariants and test layout, the `certutil/doc.go` example
+(compiled), a README trust note, and regenerated API docs.
+
+Validation: before the fix, the new tests showed the unfixed code accepting
+non-200 and 2 MiB responses, hanging on a stalled server, logging the body,
+and fetching a failing URL 2·depth+1 times. A subprocess probe with
+`SSL_CERT_FILE` showed Optimal without roots trusting the system root, and
+`cert validate --root <empty>` accepted the chain. After the fix,
+`make test RACE=true TEST_FLAGS=-count=1` passed with SoftHSM/local-kms
+fixtures, and `make lint` passed with zero issues. `make build docs` passed,
+and `make covtest` passed at **90.4%** aggregate. Benchmark evidence for 039
+is in the performance table. Compatibility: Optimal without roots is now an
+error rather than ambient system trust. A root file without certificates no
+longer degrades `cert validate` to Force. Non-200 or >1 MiB AIA responses
+are rejected.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -206,7 +244,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| CU1 | `certutil` | 037, 041, 039, 044 | P1 / 36 | High: trust roots, network limits, AIA recovery | Trust semantics for 041 |
 | JW1 | `jwt` | 070, 071, 072 | P1 / 36 | High: rotation, cancellation, key selection | Missing-kid and PublicKeys contract |
 | DP1 | `jwt/dpop` | 075, 076, 074 | P1 / 36 | High: proof acceptance and public verification API | 075 |
 | AT1 | `jwt/accesstoken` | 078, 079 | P1 / 36 | High: existing perpetual tokens and nil-provider contract | 078 |
@@ -246,8 +283,10 @@ Execution dependencies:
 
 - AU1 is **Fixed (2026-09-24)**. AU2 remains a separate review; its lock
   changes must keep the AU1 extension and validity rules in `Issuer.Sign`.
-- Specify CU1's trust/client options before CU2 changes cache ownership.
-  Keep CU2 independently reviewable; avoid holding a global mutex during AIA I/O.
+- CU1 is **Fixed (2026-09-24)**: trust/client options are specified
+  (`WithSystemRoots`, `BundleContext`, per-traversal URL set). CU2 must keep
+  them when it changes cache ownership. Keep CU2 independently reviewable;
+  avoid holding a global mutex during AIA I/O.
 - CU4 precedes XC1's nil-issuer assertion update. The CLI portion must verify
   propagation even though the nil check belongs in `certutil`.
 - GC2 must keep generation, lookup, export, signing, and destruction on the
@@ -344,10 +383,10 @@ performance benchmark. Fixture scope 100-authority belongs to AU2 below.
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-037 — HIGH / security / 36 | [fetchRemoteCertificate](certutil/bundler.go) uses `client.Get`, accepts non-success status, reads an unbounded body, and logs invalid response bytes. Add request context, a finite timeout even for configured clients, a body limit, status validation, and bounded diagnostics. | **Partial:** `TestBundlerAIA` covers DER/PEM, malformed and truncated data, and disabled AIA using a local server. Add oversized/chunked bodies, non-2xx carrying valid certificate bytes, stalled responses, cancellation, and absence of response-body logging. Keep valid DER/PEM behavior. |
-| XPKI-041 — HIGH / security / 36 | [NewBundler](certutil/bundler.go) sets Force for no roots, but a later Optimal option overrides that while RootPool stays nil. Specify explicit system-root opt-in versus empty/custom trust; Optimal must not acquire ambient trust accidentally. | **Absent for this combination:** chain tests use explicit roots or Force. Add nil/empty roots × every flavor and option ordering. Verify unknown roots fail deterministically; use isolated subprocess root configuration if testing system trust rather than depending on a developer machine's roots. |
-| XPKI-039 — MEDIUM / performance / 22 | `fetchIntermediates` marks a URL seen only after successful, new-certificate retrieval. Track attempts per traversal before fetching, bounding repeated failing/duplicate AIA requests while allowing later calls to retry. | **Partial:** AIA tests count successful cache hits, but failure assertions only require a positive request count. Add repeated failure URLs across a multi-level chain and exact per-call request counts, plus recovery on a subsequent call. |
-| XPKI-044 — LOW / docs / 11 | Exported `HTTPClient` in [bundler.go](certutil/bundler.go) is not used; the options client is used. Correct the documentation and direct callers to `WithHTTPClient`; deprecate the unused variable deliberately if appropriate. | **Partial:** AIA tests exercise the option client, not the global. Assert an injected transport is used. Do not suddenly activate mutable global state while calling this a documentation fix. |
+| XPKI-037 — HIGH / security / 36 — **Fixed (CU1, 2026-09-24)** | [fetchRemoteCertificate](certutil/bundler.go) uses `NewRequestWithContext` with the `BundleContext` context and a deadline of the client `Timeout` (3s when zero), accepts only 200, rejects bodies over 1 MiB, and never logs or returns body bytes. | **Covered:** [bundler_aia_test.go](certutil/bundler_aia_test.go) covers 200 DER/PEM at the limit, non-2xx with valid bytes, oversized chunked bodies, a stalled server with a zero-timeout client, cancellation via `BundleContext`, and log content; `TestBundlerAIA` keeps DER/PEM/malformed/disabled behavior. |
+| XPKI-041 — HIGH / security / 36 — **Fixed (CU1, 2026-09-24)** | [NewBundler](certutil/bundler.go) resolves the flavor after all options, rejects Optimal without trust roots and unknown flavors, and trusts system roots only with `WithSystemRoots`; `VerifyOptions().Roots` is never nil and an Optimal `Bundle` with a nil `RootPool` fails. | **Covered:** `TestNewBundlerTrustRoots` (nil/empty/explicit roots × default/Force/Optimal/both orders, unknown root, unknown flavor, cleared `RootPool`), subprocess `TestBundlerSystemRoots` with `SSL_CERT_FILE`/`SSL_CERT_DIR`, and CLI `validate_empty_roots`. |
+| XPKI-039 — MEDIUM / performance / 22 — **Fixed (CU1, 2026-09-24)** | `fetchIntermediates` marks each URL seen before fetching; failing and duplicate URLs are requested once per call and retried on the next call. | **Covered:** `TestBundlerAIARequestsPerTraversal` (exact per-path counts at depth 1/2/4, warm call makes none), `TestBundlerAIARetriesOnNextCall`, and `BenchmarkBundlerAIAFailingURL`. |
+| XPKI-044 — LOW / docs / 11 — **Fixed (CU1, 2026-09-24)** | `HTTPClient` is marked `Deprecated` and documented as never read; `WithHTTPClient` documents the request rules. The global was not activated. | **Covered:** `TestBundlerAIAUsesInjectedClient` asserts the injected transport carries the request. |
 | XPKI-035 — HIGH / race / 34 | `verifyChain` and `fetchIntermediates` mutate KnownIssuers and IntermediatePool. Make simultaneous Bundle calls safe through coordinated snapshots/cache updates; address exported fields' mutation contract. | **Partial:** [bundler_coverage_test.go](certutil/bundler_coverage_test.go) checks real chains/cache contents but is serial and restores the global stash. Add shared-bundler concurrent cache-hit and AIA-miss calls with immutable fixtures prepared before the goroutines, then run `-race`. Include unchanged chain ranking and bounded duplicate fetches. |
 | XPKI-036 — MEDIUM / bug / 25 | `Bundle` returns `(nil, nil)` for empty input. After the existing decision, return a clear input error for nil and empty certificate slices. | **Characterization:** `TestBundlerChainBehavior` explicitly requires nil chain and no error. Replace this expectation with exact error behavior and test downstream callers; do not merely add a new test elsewhere. |
 | XPKI-042 — MEDIUM / bug / 25 | [BuildBundle](certutil/bundle.go) dereferences the input chain, its certificate, and status. Validate required members and return an error, or initialize an optional status according to the contract. | **Partial:** bundle-loading tests cover fully populated chains. Add nil chain/certificate/status separately, plus legitimate rootless Force output so validation does not reject a supported chain shape. |
@@ -356,11 +395,12 @@ performance benchmark. Fixture scope 100-authority belongs to AU2 below.
 | XPKI-103-certutil — MEDIUM / bug / 25 | [CreateOCSPRequest](certutil/ocsp.go) dereferences crt/issuer before checking either. Return wrapped invalid-input errors before any work. | **Partial:** `Test_LoadAndVerifyBundleFromPEM` checks valid and mismatched issuers. The nil panic is only characterized in CLI tests. Add package-local black-box nil certificate, nil issuer, both nil, valid chain, and mismatch cases. |
 | XPKI-043 — MEDIUM / correctness / 23 | [GetKeyDERFromPEM / ParsePrivateKeyPEMWithPassword](certutil/pem.go) handles legacy PEM encryption but does not decrypt encrypted PKCS#8 containers. Define supported encryption formats; implement explicit support or report an accurate unsupported-format error and correct the claim. | **Partial:** `TestPEMMalformedInputs` covers malformed legacy encryption and unencrypted PKCS#8, not an encrypted PKCS#8 round trip. Add generated encrypted RSA/EC samples, correct/wrong/missing password, malformed parameters, and preserved existing formats. Supporting one scheme must not be documented as supporting all PKCS#8 encryption. |
 
-CU1/CU2 can regress trust and cache behavior; test chain output, root selection,
+CU1 is Fixed; its compatibility notes are recorded under Completed batches.
+CU2 can regress trust and cache behavior; test chain output, root selection,
 timeouts, and successful AIA recovery together. CU3 has medium contract risk,
 CU4 low input-validation risk, and CU5 medium encoding/dependency risk.
-**Benchmarks:** required before CU1's 039 optimization (network requests per
-traversal and allocations across chain depth) and CU2's cache/locking change
+**Benchmarks:** CU1's 039 comparison is recorded in the performance table;
+still required before CU2's cache/locking change
 (warm/cold Bundle, serial/parallel, clone cost versus cache size). CU4 fixture
 changes and the other helpers need no benchmark. See 099/100 scopes below.
 
@@ -681,7 +721,7 @@ Other baselines below still need to be created where marked required.
 | 024 (GC3) | **Required**, using deterministic timing | retry count, readiness/cancellation latency, allocations; distinguish wall time from CPU work |
 | 032 (AW2) | **Required** | ListKeys/DescribeKey counts, size/page/selectivity scaling, throttling, peak concurrency |
 | 035 (CU2) | **Required** for pool-copy/locking choice | serial/parallel Bundle, cache size, AIA misses, allocations and contention |
-| 039 (CU1) | **Required**, with request counters | repeated URL failures per traversal, chain-depth scaling, subsequent-call recovery |
+| 039 (CU1) — **Fixed** | **Recorded before/after comparison** (`BenchmarkBundlerAIAFailingURL`, `-count=5 -cpu=1,4`, benchstat p=0.008) | depth 1/2/4/8: failed requests 3/5/9/17 → 1, total requests 4/7/13/25 → 2/3/5/9; wall time −10–18% on loopback, B/op −39–45%, allocs/op −25–30%; subsequent-call recovery covered by `TestBundlerAIARetriesOnNextCall` |
 | 052 (AU2) | **Required** for responder coordination redesign | warm cache, simultaneous cold start, renewal, and latency outside crypto work |
 | 055 (AU3) | **Recommended**; conditional on lock/copy design | lookup and profile snapshot costs as registry size/readers grow |
 | 062, 107 (TC1) — **Fixed** | **Not required**; generation/signing remain outside the serial mutex | verified unique serials/names, signed certificates, and option ownership with synchronized workers and the race detector |

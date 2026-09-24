@@ -43,7 +43,7 @@ Package cli implements the xpki\-tool command tree: csr\-info, cert info/validat
 
 
 <a name="CRLValidation"></a>
-## func [CRLValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L336>)
+## func [CRLValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L327>)
 
 ```go
 func CRLValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error)
@@ -52,7 +52,7 @@ func CRLValidation(ctx context.Context, client *http.Client, crt *x509.Certifica
 CRLValidation calls CRL Endpoint and check certificate in CRL
 
 <a name="OCSPValidation"></a>
-## func [OCSPValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L309>)
+## func [OCSPValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L300>)
 
 ```go
 func OCSPValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, []byte, error)

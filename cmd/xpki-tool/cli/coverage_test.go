@@ -346,6 +346,11 @@ func TestPKICommandInputErrors(t *testing.T) {
 			Cert: f.leafFile,
 			Root: missing,
 		}, "unable to load Root bundle"},
+		// XPKI-041: a root file without certificates must not fall back to Force.
+		{"validate empty roots", &cli.CertValidateCmd{
+			Cert: f.leafFile,
+			Root: empty,
+		}, "unable to create bundler: optimal bundle requires trust roots"},
 		{"validate malformed CA", &cli.CertValidateCmd{
 			Cert: f.leafFile,
 			CA:   bad,
