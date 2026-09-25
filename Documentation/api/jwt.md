@@ -164,7 +164,7 @@ var (
 ```
 
 <a name="CopyUserInfoClaims"></a>
-## func [CopyUserInfoClaims](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L944>)
+## func [CopyUserInfoClaims](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L946>)
 
 ```go
 func CopyUserInfoClaims(src, dst MapClaims)
@@ -191,7 +191,7 @@ func EncodeSegment(seg []byte) string
 EncodeSegment returns JWT specific base64url encoding with padding stripped
 
 <a name="SetClaimsExpiration"></a>
-## func [SetClaimsExpiration](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L953>)
+## func [SetClaimsExpiration](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L955>)
 
 ```go
 func SetClaimsExpiration(claims MapClaims, expiry time.Duration)
@@ -223,7 +223,7 @@ type AlgorithmKeySet interface {
 ```
 
 <a name="Audience"></a>
-## type [Audience](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L905>)
+## type [Audience](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L907>)
 
 Audience represents the recipients that the token is intended for.
 
@@ -232,7 +232,7 @@ type Audience []string
 ```
 
 <a name="Audience.Contains"></a>
-### func \(Audience\) [Contains](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L935>)
+### func \(Audience\) [Contains](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L937>)
 
 ```go
 func (s Audience) Contains(expected string) bool
@@ -241,7 +241,7 @@ func (s Audience) Contains(expected string) bool
 Contains returns true if audience contains expected value
 
 <a name="Audience.UnmarshalJSON"></a>
-### func \(\*Audience\) [UnmarshalJSON](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L908>)
+### func \(\*Audience\) [UnmarshalJSON](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L910>)
 
 ```go
 func (s *Audience) UnmarshalJSON(b []byte) error
@@ -417,7 +417,7 @@ type MapClaims map[string]any
 ```
 
 <a name="CreateClaims"></a>
-### func [CreateClaims](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L964>)
+### func [CreateClaims](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L966>)
 
 ```go
 func CreateClaims(jti, subject, issuer string, audience []string, expiry time.Duration, extraClaims MapClaims) MapClaims
@@ -453,7 +453,7 @@ func (c MapClaims) CNF() *Cnf
 CNF returns DPoP cnf claim
 
 <a name="MapClaims.Int"></a>
-### func \(MapClaims\) [Int](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L498>)
+### func \(MapClaims\) [Int](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L500>)
 
 ```go
 func (c MapClaims) Int(k string) int
@@ -462,7 +462,7 @@ func (c MapClaims) Int(k string) int
 Int will return the named claim as an int. Values that do not fit in an int, or cannot be parsed, return 0.
 
 <a name="MapClaims.Int64"></a>
-### func \(MapClaims\) [Int64](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L629>)
+### func \(MapClaims\) [Int64](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L631>)
 
 ```go
 func (c MapClaims) Int64(k string) int64
@@ -534,7 +534,7 @@ func (c MapClaims) To(val any) error
 To converts the claims to the value pointed to by v.
 
 <a name="MapClaims.UInt64"></a>
-### func \(MapClaims\) [UInt64](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L568>)
+### func \(MapClaims\) [UInt64](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L570>)
 
 ```go
 func (c MapClaims) UInt64(k string) uint64
@@ -543,7 +543,7 @@ func (c MapClaims) UInt64(k string) uint64
 UInt64 will return the named claim as an uint64. Negative values, values that do not fit in an uint64, or values that cannot be parsed, return 0.
 
 <a name="MapClaims.Valid"></a>
-### func \(MapClaims\) [Valid](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L797>)
+### func \(MapClaims\) [Valid](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L799>)
 
 ```go
 func (c MapClaims) Valid(cfg *VerifyConfig) error
@@ -552,7 +552,7 @@ func (c MapClaims) Valid(cfg *VerifyConfig) error
 Valid returns error if the standard claims are invalid
 
 <a name="MapClaims.VerifyAudience"></a>
-### func \(MapClaims\) [VerifyAudience](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L685>)
+### func \(MapClaims\) [VerifyAudience](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L687>)
 
 ```go
 func (c MapClaims) VerifyAudience(expected []string) error
@@ -561,7 +561,7 @@ func (c MapClaims) VerifyAudience(expected []string) error
 VerifyAudience compares the aud claim against expected.
 
 <a name="MapClaims.VerifyExpiresAt"></a>
-### func \(MapClaims\) [VerifyExpiresAt](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L719>)
+### func \(MapClaims\) [VerifyExpiresAt](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L721>)
 
 ```go
 func (c MapClaims) VerifyExpiresAt(now time.Time, req bool) error
@@ -570,7 +570,7 @@ func (c MapClaims) VerifyExpiresAt(now time.Time, req bool) error
 VerifyExpiresAt returns true issued at is valid.
 
 <a name="MapClaims.VerifyIssuedAt"></a>
-### func \(MapClaims\) [VerifyIssuedAt](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L735>)
+### func \(MapClaims\) [VerifyIssuedAt](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L737>)
 
 ```go
 func (c MapClaims) VerifyIssuedAt(now time.Time, req bool) error
@@ -579,7 +579,7 @@ func (c MapClaims) VerifyIssuedAt(now time.Time, req bool) error
 VerifyIssuedAt verifies the iat claim.
 
 <a name="MapClaims.VerifyIssuer"></a>
-### func \(MapClaims\) [VerifyIssuer](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L767>)
+### func \(MapClaims\) [VerifyIssuer](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L769>)
 
 ```go
 func (c MapClaims) VerifyIssuer(expected string) error
@@ -588,7 +588,7 @@ func (c MapClaims) VerifyIssuer(expected string) error
 VerifyIssuer compares the iss claim against expected.
 
 <a name="MapClaims.VerifyNotBefore"></a>
-### func \(MapClaims\) [VerifyNotBefore](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L751>)
+### func \(MapClaims\) [VerifyNotBefore](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L753>)
 
 ```go
 func (c MapClaims) VerifyNotBefore(now time.Time, req bool) error
@@ -597,7 +597,7 @@ func (c MapClaims) VerifyNotBefore(now time.Time, req bool) error
 VerifyNotBefore verifies the nbf claim.
 
 <a name="MapClaims.VerifySubject"></a>
-### func \(MapClaims\) [VerifySubject](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L782>)
+### func \(MapClaims\) [VerifySubject](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L784>)
 
 ```go
 func (c MapClaims) VerifySubject(expected string) error
@@ -606,7 +606,7 @@ func (c MapClaims) VerifySubject(expected string) error
 VerifySubject compares the sub claim against expected.
 
 <a name="NumericDate"></a>
-## type [NumericDate](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L839>)
+## type [NumericDate](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L841>)
 
 NumericDate represents date and time as the number of seconds since the epoch, ignoring leap seconds. Non\-integer values can be represented in the serialized format \(RFC 7519 Section 2\); they are accepted on input and truncated to whole seconds, and always serialized as integers. See RFC7519 Section 2: https://tools.ietf.org/html/rfc7519#section-2
 
@@ -615,7 +615,7 @@ type NumericDate int64
 ```
 
 <a name="NewNumericDate"></a>
-### func [NewNumericDate](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L842>)
+### func [NewNumericDate](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L844>)
 
 ```go
 func NewNumericDate(t time.Time) *NumericDate
@@ -624,7 +624,7 @@ func NewNumericDate(t time.Time) *NumericDate
 NewNumericDate constructs NumericDate from time.Time value.
 
 <a name="NumericDate.MarshalJSON"></a>
-### func \(NumericDate\) [MarshalJSON](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L856>)
+### func \(NumericDate\) [MarshalJSON](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L858>)
 
 ```go
 func (n NumericDate) MarshalJSON() ([]byte, error)
@@ -633,7 +633,7 @@ func (n NumericDate) MarshalJSON() ([]byte, error)
 MarshalJSON serializes the given NumericDate into its JSON representation.
 
 <a name="NumericDate.Time"></a>
-### func \(\*NumericDate\) [Time](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L897>)
+### func \(\*NumericDate\) [Time](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L899>)
 
 ```go
 func (n *NumericDate) Time() time.Time
@@ -642,7 +642,7 @@ func (n *NumericDate) Time() time.Time
 Time returns time.Time representation of NumericDate.
 
 <a name="NumericDate.UnmarshalJSON"></a>
-### func \(\*NumericDate\) [UnmarshalJSON](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L863>)
+### func \(\*NumericDate\) [UnmarshalJSON](<https://github.com/effective-security/xpki/blob/main/jwt/claims.go#L865>)
 
 ```go
 func (n *NumericDate) UnmarshalJSON(b []byte) error

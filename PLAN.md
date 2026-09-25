@@ -3,8 +3,9 @@
 Reviewed against the working tree at `70307a9` on **2026-09-20**. Covers all
 **73 supplied findings**, including items marked **Needs Approval**, plus
 **XPKI-106**, discovered during the test review, and **XPKI-107**, discovered
-and fixed during TC1, and **XPKI-108**, discovered during DP1. All three are recorded in [FINDINGS.md](FINDINGS.md) as
-required by AGENTS.md: **76 findings total**.
+and fixed during TC1, **XPKI-108**, discovered during DP1, and **XPKI-109**,
+discovered during the AT1 review. All four are recorded in [FINDINGS.md](FINDINGS.md) as
+required by AGENTS.md: **77 findings total**.
 Pending assessments retain the original planning evidence. Fixed entries
 record the implementation and validation; completed batches are retained
 below and excluded from the pending queue.
@@ -22,6 +23,7 @@ below and excluded from the pending queue.
 | CU1 | [XPKI-037](FINDINGS.md#xpki-037--cu1), [XPKI-041](FINDINGS.md#xpki-041--cu1), [XPKI-039](FINDINGS.md#xpki-039--cu1), [XPKI-044](FINDINGS.md#xpki-044--cu1) | **Fixed** | 2026-09-24 |
 | JW1 | [XPKI-070](FINDINGS.md#xpki-070--jw1), [XPKI-071](FINDINGS.md#xpki-071--jw1), [XPKI-072](FINDINGS.md#xpki-072--jw1) | **Fixed** | 2026-09-24 |
 | DP1 | [XPKI-075](FINDINGS.md#xpki-075--dp1), [XPKI-076](FINDINGS.md#xpki-076--dp1), [XPKI-074](FINDINGS.md#xpki-074--dp1) | **Fixed** | 2026-09-24 |
+| AT1 | [XPKI-078](FINDINGS.md#xpki-078--at1), [XPKI-079](FINDINGS.md#xpki-079--at1) | **Fixed** | 2026-09-25 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -291,6 +293,46 @@ rerun. Compatibility: path case now matters in `htu`, while scheme/host case,
 default ports and escaping no longer do. The new checks apply only when
 their fields are set.
 
+**AT1 / XPKI-078, 079 (2026-09-25).** Decisions: `WithTokenExpiry` takes
+precedence over the inner provider's `TokenExpiry`; if neither is positive,
+`Sign` fails (no built-in default). A caller-supplied `exp` is kept, even
+past the lifetime, and normalized to NumericDate. `ParseToken` rejects
+`pat.` tokens without `exp` unless `WithAllowNoExpiry` is set for migration.
+`New` gained variadic options (existing calls compile), and `TokenPrefix` is
+exported.
+
+- **078.** `Sign` copies the claims, normalizes present `exp`/`iat`/`nbf` to
+  NumericDate (rejecting unparsable ones), and adds `exp`/`iat`/`nbf` (the
+  last two only when absent) via `jwt.TimeNowFn`. `TokenExpiry()` reports
+  the effective lifetime (negative → 0). `ParseToken` requires `exp`; under
+  the opt-in an unparsable `exp` is still rejected (`invalid exp claim`),
+  and revocation still applies.
+- **079.** With a nil `dp`, `PublicKey` returns nil (no fallback to the inner
+  provider's key), and `pat.` `Sign`/`ParseToken` return `data protection
+  not configured`. Plain JWTs still delegate.
+
+Docs: `doc.go` usage (compiled by `ExampleNew`), codemap rules and concept
+row, and regenerated API docs.
+
+Validation: a scratch test on a HEAD worktree accepted a token 100 years
+after signing with an 8h inner provider, and `New(nil, nil).PublicKey()`
+panicked. After the fix, `TestSign_Expiry`, `TestSign_CallerClaims`,
+`TestParse_ExpiryBoundary`, `TestParse_LegacyNoExpiry` and `TestPublicKey`
+pass. `go test ./jwt/accesstoken -race -count=5`, `make test RACE=true`
+(SoftHSM/local-kms) and `make lint` (0 issues) passed. `make build docs`
+passed, and `make covtest` passed at **90.8%** aggregate
+(`jwt/accesstoken` 94.0%, `PublicKey` 0% → 100%). No benchmark was needed.
+Compatibility: `New(dp, nil).Sign` without `exp` needs `WithTokenExpiry`,
+parsed claims include the added time claims, and legacy tokens without `exp`
+need `WithAllowNoExpiry`. A `/code-review` pass found that only `exp` was
+normalized, so a `time.Time` `nbf` was not enforced; `iat`/`nbf` are now
+normalized (the new cases fail with the `exp`-only version), with the
+accurate `invalid exp claim` error, the negative `TokenExpiry()` reported
+as 0, and multi-line test tables. The same `time.Time` gap in `jwt` is new
+open finding **XPKI-109** (needs approval; unscheduled). Review items that
+contradict the approved policy (capping or rejecting a caller `exp`) were
+not applied.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -334,7 +376,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| AT1 | `jwt/accesstoken` | 078, 079 | P1 / 36 | High: existing perpetual tokens and nil-provider contract | 078 |
 | AU2 | `authority` | 051, 052, 053; 100-authority | P1 / 35 | High: lock order, renewal, fallback signing | Specify renewal failure behavior |
 | PK1 | `crypto11` | 001, 002, 003, 005, 007; 100-crypto11 | P1 / 35 | High: module ownership and active HSM operations | Shared-module close contract |
 | PK2 | `crypto11` | 011, 006 | P1 / 35 | High: native attribute width and token selection | Checked conversion API if needed |
@@ -535,13 +576,12 @@ clients.
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-078 — HIGH / security / 36 | [Sign](jwt/accesstoken/accesstoken.go) encrypts supplied claims unchanged; TokenExpiry is unused. Adopt explicit expiry/default/max-lifetime and legacy-token policy. New tokens should receive an expiry when omitted, while caller-supplied expiry is preserved or bounded as agreed. | **Partial/characterization:** `TestAT` expects an unchanged map without exp; `TestATExpired` proves only caller-provided exp enforcement. Add absent exp, configured/default/zero lifetime, expiration boundary, existing perpetual tokens, and caller-map non-mutation; retain revocation and inner-JWT fallback tests. |
-| XPKI-079 — MEDIUM / bug / 25 | PublicKey dereferences nil dp, while other methods recognize optional inner-provider state. Define nil-dp construction/accessor behavior and avoid panic. | **Absent:** profile reports PublicKey 0%. Add non-nil symmetric provider, nil dp with/without an inner provider, and assert the exact returned public key or documented nil result. |
+| XPKI-078 — HIGH / security / 36 — **Fixed (AT1, 2026-09-25)** | [Sign](jwt/accesstoken/accesstoken.go) encrypted the supplied claims unchanged and ignored TokenExpiry. It now copies the claims, keeps and normalizes caller `exp`/`iat`/`nbf` (rejecting unparsable ones), and otherwise adds `exp` = now + `TokenExpiry()` (`WithTokenExpiry`, else the inner provider's) with `iat`/`nbf` when absent; a non-positive lifetime fails. `ParseToken` rejects `pat.` tokens without a parsable `exp` unless `WithAllowNoExpiry`. | **Verified:** `TestSign_Expiry` (option, inner, option over inner, zero, unset, negative), `TestSign_CallerClaims` (seven `exp` encodings kept past the lifetime, caller `iat`/`nbf` including `time.Time`, a future `time.Time` `nbf` enforced, invalid `exp`/`iat`/`nbf`, caller-map non-mutation), `TestParse_ExpiryBoundary` (valid at `exp`, expired one second later), `TestParse_LegacyNoExpiry` (default rejection, opt-in, revocation, unparsable `exp`). `TestAT`/`TestATWithProvider` assert the exact added claims; revocation and inner-JWT tests retained. |
+| XPKI-079 — MEDIUM / bug / 25 — **Fixed (AT1, 2026-09-25)** | PublicKey dereferenced a nil dp. A nil dp is now a documented state: `PublicKey` returns nil and `pat.` `Sign`/`ParseToken` return `data protection not configured`; plain JWTs still delegate. | **Verified:** `TestPublicKey` checks symmetric dp with and without an inner provider (nil), the exact key of a stub asymmetric dp, and nil dp with and without an inner provider (nil key, exact errors, plain JWT parses). `PublicKey` coverage 0% → 100%. |
 
 Tests live in [accesstoken_test.go](jwt/accesstoken/accesstoken_test.go).
-Regression risk is high for 078 and low–medium for 079. No benchmark is needed
-for expiry assignment or a nil guard; changing encryption format/rotation
-would be separate work.
+AT1 is **Fixed (2026-09-25)**. No benchmark was needed; encryption format
+and key rotation are unchanged (see DT1 and ROADMAP).
 
 ### crypto11 — PK1, PK2
 

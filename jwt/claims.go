@@ -452,6 +452,8 @@ func (c MapClaims) Time(k string) *time.Time {
 		t := time.Unix(unix, 0)
 		return &t
 	case string:
+		// RFC 3339 strings from a marshaled time.Time usually do not match
+		// this layout and return nil, so Valid skips the check (XPKI-109)
 		if len(tv) > 20 {
 			t, err := time.Parse("2006-01-02T15:04:05.000-0700", tv)
 			if err != nil {

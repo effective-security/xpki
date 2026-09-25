@@ -84,8 +84,8 @@ drift; the symbol name is the stable reference.
 | XPKI-074 | jwt/dpop                              | `verify.go` `supportedSignatureAlgorithm`                      | PS256/384/512 and EdDSA allowed but `jwt.VerifySignature` cannot verify them                                                                       | correctness | **Fixed** ([details](#xpki-074--dp1)) |
 | XPKI-075 | jwt/dpop                              | `verify.go` `VerifyClaims`                                     | No `jti` replay protection and no `ath` binding although the doc lists both as MUST                                                                | security    | **Fixed** ([details](#xpki-075--dp1)) |
 | XPKI-076 | jwt/dpop                              | `verify.go` `VerifyRequestClaims`                              | Scheme always defaults to `https`; `htu` compared with `EqualFold` (path is case-sensitive)                                                        | correctness | **Fixed** ([details](#xpki-076--dp1)) |
-| XPKI-078 | jwt/accesstoken                       | `accesstoken.go` `Sign`                                        | `pat.` tokens get no `exp`; they never expire and `TokenExpiry()` is ignored                                                                       | security    | Needs Approval |
-| XPKI-079 | jwt/accesstoken                       | `accesstoken.go` `PublicKey`                                   | Dereferences `p.dp` without nil check                                                                                                              | bug         | Open           |
+| XPKI-078 | jwt/accesstoken                       | `accesstoken.go` `Sign`                                        | `pat.` tokens get no `exp`; they never expire and `TokenExpiry()` is ignored                                                                       | security    | **Fixed** ([details](#xpki-078--at1)) |
+| XPKI-079 | jwt/accesstoken                       | `accesstoken.go` `PublicKey`                                   | Dereferences `p.dp` without nil check                                                                                                              | bug         | **Fixed** ([details](#xpki-079--at1)) |
 | XPKI-080 | jwt/oauth2client                      | `client.go`, `config.go`                                       | `verifyKey` written but never read; `JwksURL` unused; setters mutate shared state unsynchronized                                                   | correctness | Open           |
 | XPKI-081 | jwt/oauth2client                      | `provider.go` `RegisterClient`                                 | Mutates registry maps without a lock                                                                                                               | race        | Open           |
 | XPKI-083 | dataprotection                        | `symmetric.go` `NewSymmetric`/`Protect`                        | AES-GCM 96-bit random nonce with no rotation hook; HKDF over possibly low-entropy secret; limits undocumented                                      | docs        | Open           |
@@ -106,8 +106,94 @@ drift; the symbol name is the stable reference.
 | XPKI-106 | dataprotection                        | `symmetric_test.go` `TestNewSymmetric`                         | Tamper test copies one random nonce byte over another; equal bytes leave the ciphertext unchanged and make the authentication-failure assertion flaky | bug         | Open           |
 | XPKI-107 | testca                                | `entity.go` `Issue`                                           | Appending the issuer overwrites caller option-slice storage when capacity remains and races when the slice is reused concurrently                      | race        | **Fixed** ([details](#xpki-107--tc1)) |
 | XPKI-108 | jwt/dpop                              | `verify.go` `VerifyClaimsContext`                              | `htm` is compared with `strings.EqualFold`, although HTTP methods are case-sensitive (RFC 9110 §9.1), so a proof for `get` is accepted for `GET` | correctness | Open           |
+| XPKI-109 | jwt                                   | `claims.go` `MapClaims.Time`; `jwt.go` `Sign`                  | A `time.Time` `iat`/`nbf`/`exp` passed to `Sign` marshals to an RFC 3339 string that `Time` cannot parse, so `Valid` silently skips that check (a `nbf` tomorrow is accepted now) | correctness | Needs Approval |
 
 ## Fixed items
+
+### XPKI-078 — AT1
+
+**Fixed on 2026-09-25.** Approved policy: every new `pat.` token expires; a
+caller-supplied `exp` is kept; lifetime is explicit, with no built-in
+default; legacy perpetual tokens are rejected unless the caller opts in. New
+API in `jwt/accesstoken`: variadic `New(dp, provider, opts ...Option)`,
+`WithTokenExpiry(d)`, `WithAllowNoExpiry()` and the `TokenPrefix` constant.
+
+- `Sign` works on a copy, so the caller's map is never modified. Present
+  `exp`, `iat` and `nbf` claims are kept and normalized to a NumericDate, so
+  `time.Time` values survive the JSON round trip (otherwise a future `nbf`
+  was silently not enforced, XPKI-109); an unparsable or nil one fails with
+  `invalid <claim> claim`. Without `exp`, it adds `exp = now +
+  TokenExpiry()` and `iat`/`nbf` (`now + jwt.DefaultNotBefore`) when absent,
+  using `jwt.TimeNowFn`.
+- `TokenExpiry()` is now the effective lifetime: `WithTokenExpiry` if
+  non-zero (a negative value is reported as 0), else the inner provider's
+  `TokenExpiry`, else 0. If the result is not positive, `Sign` fails with
+  `token expiry not configured` instead of issuing a perpetual token.
+- `ParseToken` rejects a `pat.` token without `exp` with `exp claim not
+  found`, and one with an unparsable `exp` with `invalid exp claim`.
+  `WithAllowNoExpiry` accepts a token with no `exp` for migration, but still
+  rejects an unparsable `exp` (such as a `time.Time` the old `Sign`
+  marshaled to an RFC 3339 string), and revocation still applies. Plain JWTs
+  still go to the inner provider unchanged.
+
+Compatibility: `New(dp, nil).Sign` of claims without `exp` now fails until
+`WithTokenExpiry` is set, and parsed claims now include the added
+`exp`/`iat`/`nbf`. Tokens issued by older versions without `exp` are rejected
+unless `WithAllowNoExpiry` is set. The existing `New(dp, provider)` calls
+still compile.
+
+Validation passed:
+
+- Before the fix, on a HEAD worktree: with the 8h `jwtprov.json` inner
+  provider, a token signed from `{"sub":"s"}` was still accepted by
+  `ParseToken` with the clock set 100 years ahead (`err=<nil>
+  claims=map[sub:s]`).
+- After the fix: `TestSign_Expiry` covers option, inner provider, option over
+  inner, zero option, not configured and negative expiry.
+  `TestSign_CallerClaims` covers caller `exp` as int64, int, float64,
+  `json.Number`, `time.Time`, `*time.Time` and a numeric string (kept, even a
+  year past the lifetime, and no `iat`/`nbf` added), kept caller `iat`/`nbf`,
+  invalid `exp`/`iat`/`nbf` values, a future `time.Time` `nbf` rejected on
+  parse, and caller-map non-mutation.
+  `TestParse_ExpiryBoundary` accepts the token at the `exp` instant and
+  rejects it one second later. `TestParse_LegacyNoExpiry` covers default
+  rejection, opt-in acceptance, revocation under the opt-in and unparsable
+  `exp`, including a legacy RFC 3339 `exp`. `TestAT`/`TestATWithProvider` assert the exact added claims, and
+  `ExampleNew` compiles the `doc.go` sample.
+- `go test ./jwt/accesstoken -race -count=5`, `make test RACE=true`
+  (SoftHSM and local-kms) and `make lint` (0 issues) passed. `make build
+  docs` passed, and `make covtest` passed at **90.8%** aggregate
+  (`jwt/accesstoken` 94.0%).
+- A `/code-review` pass found that `Sign` normalized only `exp`: a
+  `time.Time` `nbf` a day ahead was accepted at once. `iat`/`nbf` are now
+  normalized too; with normalization limited to `exp`, the new
+  `TestSign_CallerClaims` cases fail. The review also led to the accurate
+  `invalid exp claim` error, the clamped negative `TokenExpiry()` and
+  multi-line test tables. It found that the inner `jwt` provider has the same
+  `time.Time` problem, recorded as XPKI-109. Review items contradicting the
+  approved policy (capping a caller `exp`, rejecting an already-expired
+  `exp`) were not applied.
+
+### XPKI-079 — AT1
+
+**Fixed on 2026-09-25.** A nil data protection provider is allowed by
+`New`, whose signature is unchanged. `PublicKey` then returns nil, the same
+as for a symmetric provider. It does not fall back to the inner provider's
+key, because `pat.` tokens are not signed by it. `Sign`, and `ParseToken`
+for `pat.` tokens, return `data protection not configured` instead of
+panicking. Plain JWTs still go to the inner provider.
+
+Validation passed:
+
+- Before the fix, on a HEAD worktree: `accesstoken.New(nil,
+  nil).PublicKey()` panicked with `invalid memory address or nil pointer
+  dereference`.
+- After the fix, `TestPublicKey` checks nil for a symmetric provider with
+  and without an inner provider, and the exact key from a stub asymmetric
+  provider. With a nil `dp`, with and without an inner provider, it checks
+  a nil `PublicKey` and the exact `Sign` and `ParseToken` errors, and that
+  a plain JWT still parses. `PublicKey` coverage went from 0% to 100%.
+- The same repository race, lint, docs and coverage runs as XPKI-078.
 
 ### XPKI-075 — DP1
 
@@ -779,6 +865,10 @@ Validation passed:
   notes.
 - **XPKI-075** was approved and fixed by DP1 on 2026-09-24 (opt-in
   `VerifyConfig.ReplayCache`, `AccessToken`, `ExpectedThumbprint`).
-- **XPKI-078** requires new API surface (expiry policy for `pat.` tokens).
+- **XPKI-109** (found during the AT1 review): the `jwt` fix, normalizing time
+  claims in `Sign` or parsing RFC 3339 in `MapClaims.Time`, changes signed
+  token contents or accepted inputs.
+- **XPKI-078** was approved and fixed by AT1 on 2026-09-25 (explicit
+  lifetime, caller `exp` kept, opt-in `WithAllowNoExpiry` for legacy tokens).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.
