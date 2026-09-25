@@ -8,6 +8,7 @@ import (
 )
 
 func TestRandomReader(t *testing.T) {
+	requireP11(t)
 	var a [32768]byte
 	var err error
 	var n int

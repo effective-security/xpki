@@ -25,6 +25,7 @@ below and excluded from the pending queue.
 | DP1 | [XPKI-075](FINDINGS.md#xpki-075--dp1), [XPKI-076](FINDINGS.md#xpki-076--dp1), [XPKI-074](FINDINGS.md#xpki-074--dp1) | **Fixed** | 2026-09-24 |
 | AT1 | [XPKI-078](FINDINGS.md#xpki-078--at1), [XPKI-079](FINDINGS.md#xpki-079--at1) | **Fixed** | 2026-09-25 |
 | AU2 | [XPKI-051](FINDINGS.md#xpki-051--au2), [XPKI-052](FINDINGS.md#xpki-052--au2), [XPKI-053](FINDINGS.md#xpki-053--au2), [XPKI-100-authority](FINDINGS.md#xpki-100-authority--au2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
+| PK1 | [XPKI-001](FINDINGS.md#xpki-001--pk1), [XPKI-002](FINDINGS.md#xpki-002--pk1), [XPKI-003](FINDINGS.md#xpki-003--pk1), [XPKI-005](FINDINGS.md#xpki-005--pk1), [XPKI-007](FINDINGS.md#xpki-007--pk1), [XPKI-100-crypto11](FINDINGS.md#xpki-100-crypto11--pk1) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -393,6 +394,89 @@ hanging, unless the profile is missing, lacks OCSP signing, or its expiry is
 not longer than `ocsp_expiry` (such configs never worked). `SignOCSP` can now
 return an error (no responder) where it would have panicked.
 
+**PK1 / XPKI-001, 002, 003, 005, 007, 100-crypto11 — Fixed on 2026-09-25.**
+Approved decisions: a per-path module refcount (the last `Close` finalizes,
+never a module initialized outside this package), `Close() error`, blocking
+at a per-slot cap of 1024 configurable with `WithMaxSessions`, and a `Close`
+that rejects new work and waits for in-flight operations.
+
+- **001.** New `crypto11/module.go` registry: one `*pkcs11.Ctx` per
+  resolved library path. The first reference runs `C_Initialize`; the last
+  runs `C_Finalize`, then `Destroy`. `Close` is idempotent, closes this
+  wrapper's pooled and login sessions, and sets `Ctx` to nil. Every
+  `Ctx`-using method goes through the lifecycle guard and returns
+  `errClosed` after `Close`.
+- **002.** Pools are created and looked up under `PKCS11Lib.mu`
+  (`acquirePool`); `setupSessions` was removed.
+- **003.** Pools are created on first use for any slot; an invalid slot fails
+  in `C_OpenSession` and never blocks.
+- **005.** `sessionPool` bounds live sessions per slot. Borrowers wait on a
+  `sync.Cond`, and a return never blocks. Sessions are closed on panic and
+  on `sessionUnusable` codes. Nested borrowing was removed: key generation
+  draws randomness on the held session, and `KeyInfo` uses one session.
+  `KeyInfo` and `DestroyKeyPairOnSlot` use the pool; `EnumKeys` keeps a
+  guarded read-only session for write-protected tokens.
+- **007.** `Init` takes a module reference first and unwinds it (and the
+  login session) on any later error.
+- **100-crypto11.** `TestMain` loads SoftHSM only when the config exists and
+  closes it explicitly. SoftHSM tests use `requireP11` →
+  `internal/testenv.RequireFile`.
+
+Docs: codemap (files, invariants, concept rows, test layout, fixture
+gating), `crypto11/doc.go` lifecycle sample (compiled), `internal/testenv`
+doc, ROADMAP, and regenerated API docs.
+
+Validation: pre-fix reproductions ran in a HEAD worktree. A fresh
+`C_Initialize` after `Init`+`Close`, and after a failed `Init`, returned
+`CKR_CRYPTOKI_ALREADY_INITIALIZED` (001/007). A `-race` data race hit
+`sessions.go:47` (002). `GenRandom` on a pool-less slot did not return
+within 3s (003). The saturation benchmark left 76 of 1,100 borrowers stuck
+with a peak of 1,100 sessions (005). After the fix, the fake-session pool
+tests pass, including under `-race -cpu 1,4,8`. So do the SoftHSM lifecycle
+tests and the re-executed fresh-process child tests, which prove
+`C_Finalize` ran and that an external module is not finalized. The fixture
+modes were checked with the config moved away (21 skips / required-fail)
+and with a broken config (fail). `make lint` (0 issues), `make test
+RACE=true`, `make build docs` and `make covtest` (**91.5%**) passed.
+Benchmarks (benchstat against the HEAD worktree, `-cpu 1,4,16 -count 6`):
+`GenRandom`/ECDSA `Sign` show no significant change except +2.1% for
+one-CPU parallel `GenRandom`, with allocations unchanged. Init/Close is
+30–61% faster and leaks 0 sessions (one per cycle before). Saturation
+peaks at 1,024 with 0 stuck. Compatibility: `Close()` returns `error`, and
+`Ctx` is nil after `Close`. Caller-owned `NewSession` sessions must be
+closed before the last `Close`. More than 1,024 concurrent operations per
+slot now wait instead of opening more sessions.
+
+PK1 `/code-review` follow-ups (2026-09-25). Seven were applied, each with a
+regression test that failed with its fix reverted:
+
+- `ExportKey` is guarded (`TestExportKey_CloseAfterLookup`, using the
+  `exportKeyFound` hook).
+- The public caller-session methods and `EnumTokens(true)` return
+  `errClosed` after `Close` instead of panicking; they wrap unexported
+  versions used by the pooled paths.
+- `moduleID` matches paths by `os.SameFile` (symlinks, hardlinks) and bare
+  names by name, not under the working directory (`TestModuleID`,
+  `TestInit_SymlinkSharesModule`).
+- `Close` runs once, and concurrent calls wait and share its result.
+- Close errors for sessions returned during `Close` are joined into its
+  result.
+- The redundant `err = nil` was removed.
+
+Declined: per-lib mutex contention (no measured cost), and `GenRandom`
+reusing `randomOnSession` (a different short-read contract). Deferred: re-login
+after a device error, recorded as XPKI-110 (PK3). PR #540 review follow-ups:
+modules are matched by dynamic loader handle on unix, so a bare-name alias
+no longer gets finalized (`TestLifecycle_BareNameAlias`). `ExportKey` runs
+its lookup and token info in one pooled operation
+(`TestExportKey_CloseWhileAdmitted`). `Init` joins cleanup errors. Each test
+failed with its fix reverted; `make covtest` is at **91.4%** after them. Second PR round: a discarded session holds its pool capacity until
+`CloseSession` returns (`TestWithSession_DiscardHoldsCapacity` failed on the
+old ordering), a nil `Option` is rejected, `EnumTokens(true)` holds its guard
+until return, the saturation benchmark propagates borrower errors with a
+bounded fill wait, and the stale FINDINGS text was corrected. Re-validated after the follow-ups: `go test -race ./crypto11` ×3 and with `-cpu 1,4,8`, `make lint`,
+`make test RACE=true`, `make build docs` and `make covtest`.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -436,7 +520,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| PK1 | `crypto11` | 001, 002, 003, 005, 007; 100-crypto11 | P1 / 35 | High: module ownership and active HSM operations | Shared-module close contract |
 | PK2 | `crypto11` | 011, 006 | P1 / 35 | High: native attribute width and token selection | Checked conversion API if needed |
 | JW2 | `jwt` | 066, 104; 100-jwt | P1 / 35 | Medium: kid compatibility and custom headers | Standalone key-ID policy |
 | CU2 | `certutil` | 035 | P1 / 34 | High: cache ownership and lock contention | Exported mutable fields |
@@ -454,6 +537,7 @@ the test prerequisites below can move a small preparatory change earlier.
 | AW2 | `cryptoprov/awskmscrypto` | 033, 032 | P2 / 23 | Medium: listing completeness and throttling | Partial results and prefix meaning |
 | CP2 | `cryptoprov` | 027 | P2 / 23 | Medium: URI parsing and credential precedence | Query/path conflict policy |
 | CU5 | `certutil` | 043 | P2 / 23 | Medium: encrypted-key compatibility | Supported PKCS#8 encryption formats |
+| PK3 | `crypto11` | 110 | P2 / 23 | Medium: re-login on a live token after device errors | Re-login trigger and PIN retention |
 | CS1 | `csr` | 059; 100-csr | P2 / 23 | High: existing names and nil/empty SAN semantics | DNS validation and error API |
 | AR1 | `armor` | 047 | P2 / 23 | Medium: acceptance of legacy corruption fixtures | CRC acceptance contract |
 | BU1 | root build tooling | 096, 095-build | P2 / 23 | Low–medium: tool compatibility and formatter gate | Coordinate CI requirement |
@@ -495,9 +579,9 @@ Execution dependencies:
 - For 100, make each package's unit tests independent of optional infrastructure,
   while keeping a CI mode that **fails** when required integrations are missing.
   Do not turn fixture failures into a passing but untested CI run. The
-  convention is fixed by AU2: gate with `internal/testenv` (`RequireTCP`;
-  add a file/token probe there when PK1/CP1 need one), with
-  `XPKI_INTEGRATION=required` exported by the Makefile.
+  convention is fixed by AU2: gate with `internal/testenv` (`RequireTCP`, or
+  `RequireFile` for a fixture file such as the SoftHSM config, added by PK1),
+  with `XPKI_INTEGRATION=required` exported by the Makefile.
 
 ## Evidence and coverage baseline
 
@@ -518,7 +602,7 @@ policy, lifecycle, or concurrency completeness.
 
 | Package | Existing local profile | Particularly misleading or missing coverage |
 | --- | ---: | --- |
-| `crypto11` | 77.2% | `Close` 0%; `BytesToUlong` 100% does not cover short buffers |
+| `crypto11` | 77.2% | `Close` 0% (after PK1: package 79.1%, `Close` 96.7%); `BytesToUlong` 100% does not cover short buffers |
 | `cryptoprov` | 84.8% | AWS/GCP wrapper tests are empty; registry concurrency absent |
 | `cryptoprov/inmemcrypto` | 84.3% | Serial key operations only |
 | `cryptoprov/testprov` | 73.9% | Serial key operations only |
@@ -649,23 +733,23 @@ and key rotation are unchanged (see DT1 and ROADMAP).
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-001 — HIGH / bug / 35 | [Close](crypto11/crypto11.go) calls Destroy before Finalize. Establish module ownership, drain/close owned sessions, finalize while the context is valid, then destroy once. Do not finalize a shared module still used by another wrapper. | **Absent:** existing profile shows Close 0%. [TestMain](crypto11/crypto11_test.go) defers Close but then calls os.Exit, so that defer is not cleanup coverage. Add explicit repeated close, two wrappers sharing a module, active-operation close, and lifecycle ordering tests. |
-| XPKI-002 — HIGH / race / 34 | [withSession](crypto11/sessions.go) reads sessionPools without the mutex used by setupSessions. Synchronize map access and pool lifetime. | **Partial:** HSM signing exercises session lookup, not concurrent pool creation/teardown. Add a barrier-driven setup/lookup overlap and `-race`; include multiple slots. |
-| XPKI-003 — HIGH / bug / 35 | A missing pool selects the default/open path and then blocks returning the session to a nil channel. Return a defined error or safely initialize a valid slot pool; never block forever. | **Absent:** routine tests use initialized slots. Add missing-pool and invalid-slot cases with a deadline and assert callback/session cleanup semantics. The comment promising panic is also inaccurate. |
-| XPKI-005 — HIGH / performance / 32 | Pool capacity is 1024, but session creation is unbounded; deferred returns can block when full. Bound live sessions and define waiting, return, shutdown, and error-path disposal. | **Partial:** RSA/EC integration tests verify signatures/decryption but not saturation, session counts, or leaks. Add controlled saturation, blocked borrowers, failing callbacks, close while borrowed, and resource-count checks; use a small test capacity instead of opening thousands of real sessions. |
-| XPKI-007 — HIGH / bug / 35 | [Init](crypto11/config.go) returns after module load/initialize/token/login failures without releasing owned resources. Unwind each acquired resource, respecting already-initialized shared modules. | **Partial:** `Test_LoadConfigTwice` proves successful reuse only and does not close both wrappers. Add failure at each stage, then successful retry; prove another live wrapper still works. |
+| XPKI-001 — HIGH / bug / 35 — **Fixed (PK1, 2026-09-25)** | [module.go](crypto11/module.go) shares one context per resolved path; the last [Close](crypto11/crypto11.go) finalizes, then destroys, never a module initialized outside this package. `Close() error` is idempotent, rejects new work, waits for borrowed sessions and closes this wrapper's sessions. | **Verified:** [lifecycle_test.go](crypto11/lifecycle_test.go) covers shared refs, repeated close, a remaining wrapper still working, `errClosed` from every entry point, closing with live and active sessions (SoftHSM handle probes), and fresh-process children proving `C_Finalize` ran (and was skipped for an external init). `TestMain` closes explicitly. |
+| XPKI-002 — HIGH / race / 34 — **Fixed (PK1, 2026-09-25)** | Pools are created and looked up under `PKCS11Lib.mu` in `acquirePool`, with the closed flag and active count; `setupSessions` is gone. | **Verified:** reproduced under `-race` in a HEAD worktree; `TestWithSession_ConcurrentPoolsAndClose` (8 slots × 8 workers plus Close behind a barrier) passes under `-race -cpu 1,4,8`. |
+| XPKI-003 — HIGH / bug / 35 — **Fixed (PK1, 2026-09-25)** | Pools are created on first use for any slot; an invalid slot returns the wrapped `C_OpenSession` error and releases its pool slot. | **Verified:** the pre-fix hang reproduced (3s deadline); `TestWithSession_PoolCreatedOnFirstUse`, `TestWithSession_OpenErrorReleasesSlot` and a new SoftHSM wrapper's first operations pass with deadlines. |
+| XPKI-005 — HIGH / performance / 32 — **Fixed (PK1, 2026-09-25)** | `sessionPool` caps live sessions per slot (`DefaultMaxSessions` 1024, `WithMaxSessions`); borrowers wait, returns never block, and panics or `sessionUnusable` codes close the session. Nested borrows were removed (`randomOnSession`, single-session `KeyInfo`). | **Verified:** `BenchmarkSession_Saturation` went from 76/1,100 stuck (peak 1,100) to 0 stuck (peak 1,024). Fake-session tests cover bounds, contention peak, disposal table, panic, open error and close while borrowed. Benchmarks are recorded under [completed batches](#completed-batches). |
+| XPKI-007 — HIGH / bug / 35 — **Fixed (PK1, 2026-09-25)** | [Init](crypto11/config.go) takes a module reference first; a deferred `Close` unwinds the login session, pools and reference on every later error. | **Verified:** a fresh-process child shows the module finalized after an unknown label and after a wrong PIN, and a retry succeeding. `TestInit_FailureReleases` checks refs and live sessions in process. `Test_LoadConfigTwice` closes both wrappers. |
 | XPKI-011 — HIGH / bug / 35 | [BytesToUlong](crypto11/common.go) dereferences `&bs[0]` as native uint without a length check. Reject malformed attributes before unsafe access and preserve correct PKCS#11 width/endianness. | **Indirect only:** 100% statement coverage does not exercise invalid lengths. [common_test.go](crypto11/common_test.go) tests labels/IDs and DSA encoding, not this boundary. Add zero/short/exact/oversized lengths and supported-platform width cases; use a checked internal decoder or decide an exported API migration. |
 | XPKI-006 — MEDIUM / correctness / 23 | Init uses `serial == configuredSerial || label == configuredLabel`, including empty selectors. Match only configured nonempty fields and define both-empty behavior. | **Partial:** config tests load successful configs, not a multi-token selection matrix. Add empty token fields, one/both selectors, conflicting selectors, no match, and unchanged documented OR semantics unless explicitly revised. |
 
-These fixes belong in lifecycle and input batches, not an indiscriminate HSM
+PK1 is **Fixed (2026-09-25)**; see [completed batches](#completed-batches).
+PK2 remains. These fixes belong in lifecycle and input batches, not an indiscriminate HSM
 rewrite. Regression risk is high, especially finalization ownership and
 conversion across platforms. Use real SoftHSM plus small unexported seams only
 where needed; do not invent a new broad mock hierarchy.
-**Benchmark required before PK1:** serial/parallel acquire-return, sign under
-bounded contention, pool limits, session-open counts, and shutdown. Bound or
-isolate pre-fix saturation runs so the known hang cannot stall validation.
-PK2 needs boundary tests, not a speed benchmark. Include 100-crypto11 fixture
-handling and make explicit cleanup execute before TestMain exits.
+PK1's benchmark ([sessions_bench_test.go](crypto11/sessions_bench_test.go):
+serial/parallel `GenRandom`, parallel sign, time-bounded saturation and
+Init/Close with open/live session counts) is recorded under completed batches.
+PK2 needs boundary tests, not a speed benchmark.
 
 ### cryptoprov — CP1, CP2
 
@@ -881,7 +965,7 @@ classification; a high-priority batch can contain lower-priority test cleanup.
 | --- | --- | --- |
 | XPKI-099 — LOW / docs / 11 | CP1 — `cryptoprov` | [Test_Aws/Test_Gcp](cryptoprov/provider_test.go) are empty; they prove nothing. Replace them with meaningful provider registration/loading contract tests or remove misleading stubs with accurate documentation. Backend tests already exist; GCP pagination is now covered in its own package, so do not duplicate an obsolete “no GCP EnumKeys test” claim. |
 | XPKI-099 — LOW / docs / 11 | CU4 — `certutil` | [TestKeyInfoKMS](certutil/keyinfo_test.go) connects to configured KMS and may create a key. Exercise pure KeyInfo with generated/local signer data and classify any retained KMS case as an explicit integration. Assert type, size, and public-key identity; no real cloud account should be needed for unit tests. |
-| XPKI-100 — MEDIUM / docs / 21 | PK1 — `crypto11` | [TestMain](crypto11/crypto11_test.go) panics when the SoftHSM config cannot load. Permit fixture-free tests to run and report clearly skipped optional integrations; CI's required-integration mode must fail when absent. Explicit lifecycle cleanup must actually run. |
+| XPKI-100 — MEDIUM / docs / 21 — **crypto11 portion Fixed (PK1, 2026-09-25)** | PK1 — `crypto11` | [TestMain](crypto11/crypto11_test.go) loads SoftHSM only when its config exists and closes it explicitly (a close error fails the run); SoftHSM tests call `requireP11` (`internal/testenv.RequireFile`), and pool/config/DSA tests are fixture-free. **Verified:** config absent → 21 skips and a pass; absent with `XPKI_INTEGRATION=required` → fail; present but broken → fail. |
 | XPKI-100 — MEDIUM / docs / 21 | CP1 — `cryptoprov` | [provider_test.go](cryptoprov/provider_test.go), [loader_test.go](cryptoprov/loader_test.go), [config_test.go](cryptoprov/config_test.go) require SoftHSM in fixture-dependent cases. Keep registry/URI/config unit tests runnable without it; guard only the real fixture-dependent cases and restore registry mutations. |
 | XPKI-100 — MEDIUM / docs / 21 | AW1 — `cryptoprov/awskmscrypto` | [awskmsprov_test.go](cryptoprov/awskmscrypto/awskmsprov_test.go) requires local-kms. Separate deterministic client-seam tests from emulator cases, and test both emulator-absent optional mode and required CI mode. |
 | XPKI-100 — MEDIUM / docs / 21 — **authority portion Fixed (AU2, 2026-09-25)** | AU2 — `authority` | The suite loads (without connecting) the local-kms provider; only `TestNewRoot` needs local-kms and is gated by `internal/testenv.RequireTCP`; `TestShakenRoot`/`TestIssuerSign` moved to `inmemcrypto`; SoftHSM is not used. Verified skip (optional), fail (`XPKI_INTEGRATION=required`) and a reachable-but-broken endpoint (fails) with `kms2` stopped. |
@@ -906,7 +990,7 @@ Other baselines below still need to be created where marked required.
 
 | Finding(s) | Before-fix benchmark decision | What to record |
 | --- | --- | --- |
-| 002, 005 (PK1) | **Required** for pool redesign/performance fix | ns/op, allocs/op, open/live sessions, throughput and bounded completion under contention |
+| 002, 005 (PK1) — **Fixed** | **Recorded before/after comparison** (`sessions_bench_test.go`, `-cpu 1,4,16 -count 6`, benchstat, HEAD worktree; saturation `-benchtime=1x`, 10s bound) | GenRandom/ECDSA sign: no significant change except +2.1% one-CPU parallel GenRandom, allocs unchanged; Init/Close 81.5/113.2/143.0 → 57.1/56.4/55.1 µs, 12.3 → 5.6 KiB, live sessions after run 8.5k–15k → 0; saturation peak 1,100 → 1,024, stuck 76 → 0 |
 | 016 (CP1) | **Recommended**; minimal race fix need not wait | lookup latency/allocations and mixed registration throughput |
 | 017-inmemcrypto (IM1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.25 → 17.15 ns/op, 0 allocations; misses 1902 → 1983 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |
 | 017-testprov (TP1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.79 → 17.97 ns/op, 0 allocations; misses 1842 → 1935 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |

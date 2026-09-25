@@ -42,11 +42,13 @@ first miss, and `ParserConfig` fields for the `RemoteKeySet` options, which
 
 ## PKCS#11 session management
 
-Redesign `crypto11` session handling: bounded session count with proper
-close on return, per-key slot usage, pool creation on demand, and a correct
-`Close()` that finalizes once per process (XPKI-001..003, XPKI-005).
-Consider dropping the remaining cgo `unsafe` helpers in `common.go` in
-favor of `encoding/binary`.
+Done in PK1 (XPKI-001..003, XPKI-005, XPKI-007, 2026-09-25): bounded
+per-slot pools created on demand, a per-path module refcount whose last
+`Close() error` finalizes, and `Init` unwinding. Remaining: a
+`context.Context`-aware borrow (today a borrower at the session limit waits
+without a deadline, since `crypto.Signer` has no context), recovery of the
+login session after a device error (XPKI-110), and dropping the remaining cgo `unsafe`
+helpers in `common.go` in favor of `encoding/binary` (XPKI-011, PK2).
 
 ## certutil bundler concurrency
 

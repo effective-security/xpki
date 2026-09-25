@@ -80,16 +80,26 @@ func (sig *dsaSignature) marshalDER() ([]byte, error) {
 	return asn1.Marshal(*sig)
 }
 
-// Pick a random label for a key
-func (lib *PKCS11Lib) generateKeyLabel() ([]byte, error) {
-	const labelSize = 32
-	rawLabel := make([]byte, labelSize)
-	sz, err := lib.GenRandom(rawLabel)
+// randomOnSession returns n random bytes generated on session.
+// Key generation uses it on the session it already holds, since borrowing
+// a second pooled session could wait forever at the session limit.
+func (lib *PKCS11Lib) randomOnSession(session pkcs11.SessionHandle, n int) ([]byte, error) {
+	raw, err := lib.Ctx.GenerateRandom(session, n)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	if sz < len(rawLabel) {
+	if len(raw) < n {
 		return nil, errors.WithStack(errCannotGetRandomData)
+	}
+	return raw, nil
+}
+
+// Pick a random label for a key
+func (lib *PKCS11Lib) generateKeyLabel(session pkcs11.SessionHandle) ([]byte, error) {
+	const labelSize = 32
+	rawLabel, err := lib.randomOnSession(session, labelSize)
+	if err != nil {
+		return nil, err
 	}
 
 	t := time.Now().UTC()
@@ -98,15 +108,11 @@ func (lib *PKCS11Lib) generateKeyLabel() ([]byte, error) {
 }
 
 // Pick a random ID for a key
-func (lib *PKCS11Lib) generateKeyID() ([]byte, error) {
+func (lib *PKCS11Lib) generateKeyID(session pkcs11.SessionHandle) ([]byte, error) {
 	const labelSize = 32
-	rawLabel := make([]byte, labelSize)
-	sz, err := lib.GenRandom(rawLabel)
+	rawLabel, err := lib.randomOnSession(session, labelSize)
 	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	if sz < len(rawLabel) {
-		return nil, errors.WithStack(errCannotGetRandomData)
+		return nil, err
 	}
 
 	label := hex.EncodeToString(rawLabel)

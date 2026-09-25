@@ -17,10 +17,13 @@ func TestKMS(t *testing.T) {
 }
 ```
 
+RequireFile does the same for a fixture identified by a file, such as the SoftHSM token configuration.
+
 ## Index
 
 - [Constants](<#constants>)
 - [func IntegrationRequired\(\) bool](<#IntegrationRequired>)
+- [func RequireFile\(t testing.TB, name, path string\)](<#RequireFile>)
 - [func RequireTCP\(t testing.TB, name, addr string\)](<#RequireTCP>)
 
 
@@ -39,7 +42,7 @@ const (
 ```
 
 <a name="IntegrationRequired"></a>
-## func [IntegrationRequired](<https://github.com/effective-security/xpki/blob/main/internal/testenv/testenv.go#L21>)
+## func [IntegrationRequired](<https://github.com/effective-security/xpki/blob/main/internal/testenv/testenv.go#L23>)
 
 ```go
 func IntegrationRequired() bool
@@ -47,8 +50,17 @@ func IntegrationRequired() bool
 
 IntegrationRequired reports whether a missing fixture must fail the test.
 
+<a name="RequireFile"></a>
+## func [RequireFile](<https://github.com/effective-security/xpki/blob/main/internal/testenv/testenv.go#L48>)
+
+```go
+func RequireFile(t testing.TB, name, path string)
+```
+
+RequireFile gates t on the fixture name whose file is at path, such as the SoftHSM token configuration. It returns when path exists. Otherwise it fails t when IntegrationRequired, and skips t when not. Any stat error other than a missing file fails t, since the fixture is present but broken.
+
 <a name="RequireTCP"></a>
-## func [RequireTCP](<https://github.com/effective-security/xpki/blob/main/internal/testenv/testenv.go#L28>)
+## func [RequireTCP](<https://github.com/effective-security/xpki/blob/main/internal/testenv/testenv.go#L30>)
 
 ```go
 func RequireTCP(t testing.TB, name, addr string)

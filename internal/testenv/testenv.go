@@ -1,6 +1,8 @@
 package testenv
 
 import (
+	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"testing"
@@ -37,4 +39,25 @@ func RequireTCP(t testing.TB, name, addr string) {
 		return
 	}
 	t.Skipf("%s is not reachable at %s (set %s=%s to fail instead): %v", name, addr, IntegrationEnv, Required, err)
+}
+
+// RequireFile gates t on the fixture name whose file is at path, such as the
+// SoftHSM token configuration. It returns when path exists. Otherwise it
+// fails t when IntegrationRequired, and skips t when not. Any stat error
+// other than a missing file fails t, since the fixture is present but broken.
+func RequireFile(t testing.TB, name, path string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("%s at %s can not be read: %v", name, path, err)
+		return
+	}
+	if IntegrationRequired() {
+		t.Fatalf("%s is required (%s=%s) but not found at %s", name, IntegrationEnv, Required, path)
+		return
+	}
+	t.Skipf("%s is not found at %s (set %s=%s to fail instead)", name, path, IntegrationEnv, Required)
 }

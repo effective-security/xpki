@@ -38,6 +38,7 @@ func TestNativeECDSA(t *testing.T) {
 }
 
 func TestHardECDSA(t *testing.T) {
+	requireP11(t)
 	var err error
 	var priv *PKCS11PrivateKeyECDSA
 	var key2, key3 crypto.PrivateKey

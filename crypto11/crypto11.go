@@ -17,6 +17,9 @@ var errKeyNotFound = errors.New("crypto11: could not find PKCS#11 key")
 // errCannotOpenPKCS11 is returned when the PKCS#11 library cannot be opened
 var errCannotOpenPKCS11 = errors.New("crypto11: could not open PKCS#11")
 
+// errClosed is returned by operations on a PKCS11Lib after Close
+var errClosed = errors.New("crypto11: PKCS#11 library is closed")
+
 // errCannotGetRandomData is returned when the PKCS#11 library fails to return enough random data
 var errCannotGetRandomData = errors.New("crypto11: cannot get random data from PKCS#11")
 
@@ -101,18 +104,39 @@ func (s *SlotTokenInfo) SerialNumber() string {
 	return s.serial
 }
 
-// PKCS11Lib contains a reference to an open PKCS#11 slot and configuration
+// PKCS11Lib contains a reference to an open PKCS#11 slot and configuration.
+//
+// Every PKCS11Lib opened on the same library path shares one loaded module:
+// the first Init initializes it and the last Close finalizes it. Each
+// PKCS11Lib owns its own session pools and login session. It is safe for
+// concurrent use; after Close its operations return an error.
 type PKCS11Lib struct {
-	Ctx     *pkcs11.Ctx
-	Config  TokenConfig
+	// Ctx is the shared module context. It is nil after Close.
+	Ctx    *pkcs11.Ctx
+	Config TokenConfig
+	// Session is the login session on Slot, opened by Init and closed by
+	// Close. It keeps the token logged in while pooled sessions are opened
+	// and closed; do not close it or use it concurrently.
 	Session pkcs11.SessionHandle
 	Slot    *SlotTokenInfo
 
-	// Map of slot IDs to session pools
-	sessionPools map[uint]chan pkcs11.SessionHandle
+	module      *module
+	maxSessions int
+	ops         sessionOps
 
-	// Mutex protecting SessionPools
-	sessionPoolMutex sync.Mutex
+	// closeOnce runs close; closeErr is its result
+	closeOnce sync.Once
+	closeErr  error
+
+	// mu protects pools, closed and active
+	mu sync.Mutex
+	// drained is signalled when active drops to zero after Close
+	drained sync.Cond
+	// pools maps slot IDs to session pools
+	pools  map[uint]*sessionPool
+	closed bool
+	// active counts operations in flight
+	active int
 }
 
 // PKCS11Object contains a reference to a loaded PKCS#11 object.
@@ -154,11 +178,56 @@ func (lib *PKCS11Lib) Model() string {
 	return lib.Config.Model()
 }
 
-// Close releases allocated resources
-func (lib *PKCS11Lib) Close() {
-	if lib.Ctx != nil {
-		lib.Ctx.Destroy()
-		_ = lib.Ctx.Finalize()
-		lib.Ctx = nil
+// Close releases the resources of lib. New operations fail at once, and
+// Close waits for the operations in flight to return their sessions. It
+// then closes the sessions of lib, including the login session, and
+// releases the module; the last PKCS11Lib on a module calls C_Finalize
+// (unless the module was initialized outside this package) and unloads it.
+// Close is idempotent: every call, including concurrent ones, waits for
+// the first to finish and returns its result.
+//
+// Close must not be called from inside an operation of lib, which it would
+// wait for forever. Sessions a caller opened with NewSession, and the
+// *OnSession methods that use them, are not tracked: close those sessions
+// and stop using them before Close.
+func (lib *PKCS11Lib) Close() error {
+	lib.closeOnce.Do(func() {
+		lib.closeErr = lib.close()
+	})
+	return lib.closeErr
+}
+
+func (lib *PKCS11Lib) close() error {
+	lib.mu.Lock()
+	lib.closed = true
+	pools := lib.pools
+	lib.mu.Unlock()
+
+	var errs []error
+	for _, pool := range pools {
+		errs = append(errs, pool.close())
 	}
+
+	lib.mu.Lock()
+	for lib.active > 0 {
+		lib.drained.Wait()
+	}
+	lib.mu.Unlock()
+	// sessions returned after pool.close were closed by put
+	for _, pool := range pools {
+		errs = append(errs, pool.returnedErrs()...)
+	}
+
+	if lib.Session != 0 {
+		if err := lib.ops.close(lib.Session); err != nil {
+			errs = append(errs, errors.WithMessage(err, "close login session"))
+		}
+		lib.Session = 0
+	}
+	if lib.module != nil {
+		errs = append(errs, lib.module.release())
+		lib.module = nil
+	}
+	lib.Ctx = nil
+	return errors.Join(errs...)
 }

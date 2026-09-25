@@ -13,14 +13,33 @@ import (
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "crypto11")
 
-const maxSessionsChan = 1024
+// DefaultMaxSessions is the default limit of pooled sessions per slot
+// of one PKCS11Lib; see WithMaxSessions.
+const DefaultMaxSessions = 1024
+
+// Option configures Init and ConfigureFromFile.
+type Option func(*options)
+
+type options struct {
+	maxSessions int
+}
+
+// WithMaxSessions limits the pooled sessions that one PKCS11Lib keeps open
+// on each slot (default DefaultMaxSessions). When all of them are in use,
+// an operation waits until one is returned. The login session opened by
+// Init is not counted. n must be positive.
+func WithMaxSessions(n int) Option {
+	return func(o *options) {
+		o.maxSessions = n
+	}
+}
 
 // TokenConfig holds PKCS#11 configuration information.
 //
 // A token may be identified either by serial number or label.  If
 // both are specified then the first match wins.
 //
-// Supply this to Configure(), or alternatively use ConfigureFromFile().
+// Supply this to Init, or alternatively use ConfigureFromFile.
 type TokenConfig interface {
 	// Manufacturer name of the manufacturer
 	Manufacturer() string
@@ -91,30 +110,46 @@ func (c *config) Attributes() string {
 	return c.Attrs
 }
 
-// Init configures PKCS#11 from a TokenConfig, and opens default slot
-func Init(config TokenConfig) (*PKCS11Lib, error) {
-	var err error
-	var flags uint
-
-	lib := &PKCS11Lib{
-		Config:       config,
-		Slot:         nil,
-		sessionPools: map[uint]chan pkcs11.SessionHandle{},
+// Init configures PKCS#11 from a TokenConfig, opens the token slot and
+// logs in when the token requires it.
+//
+// The library at config.Path() is loaded and initialized by the first
+// PKCS11Lib that uses it and shared by later ones. On error Init releases
+// everything it acquired. Call Close to release the returned PKCS11Lib.
+func Init(config TokenConfig, opts ...Option) (_ *PKCS11Lib, err error) {
+	o := options{
+		maxSessions: DefaultMaxSessions,
+	}
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, errors.New("crypto11: nil option")
+		}
+		opt(&o)
+	}
+	if o.maxSessions < 1 {
+		return nil, errors.Errorf("crypto11: invalid max sessions: %d", o.maxSessions)
 	}
 
-	lib.Ctx = pkcs11.New(config.Path())
-	if lib.Ctx == nil {
-		return nil, errors.WithMessage(errCannotOpenPKCS11, config.Path())
+	mod, err := openModule(config.Path())
+	if err != nil {
+		return nil, err
 	}
-	if err = lib.Ctx.Initialize(); err != nil && !errors.Is(err, pkcs11.Error(pkcs11.CKR_CRYPTOKI_ALREADY_INITIALIZED)) {
-		return nil, errors.WithMessagef(err, "initialize PKCS#11 library: %s", config.Path())
-	}
+	lib := newPKCS11Lib(config, mod.ctx, o.maxSessions, ctxSessionOps(mod.ctx))
+	lib.module = mod
+	defer func() {
+		if err != nil {
+			if cerr := lib.Close(); cerr != nil {
+				err = errors.Join(err, errors.WithMessage(cerr, "release after failed init"))
+			}
+		}
+	}()
 
 	slots, err := lib.TokensInfo()
 	if err != nil {
 		return nil, errors.WithMessage(err, "TokensInfo failed")
 	}
 
+	var flags uint
 	for _, slot := range slots {
 		logger.KV(xlog.TRACE, "state", "search", "slot", slot.id, "serial", slot.serial, "label", slot.label)
 		if slot.serial == config.TokenSerial() || slot.label == config.TokenLabel() {
@@ -129,36 +164,38 @@ func Init(config TokenConfig) (*PKCS11Lib, error) {
 		return nil, errors.WithStack(errTokenNotFound)
 	}
 
-	lib.sessionPools[lib.Slot.id] = make(chan pkcs11.SessionHandle, maxSessionsChan)
-
-	if err = lib.withSession(lib.Slot.id, func(session pkcs11.SessionHandle) error {
-		if flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
-			err = lib.Ctx.Login(session, pkcs11.CKU_USER, config.Pin())
-			if err != nil && !errors.Is(err, pkcs11.Error(pkcs11.CKR_USER_ALREADY_LOGGED_IN)) {
-				return errors.WithMessage(err, "login into PKCS#11 token")
-			}
-		}
-		return nil
-	}); err != nil {
+	if lib.Session, err = lib.NewSession(lib.Slot.id); err != nil {
 		return nil, errors.WithMessage(err, "open PKCS#11 session")
+	}
+	if flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
+		err = lib.Ctx.Login(lib.Session, pkcs11.CKU_USER, config.Pin())
+		if err != nil && !errors.Is(err, pkcs11.Error(pkcs11.CKR_USER_ALREADY_LOGGED_IN)) {
+			return nil, errors.WithMessage(err, "login into PKCS#11 token")
+		}
 	}
 	return lib, nil
 }
 
-// ConfigureFromFile configures PKCS#11 from a name configuration file.
-//
-// Configuration files are a JSON representation of the PKCSConfig object.
-// The return value is as for Configure().
-//
-// Note that if CRYPTO11_CONFIG_PATH is set in the environment,
-// configuration will be read from that file, overriding any later
-// runtime configuration.
-func ConfigureFromFile(configLocation string) (*PKCS11Lib, error) {
+func newPKCS11Lib(config TokenConfig, ctx *pkcs11.Ctx, maxSessions int, ops sessionOps) *PKCS11Lib {
+	lib := &PKCS11Lib{
+		Ctx:         ctx,
+		Config:      config,
+		maxSessions: maxSessions,
+		ops:         ops,
+		pools:       map[uint]*sessionPool{},
+	}
+	lib.drained.L = &lib.mu
+	return lib
+}
+
+// ConfigureFromFile loads a token configuration with LoadTokenConfig and
+// opens it with Init; opts and the returned PKCS11Lib are as for Init.
+func ConfigureFromFile(configLocation string, opts ...Option) (*PKCS11Lib, error) {
 	cfg, err := LoadTokenConfig(configLocation)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "load p11 config: %q", configLocation)
 	}
-	lib, err := Init(cfg)
+	lib, err := Init(cfg, opts...)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "initialize p11 config: %q", configLocation)
 	}
