@@ -3,6 +3,8 @@ package testenv_test
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/effective-security/xpki/internal/testenv"
@@ -75,6 +77,49 @@ func TestRequireTCP(t *testing.T) {
 			}
 			if tc.failed {
 				assert.Contains(t, r.failed, "fixture is required (XPKI_INTEGRATION=required) but not reachable at "+down+": ")
+			} else {
+				assert.Empty(t, r.failed)
+			}
+		})
+	}
+}
+
+func TestRequireFile(t *testing.T) {
+	dir := t.TempDir()
+	present := filepath.Join(dir, "present.json")
+	require.NoError(t, os.WriteFile(present, []byte("{}"), 0o600))
+	missing := filepath.Join(dir, "missing.json")
+	// a path below a regular file fails with ENOTDIR, not ErrNotExist
+	broken := filepath.Join(present, "child")
+
+	for _, tc := range []struct {
+		name    string
+		env     string
+		path    string
+		skipped string
+		failed  string
+	}{
+		{name: "present optional", path: present},
+		{name: "present required", env: testenv.Required, path: present},
+		{name: "missing optional", path: missing,
+			skipped: "fixture is not found at " + missing + " (set XPKI_INTEGRATION=required to fail instead)"},
+		{name: "missing required", env: testenv.Required, path: missing,
+			failed: "fixture is required (XPKI_INTEGRATION=required) but not found at " + missing},
+		{name: "unreadable optional", path: broken,
+			failed: "fixture at " + broken + " can not be read: "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(testenv.IntegrationEnv, tc.env)
+
+			r := &recorder{TB: t}
+			testenv.RequireFile(r, "fixture", tc.path)
+			if tc.skipped != "" {
+				assert.Equal(t, tc.skipped, r.skipped)
+			} else {
+				assert.Empty(t, r.skipped)
+			}
+			if tc.failed != "" {
+				assert.Contains(t, r.failed, tc.failed)
 			} else {
 				assert.Empty(t, r.failed)
 			}

@@ -16,6 +16,11 @@ func (lib *PKCS11Lib) CurrentSlotID() uint {
 
 // TokensInfo returns list of tokens
 func (lib *PKCS11Lib) TokensInfo() ([]*SlotTokenInfo, error) {
+	if err := lib.enter(); err != nil {
+		return nil, err
+	}
+	defer lib.exit()
+
 	list := []*SlotTokenInfo{}
 	slots, err := lib.Ctx.GetSlotList(true)
 	if err != nil {
@@ -50,15 +55,12 @@ func (lib *PKCS11Lib) TokensInfo() ([]*SlotTokenInfo, error) {
 
 // DestroyKeyPairOnSlot destroys key pair
 func (lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
-	var err error
-	session, err := lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
-	if err != nil {
-		return errors.WithMessagef(err, "OpenSession on slot %d", slotID)
-	}
-	defer func() {
-		_ = lib.Ctx.CloseSession(session)
-	}()
+	return lib.withSession(slotID, func(session pkcs11.SessionHandle) error {
+		return lib.destroyKeyPairOnSession(session, slotID, keyID)
+	})
+}
 
+func (lib *PKCS11Lib) destroyKeyPairOnSession(session pkcs11.SessionHandle, slotID uint, keyID string) error {
 	// A missing half of the pair is tolerated; any other lookup failure
 	// (session or token error) is returned before anything is destroyed,
 	// so a transient error can not delete only one object of the pair.
@@ -90,9 +92,9 @@ func (lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	return nil
 }
 
-// getPublicKeyPEM retrieves public key for the specified key
-func (lib *PKCS11Lib) getPublicKeyPEM(slotID uint, keyID string) (string, error) {
-	priv, err := lib.FindKeyPairOnSlot(slotID, keyID, "")
+// getPublicKeyPEM retrieves public key for the specified key on session
+func (lib *PKCS11Lib) getPublicKeyPEM(session pkcs11.SessionHandle, slotID uint, keyID string) (string, error) {
+	priv, err := lib.findKeyPairOnSession(session, slotID, keyID, "")
 	if err != nil {
 		return "", errors.WithMessagef(err, "unable to find key: slot=%d, key=%s", slotID, keyID)
 	}

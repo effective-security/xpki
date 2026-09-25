@@ -7,18 +7,34 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
+	"github.com/miekg/pkcs11"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_GenerateKeyID(t *testing.T) {
-	id, err := p11lib.generateKeyID()
+	requireP11(t)
+	var id []byte
+	err := p11lib.withSession(p11lib.Slot.id, func(session pkcs11.SessionHandle) error {
+		var err error
+		id, err = p11lib.generateKeyID(session)
+		return err
+	})
 	require.NoError(t, err)
 	assert.Equal(t, 32, len(id))
+
+	_, err = p11lib.generateKeyID(0)
+	assert.ErrorIs(t, err, pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID))
 }
 
 func Test_GenerateKeyLabel(t *testing.T) {
-	label, err := p11lib.generateKeyLabel()
+	requireP11(t)
+	var label []byte
+	err := p11lib.withSession(p11lib.Slot.id, func(session pkcs11.SessionHandle) error {
+		var err error
+		label, err = p11lib.generateKeyLabel(session)
+		return err
+	})
 	require.NoError(t, err)
 	assert.Equal(t, 32, len(label))
 

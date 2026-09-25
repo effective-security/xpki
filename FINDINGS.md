@@ -30,12 +30,12 @@ drift; the symbol name is the stable reference.
 
 | ID       | Package                               | Location                                                       | Title                                                                                                                                              | Severity    | Status         |
 | -------- | ------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | -------------- |
-| XPKI-001 | crypto11                              | `crypto11.go` `PKCS11Lib.Close`                                | `Destroy()` runs before `Finalize()`, so C_Finalize never runs and pool sessions leak                                                              | bug         | Open           |
-| XPKI-002 | crypto11                              | `sessions.go` `withSession`                                    | `sessionPools` map read without `sessionPoolMutex` while `setupSessions` writes                                                                    | race        | Open           |
-| XPKI-003 | crypto11                              | `sessions.go` `withSession`                                    | Slot without a pool blocks forever on the nil channel (doc says "panic")                                                                           | bug         | Open           |
-| XPKI-005 | crypto11                              | `sessions.go` `withSession`                                    | Unbounded session opening; sessions never closed; return blocks once pool (1024) is full                                                           | performance | Open           |
+| XPKI-001 | crypto11                              | `crypto11.go` `PKCS11Lib.Close`                                | `Destroy()` runs before `Finalize()`, so C_Finalize never runs and pool sessions leak                                                              | bug         | **Fixed** ([details](#xpki-001--pk1)) |
+| XPKI-002 | crypto11                              | `sessions.go` `withSession`                                    | `sessionPools` map read without `sessionPoolMutex` while `setupSessions` writes                                                                    | race        | **Fixed** ([details](#xpki-002--pk1)) |
+| XPKI-003 | crypto11                              | `sessions.go` `withSession`                                    | Slot without a pool blocks forever on the nil channel (doc says "panic")                                                                           | bug         | **Fixed** ([details](#xpki-003--pk1)) |
+| XPKI-005 | crypto11                              | `sessions.go` `withSession`                                    | Unbounded session opening; sessions never closed; return blocks once pool (1024) is full                                                           | performance | **Fixed** ([details](#xpki-005--pk1)) |
 | XPKI-006 | crypto11                              | `config.go` `Init` token match                                 | Empty configured `TokenSerial`/`TokenLabel` matches any token with the empty field                                                                 | correctness | Open           |
-| XPKI-007 | crypto11                              | `config.go` `Init`                                             | Loaded module (`pkcs11.New`) leaks on every error path after load                                                                                  | bug         | Open           |
+| XPKI-007 | crypto11                              | `config.go` `Init`                                             | Loaded module (`pkcs11.New`) leaks on every error path after load                                                                                  | bug         | **Fixed** ([details](#xpki-007--pk1)) |
 | XPKI-011 | crypto11                              | `common.go` `BytesToUlong`                                     | Panics on empty input and reads out of bounds on short attribute values                                                                            | bug         | Open           |
 | XPKI-016 | cryptoprov                            | `provider.go` `Crypto.Add`/`ByManufacturer`                    | No synchronization; duplicate check in `Add` is unreachable (key already includes model)                                                           | race        | Open           |
 | XPKI-017 | cryptoprov/inmemcrypto, testprov      | `provider.go` `keyIDToPvk`                                     | Key map written by `Generate*` and read by `GetKey` without a lock (used by `authority/ocsp.go`)                                                   | race        | **Fixed** ([details](#xpki-017--im1)) |
@@ -97,7 +97,7 @@ drift; the symbol name is the stable reference.
 | XPKI-097 | build                                 | `internal/version/current.go`, `Makefile` `version`            | Tracked generated file is stale (`v0.2.76`); `make version` not wired into `build`/`all`/CI                                                        | bug         | Open           |
 | XPKI-098 | build                                 | `docker-compose.yml`                                           | Obsolete `version:`; fixed subnet is a public range; `local-kms` image untagged                                                                    | correctness | Open           |
 | XPKI-099 | tests                                 | `cryptoprov/provider_test.go` `Test_Aws`/`Test_Gcp`            | Empty stubs; `certutil.TestKeyInfoKMS` needs live KMS                                                                                              | docs        | Open           |
-| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority portion](#xpki-100-authority--au2)) |
+| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority](#xpki-100-authority--au2), [crypto11](#xpki-100-crypto11--pk1) portions) |
 | XPKI-101 | tests                                 | `cmd/hsm-tool/cli/hsm_cli_test.go`                             | Shared kong parser across `Parse` calls masks the `--cfg` required check                                                                           | docs        | Open           |
 | XPKI-102 | cmd/xpki-tool/cli                     | `ocsp.go` `OCSPFetchCmd.Run`                                   | All OCSP endpoint failures are printed but the command returns success                                                                             | correctness | Open           |
 | XPKI-103 | certutil, cmd/xpki-tool/cli           | `ocsp.go` `CreateOCSPRequest`, `certs.go` `OCSPValidation`     | Nil issuer certificate panics instead of returning an input error                                                                                  | bug         | Open           |
@@ -107,8 +107,293 @@ drift; the symbol name is the stable reference.
 | XPKI-107 | testca                                | `entity.go` `Issue`                                           | Appending the issuer overwrites caller option-slice storage when capacity remains and races when the slice is reused concurrently                      | race        | **Fixed** ([details](#xpki-107--tc1)) |
 | XPKI-108 | jwt/dpop                              | `verify.go` `VerifyClaimsContext`                              | `htm` is compared with `strings.EqualFold`, although HTTP methods are case-sensitive (RFC 9110 §9.1), so a proof for `get` is accepted for `GET` | correctness | Open           |
 | XPKI-109 | jwt                                   | `claims.go` `MapClaims.Time`; `jwt.go` `Sign`                  | A `time.Time` `iat`/`nbf`/`exp` passed to `Sign` marshals to an RFC 3339 string that `Time` cannot parse, so `Valid` silently skips that check (a `nbf` tomorrow is accepted now) | correctness | Needs Approval |
+| XPKI-110 | crypto11                              | `sessions.go` `withSession`; `config.go` `Init`                | After a device/token error the pooled sessions are reopened, but the login session is not, so a reinserted token stays logged out (`CKR_USER_NOT_LOGGED_IN`) until a new `Init` | correctness | Open           |
 
 ## Fixed items
+
+### XPKI-001 — PK1
+
+**Fixed on 2026-09-25.** Approved contract: a module is reference-counted per
+library path. `Close` called `Destroy` before `Finalize`, so `C_Finalize`
+never ran (miekg `Finalize` returns `CKR_CRYPTOKI_NOT_INITIALIZED` on a
+destroyed context), and the pool sessions were never closed. The new
+`crypto11/module.go` registry gives every `PKCS11Lib` on one loaded library
+the same `*pkcs11.Ctx`. On unix a module is matched by its dynamic loader
+handle, so a bare name, a path, a symlink and a hardlink share it. Elsewhere
+`moduleID` matches paths by `os.SameFile` and bare names by name (see the PR
+#540 follow-ups below). The first
+reference runs `C_Initialize`, and the last `module.release` runs
+`C_Finalize` and then `Destroy`. A module already initialized outside this
+package (`CKR_CRYPTOKI_ALREADY_INITIALIZED` on first load) is shared but never
+finalized here. `Close` is now `Close() error`, matching the KMS providers.
+It is idempotent, fails new and queued operations with `errClosed`, waits for
+borrowed sessions, then closes every session of this `PKCS11Lib` (including
+the new login session held in `PKCS11Lib.Session`) and releases the module.
+Every method that uses `Ctx` goes through the lifecycle guard, so a closed
+`PKCS11Lib` returns `errClosed` instead of calling into a finalized module.
+Compatibility: `Close()` gained an `error` result, so statement calls
+compile unchanged, but a `func()` value such as `t.Cleanup(lib.Close)` does
+not. `Ctx` is nil after `Close`.
+
+Validation:
+
+- Before the fix, a program in a HEAD worktree ran `Init` + `Close` and then
+  a fresh `pkcs11.New(path).Initialize()`, which returned
+  `CKR_CRYPTOKI_ALREADY_INITIALIZED`: the module was never finalized.
+  `BenchmarkLifecycle_InitClose` left one live session per cycle (8,047–14,960
+  live sessions after the run, counted by `GetSessionInfo` probes).
+- `TestLifecycle_FreshProcess` re-executes the test binary
+  (`XPKI_CRYPTO11_CHILD`). It checks two wrappers sharing one `Ctx` (refs 2),
+  that closing one leaves the other signing (logged in), and that after the
+  last `Close` the registry is empty and a fresh `C_Initialize` succeeds.
+  Re-initialization after finalize works. `TestLifecycle_ExternalInit`
+  checks that an externally initialized module is not finalized.
+- `TestInit_SharedModule` (same `Ctx`, refs +1/−1, idempotent `Close`, the
+  remaining wrapper still finds and uses the key, `errClosed` from `Sign` of a
+  key of the closed wrapper, `GenRandom`, `TokensInfo`, `EnumTokens`,
+  `EnumKeys`, `KeyInfo`, `FindKeyPair`, `NewSession`, `DestroyKeyPairOnSlot`).
+- `TestClose_ClosesAllSessions`: 16 goroutines sign and draw random bytes on
+  a second wrapper. Live SoftHSM sessions equal pool live + 1 (the login
+  session), and 0 after `Close`. `TestClose_ActiveOperation` (SoftHSM) and
+  `TestClose_WaitsForBorrowed` (fake sessions): `Close` blocks while a session
+  is borrowed, a queued borrower and new operations get `errClosed`, and the
+  borrowed session is closed exactly once when it is returned.
+  `TestClose_ReportsSessionErrors` joins the per-slot close errors.
+- `Test_LoadConfigTwice` now closes both wrappers, checking that the second
+  still works after the first `Close`.
+
+### XPKI-002 — PK1
+
+**Fixed on 2026-09-25.** `withSession` read `sessionPools` without the lock
+that `setupSessions` held while writing. Pools now live in
+`PKCS11Lib.pools`, created and looked up in `acquirePool` under
+`PKCS11Lib.mu`, together with the closed check and the active-operation
+count. Each `sessionPool` has its own mutex and condition variable.
+`setupSessions` was removed.
+
+Validation:
+
+- Before the fix, a HEAD worktree test that ran `setupSessions(1000+i)`
+  concurrently with `GenRandom` failed under `go test -race` with `DATA RACE`
+  at `sessions.go:47`.
+- `TestWithSession_ConcurrentPoolsAndClose`: 8 slots × 8 goroutines are
+  released by a barrier together with `Close`. Every call either succeeds or
+  returns `errClosed`, and every opened session is closed. It passes under
+  `go test -race -count=1 -cpu 1,4,8` along with the rest of the pool tests,
+  and the package passed three uncached `-race` runs.
+
+### XPKI-003 — PK1
+
+**Fixed on 2026-09-25.** A slot without a pool read from a nil channel,
+fell through to open a session, and then blocked forever sending the session
+back to the nil channel (the comment promised a panic). This affected keys
+returned by `FindKeyPairOnSession` or `Generate*OnSession` for a slot that no
+`*OnSlot` call had set up. `withSession` now creates the pool on first use for
+any slot. An invalid slot fails in `C_OpenSession` with a wrapped error
+(`open session on slot N`), and the pool slot is released.
+
+Validation:
+
+- Before the fix, `GenRandom` on a `PKCS11Lib` whose slot had no pool did not
+  return within 3s (HEAD worktree test).
+- `TestWithSession_PoolCreatedOnFirstUse` (deadline-bounded, fake sessions)
+  and `TestInit_SharedModule` (a new wrapper has no pools; its first
+  `GenRandom` and key generation create one). `TestWithSession_OpenErrorReleasesSlot`
+  checks that an open failure returns the wrapped PKCS#11 error without
+  running the callback, and that a pool of one then serves the next borrower.
+
+### XPKI-005 — PK1
+
+**Fixed on 2026-09-25.** Approved policy: block at a cap of 1024 per slot,
+configurable. The pool channel held 1024 sessions, but sessions were opened
+without limit and never closed, so more than 1024 concurrent borrowers left
+the extra returns blocked forever. `sessionPool` now bounds live (idle +
+borrowed) sessions per slot per `PKCS11Lib` at `maxSessions`: the default is
+`DefaultMaxSessions` = 1024, and the new variadic `Init`/`ConfigureFromFile`
+option `WithMaxSessions(n)` rejects `n < 1`. A borrower waits for a returned
+session (no FIFO guarantee), and a return never blocks. A session is closed
+instead of reused when the callback panics or fails with
+`CKR_SESSION_HANDLE_INVALID`, `CKR_SESSION_CLOSED`, `CKR_OPERATION_ACTIVE`,
+`CKR_DEVICE_ERROR`, `CKR_DEVICE_REMOVED` or `CKR_TOKEN_NOT_PRESENT`
+(`sessionUnusable`). To keep the bound deadlock-free, nested borrowing was
+removed. Key generation took a second pooled session for `GenRandom` while
+holding one; label/ID randomness now uses the held session
+(`randomOnSession`). `KeyInfo(includePublic)` opened an unpooled session and
+then borrowed a pooled one; it now uses one pooled session. `KeyInfo` and
+`DestroyKeyPairOnSlot` use the pool instead of opening and closing an RW
+session per call. `EnumKeys` keeps its own read-only session, so
+write-protected tokens can still be listed, but it now goes through the
+lifecycle guard.
+
+Validation:
+
+- `BenchmarkSession_Saturation` (`-benchtime=1x`, 1,100 borrowers holding
+  sessions): in a HEAD worktree, peak 1,100 concurrent sessions, 1,099 opened
+  and **76 borrowers stuck** after 10s. After the fix, peak **1,024**, 0
+  stuck, 1,024 opened on the first run and 0 on reuse (runs complete in about
+  0.1s).
+- `TestWithSession_Bounded` (cap 2: a third borrower waits, then gets one of
+  the two sessions, and nothing more is opened), `TestWithSession_Contention`
+  (cap 3, 32 workers × 50 borrows: peak ≤ 3, no leaks), and
+  `TestWithSession_Disposal` (table: success, plain error and
+  `CKR_KEY_HANDLE_INVALID` keep the session; each unusable code, wrapped,
+  closes it; exact error returned). `TestWithSession_PanicDiscards` and
+  `TestInit_InvalidMaxSessions` (0, −1).
+- Benchmarks (`-cpu 1,4,16 -count 6`, benchstat against the HEAD worktree,
+  same host). `GenRandom` serial and parallel, and parallel ECDSA P-256
+  `Sign`, show no significant change (p ≥ 0.06) except one-CPU parallel
+  `GenRandom` at +2.1% (1.059 → 1.082 µs). B/op and allocs/op are unchanged.
+  An intermediate version without the `sessionUnusable(nil)` fast path cost
+  +17–28% serial and 8 B/op, which the fast path removed.
+  `Lifecycle_InitClose` got 30–61% faster (81.5/113.2/143.0 →
+  57.1/56.4/55.1 µs; 12.3 → 5.6 KiB/op) with **0** live sessions left
+  (before: one per cycle).
+
+### XPKI-007 — PK1
+
+**Fixed on 2026-09-25.** `Init` returned after module load, token lookup
+and login failures without releasing anything. It now takes a module
+reference first, and a deferred `Close` on any later error closes the login
+session and pools and releases the reference, finalizing the module if it
+was the last one. Login uses a dedicated session (`PKCS11Lib.Session`) that
+stays open until `Close`. A failed `C_Initialize` destroys the context before
+returning. Token selection (XPKI-006) is unchanged.
+
+Validation:
+
+- Before the fix, a program in a HEAD worktree ran `Init` with an unknown
+  label (`could not find PKCS#11 token`), and a following fresh
+  `C_Initialize` returned `CKR_CRYPTOKI_ALREADY_INITIALIZED`.
+- `TestLifecycleChild` (fresh process): after an unknown label
+  (`errTokenNotFound`) and after a wrong PIN (`CKR_PIN_INCORRECT`, `login into
+  PKCS#11 token`), the registry is empty and a fresh `C_Initialize` succeeds.
+  A retry then succeeds. SoftHSM2 does not lock the user PIN: on a throwaway
+  token, 20 wrong logins set only `CKF_USER_PIN_COUNT_LOW`, which a correct
+  login clears.
+- `TestInit_FailureReleases` (in process): an unloadable path returns
+  `errCannotOpenPKCS11` with no registry entry; an unknown label leaves the
+  refs of the live module unchanged and no live sessions; a missing config
+  file returns `os.ErrNotExist`; the live wrapper still works.
+
+### XPKI-100-crypto11 — PK1
+
+**crypto11 portion Fixed on 2026-09-25; XPKI-100 stays In Progress.**
+`TestMain` panicked when the SoftHSM config could not load, and its deferred
+`Close` never ran because of `os.Exit`. `TestMain` now loads the config only
+when `/tmp/xpki/softhsm_unittest.json` exists, and it closes `p11lib`
+explicitly before exiting, failing the run on a close error. SoftHSM tests
+call `requireP11`, which uses the new `internal/testenv.RequireFile`: a
+missing file skips the test, or fails it with `XPKI_INTEGRATION=required`.
+A present config that does not load fails the test. Pool, config-YAML and
+DSA-encoding tests are fixture-free.
+
+Validation, with the config file moved away and then restored:
+
+- Without the variable, 21 tests were skipped and `crypto11` passed.
+- With `XPKI_INTEGRATION=required`, the gated tests failed with `SoftHSM
+  config is required (XPKI_INTEGRATION=required) but not found at
+  /tmp/xpki/softhsm_unittest.json`.
+- With a config naming a nonexistent module, `TestHardRSA` failed with
+  `SoftHSM config is present but did not load … could not open PKCS#11`.
+  After the restore, all tests ran.
+- `TestRequireFile` (present/missing × optional/required, and an unreadable
+  `ENOTDIR` path, which always fails) keeps `internal/testenv` at 100%.
+
+Batch validation (PK1):
+
+- `go test -race -count=1 ./crypto11/` passed three times, and the pool and
+  lifecycle tests passed with `-cpu 1,4,8`.
+- `make test RACE=true` passed across the repository with SoftHSM and
+  local-kms.
+- `make lint` passed (fmt, vet, govulncheck, golangci-lint: 0 issues).
+- `make build docs` regenerated `Documentation/api/crypto11.md` and
+  `internal_testenv.md`. The `doc.go` sample compiled in a scratch test.
+- `make covtest` passed at **91.5%** aggregate (AU2: 91.2%). The finalize
+  branch of `module.release` runs in the child processes, which the parent
+  profile does not count.
+
+PK1 `/code-review` follow-ups (2026-09-25). Seven were applied; each
+regression test failed with its fix temporarily reverted.
+
+- `ExportKey` called `GetTokenInfo` outside the lifecycle guard, so `Close`
+  could clear `Ctx` between the lookup and that call. It is now guarded.
+  `TestExportKey_CloseAfterLookup` injects a `Close` after the lookup
+  through the unexported `exportKeyFound` hook. Unguarded, `Close` finished
+  during `ExportKey`; guarded, it waits and `ExportKey` returns the URI.
+- The public caller-session methods (`ListKeys`, `FindKeys`,
+  `FindKeyPairOnSession`, `Generate{RSA,ECDSA}KeyPairOnSession`) are now
+  guarded wrappers over unexported versions, which the pooled paths call so
+  in-flight operations are not failed. `EnumTokens(true)` also returns
+  `errClosed` after `Close`. `TestClose_SessionMethodsReturnErrClosed`: all
+  seven calls panicked or returned data without the guard; now each returns
+  `errClosed`.
+- Module identity: `moduleKey` made a bare name absolute under the working
+  directory, and hardlinks got separate keys, so one loaded library could get
+  two entries and one could finalize under the other. `moduleID` now matches
+  paths by `os.SameFile` and bare names by name. The old function returned
+  different keys for a hardlink and for `libsofthsm2.so` from two
+  directories. `TestModuleID` (symlink, hardlink, unclean path, different
+  file, missing file, bare name from two directories, bare name vs path) and
+  `TestInit_SymlinkSharesModule` (SoftHSM: same `Ctx`, refs +1) pass.
+- `Close` runs once (`sync.Once`), and concurrent and later calls wait and
+  return the same result. Before, a second concurrent call returned nil at
+  once (`TestClose_ConcurrentCallsShareResult`).
+- Errors closing sessions returned during `Close` are joined into its result
+  instead of only logged. Before, `TestClose_ReportsReturnedSessionErrors`
+  got nil.
+- The redundant `err = nil` after login was removed.
+- Declined: the per-lib mutex contention, because parallel ECDSA sign at 16
+  CPUs was unchanged (p=0.59). Also declined: reusing `randomOnSession` in
+  `GenRandom`, which is an `io.Reader`-style short read, not an error.
+- Deferred as **XPKI-110**: no re-login after a device or token error.
+  This predates PK1 and is listed in ROADMAP.
+
+Follow-up validation: `go test -race -count=1 ./crypto11/` passed three
+times, and the pool and lifecycle tests passed with `-cpu 1,4,8`. `make
+lint` reported 0 issues. `make test RACE=true`, `make covtest` and `make
+build docs` were rerun (see PLAN.md PK1).
+
+PR #540 review follow-ups (2026-09-25). Copilot's `ExportKey` race and
+dropped-close-error comments were already fixed by the follow-ups above.
+Three new comments were fixed:
+
+- Module aliases: a bare name and a path to one library were separate
+  registry entries, and closing the owner finalized under the alias. On unix,
+  modules are now matched by the dynamic loader handle (`loadedHandle`).
+  `TestLifecycle_BareNameAlias` (child with `LD_LIBRARY_PATH`; path and bare
+  name share `Ctx`, and the alias still works after the path wrapper
+  closes) failed with `CKR_CRYPTOKI_NOT_INITIALIZED` when the handle was
+  stubbed to 0.
+- `ExportKey` had used a guard with a nested guarded `FindKeyPair`, so a
+  `Close` in between rejected in-flight work. The lookup and the token info
+  read now run in one pooled operation. `TestExportKey_CloseWhileAdmitted`
+  (a `Close` injected once the operation is admitted, through
+  `exportKeyAdmitted`) failed with `errClosed` on the nested version.
+- `Init` now joins a cleanup failure (`release after failed init`) into its
+  error instead of logging it. This has no test: a `CloseSession` or
+  `C_Finalize` failure cannot be forced on SoftHSM.
+
+PR #540 second-round follow-ups (2026-09-25):
+
+- A discarded session now keeps its pool capacity until `CloseSession`
+  returns, so a waiter no longer opens a replacement while it is still open,
+  briefly exceeding the cap. A failed close releases the capacity, since the
+  handle cannot be closed again. `TestWithSession_DiscardHoldsCapacity`
+  (close gated, cap 1) failed on the old ordering, where the waiter opened a
+  second session.
+- `Init` rejects a nil `Option` with `crypto11: nil option` instead of
+  panicking (`TestInit_InvalidMaxSessions`).
+- `EnumTokens(true)` holds its lifecycle guard until it returns. This
+  changes no behavior, since `Slot` is immutable, but the "waits for
+  in-flight operations" contract now holds literally.
+- `BenchmarkSession_Saturation` propagates borrower errors and bounds the
+  wait for a full pool, so a failing borrower ends the run instead of
+  spinning forever.
+- The XPKI-001 registry description and the AU2 "Remaining" list were
+  corrected.
+
+Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
+(csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli).
 
 ### XPKI-051 — AU2
 
@@ -308,9 +593,10 @@ Validation, with the `kms2` container (`:14556`) stopped and then restarted:
 - `go test ./internal/testenv -cover`: 100% (table over reachable/unreachable
   × unset/other/required, exact skip and fail messages).
 
-Remaining XPKI-100 portions: PK1 (crypto11), CP1 (cryptoprov), AW1
-(awskmscrypto), CS1 (csr), JW2 (jwt), CU4 (certutil) and HC1
-(cmd/hsm-tool/cli). Use `internal/testenv`.
+Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
+(csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The crypto11
+portion was fixed later by PK1 ([XPKI-100-crypto11](#xpki-100-crypto11--pk1)).
+Use `internal/testenv`.
 
 ### XPKI-078 — AT1
 
@@ -1077,5 +1363,9 @@ Validation passed:
   error; never the CA key). **XPKI-100**'s fixture convention
   (`internal/testenv`, `XPKI_INTEGRATION=required`) was approved at the same
   time; its other package portions remain open.
+- **XPKI-001 / 002 / 003 / 005 / 007** were approved and fixed by PK1 on
+  2026-09-25 (per-path module refcount with last-Close finalize,
+  `Close() error`, block at a per-slot cap of 1024 with `WithMaxSessions`,
+  Close rejects new work and waits for in-flight operations).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.

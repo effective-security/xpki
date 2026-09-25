@@ -96,7 +96,8 @@ Do not start by grepping the tree.
   Do not hard-code other paths; reuse the constants the packages define.
 - Gate only the tests that need a fixture, with
   `internal/testenv` (for example `testenv.RequireTCP(t, "local-kms",
-"localhost:14556")`). An unreachable fixture skips the test unless
+"localhost:14556")`, or `testenv.RequireFile` for the SoftHSM config, as
+  `crypto11`'s `requireP11` does). An unreachable fixture skips the test unless
   `XPKI_INTEGRATION=required`, which the Makefile exports so `make test`,
   `make covtest` and CI fail instead. A reachable fixture always runs the
   test. Keep unit tests fixture-free (`inmemcrypto`, `testca`) rather than

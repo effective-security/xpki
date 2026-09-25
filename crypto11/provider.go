@@ -28,6 +28,10 @@ var _ cryptoprov.KeyManager = (*PKCS11Lib)(nil)
 // EnumTokens enumerates tokens
 func (lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error) {
 	if currentSlotOnly {
+		if err := lib.enter(); err != nil {
+			return nil, err
+		}
+		defer lib.exit()
 		return []cryptoprov.TokenInfo{
 			{
 				SlotID:       lib.Slot.id,
@@ -56,8 +60,16 @@ func (lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, 
 	return res, nil
 }
 
-// EnumKeys returns lists of keys on the slot
+// EnumKeys returns lists of keys on the slot.
+//
+// It uses its own read-only session rather than a pooled RW one, so a
+// write-protected token can still be listed.
 func (lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
+	if err := lib.enter(); err != nil {
+		return nil, err
+	}
+	defer lib.exit()
+
 	sh, err := lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "OpenSession on slot %d", slotID)
@@ -65,8 +77,11 @@ func (lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo
 	defer func() {
 		_ = lib.Ctx.CloseSession(sh)
 	}()
+	return lib.enumKeysOnSession(sh, prefix)
+}
 
-	keys, err := lib.ListKeys(sh, pkcs11.CKO_PRIVATE_KEY, ^uint(0))
+func (lib *PKCS11Lib) enumKeysOnSession(sh pkcs11.SessionHandle, prefix string) ([]cryptoprov.KeyInfo, error) {
+	keys, err := lib.listKeys(sh, pkcs11.CKO_PRIVATE_KEY, ^uint(0))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -100,17 +115,21 @@ func (lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo
 
 // KeyInfo retrieves info about key with the specified id
 func (lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
-	var err error
-	session, err := lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	var res *cryptoprov.KeyInfo
+	err := lib.withSession(slotID, func(session pkcs11.SessionHandle) error {
+		var err error
+		res, err = lib.keyInfoOnSession(session, slotID, keyID, includePublic)
+		return err
+	})
 	if err != nil {
-		return nil, errors.WithMessagef(err, "OpenSession on slot %d", slotID)
+		return nil, err
 	}
-	defer func() {
-		_ = lib.Ctx.CloseSession(session)
-	}()
+	return res, nil
+}
 
-	var privHandle pkcs11.ObjectHandle
-	if privHandle, err = lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0)); err != nil {
+func (lib *PKCS11Lib) keyInfoOnSession(session pkcs11.SessionHandle, slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
+	privHandle, err := lib.findKey(session, keyID, "", pkcs11.CKO_PRIVATE_KEY, ^uint(0))
+	if err != nil {
 		return nil, errors.WithMessagef(err, "private key %q", keyID)
 	}
 
@@ -129,7 +148,7 @@ func (lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*c
 
 	pubKey := ""
 	if includePublic {
-		pubKey, err = lib.getPublicKeyPEM(slotID, keyID)
+		pubKey, err = lib.getPublicKeyPEM(session, slotID, keyID)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "reason='failed on GetPublicKey', slotID=%d, keyID=%q", slotID, keyID)
 		}

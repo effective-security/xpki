@@ -8,6 +8,7 @@ import (
 )
 
 func Test_LoadConfigTwice(t *testing.T) {
+	requireP11(t)
 	c, err := LoadTokenConfig(SoftHSMConfig)
 	require.NoError(t, err)
 
@@ -22,6 +23,12 @@ func Test_LoadConfigTwice(t *testing.T) {
 	p11_2, err := Init(c)
 	require.NoError(t, err)
 	require.NotNil(t, p11_2)
+	assert.Same(t, p11.Ctx, p11_2.Ctx)
+
+	closeLib(t, p11)
+	_, err = p11_2.GenRandom(make([]byte, 8))
+	require.NoError(t, err)
+	closeLib(t, p11_2)
 }
 
 func TestLoadConfigYaml(t *testing.T) {

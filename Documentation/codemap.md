@@ -53,8 +53,9 @@ consumers. Nothing in the library imports `cmd/`.
 | PKCS#11 key URI                            | `cryptoprov/uri.go`                                                          | `ParseTokenURI`, `ParsePrivateKeyURI`, `PrivateKeyURI`                                                                        |
 | Load key from PEM or URI                   | `cryptoprov/utils.go`, `cryptoprov/signer.go`                                | `Crypto.LoadPrivateKey`, `NewSignerFromPEM`, `NewSignerFromFromFile`, `LoadTLSKeyPair`                                        |
 | AES-GCM helpers                            | `cryptoprov/gcm.go`                                                          | `GcmEncrypt`, `GcmDecrypt`                                                                                                    |
-| PKCS#11 init / token select / login        | `crypto11/config.go`                                                         | `Init`, `ConfigureFromFile`, `LoadTokenConfig`                                                                                |
-| PKCS#11 session pool                       | `crypto11/sessions.go`                                                       | `withSession`, `setupSessions`                                                                                                |
+| PKCS#11 init / token select / login        | `crypto11/config.go`                                                         | `Init`, `ConfigureFromFile`, `LoadTokenConfig`, `WithMaxSessions`, `DefaultMaxSessions`                                       |
+| PKCS#11 module sharing / finalize          | `crypto11/module.go`, `crypto11/crypto11.go`                                 | `openModule`, `module.release`, `PKCS11Lib.Close`                                                                             |
+| PKCS#11 session pool                       | `crypto11/sessions.go`                                                       | `withSession`, `sessionPool`, `sessionUnusable`, `NewSession`                                                                 |
 | PKCS#11 key generation / lookup            | `crypto11/keys.go`, `rsa.go`, `ecdsa.go`                                     | `GenerateRSAKey`, `GenerateECDSAKey`, `FindKeyPair*`, `GetKey`, `ExportKey`                                                   |
 | PKCS#11 signing / decryption               | `crypto11/rsa.go`, `crypto11/ecdsa.go`                                       | `PKCS11PrivateKeyRSA.Sign/Decrypt`, `PKCS11PrivateKeyECDSA.Sign`                                                              |
 | PKCS#11 token / key enumeration            | `crypto11/provider.go`, `crypto11/util.go`                                   | `EnumTokens`, `EnumKeys`, `KeyInfo`, `DestroyKeyPairOnSlot`                                                                   |
@@ -98,7 +99,7 @@ consumers. Nothing in the library imports `cmd/`.
 | ASCII armor decoding                       | `armor/armor.go`                                                             | `Decode`, `Block`                                                                                                             |
 | Metrics descriptors                        | `metricskey/metricskey.go`                                                   | `PerfCryptoOperation`, `PerfCAOperation`, `PerfCASignRequest`, `Metrics`                                                      |
 | Build version                              | `internal/version/*.go`                                                      | `Current`, `Info`, `PopulateFromBuild`                                                                                        |
-| Integration fixture gating (tests)         | `internal/testenv/testenv.go`                                                | `RequireTCP`, `IntegrationRequired`, `IntegrationEnv`, `Required`                                                             |
+| Integration fixture gating (tests)         | `internal/testenv/testenv.go`                                                | `RequireTCP`, `RequireFile`, `IntegrationRequired`, `IntegrationEnv`, `Required`                                              |
 | SoftHSM fixture setup                      | `scripts/config-softhsm.sh`, `scripts/config-softhsm_test.sh`                | `make hsmconfig`, `make test-scripts`, setup `--help`                                                                         |
 | Test CA fixtures                           | `testca/entity.go`, `configuration.go`, `mkcert.go`, `testca.go`, `utils.go` | `NewEntity`, options, `MakeSelfCert*`, `MakeValidCertsChainTSA`, `ToPEM`                                                      |
 | Concurrent test CA names / serials         | `testca/configuration.go`, `entity.go`, `concurrency_test.go`                | `NewEntity`, `Entity.Issue`, `Entity.IncrementSN`, `NextSerialNumber`                                                         |
@@ -167,27 +168,63 @@ C toolchain (cgo) and dlopens the module named in the config.
 | File          | Role                                                                                                                                               |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `doc.go`      | Package comment                                                                                                                                    |
-| `crypto11.go` | Sentinel errors, `PKCS11Lib`, `PKCS11Object`, `PKCS11PrivateKey`, `Close`                                                                          |
-| `config.go`   | `TokenConfig`, `Init` (load, select token by serial OR label, login), `ConfigureFromFile`, `LoadTokenConfig`, `maxSessionsChan`                    |
-| `sessions.go` | `NewSession`, `withSession`, `setupSessions`                                                                                                       |
+| `crypto11.go` | Sentinel errors (`errClosed` after Close), `PKCS11Lib`, `PKCS11Object`, `PKCS11PrivateKey`, `Close() error`                                        |
+| `config.go`   | `TokenConfig`, `Init` (module ref, select token by serial OR label, login session, unwind on error), `Option`/`WithMaxSessions`, `ConfigureFromFile`, `LoadTokenConfig` |
+| `module.go`   | Process-wide module registry matched by loader handle, else `moduleID`: `openModule`, `module.release` (last ref finalizes and unloads)          |
+| `module_dl_unix.go`, `module_dl_other.go` | `loadedHandle` (cgo `dlopen`/`dlclose`, `-ldl` on Linux); 0 on non-unix                                                   |
+| `sessions.go` | `sessionPool` (bounded per slot), `withSession`, `NewSession`, lifecycle guard (`acquirePool`/`enter`/`exit`), `sessionOps` test seam              |
 | `provider.go` | `cryptoprov` glue: `init()` registration, `LoadProvider`, `EnumTokens`, `EnumKeys`, `KeyInfo`                                                      |
 | `keys.go`     | `KeyPurpose`, `findKey`, `ListKeys`, `FindKeyPair*`, `ConvertToPublic`, `GetKey`, `ExportKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `IdentifyKey` |
 | `rsa.go`      | `PKCS11PrivateKeyRSA`: generate, `Sign` (PKCS#1 v1.5, PSS), `Decrypt` (PKCS#1 v1.5, OAEP), `Validate`                                              |
 | `ecdsa.go`    | `PKCS11PrivateKeyECDSA`: curve table (P-224/256/384/521), generate, `Sign` (DER r,s)                                                               |
-| `common.go`   | Attribute/class/type name maps, `UlongToBytes`/`BytesToUlong` (unsafe), ECDSA signature DER helpers, label/ID generation                           |
-| `util.go`     | `CurrentSlotID`, `TokensInfo`, `DestroyKeyPairOnSlot`, `getPublicKeyPEM`                                                                           |
+| `common.go`   | Attribute/class/type name maps, `UlongToBytes`/`BytesToUlong` (unsafe), ECDSA signature DER helpers, label/ID generation on the held session       |
+| `util.go`     | `CurrentSlotID`, `TokensInfo`, `DestroyKeyPairOnSlot`, `getPublicKeyPEM` (on a given session)                                                      |
 | `rand.go`     | `GenRandom`                                                                                                                                        |
 
 ### Invariants
 
-- One buffered channel of sessions per slot (cap 1024); `withSession` takes or
-  opens a session and always returns it. Sessions are never closed and the
-  count is unbounded (XPKI-005). Only the default slot pool is created in
-  `Init`; `withSession` on a slot without a pool blocks (XPKI-003); map access
-  is not fully locked (XPKI-002). Sign/Decrypt use the slot recorded on the
-  key object (`PKCS11Object.Slot`), so keys found on other slots work.
-- `Init` tolerates `CKR_CRYPTOKI_ALREADY_INITIALIZED`, so several `PKCS11Lib`
-  may share one module; `Close` does not finalize correctly (XPKI-001).
+- Module ownership (XPKI-001/007): every `PKCS11Lib` on one library file
+  shares one `*pkcs11.Ctx` from the `modules` registry (`modulesMu`). On unix
+  a module is identified by the dynamic loader handle (`loadedHandle` in
+  `module_dl_unix.go`, `dlopen(RTLD_NOLOAD)` after `pkcs11.New`), so a bare
+  name found on the search path, a path, a symlink and a hardlink to one
+  loaded library share it; a duplicate load only drops its extra loader
+  reference. Elsewhere (`module_dl_other.go`) `moduleID` matches paths by
+  `os.SameFile` and bare names by name. The first reference runs `C_Initialize`; the last `Close`
+  runs `C_Finalize` and then `Destroy`. If `C_Initialize` returned
+  `CKR_CRYPTOKI_ALREADY_INITIALIZED` (initialized outside this package), the
+  module is shared but never finalized here. `Init` releases its reference and
+  sessions on every error after the load.
+- Each `PKCS11Lib` owns a login session (`Session`, opened and logged in by
+  `Init`) that keeps the token logged in while pooled sessions come and go; it
+  is closed by `Close` and not counted in the pool limit. No `C_Logout`; it is
+  not reopened after a device/token error (XPKI-110).
+- Session pools (XPKI-002/003/005): one `sessionPool` per slot, created on
+  first use under `PKCS11Lib.mu`. At most `maxSessions` live sessions per slot
+  (default `DefaultMaxSessions` = 1024, `WithMaxSessions`); a borrower waits
+  (`sync.Cond`, no FIFO) for a returned session. Returns never block. A
+  session whose callback failed with `sessionUnusable` codes
+  (`CKR_SESSION_HANDLE_INVALID`, `CKR_SESSION_CLOSED`, `CKR_OPERATION_ACTIVE`,
+  device/token removed or error) or panicked is closed, not reused; it keeps
+  its capacity until `CloseSession` returns (a failed close releases it).
+  `Init` rejects a nil `Option`.
+  `withSession` callbacks must not borrow again (key-label/ID randomness uses
+  the held session). Sign/Decrypt use the slot recorded on the key object
+  (`PKCS11Object.Slot`), so keys found on other slots work.
+- `Close() error` runs once (`closeOnce`); every call, concurrent or later,
+  waits for it and returns the same result. New and queued operations get
+  `errClosed`; it waits for borrowed sessions (in-flight operations) to
+  return, closes all sessions of this `PKCS11Lib` (joining close errors,
+  including sessions returned during `Close`), releases the module and sets
+  `Ctx` to nil. Every method that touches `Ctx` goes through `withSession` or
+  `enter`/`exit`, including `ExportKey` (lookup and token info in one pooled
+  operation, never a nested guarded call), `EnumTokens(true)` and the public
+  caller-session methods (`ListKeys`, `FindKeys`, `FindKeyPairOnSession`,
+  `Generate{RSA,ECDSA}KeyPairOnSession`), which wrap unexported versions used
+  inside pooled operations. `EnumKeys` keeps its own read-only session, so
+  write-protected tokens list. Direct use of the exported `Ctx` and caller
+  sessions from `NewSession` are untracked; close them before `Close`, and do
+  not call `Close` from inside an operation.
 - Token selection: serial OR label match, first wins; empty configured fields
   match empty token fields (XPKI-006). `Pin` may be `file:<path>` (trailing
   line endings stripped, other whitespace kept).
@@ -209,9 +246,26 @@ C toolchain (cgo) and dlopens the module named in the config.
 
 ### Test layout
 
-All tests are SoftHSM integration tests; `TestMain` panics if
-`/tmp/xpki/softhsm_unittest.json` is missing. No `testdata/`. Keys generated by
-tests persist in the token; only `Test_DestroyKey` cleans up.
+`TestMain` loads `/tmp/xpki/softhsm_unittest.json` only when the file exists
+and closes `p11lib` (checking the error) before `os.Exit`. SoftHSM tests call
+`requireP11`, which uses `testenv.RequireFile` (missing config skips, or fails
+with `XPKI_INTEGRATION=required`) and fails when a present config did not load.
+Fixture-free: `sessions_test.go` (pool bounds, disposal, panic, open errors,
+Close waiting/wakeups, concurrent pool creation vs Close) through the
+`sessionOps` seam, config/DSA tests; `close_test.go` (errClosed from the
+caller-session methods, concurrent `Close` sharing its result, errors from
+sessions returned during `Close`, `moduleID` matching, and `ExportKey` with a
+`Close` injected through the `exportKeyAdmitted` hook; symlinked module sharing
+on SoftHSM). `TestLifecycle_BareNameAlias` re-executes a child with
+`LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH` so a bare name and a path share a module. `lifecycle_test.go` covers shared-module
+refs, closing with live and active sessions (SoftHSM handle probes via
+`GetSessionInfo`), Init failure unwinding, and re-executes the test binary
+(`XPKI_CRYPTO11_CHILD`) to prove `C_Finalize` ran (a fresh `C_Initialize`
+succeeds) after failed Inits and the last Close, and that an externally
+initialized module is not finalized. `sessions_bench_test.go` holds the
+session/lifecycle benchmarks (`BenchmarkSession_Saturation` with
+`-benchtime=1x`). No `testdata/`. Keys generated by tests persist in the
+token unless the test destroys them.
 
 ## Packages cryptoprov/awskmscrypto, gcpkmscrypto, inmemcrypto, testprov
 
@@ -615,7 +669,7 @@ conflicts/overrides; it makes no network requests.
 - **x/print**: writes to an `io.Writer`, ignores write errors, local time; a zero `NextUpdate` prints `Expires: not set`; `JSON` swallows marshal errors by design. Tests in `certutil_test.go` load `testdata/*.pem` and append synthetic `*x509.Certificate` values to cover SAN, AIA, CRL, and extension formatting.
 - **metricskey**: descriptors only; registered by consumers.
 - **internal/version**: `current.go` is generated by `make version` but tracked (XPKI-097); `PopulateFromBuild` strips a leading `v`.
-- **internal/testenv**: test-only; imports `testing`. `RequireTCP` dials with a 1s timeout and skips or fails (`XPKI_INTEGRATION=required`) only when the fixture is unreachable (XPKI-100).
+- **internal/testenv**: test-only; imports `testing`. `RequireTCP` dials with a 1s timeout and skips or fails (`XPKI_INTEGRATION=required`) only when the fixture is unreachable; `RequireFile` does the same for a missing fixture file and always fails on other stat errors (XPKI-100).
 - **testca**: everything panics on failure (test-only). Defaults RSA-2048,
   NotBefore = epoch, NotAfter = +10y, subject `[TEST]`. `Chain()` includes
   leaf and root. `PFX`/`ToPKCS8` need `openssl` (XPKI-063).
@@ -667,8 +721,10 @@ conflicts/overrides; it makes no network requests.
 `internal/testenv.RequireTCP` gates a fixture-dependent test: an unreachable
 fixture skips it unless `XPKI_INTEGRATION=required`, which the Makefile
 exports (so `make test`/`covtest` and CI fail); a reachable fixture always
-runs it. Only `authority` uses it so far; the other packages still fail hard
-when a fixture is missing (XPKI-100, remaining portions).
+runs it. `internal/testenv.RequireFile` does the same for a fixture file
+(`crypto11` gates on the SoftHSM config). `authority` and `crypto11` use them
+so far; the other packages still fail hard when a fixture is missing
+(XPKI-100, remaining portions).
 
 `cmd/xpki-tool/cli/coverage_test.go` uses generated certificates and local HTTP
 servers to cover certificate filters, trust validation, concurrent revocation

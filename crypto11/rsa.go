@@ -75,9 +75,8 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairWithLabel(label string, bits int, purpos
 func (lib *PKCS11Lib) GenerateRSAKeyPairOnSlot(slot uint, id []byte, label []byte, bits int, purpose KeyPurpose) (*PKCS11PrivateKeyRSA, error) {
 	var k *PKCS11PrivateKeyRSA
 	var err error
-	lib.setupSessions(slot)
 	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
-		k, err = lib.GenerateRSAKeyPairOnSession(session, slot, id, label, bits, purpose)
+		k, err = lib.generateRSAKeyPairOnSession(session, slot, id, label, bits, purpose)
 		return errors.WithStack(err)
 	})
 	return k, err
@@ -89,7 +88,22 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSlot(slot uint, id []byte, label []byt
 //
 // RSA private keys are generated with both sign and decrypt
 // permissions, and a public exponent of 65537.
+// session is owned by the caller; after Close it returns errClosed.
 func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
+	session pkcs11.SessionHandle, slot uint,
+	id []byte,
+	label []byte,
+	bits int,
+	purpose KeyPurpose,
+) (*PKCS11PrivateKeyRSA, error) {
+	if err := lib.enter(); err != nil {
+		return nil, err
+	}
+	defer lib.exit()
+	return lib.generateRSAKeyPairOnSession(session, slot, id, label, bits, purpose)
+}
+
+func (lib *PKCS11Lib) generateRSAKeyPairOnSession(
 	session pkcs11.SessionHandle, slot uint,
 	id []byte,
 	label []byte,
@@ -100,12 +114,12 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
 	var pub crypto.PublicKey
 
 	if len(label) == 0 {
-		if label, err = lib.generateKeyLabel(); err != nil {
+		if label, err = lib.generateKeyLabel(session); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}
 	if len(id) == 0 {
-		if id, err = lib.generateKeyID(); err != nil {
+		if id, err = lib.generateKeyID(session); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}

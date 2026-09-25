@@ -33,6 +33,7 @@ func TestNativeRSA(t *testing.T) {
 }
 
 func TestHardRSA(t *testing.T) {
+	requireP11(t)
 	var err error
 	var priv *PKCS11PrivateKeyRSA
 	var key2, key3 crypto.PrivateKey
@@ -135,6 +136,7 @@ func testRsaSigningPSS(t *testing.T, key crypto.Signer, hashFunction crypto.Hash
 }
 
 func TestHardRSA_UnsupportedOptions(t *testing.T) {
+	requireP11(t)
 	priv, err := p11lib.GenerateRSAKeyPair(2048, Signing)
 	require.NoError(t, err)
 

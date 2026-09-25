@@ -228,9 +228,8 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairWithLabel(label string, c elliptic.Cur
 func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSlot(slot uint, id []byte, label []byte, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
 	var k *PKCS11PrivateKeyECDSA
 	var err error
-	lib.setupSessions(slot)
 	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
-		k, err = lib.GenerateECDSAKeyPairOnSession(session, slot, id, label, c)
+		k, err = lib.generateECDSAKeyPairOnSession(session, slot, id, label, c)
 		return err
 	})
 	return k, err
@@ -242,18 +241,27 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSlot(slot uint, id []byte, label []b
 //
 // Only a limited set of named elliptic curves are supported. The
 // underlying PKCS#11 implementation may impose further restrictions.
+// session is owned by the caller; after Close it returns errClosed.
 func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle, slot uint, id []byte, label []byte, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
+	if err := lib.enter(); err != nil {
+		return nil, err
+	}
+	defer lib.exit()
+	return lib.generateECDSAKeyPairOnSession(session, slot, id, label, c)
+}
+
+func (lib *PKCS11Lib) generateECDSAKeyPairOnSession(session pkcs11.SessionHandle, slot uint, id []byte, label []byte, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
 	var err error
 	var parameters []byte
 	var pub crypto.PublicKey
 
 	if len(label) == 0 {
-		if label, err = lib.generateKeyLabel(); err != nil {
+		if label, err = lib.generateKeyLabel(session); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}
 	if len(id) == 0 {
-		if id, err = lib.generateKeyID(); err != nil {
+		if id, err = lib.generateKeyID(session); err != nil {
 			return nil, errors.WithStack(err)
 		}
 	}

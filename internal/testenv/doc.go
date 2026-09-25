@@ -10,4 +10,7 @@
 //		testenv.RequireTCP(t, "local-kms", "localhost:14556")
 //		// ...
 //	}
+//
+// RequireFile does the same for a fixture identified by a file, such as the
+// SoftHSM token configuration.
 package testenv

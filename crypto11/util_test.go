@@ -16,6 +16,7 @@ import (
 )
 
 func Test_TokensInfo(t *testing.T) {
+	requireP11(t)
 	slots, err := p11lib.TokensInfo()
 	require.NoError(t, err)
 	assert.NotNil(t, slots)
@@ -31,6 +32,7 @@ func Test_TokensInfo(t *testing.T) {
 }
 
 func Test_GetSlotKeys(t *testing.T) {
+	requireP11(t)
 	slots, err := p11lib.TokensInfo()
 	require.NoError(t, err)
 	assert.NotNil(t, slots)
@@ -48,6 +50,7 @@ func Test_GetSlotKeys(t *testing.T) {
 }
 
 func Test_EnumTokens(t *testing.T) {
+	requireP11(t)
 	assert.NotPanics(t, func() {
 		p11lib.CurrentSlotID()
 	})
@@ -63,6 +66,7 @@ func Test_EnumTokens(t *testing.T) {
 }
 
 func Test_DestroyKey(t *testing.T) {
+	requireP11(t)
 	k, err := p11lib.GenerateRSAKeyPairWithLabel("Test_DestroyKey", 1024, Signing)
 	require.NoError(t, err)
 	assert.NotNil(t, k)
@@ -91,6 +95,7 @@ func Test_DestroyKey(t *testing.T) {
 }
 
 func Test_DestroyKey_NotFound(t *testing.T) {
+	requireP11(t)
 	slotID := p11lib.CurrentSlotID()
 	err := p11lib.DestroyKeyPairOnSlot(slotID, "Test_DestroyKey_NotFound_missing")
 	require.Error(t, err)
@@ -99,6 +104,7 @@ func Test_DestroyKey_NotFound(t *testing.T) {
 }
 
 func Test_ConvertToPublic(t *testing.T) {
+	requireP11(t)
 	rsaKey, err := p11lib.GenerateRSAKey("Test_ConvertToPublic_rsa", 2048, int(Signing))
 	require.NoError(t, err)
 	gen, ok := rsaKey.(*privateKeyGen)

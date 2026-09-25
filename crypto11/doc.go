@@ -16,6 +16,23 @@
 // Keys generated or imported into the HSM cannot be exported,
 // providing hardware-level protection for cryptographic operations.
 //
+// Open a token with Init or ConfigureFromFile and release it with Close.
+// Every PKCS11Lib on the same library path shares one loaded module: the
+// first one initializes it and the last Close finalizes it. Each PKCS11Lib
+// keeps at most WithMaxSessions pooled sessions per slot (default
+// DefaultMaxSessions); an operation waits while all of them are in use.
+//
+//	lib, err := crypto11.ConfigureFromFile("/path/softhsm.json", crypto11.WithMaxSessions(64))
+//	if err != nil {
+//		return err
+//	}
+//	defer func() { _ = lib.Close() }()
+//	key, err := lib.GenerateECDSAKeyPair(elliptic.P256())
+//	if err != nil {
+//		return err
+//	}
+//	sig, err := key.Sign(rand.Reader, digest, crypto.SHA256)
+//
 // This package is based on github.com/ThalesIgnite/crypto11 with
 // modifications for integration with the xpki ecosystem.
 package crypto11

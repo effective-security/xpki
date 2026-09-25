@@ -98,8 +98,17 @@ func (lib *PKCS11Lib) findAllObjects(session pkcs11.SessionHandle) ([]pkcs11.Obj
 	}
 }
 
-// ListKeys returns key objects on the slot matching the key class and type
+// ListKeys returns key objects on the slot matching the key class and type.
+// session is owned by the caller; after Close it returns errClosed.
 func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error) {
+	if err := lib.enter(); err != nil {
+		return nil, err
+	}
+	defer lib.exit()
+	return lib.listKeys(session, keyclass, keytype)
+}
+
+func (lib *PKCS11Lib) listKeys(session pkcs11.SessionHandle, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error) {
 	var err error
 	var handles []pkcs11.ObjectHandle
 	template := []*pkcs11.Attribute{}
@@ -122,8 +131,17 @@ func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keyt
 	return handles, nil
 }
 
-// FindKeys returns key objects on the slot matching label and key type
+// FindKeys returns key objects on the slot matching label and key type.
+// session is owned by the caller; after Close it returns errClosed.
 func (lib *PKCS11Lib) FindKeys(session pkcs11.SessionHandle, keylabel string, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error) {
+	if err := lib.enter(); err != nil {
+		return nil, err
+	}
+	defer lib.exit()
+	return lib.findKeys(session, keylabel, keyclass, keytype)
+}
+
+func (lib *PKCS11Lib) findKeys(session pkcs11.SessionHandle, keylabel string, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error) {
 	var err error
 	var handles []pkcs11.ObjectHandle
 	template := []*pkcs11.Attribute{
@@ -161,9 +179,8 @@ func (lib *PKCS11Lib) FindKeyPair(keyID, label string) (crypto.PrivateKey, error
 func (lib *PKCS11Lib) FindKeyPairOnSlot(slot uint, keyID, label string) (crypto.PrivateKey, error) {
 	var err error
 	var k crypto.PrivateKey
-	lib.setupSessions(slot)
 	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
-		k, err = lib.FindKeyPairOnSession(session, slot, keyID, label)
+		k, err = lib.findKeyPairOnSession(session, slot, keyID, label)
 		return err
 	})
 	return k, err
@@ -172,7 +189,16 @@ func (lib *PKCS11Lib) FindKeyPairOnSlot(slot uint, keyID, label string) (crypto.
 // FindKeyPairOnSession retrieves a previously created asymmetric key, using a specified session.
 //
 // Either (but not both) of id and label may be nil, in which case they are ignored.
+// session is owned by the caller; after Close it returns errClosed.
 func (lib *PKCS11Lib) FindKeyPairOnSession(session pkcs11.SessionHandle, slot uint, keyID, label string) (crypto.PrivateKey, error) {
+	if err := lib.enter(); err != nil {
+		return nil, err
+	}
+	defer lib.exit()
+	return lib.findKeyPairOnSession(session, slot, keyID, label)
+}
+
+func (lib *PKCS11Lib) findKeyPairOnSession(session pkcs11.SessionHandle, slot uint, keyID, label string) (crypto.PrivateKey, error) {
 	var err error
 	var privHandle, pubHandle pkcs11.ObjectHandle
 	var pub crypto.PublicKey
@@ -234,18 +260,30 @@ func (lib *PKCS11Lib) GetKey(keyID string) (crypto.PrivateKey, error) {
 	return key, err
 }
 
+// exportKeyAdmitted is a test hook that runs in ExportKey once the operation
+// holds its session, before the key lookup.
+var exportKeyAdmitted = func() {}
+
 // ExportKey returns PKCS#11 URI for specified key ID.
 // It does not return key bytes.
 func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error) {
-	// ensure that key exists
-	_, err := lib.FindKeyPair(keyID, "")
+	// the lookup and the token info read are one operation, so a Close
+	// that starts in between waits for both instead of rejecting the lookup
+	var ti pkcs11.TokenInfo
+	err := lib.withSession(lib.Slot.id, func(session pkcs11.SessionHandle) error {
+		exportKeyAdmitted()
+		// ensure that key exists
+		if _, err := lib.findKeyPairOnSession(session, lib.Slot.id, keyID, ""); err != nil {
+			return errors.WithMessagef(err, "unable to find key %q", keyID)
+		}
+		var err error
+		if ti, err = lib.Ctx.GetTokenInfo(lib.Slot.id); err != nil {
+			return errors.WithMessage(err, "token info")
+		}
+		return nil
+	})
 	if err != nil {
-		return "", nil, errors.WithMessagef(err, "unable to find key %q", keyID)
-	}
-
-	ti, err := lib.Ctx.GetTokenInfo(lib.Slot.id)
-	if err != nil {
-		return "", nil, errors.WithMessage(err, "token info")
+		return "", nil, err
 	}
 
 	uri := fmt.Sprintf("pkcs11:manufacturer=%s;model=%s;serial=%s;token=%s;id=%s;type=private",
