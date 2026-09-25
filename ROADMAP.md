@@ -67,7 +67,9 @@ key support (XPKI-043) and drop legacy RFC 1423 PEM decryption
 - Run `make lint` and `govulncheck` in CI, and gate the `UnitTest` job on
   `detect-noop` (XPKI-094, XPKI-095).
 - Make integration tests skip when SoftHSM or local-kms is unavailable
-  (XPKI-100), and add the missing KMS `EnumKeys` coverage (XPKI-099).
+  (XPKI-100) with `internal/testenv` (done for `authority`; crypto11,
+  cryptoprov, awskmscrypto, csr, jwt, certutil and hsm-tool remain), and add
+  the missing KMS `EnumKeys` coverage (XPKI-099).
 - Wire `make version` into `build` and stop tracking
   `internal/version/current.go` (XPKI-097).
 - Regenerate `cmd/*/README.md` from `--help` output and add per-command

@@ -31,6 +31,38 @@ With a single issuer, profiles without `issuer_label` take that issuer's label.
 A populated `allowed_profiles` must include the issuer's
 `aia.delegated_ocsp_profile`, otherwise `LoadConfig` fails.
 
+## OCSP responder
+
+Without `aia.delegated_ocsp_profile`, `SignOCSP` signs with the CA key.
+With it, the issuer signs responses with a delegated responder: an in-memory
+P-256 key and a certificate issued by `Sign` with that profile. The profile
+needs the `ocsp signing` usage; `ocsp_no_check` keeps AIA and CRL URLs out of
+the certificate.
+
+- The profile must exist, must not be a CA profile, its extended key usage
+  must include OCSP signing, and its `expiry` must exceed `aia.ocsp_expiry`
+  plus the profile `backdate` (default 5m) plus 1m, because NotBefore is
+  backdated from the current minute; otherwise `NewIssuer`/`CreateIssuer`
+  fails. A raw EKU in the profile's `extensions`
+  overrides `usages`, so it is decoded and must list `id-kp-OCSPSigning`.
+  The profile is checked again before each issuance, so replacing it with
+  `AddProfile` cannot produce an invalid responder: that renewal fails.
+- `NewIssuer` issues the first responder and fails if it cannot.
+- A responder is renewed when it expires within `aia.ocsp_expiry`. One
+  caller renews; callers that hold a still-valid responder keep using it
+  instead of waiting.
+- If renewal fails, `SignOCSP` logs the error and keeps using the cached
+  responder while it is still valid when the attempt ends, retrying at most
+  once a minute after that. With no valid
+  responder it returns an error; it never falls back to the CA key. Callers
+  that were waiting for a failed attempt share its error instead of retrying
+  one after another. `CreateDelegatedOCSPSigner` waits for a renewal in
+  progress and returns the last renewal error while renewal is overdue.
+- When the CA expires within `aia.ocsp_expiry`, each responder is capped at
+  the CA's `NotAfter` and re-issued at most once a minute.
+- A delegated response's `NextUpdate` is capped at the responder's
+  `NotAfter`, and a `ThisUpdate` at or after it is rejected.
+
 ## Signing pipeline
 
 `Issuer.Sign(csr.SignRequest)` treats the **SignRequest** as coming from a

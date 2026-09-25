@@ -14,7 +14,9 @@ import (
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/internal/testenv"
 	"github.com/effective-security/xpki/oid"
 	"github.com/effective-security/xpki/testca"
 	"github.com/stretchr/testify/suite"
@@ -33,11 +35,20 @@ var (
 	rootBundleFile = "/tmp/xpki/certs/root_ca.pem"
 )
 
+const (
+	// kmsConfig and localKMSAddr are the local-kms fixture (make start-local-kms).
+	kmsConfig    = "../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml"
+	localKMSAddr = "localhost:14556"
+)
+
 var (
 	//falseVal = false
 	trueVal = true
 )
 
+// testSuite shares the generated CA chain in /tmp/xpki/certs. Loading the
+// local-kms provider does not connect; only tests that generate keys with
+// s.crypto.Default() need the emulator and call requireKMS (XPKI-100).
 type testSuite struct {
 	suite.Suite
 	crypto *cryptoprov.Crypto
@@ -45,7 +56,7 @@ type testSuite struct {
 
 func (s *testSuite) SetupSuite() {
 	var err error
-	s.crypto, err = cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.yaml", nil)
+	s.crypto, err = cryptoprov.Load(kmsConfig, nil)
 	s.Require().NoError(err)
 
 	rootCA := testca.NewEntity(
@@ -91,6 +102,11 @@ func (s *testSuite) SetupSuite() {
 }
 
 func (s *testSuite) TearDownSuite() {
+}
+
+// requireKMS gates a test that generates keys in local-kms.
+func (s *testSuite) requireKMS() {
+	testenv.RequireTCP(s.T(), "local-kms", localKMSAddr)
 }
 
 func TestAuthority(t *testing.T) {
@@ -200,7 +216,7 @@ func (s *testSuite) TestShakenRoot() {
 	s.Require().NotNil(shaken)
 	s.Require().NotEmpty(shaken.Extensions)
 
-	crypto := s.crypto.Default()
+	crypto := inmemcrypto.NewProvider()
 	kr := csr.NewKeyRequest(crypto, "TestShakenRoot"+uuid.NewV7().String(), "ECDSA", 256, csr.SigningKey)
 	rootReq := csr.CertificateRequest{
 		CommonName: "[TEST] SHAKEN Root CA",
@@ -219,7 +235,7 @@ func (s *testSuite) TestShakenRoot() {
 }
 
 func (s *testSuite) TestIssuerSign() {
-	crypto := s.crypto.Default()
+	crypto := inmemcrypto.NewProvider()
 	kr := csr.NewKeyRequest(crypto, "TestNewRoot"+uuid.NewV7().String(), "ECDSA", 256, csr.SigningKey)
 	rootReq := csr.CertificateRequest{
 		CommonName: "[TEST] Trusty Root CA",

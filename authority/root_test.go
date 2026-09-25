@@ -30,6 +30,7 @@ var rootCfg = &authority.Config{
 }
 
 func (s *testSuite) TestNewRoot() {
+	s.requireKMS()
 	crypto := s.crypto.Default()
 	kr := csr.NewKeyRequest(crypto, "TestNewRoot"+uuid.NewV7().String(), "ECDSA", 384, csr.SigningKey)
 	req := csr.CertificateRequest{

@@ -94,6 +94,13 @@ Do not start by grepping the tree.
   (`make start-local-kms`) and the dummy `AWS_*` variables exported by the
   Makefile; GCP KMS tests use an in-process fake KMS client.
   Do not hard-code other paths; reuse the constants the packages define.
+- Gate only the tests that need a fixture, with
+  `internal/testenv` (for example `testenv.RequireTCP(t, "local-kms",
+"localhost:14556")`). An unreachable fixture skips the test unless
+  `XPKI_INTEGRATION=required`, which the Makefile exports so `make test`,
+  `make covtest` and CI fail instead. A reachable fixture always runs the
+  test. Keep unit tests fixture-free (`inmemcrypto`, `testca`) rather than
+  gating them.
 - `testca` generates throwaway keys and certificates; use it instead of
   checking new PEM fixtures into `testdata` unless a specific encoding is
   under test.
@@ -138,7 +145,7 @@ run `make lint` or the race detector; run both locally.
   `FINDINGS.md` with the next free ID and reference the ID from a code
   comment. Larger API or contract changes go to `ROADMAP.md`.
 
-#### Track remediation status
+#### Track bugs and issues status
 
 - In the same change as each verified fix, mark its `FINDINGS.md` index row
   **Fixed** and retain it. Add the finding ID, batch, completion date, concise
@@ -191,3 +198,8 @@ Start here instead of grepping the tree.
 - **[`cmd/hsm-tool/README.md`](cmd/hsm-tool/README.md)** and
   **[`cmd/xpki-tool/README.md`](cmd/xpki-tool/README.md)** — CLI usage.
 - Package `doc.go` in each library package.
+
+## IMPORTANT
+
+- Do not commit or ask to commit any changes unless you have explicit instructions to do so..
+- Review your changes before declaring current task as DONE.

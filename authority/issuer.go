@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -98,8 +99,21 @@ type Issuer struct {
 	nameHash map[crypto.Hash][]byte
 	keyInfo  *certutil.KeyInfo
 
-	responder *OCSPResponder
-	lock      sync.RWMutex
+	// caResponder signs OCSP responses with the CA key; set once by CreateIssuer.
+	caResponder *OCSPResponder
+	// delegated is the current delegated OCSP responder (XPKI-052).
+	delegated atomic.Pointer[OCSPResponder]
+	// renewal is the outcome of the last delegated issuance attempt.
+	renewal atomic.Pointer[ocspRenewal]
+	// renewLock serializes delegated responder issuance.
+	// Lock order: renewLock, then lock (XPKI-051).
+	renewLock sync.Mutex
+	// renewWaitHook, if set by tests, runs after a caller reads renewal and
+	// before it waits for renewLock.
+	renewWaitHook func()
+
+	// lock guards cfg.Profiles.
+	lock sync.RWMutex
 }
 
 // Bundle returns certificates bundle
@@ -181,7 +195,9 @@ func (ca *Issuer) Profiles() map[string]*CertProfile {
 	return ca.cfg.Profiles
 }
 
-// AddProfile adds CertProfile
+// AddProfile adds or replaces the CertProfile named label. Replacing the
+// delegated_ocsp_profile takes effect at the next responder renewal, which
+// fails if the new profile is not valid for delegation.
 func (ca *Issuer) AddProfile(label string, p *CertProfile) {
 	ca.lock.Lock()
 	defer ca.lock.Unlock()
@@ -282,6 +298,11 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		crlRenewal = cfg.AIA.GetCRLRenewal()
 		crlExpiry = cfg.AIA.GetCRLExpiry()
 		ocspExpiry = cfg.AIA.GetOCSPExpiry()
+		if name := cfg.AIA.DelegatedOCSPProfile; name != "" {
+			if err := validateDelegatedOCSPProfile(cfg.Profiles[name], name, ocspExpiry); err != nil {
+				return nil, errors.WithMessagef(err, "issuer %q", label)
+			}
+		}
 	}
 
 	keyHash := make(map[crypto.Hash][]byte)
@@ -333,6 +354,10 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		crlExpiry:   crlExpiry,
 		ocspExpiry:  ocspExpiry,
 		keyInfo:     keyInfo,
+		caResponder: &OCSPResponder{
+			Signer: signer,
+			Cert:   bundle.Cert,
+		},
 	}
 	logger.KV(xlog.NOTICE, "issuer", label, "skid", ca.skid, "crl_url", ca.crlURL, "ocsp_url", ca.ocspURL)
 	return ca, nil
@@ -383,10 +408,6 @@ func (ca *Issuer) VerifyProof(data []byte, proof string) error {
 // Sign signs a new certificate based on the PEM-encoded
 // certificate request with the specified profile.
 func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error) {
-	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_cert")
-
-	//logger.KV(xlog.DEBUG, "req", req)
-
 	profileName := raReq.Profile
 	if profileName == "" {
 		profileName = "default"
@@ -395,6 +416,13 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 	if profile == nil {
 		return nil, nil, errors.New("unsupported profile: " + profileName)
 	}
+	return ca.signWithProfile(raReq, profileName, profile)
+}
+
+// signWithProfile signs raReq with profile, a snapshot looked up by
+// profileName, so that a caller can validate the exact profile it signs with.
+func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, profile *CertProfile) (*x509.Certificate, []byte, error) {
+	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_cert")
 
 	requesterCsrTemplate, err := csr.ParsePEM([]byte(raReq.Request))
 	if err != nil {
@@ -746,7 +774,11 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 		template.MaxPathLen = -1
 
 		// Do not include OCSP and CDP to delegated OCSP responder cert
-		isOCSPResponder = certutil.IsOCSPSigner(template) &&
+		isSigner, err := isOCSPSigningTemplate(template)
+		if err != nil {
+			return err
+		}
+		isOCSPResponder = isSigner &&
 			(profile.OCSPNoCheck || certutil.HasOCSPNoCheck(template))
 	}
 	template.SubjectKeyId = ski
@@ -782,6 +814,14 @@ func (ca *Issuer) fillTemplate(template *x509.Certificate, profile *CertProfile,
 	return nil
 }
 
+// effectiveBackdate is the profile backdate, or defaultBackdate if unset.
+func effectiveBackdate(profile *CertProfile) time.Duration {
+	if backdate := profile.Backdate.TimeDuration(); backdate != 0 {
+		return backdate
+	}
+	return defaultBackdate
+}
+
 // validityWindow returns the certificate validity for the requested times
 // (XPKI-054). Zero times take the profile defaults: NotBefore is now rounded
 // to a minute minus backdate (default 5m), NotAfter is NotBefore plus expiry.
@@ -795,10 +835,7 @@ func validityWindow(profile *CertProfile, now, notBefore, notAfter time.Time) (t
 		return time.Time{}, time.Time{}, errors.New("expiry is not set")
 	}
 
-	backdate := profile.Backdate.TimeDuration()
-	if backdate == 0 {
-		backdate = defaultBackdate
-	}
+	backdate := effectiveBackdate(profile)
 	if notBefore.IsZero() {
 		notBefore = now.Round(time.Minute).Add(-backdate)
 	} else if earliest := now.Truncate(time.Minute).Add(-backdate); notBefore.Before(earliest) {

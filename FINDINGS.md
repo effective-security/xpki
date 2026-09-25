@@ -66,9 +66,9 @@ drift; the symbol name is the stable reference.
 | XPKI-047 | armor                                 | `armor.go` `Decode`                                            | CRC24 trailer mandatory; RFC 9580 requires accepting armor without it                                                                              | correctness | Open           |
 | XPKI-049 | authority                             | `issuer.go` `Sign` (`safeTemplate = *requesterCsrTemplate`)    | All CSR `ExtraExtensions` (KU/EKU/SAN/…) copied into the template; empty `AllowedExtensions` allows every OID                                      | security    | **Fixed** ([details](#xpki-049--au1)) |
 | XPKI-050 | authority                             | `issuer.go` `Sign` profile extensions                          | Profile `Extensions` appended without dedupe against CSR extensions; `CreateCertificate` output then fails to parse                                | correctness | **Fixed** ([details](#xpki-050--au1)) |
-| XPKI-051 | authority                             | `ocsp.go` `CreateDelegatedOCSPSigner`                          | Holds `ca.lock` then calls `ca.Sign` → `ca.Profile` → `RLock`: deadlock when `delegated_ocsp_profile` is set                                       | bug         | Open           |
-| XPKI-052 | authority                             | `ocsp.go` `SignOCSP` non-delegated branch                      | `ca.responder` read/written without the lock                                                                                                       | race        | Open           |
-| XPKI-053 | authority                             | `ocsp.go` `SignOCSP`                                           | Fallback `responder = ca.responder` may be nil → `responder.Cert` panics                                                                           | bug         | Open           |
+| XPKI-051 | authority                             | `ocsp.go` `CreateDelegatedOCSPSigner`                          | Holds `ca.lock` then calls `ca.Sign` → `ca.Profile` → `RLock`: deadlock when `delegated_ocsp_profile` is set                                       | bug         | **Fixed** ([details](#xpki-051--au2)) |
+| XPKI-052 | authority                             | `ocsp.go` `SignOCSP` non-delegated branch                      | `ca.responder` read/written without the lock                                                                                                       | race        | **Fixed** ([details](#xpki-052--au2)) |
+| XPKI-053 | authority                             | `ocsp.go` `SignOCSP`                                           | Fallback `responder = ca.responder` may be nil → `responder.Cert` panics                                                                           | bug         | **Fixed** ([details](#xpki-053--au2)) |
 | XPKI-054 | authority                             | `issuer.go` `Sign`/`fillTemplate`                              | `SignRequest.NotBefore/NotAfter` not bounded by profile expiry; inverted range not rejected                                                        | correctness | **Fixed** ([details](#xpki-054--au1)) |
 | XPKI-055 | authority                             | `authority.go` maps                                            | `Authority` maps and `Issuer.Profiles()` live map have no synchronization                                                                          | race        | Open           |
 | XPKI-057 | authority                             | `config.go` `AllowedProfiles`                                  | Only filters wildcard (`issuer_label: "*"`) profiles, contrary to the field doc                                                                    | correctness | **Fixed** ([details](#xpki-057--au1)) |
@@ -97,7 +97,7 @@ drift; the symbol name is the stable reference.
 | XPKI-097 | build                                 | `internal/version/current.go`, `Makefile` `version`            | Tracked generated file is stale (`v0.2.76`); `make version` not wired into `build`/`all`/CI                                                        | bug         | Open           |
 | XPKI-098 | build                                 | `docker-compose.yml`                                           | Obsolete `version:`; fixed subnet is a public range; `local-kms` image untagged                                                                    | correctness | Open           |
 | XPKI-099 | tests                                 | `cryptoprov/provider_test.go` `Test_Aws`/`Test_Gcp`            | Empty stubs; `certutil.TestKeyInfoKMS` needs live KMS                                                                                              | docs        | Open           |
-| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | Open           |
+| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority portion](#xpki-100-authority--au2)) |
 | XPKI-101 | tests                                 | `cmd/hsm-tool/cli/hsm_cli_test.go`                             | Shared kong parser across `Parse` calls masks the `--cfg` required check                                                                           | docs        | Open           |
 | XPKI-102 | cmd/xpki-tool/cli                     | `ocsp.go` `OCSPFetchCmd.Run`                                   | All OCSP endpoint failures are printed but the command returns success                                                                             | correctness | Open           |
 | XPKI-103 | certutil, cmd/xpki-tool/cli           | `ocsp.go` `CreateOCSPRequest`, `certs.go` `OCSPValidation`     | Nil issuer certificate panics instead of returning an input error                                                                                  | bug         | Open           |
@@ -109,6 +109,208 @@ drift; the symbol name is the stable reference.
 | XPKI-109 | jwt                                   | `claims.go` `MapClaims.Time`; `jwt.go` `Sign`                  | A `time.Time` `iat`/`nbf`/`exp` passed to `Sign` marshals to an RFC 3339 string that `Time` cannot parse, so `Valid` silently skips that check (a `nbf` tomorrow is accepted now) | correctness | Needs Approval |
 
 ## Fixed items
+
+### XPKI-051 — AU2
+
+**Fixed on 2026-09-25.** `CreateDelegatedOCSPSigner` held `ca.lock` while
+`Sign` → `Profile` took the same lock for reading. As a result, `NewIssuer`
+deadlocked for every issuer with `aia.delegated_ocsp_profile`, and a
+delegated responder was never issued. Responder coordination now has its own
+`Issuer.renewLock`, and `ca.lock` guards only `cfg.Profiles`. The lock order,
+documented on `Issuer` and in the codemap, is `renewLock` → `lock`; nothing
+acquires `renewLock` while holding `lock`. Issuance moved to
+`newDelegatedResponder`, with the key, profile and CSR unchanged.
+
+Validation:
+
+- Before the fix, a temporary test (fresh `CreateIssuer` with a delegated
+  profile, `CreateDelegatedOCSPSigner` in a goroutine with a 3s deadline)
+  failed with `CreateDelegatedOCSPSigner deadlocked`.
+- `TestDelegatedOCSPFreshCreation`, `TestDelegatedOCSPFreshSignOCSP`
+  (deadline-bounded) and `TestNewIssuerDelegatedOCSP` (from files, through
+  `NewIssuer`) now pass. They check the responder's EKU, OCSP no-check, the
+  absence of AIA/CRL URLs, the CA signature, key identity and reuse, and parse
+  and verify the resulting OCSP response. `TestDelegatedOCSPConcurrentRenewal`
+  overlaps `AddProfile` with renewal.
+
+### XPKI-052 — AU2
+
+**Fixed on 2026-09-25.** `ca.responder` was written lazily without a lock
+in the non-delegated branch and read by `SignOCSP`. Now `caResponder`
+(the CA key and certificate) is built once in `CreateIssuer` and never
+written again. The delegated responder is an immutable snapshot published
+through `atomic.Pointer`. A lookup with a fresh responder takes no lock. A
+responder that expires within `ocsp_expiry` is renewed by one caller: others
+holding a still-valid responder keep using it (`TryLock`), and callers
+without one wait and then re-check. The per-lookup DEBUG log was removed.
+
+Validation:
+
+- Before the fix, 8 goroutines calling `SignOCSP` on a cold non-delegated
+  issuer in a HEAD worktree failed under `go test -race` with data races at
+  `ocsp.go:162-165` (the `ca.responder` initialization).
+- `go test ./authority -race -count=20 -run 'OCSP|Responder'` passed.
+  `TestDelegatedOCSPConcurrentColdStart` (32 goroutines released together)
+  and `TestDelegatedOCSPConcurrentRenewal` (32 goroutines plus `AddProfile`)
+  assert exactly one CA signature, a verified response for every caller, and
+  a responder that is the old or the new one. `TestCAResponderConcurrent`
+  covers the CA-key path.
+- Benchmark (`BenchmarkSignOCSP`, `-count=6 -cpu=1,4`, benchstat, HEAD
+  worktree baseline, same host): delegated warm lookup 264 → 37 ns serial and
+  258 → 9.7 ns on 4 CPUs (p=0.002), 152 B / 4 allocs → 0. Delegated
+  `SignOCSP` 885.6 → 875.0 µs serial (−1.2%, p=0.004), 235 → 231 µs on 4
+  CPUs (not significant), 208 → 204 allocs. CA-key sign unchanged (p≥0.07),
+  CA lookup 2.5 → 1.7 ns. Cold start and renewal have no baseline, because
+  that path deadlocked. `BenchmarkDelegatedOCSPCreate` (issuance, i.e. the
+  cost of a cold start or renewal) measures 318 µs, 46 KiB and 660 allocs.
+
+### XPKI-053 — AU2
+
+**Fixed on 2026-09-25.** Approved policy: keep serving from a still-valid
+cached responder, otherwise return an error. `SignOCSP` never dereferences a
+missing responder and never falls back to the CA key when delegation is
+configured.
+
+- When renewal fails and the cached delegated responder is valid at signing
+  time, `SignOCSP` logs the error (`delegated_ocsp_renewal`) and uses it. No
+  new attempt is made for `ocspRenewRetryInterval` (1 minute).
+- With no valid responder (none cached, or expired), `SignOCSP` returns
+  `delegated OCSP responder is not available: …` wrapping the cause, and no
+  response. Every such request retries issuance.
+- `CreateDelegatedOCSPSigner` waits for a renewal in progress and, while
+  renewal is overdue, returns the last renewal error, even while a cached
+  responder is still valid. It retries at most once per interval.
+- Callers that queued for the renewal lock while an attempt failed share that
+  error instead of each retrying (N queued requests used to mean N CA
+  signatures back to back). With no valid responder, a new request after
+  the failure retries.
+- Within the retry interval, `SignOCSP` with a valid cached responder takes
+  no lock: the last outcome (`ocspRenewal`) is an atomic snapshot.
+- `CreateIssuer` rejects a `delegated_ocsp_profile` that is missing, lacks
+  the `ocsp signing` usage (or an explicit EKU extension), or whose expiry is
+  not longer than `ocsp_expiry`. Such a profile would otherwise issue a
+  responder that is due for renewal the moment it is issued.
+- Delegated responses cap `NextUpdate` at the responder's `NotAfter`. A
+  `ThisUpdate` at or after `NotAfter` fails with `delegated OCSP responder
+  expires at …`.
+- When the CA expires within `ocsp_expiry`, `Sign` caps the responder at the
+  CA's `NotAfter`, so it is due for renewal as soon as it is issued. It logs
+  `delegated_ocsp_short_lived` and is not re-issued within the retry
+  interval. Without this, every request would issue a new certificate.
+
+Before the fix, the nil dereference could only be reached through a CSR
+generation failure. Any `Sign` failure first hit the XPKI-051 deadlock, so no
+separate pre-fix panic reproduction was possible.
+
+Validation: `TestDelegatedOCSPRenewalFailureUsesValidCache` (a failing
+`countingSigner` as the CA key; exact error, `errors.Is`, attempt counts
+across the retry interval, capped `NextUpdate`, recovery),
+`TestDelegatedOCSPFailureWithoutValidResponder` (none cached and expired
+cache: error, nil response, no panic), `TestDelegatedOCSPResponderClipsNextUpdate`,
+`TestDelegatedOCSPShortLivedResponderIsNotReissued` (a CA expiring within
+`ocsp_expiry`), `TestDelegatedOCSPWaitersShareFailure` (a gated failing
+signer with 32 queued requests: one CA signature, every request gets the
+error) and `TestCreateIssuerDelegatedOCSPProfile`.
+
+A `/code-review` pass found the fixes above: no failure sharing for queued
+callers, short-lived profiles re-issued every minute, `TryLock` taken on every
+request during the retry window, and an inconsistent
+`CreateDelegatedOCSPSigner` error. It also found duplicated checks, now
+`validAt`/`validFor`, and the delegated `NextUpdate` cap sitting outside the
+delegation branch. With the shared-failure case disabled,
+`TestDelegatedOCSPWaitersShareFailure` saw 33 CA signatures instead of 1.
+`BenchmarkDelegatedOCSPRetryWindow` compared the lock-free retry window with
+`TryLock` on every call (`-count=6`, benchstat, p=0.002): 52.6 → 40.3 ns
+serial and 47.8 → 10.5 ns on 4 CPUs, 0 allocs. One review item was not
+applied: rejecting a caller `ThisUpdate` earlier than the responder's
+`NotBefore`. RFC 6960 does not require it, `x/crypto/ocsp` does not check it,
+and it would add failures after every renewal for callers re-signing with an
+earlier `ThisUpdate`. `ocsp.go` statement coverage: `SignOCSP`,
+`CreateDelegatedOCSPSigner`, `validateDelegatedOCSPProfile` 100%;
+`delegatedResponder` 97.7%, missing only the timing-dependent
+valid-cache-after-shared-failure return; `newDelegatedResponder` 90.5%,
+missing only the CSR-generation and signer-conversion errors.
+
+PR #537 review follow-ups:
+
+- A raw EKU extension in the profile overrides `usages`, so the validator now
+  decodes it and requires `id-kp-OCSPSigning`. Before, the extension merely
+  had to be present, so a raw `serverAuth` EKU or malformed bytes passed.
+  `fillTemplate` also detects a responder from the effective EKU
+  (`isOCSPSigningTemplate`), so a raw-EKU responder gets no OCSP/CRL URLs. A
+  malformed raw EKU now fails `Sign` for any non-CA profile.
+- `AddProfile` could replace the delegated profile after `CreateIssuer`
+  validated it. `newDelegatedResponder` now validates the exact snapshot it
+  signs with (`signWithProfile`) and fails before any CA signature. In-place
+  mutation of a shared `*CertProfile` is still XPKI-055 (AU3).
+- `TestDelegatedOCSPWaitersShareFailure` no longer relies on a 50 ms sleep:
+  the test-only `renewWaitHook` counts every caller that has read the
+  pre-failure state before the failure is released.
+- Each fix was reverted in turn: `TestDelegatedOCSPRawEKUProfile`, the
+  `EKU extension without ocsp signing`/`malformed EKU extension` cases of
+  `TestCreateIssuerDelegatedOCSPProfile`, and
+  `TestDelegatedOCSPReplacedProfileIsRevalidated` fail without their fix.
+  The sleep-based waiter test did not flake in 900 local runs
+  (`-race -count=300 -cpu=1,2,8`, 49 s); the hook-based one passed 900 runs
+  in 3.5 s.
+
+Second PR #537 review round:
+
+- A failed attempt can block on the CA signer. The cached responder is now
+  judged valid, and the retry interval started, at `now` plus the attempt's
+  measured duration. Before, a responder that expired during a slow failure
+  was still returned. `TestDelegatedOCSPSlowFailureAfterExpiry` (a 100 ms
+  gated failure straddling `NotAfter`) fails when judged at the start.
+- The validator rejects CA profiles (`CAConstraint.IsCA`), so a typo cannot
+  give the in-memory responder key a subordinate-CA certificate.
+- `validityWindow` backdates NotBefore from the current minute, rounded, so a
+  fresh responder lives expiry − backdate − up to 30s. At `expiry =
+  ocsp_expiry + 1s` a scratch check found 55m15s left against a 1h interval,
+  so the responder was due for renewal when issued. The bound is now `expiry
+  > ocsp_expiry + backdate + 1m` (`effectiveBackdate`,
+  `delegatedValidityMargin`). The shortest accepted expiry issues a
+  responder that is not due for renewal. The duration-only bound fails the
+  `expiry just above ocsp_expiry`, `expiry at the backdate bound` and
+  `explicit backdate` cases.
+
+Batch validation (AU2, all three findings plus the XPKI-100 authority
+portion):
+
+- `make lint` passed (fmt, vet, govulncheck, golangci-lint: 0 issues).
+- `make test RACE=true TEST_FLAGS=-count=1` passed across the repository
+  with SoftHSM and local-kms fixtures.
+- `make build docs` regenerated `Documentation/api/authority.md` and the new
+  `Documentation/api/internal_testenv.md`. `make covtest` passed at
+  **91.2%** aggregate.
+
+### XPKI-100-authority — AU2
+
+**authority portion Fixed on 2026-09-25; XPKI-100 stays In Progress.**
+Approved convention: the new test-only `internal/testenv` package.
+`RequireTCP(t, name, addr)` runs the test when the fixture accepts a TCP
+connection. When it does not, the test fails if `XPKI_INTEGRATION=required`
+and is skipped otherwise. The Makefile exports `XPKI_INTEGRATION=required`,
+so `make test`, `make covtest` and CI fail on a missing fixture. In
+`authority`, only `TestNewRoot` generates a key in local-kms and is gated.
+`TestShakenRoot` and `TestIssuerSign` now use `inmemcrypto`. Loading the
+local-kms provider in `SetupSuite` does not connect, and SoftHSM was never
+used (the codemap claim was stale).
+
+Validation, with the `kms2` container (`:14556`) stopped and then restarted:
+
+- `go test ./authority -count=1 -v` without the variable: only
+  `TestAuthority/TestNewRoot` skipped (`local-kms is not reachable at
+  localhost:14556 …`), and the package passed.
+- With `XPKI_INTEGRATION=required`, `TestNewRoot` failed with `local-kms is
+  required (XPKI_INTEGRATION=required) but not reachable …`.
+- With a dummy HTTP server on the port (reachable but broken), `TestNewRoot`
+  ran and failed. After the restart it passed in required mode.
+- `go test ./internal/testenv -cover`: 100% (table over reachable/unreachable
+  × unset/other/required, exact skip and fail messages).
+
+Remaining XPKI-100 portions: PK1 (crypto11), CP1 (cryptoprov), AW1
+(awskmscrypto), CS1 (csr), JW2 (jwt), CU4 (certutil) and HC1
+(cmd/hsm-tool/cli). Use `internal/testenv`.
 
 ### XPKI-078 — AT1
 
@@ -870,5 +1072,10 @@ Validation passed:
   token contents or accepted inputs.
 - **XPKI-078** was approved and fixed by AT1 on 2026-09-25 (explicit
   lifetime, caller `exp` kept, opt-in `WithAllowNoExpiry` for legacy tokens).
+- **XPKI-053** renewal-failure policy was approved and fixed by AU2 on
+  2026-09-25 (keep serving from a still-valid cached responder, otherwise an
+  error; never the CA key). **XPKI-100**'s fixture convention
+  (`internal/testenv`, `XPKI_INTEGRATION=required`) was approved at the same
+  time; its other package portions remain open.
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.
