@@ -19,7 +19,7 @@ import (
 	"golang.org/x/crypto/ocsp"
 )
 
-func ocspTestIssuer(t *testing.T) (*Issuer, *testca.Entity) {
+func ocspTestIssuer(t testing.TB) (*Issuer, *testca.Entity) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -113,22 +113,19 @@ func TestOCSPResponderReuse(t *testing.T) {
 	reused, err := issuer.CreateDelegatedOCSPSigner()
 	require.NoError(t, err)
 	assert.Same(t, responder, reused)
-	issuer.cfg.AIA = nil
-	reused, err = issuer.CreateDelegatedOCSPSigner()
-	require.NoError(t, err)
-	assert.Same(t, responder, reused)
 
-	// XPKI-051: fresh delegated creation deadlocks. Populate the private cache
-	// with a real issuer-signed responder to exercise the reuse and signing paths.
+	// A valid cached delegated responder is reused and embedded in responses;
+	// fresh creation and renewal are covered by ocsp_responder_test.go.
 	delegated := entity.Issue(testca.Subject(pkix.Name{CommonName: "Delegated responder"}), testca.ExtKeyUsage(x509.ExtKeyUsageOCSPSigning), testca.KeyUsage(x509.KeyUsageDigitalSignature))
 	issuer.cfg.AIA = &AIAConfig{DelegatedOCSPProfile: "ocsp"}
-	issuer.responder = &OCSPResponder{
+	cached := &OCSPResponder{
 		Cert:   delegated.Certificate,
 		Signer: delegated.PrivateKey,
 	}
+	issuer.delegated.Store(cached)
 	reused, err = issuer.CreateDelegatedOCSPSigner()
 	require.NoError(t, err)
-	assert.Same(t, issuer.responder, reused)
+	assert.Same(t, cached, reused)
 	der, err := issuer.SignOCSP(&OCSPSignRequest{
 		Status:       OCSPStatusGood,
 		SerialNumber: big.NewInt(44),

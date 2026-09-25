@@ -6,10 +6,40 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 
+	"slices"
+
 	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/oid"
 )
+
+// oidExtKeyUsageOCSPSigning is id-kp-OCSPSigning (RFC 5280, 4.2.1.12).
+var oidExtKeyUsageOCSPSigning = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 9}
+
+// ekuHasOCSPSigning reports whether a DER extended key usage extension
+// value lists id-kp-OCSPSigning.
+func ekuHasOCSPSigning(der []byte) (bool, error) {
+	var usages []asn1.ObjectIdentifier
+	rest, err := asn1.Unmarshal(der, &usages)
+	if err != nil {
+		return false, errors.Wrap(err, "invalid extended key usage extension")
+	}
+	if len(rest) > 0 {
+		return false, errors.New("invalid extended key usage extension: trailing data")
+	}
+	return slices.ContainsFunc(usages, oidExtKeyUsageOCSPSigning.Equal), nil
+}
+
+// isOCSPSigningTemplate reports whether a certificate created from template
+// carries the OCSP signing EKU. A raw EKU extension in ExtraExtensions
+// overrides template.ExtKeyUsage in x509.CreateCertificate.
+func isOCSPSigningTemplate(template *x509.Certificate) (bool, error) {
+	if ext := certutil.FindExtension(template.ExtraExtensions, oid.ExtensionExtendedKeyUsage); ext != nil {
+		return ekuHasOCSPSigning(ext.Value)
+	}
+	return certutil.IsOCSPSigner(template), nil
+}
 
 type policyInformation struct {
 	PolicyIdentifier asn1.ObjectIdentifier

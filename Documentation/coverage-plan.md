@@ -67,7 +67,7 @@ Tests characterize, without fixing:
 - Existing XPKI-036 and XPKI-066: empty bundler input and standalone symmetric
   JWT self-verification behavior.
 
-Fresh delegated OCSP responder creation remains blocked by the known XPKI-051
-lock recursion. Its cached-responder path is covered using a real issuer-signed
-certificate. The largest remaining gaps are `crypto11/keys.go`,
+Fresh delegated OCSP responder creation was blocked by the XPKI-051 lock
+recursion when this report was written; AU2 fixed it on 2026-09-25 and
+`authority/ocsp_responder_test.go` now covers creation and renewal. The largest remaining gaps are `crypto11/keys.go`,
 `cmd/hsm-tool/cli/csr.go`, `authority/ocsp.go`, and `crypto11/ecdsa.go`.

@@ -5,6 +5,8 @@ export COVERAGE_EXCLUSIONS="tests|testca|main\.go|clisuite|testsuite\.go|mocks\.
 export AWS_ACCESS_KEY_ID=notusedbyemulator
 export AWS_SECRET_ACCESS_KEY=notusedbyemulator
 export AWS_DEFAULT_REGION=us-west-2
+# make test/covtest (and CI) fail when a test fixture is missing (internal/testenv)
+export XPKI_INTEGRATION=required
 
 .PHONY: *
 

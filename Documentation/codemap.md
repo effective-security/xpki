@@ -31,6 +31,7 @@ grep for something that belongs in this map, add the row in the same change
 | `jwt/oauth2client/`                                              | OAuth2/OIDC client registry and token-request builder                   |
 | `dataprotection/`                                                | AES-GCM `Provider` with HKDF key derivation                             |
 | `armor/`, `oid/`, `x/print/`, `metricskey/`, `internal/version/` | Helpers (see below)                                                     |
+| `internal/testenv/`                                              | Test-only gate for external fixtures (`XPKI_INTEGRATION`)               |
 | `testca/`                                                        | Test-only CA and certificate generator                                  |
 | `cmd/hsm-tool/`, `cmd/xpki-tool/`                                | CLIs (kong)                                                             |
 
@@ -71,6 +72,7 @@ consumers. Nothing in the library imports `cmd/`.
 | CA issuer registry                         | `authority/authority.go`                                                     | `NewAuthority`, `GetIssuerBy{Label,Profile,KeyID,KeyHash,NameHash}`                                                           |
 | Issuer construction / signing              | `authority/issuer.go`                                                        | `NewIssuer`, `NewIssuerWithBundles`, `CreateIssuer`, `Issuer.Sign`, `SignProof`, `VerifyProof`                                |
 | OCSP signing, delegated responder          | `authority/ocsp.go`                                                          | `SignOCSP`, `OCSPSignRequest`, `CreateDelegatedOCSPSigner`, `OCSPReasonStringToCode`                                          |
+| OCSP responder renewal / locking           | `authority/ocsp.go` (`delegatedResponder`), `authority/issuer.go` (`Issuer`) | `caResponder`, `delegated`, `renewal` (`ocspRenewal`), `renewLock`, `renewWaitHook`, `validateDelegatedOCSPProfile`, `signWithProfile` |
 | Certificate policies, SKI                  | `authority/extensions.go`                                                    | `addPolicies`, `CTPoisonOID`, `SCTListOID`                                                                                    |
 | Root bootstrap / cert files                | `authority/root.go`, `authority/util.go`                                     | `NewRoot`, `Issuer.GenCert`                                                                                                   |
 | PEM parse / encode                         | `certutil/pem.go`                                                            | `ParseFromPEM`, `ParseChainFromPEM`, `Load*FromPEM`, `EncodeToPEM*`, `ParsePrivateKeyPEM*`, `EncodePrivateKeyToPEM`           |
@@ -96,6 +98,7 @@ consumers. Nothing in the library imports `cmd/`.
 | ASCII armor decoding                       | `armor/armor.go`                                                             | `Decode`, `Block`                                                                                                             |
 | Metrics descriptors                        | `metricskey/metricskey.go`                                                   | `PerfCryptoOperation`, `PerfCAOperation`, `PerfCASignRequest`, `Metrics`                                                      |
 | Build version                              | `internal/version/*.go`                                                      | `Current`, `Info`, `PopulateFromBuild`                                                                                        |
+| Integration fixture gating (tests)         | `internal/testenv/testenv.go`                                                | `RequireTCP`, `IntegrationRequired`, `IntegrationEnv`, `Required`                                                             |
 | SoftHSM fixture setup                      | `scripts/config-softhsm.sh`, `scripts/config-softhsm_test.sh`                | `make hsmconfig`, `make test-scripts`, setup `--help`                                                                         |
 | Test CA fixtures                           | `testca/entity.go`, `configuration.go`, `mkcert.go`, `testca.go`, `utils.go` | `NewEntity`, options, `MakeSelfCert*`, `MakeValidCertsChainTSA`, `ToPEM`                                                      |
 | Concurrent test CA names / serials         | `testca/configuration.go`, `entity.go`, `concurrency_test.go`                | `NewEntity`, `Entity.Issue`, `Entity.IncrementSN`, `NextSerialNumber`                                                         |
@@ -299,8 +302,8 @@ In-process CA. Config → `Authority` → `Issuer` → `Sign`.
 | `authority.go`  | `Authority` registry (by label, profile, SKID, key hash, name hash), `NewAuthority`                                                              |
 | `config.go`     | `Config`, `CAConfig`, `IssuerConfig`, `AIAConfig`, `CertProfile`, `CAConstraint`, `LoadConfig`, `Validate`, role/extension allow-lists, `Usages` |
 | `issuer.go`     | `Issuer` construction, `Sign` pipeline, `fillTemplate`, serial generation (20 random bytes, top bit cleared), `SignProof`/`VerifyProof`          |
-| `ocsp.go`       | `SignOCSP`, `CreateDelegatedOCSPSigner`, `OCSPResponder`, reason/status maps                                                                     |
-| `extensions.go` | Certificate Policies ASN.1, SKI, CT OIDs                                                                                                         |
+| `ocsp.go`       | `SignOCSP`, `CreateDelegatedOCSPSigner`, `OCSPResponder`, delegated responder issuance/renewal (`delegatedResponder`), reason/status maps        |
+| `extensions.go` | Certificate Policies ASN.1, SKI, CT OIDs, effective OCSP-signing EKU (`ekuHasOCSPSigning`, `isOCSPSigningTemplate`)                              |
 | `root.go`       | `NewRoot`: key + CSR + self-signed root                                                                                                          |
 | `util.go`       | `Issuer.GenCert`: key, CSR, sign, write files (existing files renamed `.bak`)                                                                    |
 | `README.md`     | Configuration and signing flow diagrams, per-extension source table (profile / SignRequest / CSR), validity envelope                            |
@@ -350,20 +353,53 @@ no yaml tag (XPKI-058). AIA `crl_expiry`, `ocsp_expiry`, `crl_renewal` are
 
 ### Invariants
 
-- `Issuer.lock` guards profiles and the delegated responder only;
-  `Authority` has no locks (XPKI-055). Delegated OCSP path deadlocks (XPKI-051).
+- `Issuer.lock` guards `cfg.Profiles` only; `Authority` has no locks
+  (XPKI-055). OCSP responders (XPKI-051/052/053): `caResponder` is immutable
+  after `CreateIssuer`; the delegated responder is an `atomic.Pointer`
+  snapshot issued under `renewLock`. Lock order is `renewLock` → `lock`
+  (`Sign` → `Profile`); never acquire `renewLock` while holding `lock`.
+  Renewal starts when the responder expires within `ocsp_expiry`. A
+  `SignOCSP` caller with a still-valid responder never waits: within the
+  retry window (`renewal.retryAt`, an atomic snapshot) it takes no lock,
+  otherwise it uses `TryLock`. On renewal failure `SignOCSP` uses a
+  still-valid cached responder (retry after `ocspRenewRetryInterval`, 1
+  minute) and otherwise returns an error, never the CA key; callers that
+  queued during a failed attempt share its error. `CreateDelegatedOCSPSigner`
+  blocks on `renewLock` and returns the last error while renewal is overdue.
+  `CreateIssuer`, and each issuance on the exact profile snapshot it signs
+  with (`signWithProfile`), rejects a missing or CA delegated profile, one
+  whose effective EKU lacks OCSP signing (a raw profile EKU extension is
+  decoded and overrides `usages`), or one whose expiry does not exceed
+  `ocsp_expiry` + `effectiveBackdate` + `delegatedValidityMargin` (1m)
+  (`validateDelegatedOCSPProfile`). After a failed attempt the cached
+  responder's validity and the retry interval are measured from when the
+  attempt ended, not when it started. `fillTemplate` detects a
+  responder from the effective EKU too (`isOCSPSigningTemplate`), so raw-EKU
+  responders get no OCSP/CRL URLs. `renewWaitHook` is a test-only seam.
+  Delegated responses cap `NextUpdate` at the responder's `NotAfter`.
 - Profiles must be `Validate()`d before use (compiles regexes; `LoadConfig` does).
 - `Copy()` methods are shallow for `*CertProfile`.
 - Metrics: `metricskey.PerfCAOperation`, `PerfCASignRequest`.
 
 Tests: `authority_test.go` (suite) generates a 3-level chain with `testca`
 into `/tmp/xpki/certs/*` referenced by `testdata/ca-config.dev.yaml`, and
-registers `crypto11` and `awskmscrypto` (needs SoftHSM + local-kms).
+loads the local-kms provider (loading does not connect). Only
+`TestNewRoot` generates a key in local-kms and is gated by `requireKMS`
+(`internal/testenv`); `TestShakenRoot`/`TestIssuerSign` use `inmemcrypto`,
+so the rest of the package runs without fixtures (XPKI-100). SoftHSM is not
+used.
 `testdata/invalid_*.json` drive validation errors; `testdata/csrprofiles/*.yaml`
 are used by `cmd/hsm-tool` tests (lowercase `names` keys, see csr invariants).
 `ocsp_coverage_test.go` verifies direct responses and cached delegated responders
-with fresh `testca` certificates; fresh delegated creation remains blocked by
-XPKI-051. `issuer_coverage_test.go` exercises proof signatures, extension
+with fresh `testca` certificates. `ocsp_responder_test.go` covers fresh
+delegated creation (with a deadline), renewal, renewal failure with and without
+a valid cache (a failing or gated `countingSigner`), the retry interval,
+waiters sharing a failure, a CA expiring within `ocsp_expiry`, profile
+validation, `NextUpdate` capping, and synchronized concurrent cold
+start/renewal; `issuer_test.go`
+`TestNewIssuerDelegatedOCSP` builds one from files. `ocsp_bench_test.go` has
+`BenchmarkSignOCSP` (warm sign/lookup), `BenchmarkDelegatedOCSPRetryWindow`
+and `BenchmarkDelegatedOCSPCreate`. `issuer_coverage_test.go` exercises proof signatures, extension
 policies, and internal template validation. `issuer_policy_test.go` covers the
 AU1 issuance policy with hostile signed CSRs (profile-owned OIDs, SAN bypass,
 allow-list/omit matrix, issuer-generated CRL DP), extension precedence, and
@@ -579,6 +615,7 @@ conflicts/overrides; it makes no network requests.
 - **x/print**: writes to an `io.Writer`, ignores write errors, local time; a zero `NextUpdate` prints `Expires: not set`; `JSON` swallows marshal errors by design. Tests in `certutil_test.go` load `testdata/*.pem` and append synthetic `*x509.Certificate` values to cover SAN, AIA, CRL, and extension formatting.
 - **metricskey**: descriptors only; registered by consumers.
 - **internal/version**: `current.go` is generated by `make version` but tracked (XPKI-097); `PopulateFromBuild` strips a leading `v`.
+- **internal/testenv**: test-only; imports `testing`. `RequireTCP` dials with a 1s timeout and skips or fails (`XPKI_INTEGRATION=required`) only when the fixture is unreachable (XPKI-100).
 - **testca**: everything panics on failure (test-only). Defaults RSA-2048,
   NotBefore = epoch, NotAfter = +10y, subject `[TEST]`. `Chain()` includes
   leaf and root. `PFX`/`ToPKCS8` need `openssl` (XPKI-063).
@@ -622,12 +659,16 @@ conflicts/overrides; it makes no network requests.
 
 | Fixture                                                                                          | Provided by                                    | Needed by                                                                                             |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov`, `csr`, `authority`                                                          |
-| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority`, `jwt`, `certutil` (`TestKeyInfoKMS`), `cmd/hsm-tool/cli` (`csr_test.go`) |
+| `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov`, `csr`                                                                       |
+| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority` (`TestNewRoot` only), `jwt`, `certutil` (`TestKeyInfoKMS`), `cmd/hsm-tool/cli` (`csr_test.go`) |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
 
-No integration test skips when its fixture is missing (XPKI-100).
+`internal/testenv.RequireTCP` gates a fixture-dependent test: an unreachable
+fixture skips it unless `XPKI_INTEGRATION=required`, which the Makefile
+exports (so `make test`/`covtest` and CI fail); a reachable fixture always
+runs it. Only `authority` uses it so far; the other packages still fail hard
+when a fixture is missing (XPKI-100, remaining portions).
 
 `cmd/xpki-tool/cli/coverage_test.go` uses generated certificates and local HTTP
 servers to cover certificate filters, trust validation, concurrent revocation

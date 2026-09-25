@@ -24,6 +24,7 @@ below and excluded from the pending queue.
 | JW1 | [XPKI-070](FINDINGS.md#xpki-070--jw1), [XPKI-071](FINDINGS.md#xpki-071--jw1), [XPKI-072](FINDINGS.md#xpki-072--jw1) | **Fixed** | 2026-09-24 |
 | DP1 | [XPKI-075](FINDINGS.md#xpki-075--dp1), [XPKI-076](FINDINGS.md#xpki-076--dp1), [XPKI-074](FINDINGS.md#xpki-074--dp1) | **Fixed** | 2026-09-24 |
 | AT1 | [XPKI-078](FINDINGS.md#xpki-078--at1), [XPKI-079](FINDINGS.md#xpki-079--at1) | **Fixed** | 2026-09-25 |
+| AU2 | [XPKI-051](FINDINGS.md#xpki-051--au2), [XPKI-052](FINDINGS.md#xpki-052--au2), [XPKI-053](FINDINGS.md#xpki-053--au2), [XPKI-100-authority](FINDINGS.md#xpki-100-authority--au2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -333,6 +334,65 @@ open finding **XPKI-109** (needs approval; unscheduled). Review items that
 contradict the approved policy (capping or rejecting a caller `exp`) were
 not applied.
 
+**AU2 / XPKI-051, 052, 053, 100-authority (2026-09-25).** Decisions: on
+renewal failure, keep serving from a delegated responder that is still valid
+at signing time, otherwise return an error (never the CA key). For fixtures,
+the new test-only `internal/testenv` (`RequireTCP`) gate with
+`XPKI_INTEGRATION=required` exported by the Makefile; an unreachable fixture
+skips only in optional mode, and a reachable fixture always runs.
+
+- **051.** Responder issuance uses its own `renewLock`; `Issuer.lock` guards
+  only profiles. Lock order `renewLock` → `lock`.
+- **052.** `caResponder` is immutable from `CreateIssuer`; the delegated
+  responder is an `atomic.Pointer` snapshot. One caller renews; callers with a
+  still-valid responder do not wait (`TryLock`); callers without one wait and
+  re-check.
+- **053.** A renewal failure with a valid cache logs and uses it, with no retry
+  for 1 minute (`ocspRenewRetryInterval`); without one, `SignOCSP` returns a
+  wrapped error and no response. `CreateDelegatedOCSPSigner` returns the error.
+  Delegated `NextUpdate` is capped at the responder's `NotAfter`. Queued
+  callers share a failed attempt's error; the retry window is lock-free
+  (atomic `ocspRenewal`). `CreateIssuer` rejects a delegated profile that is
+  missing, lacks OCSP signing, or has expiry ≤ `ocsp_expiry`. A responder
+  capped by an expiring CA is re-issued at most once a minute.
+- **100-authority.** Only `TestNewRoot` needs local-kms and is gated;
+  `TestShakenRoot`/`TestIssuerSign` use `inmemcrypto`. SoftHSM was not used.
+
+Docs: `authority/README.md` OCSP responder section, codemap (invariants,
+concept rows, tests, fixture table), AGENTS.md fixture rule, ROADMAP and
+coverage-plan notes, and regenerated API docs.
+
+Validation: before the fix, a deadline-bounded test deadlocked (051), and
+concurrent cold `SignOCSP` in a HEAD worktree raced under `-race` (052).
+The 053 nil dereference was unreachable, masked by the 051 deadlock. After
+the fix, `ocsp_responder_test.go` and `TestNewIssuerDelegatedOCSP` pass, and
+`go test ./authority -race -count=20 -run 'OCSP|Responder'` passed. The
+fixture modes were checked with `kms2` stopped (skip / required-fail), and
+with a dummy server on the port, where the test ran and failed. `make lint`
+(0 issues), `make test RACE=true TEST_FLAGS=-count=1`, `make build docs` and
+`make covtest` (**91.2%**) passed. Benchmark (`BenchmarkSignOCSP`, benchstat
+vs a HEAD worktree): delegated warm lookup 264 → 37 ns serial and
+258 → 9.7 ns on 4 CPUs, 4 → 0 allocs; signing unchanged or −1.2%.
+Issuance (cold start/renewal) costs 318 µs, with no pre-fix baseline because
+of the deadlock.
+A `/code-review` pass led to the shared-failure, lock-free retry window,
+consistent `CreateDelegatedOCSPSigner` error and profile validation
+follow-ups. `TestDelegatedOCSPWaitersShareFailure` fails (33 vs 1 CA
+signatures) without the fix. `BenchmarkDelegatedOCSPRetryWindow` measured
+47.8 → 10.5 ns on 4 CPUs. The `ThisUpdate` ≥ responder `NotBefore` rejection
+was not applied (not required by RFC 6960; it would add post-renewal
+failures).
+PR #537 review follow-ups: the delegated profile's effective EKU is decoded
+(a raw EKU extension must list OCSP signing, and `fillTemplate` honors it);
+the profile snapshot is revalidated before each issuance, covering
+`AddProfile` replacement; the waiter test uses a hook instead of a sleep.
+A second round judges a failed attempt from its completion time, rejects CA
+delegated profiles, and requires `expiry > ocsp_expiry + backdate + 1m`.
+Compatibility: `delegated_ocsp_profile` issuers now construct instead of
+hanging, unless the profile is missing, lacks OCSP signing, or its expiry is
+not longer than `ocsp_expiry` (such configs never worked). `SignOCSP` can now
+return an error (no responder) where it would have panicked.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -376,7 +436,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| AU2 | `authority` | 051, 052, 053; 100-authority | P1 / 35 | High: lock order, renewal, fallback signing | Specify renewal failure behavior |
 | PK1 | `crypto11` | 001, 002, 003, 005, 007; 100-crypto11 | P1 / 35 | High: module ownership and active HSM operations | Shared-module close contract |
 | PK2 | `crypto11` | 011, 006 | P1 / 35 | High: native attribute width and token selection | Checked conversion API if needed |
 | JW2 | `jwt` | 066, 104; 100-jwt | P1 / 35 | Medium: kid compatibility and custom headers | Standalone key-ID policy |
@@ -410,8 +469,10 @@ the test prerequisites below can move a small preparatory change earlier.
 
 Execution dependencies:
 
-- AU1 is **Fixed (2026-09-24)**. AU2 remains a separate review; its lock
-  changes must keep the AU1 extension and validity rules in `Issuer.Sign`.
+- AU1 is **Fixed (2026-09-24)** and AU2 is **Fixed (2026-09-25)**. The AU2
+  lock order (`renewLock` → `Issuer.lock`) and the AU1 extension/validity
+  rules in `Issuer.Sign` must hold for AU3; do not take a registry mutex
+  around `Sign` or responder renewal.
 - CU1 is **Fixed (2026-09-24)**: trust/client options are specified
   (`WithSystemRoots`, `BundleContext`, per-traversal URL set). CU2 must keep
   them when it changes cache ownership. Keep CU2 independently reviewable;
@@ -433,7 +494,10 @@ Execution dependencies:
   Direct entity-field access must not overlap issuance or serial allocation.
 - For 100, make each package's unit tests independent of optional infrastructure,
   while keeping a CI mode that **fails** when required integrations are missing.
-  Do not turn fixture failures into a passing but untested CI run.
+  Do not turn fixture failures into a passing but untested CI run. The
+  convention is fixed by AU2: gate with `internal/testenv` (`RequireTCP`;
+  add a file/token probe there when PK1/CP1 need one), with
+  `XPKI_INTEGRATION=required` exported by the Makefile.
 
 ## Evidence and coverage baseline
 
@@ -492,21 +556,19 @@ not creation of a nonexistent formatter check or vulnerability target.
 | XPKI-050 — HIGH / correctness / 33 — **Fixed (AU1, 2026-09-24)** | One extension per OID. Raw extensions resolve as profile `extensions` > RA > CSR; profile `policies`/`ocsp_no_check` replace any raw copy (`setExtension`); other kept raw extensions override template-built values. `Validate` and `Sign` reject repeated or colliding profile OIDs. | **Covered:** `TestSignExtensionPrecedence`, `TestSignProfileGeneratedExtensionsWin` and `TestProfileValidateExtensions` assert extension count, criticality and bytes. |
 | XPKI-054 — HIGH / correctness / 33 — **Fixed (AU1, 2026-09-24)** | [validityWindow](authority/issuer.go) rejects NotBefore before now − backdate, NotAfter not after NotBefore, and lifetime > expiry; shorter lifetimes and future NotBefore are kept; issuer clipping fails when nothing remains. | **Covered:** `TestValidityWindow` (fixed clock, exact boundaries) and `TestSignValidity` (through `Sign`, issuer clipping). |
 | XPKI-057 — HIGH / correctness / 33 — **Fixed (AU1, 2026-09-24)** | `issuerHasProfile` in [config.go](authority/config.go) applies a populated `allowed_profiles` to named and wildcard profiles; empty keeps named only; a populated list must include `delegated_ocsp_profile`. | **Covered:** `TestLoadConfigAllowedProfiles` (named/wildcard × nil/empty/populated, exact key absence) and `TestLoadConfigAllowedProfilesDelegatedOCSP`. |
-| XPKI-051 — HIGH / bug / 35 | [CreateDelegatedOCSPSigner](authority/ocsp.go) holds `ca.lock` while `Sign` calls `Profile`, which needs that lock for reading. Separate responder coordination from profile lookup; fresh creation and renewal must terminate. | **Absent for the failing branch:** `TestOCSPResponderReuse` explicitly preloads the cache to avoid the deadlock. Add fresh creation and renewal with a deadline, verify the responder chain/EKU, and use a subprocess or controlled timeout so the pre-fix reproduction cannot hang the suite. |
-| XPKI-052 — HIGH / race / 34 | Non-delegated responder initialization and fallback reads are unprotected. Publish one coherent responder snapshot and coordinate renewal without recursive locking. | **Partial:** [TestSignOCSPResponses](authority/ocsp_coverage_test.go) parses and checks actual responses, but calls serially. Add synchronized concurrent cold-start and renewal tests that actually overlap writes and reads under `-race`. |
-| XPKI-053 — HIGH / bug / 35 | `SignOCSP` logs responder creation failure then dereferences `ca.responder`, which can be nil. Return a wrapped error when no usable responder exists; specify whether a still-valid cached responder may be used. | **Absent:** success/reuse tests do not inject initial creation or renewal failure. Assert the actual returned error, no panic, and no response from an expired/missing responder; separately test an allowed valid-cache fallback. |
+| XPKI-051 — HIGH / bug / 35 — **Fixed (AU2, 2026-09-25)** | [CreateDelegatedOCSPSigner](authority/ocsp.go) issues through `newDelegatedResponder` under `renewLock`; `Issuer.lock` guards only profiles (lock order `renewLock` → `lock`). | **Covered:** `TestDelegatedOCSPFreshCreation`, `TestDelegatedOCSPFreshSignOCSP` (deadline-bounded) and `TestNewIssuerDelegatedOCSP` verify EKU, no-check, missing AIA/CRL, CA signature, reuse and the parsed response. |
+| XPKI-052 — HIGH / race / 34 — **Fixed (AU2, 2026-09-25)** | `caResponder` is immutable from `CreateIssuer`; the delegated responder is an `atomic.Pointer` snapshot; one caller renews and valid-cache callers never wait. | **Covered:** `TestDelegatedOCSPConcurrentColdStart`, `TestDelegatedOCSPConcurrentRenewal` (32 goroutines + `AddProfile`, exactly one issuance) and `TestCAResponderConcurrent` under `-race`; `BenchmarkSignOCSP` recorded. |
+| XPKI-053 — HIGH / bug / 35 — **Fixed (AU2, 2026-09-25)** | A valid cached responder is used on renewal failure (retry after 1 minute); otherwise `SignOCSP` returns a wrapped error and no response, never the CA key. `NextUpdate` is capped at the responder's `NotAfter`. | **Covered:** `TestDelegatedOCSPRenewalFailureUsesValidCache`, `TestDelegatedOCSPFailureWithoutValidResponder` (missing and expired), `TestDelegatedOCSPResponderClipsNextUpdate`, `TestDelegatedOCSPShortLivedResponderIsNotReissued`. |
 | XPKI-055 — HIGH / race / 34 | [Authority](authority/authority.go) mutates registry maps without locks; [Issuer.Profiles](authority/issuer.go) returns a live map after releasing its read lock. Synchronize registries and define snapshot/ownership rules for maps and pointed-to profiles. | **Partial:** `TestNewAuthority` and extension tests validate serial lookup and live profile identity. Add concurrent registration/lookups/enumeration, iteration during writes, and caller mutation of returned snapshots. A shallow map copy alone does not make mutable `*CertProfile` values safe. |
 | XPKI-058 — LOW / bug / 15, **claim partly disproved** | `IssuerConfig.Type` lacks tags, but an actual `yaml.Unmarshal` into this type loaded `type: ocsp` as `"ocsp"` with no error. JSON marshaling emitted `"Type":"ocsp"`. Revalidate/replace the YAML-loss description; add explicit tags only for an agreed serialization format. | **Partial:** config tests do not assert Type. Add YAML/JSON decoding and round-trip key-casing assertions. Avoid treating this as an outage fix or changing accepted legacy JSON casing unintentionally. |
 
-AU1 is Fixed; its compatibility notes are recorded under Completed batches.
+AU1 and AU2 are Fixed; their compatibility notes are recorded under Completed batches.
 The existing root bootstrap, delegated OCSP and SHAKEN delegate fixtures still
 issue. AU2/AU3 need one documented
 lock order; avoid callbacks or signing while holding a registry mutex.
-**Benchmarks:** AU2 needs a concurrent OCSP/cache baseline before redesign
-(warm cache, cold initialization, renewal; separate coordination from crypto
-cost). AU3 should have a lookup/update benchmark if choosing snapshots versus
+**Benchmarks:** AU2's OCSP baseline and comparison are recorded below. AU3 should have a lookup/update benchmark if choosing snapshots versus
 locks; it is recommended, not a blocker for a minimal race fix. AU1/AU4 need no
-performance benchmark. Fixture scope 100-authority belongs to AU2 below.
+performance benchmark. Fixture scope 100-authority was completed by AU2.
 
 ### certutil — CU1 through CU5
 
@@ -822,7 +884,7 @@ classification; a high-priority batch can contain lower-priority test cleanup.
 | XPKI-100 — MEDIUM / docs / 21 | PK1 — `crypto11` | [TestMain](crypto11/crypto11_test.go) panics when the SoftHSM config cannot load. Permit fixture-free tests to run and report clearly skipped optional integrations; CI's required-integration mode must fail when absent. Explicit lifecycle cleanup must actually run. |
 | XPKI-100 — MEDIUM / docs / 21 | CP1 — `cryptoprov` | [provider_test.go](cryptoprov/provider_test.go), [loader_test.go](cryptoprov/loader_test.go), [config_test.go](cryptoprov/config_test.go) require SoftHSM in fixture-dependent cases. Keep registry/URI/config unit tests runnable without it; guard only the real fixture-dependent cases and restore registry mutations. |
 | XPKI-100 — MEDIUM / docs / 21 | AW1 — `cryptoprov/awskmscrypto` | [awskmsprov_test.go](cryptoprov/awskmscrypto/awskmsprov_test.go) requires local-kms. Separate deterministic client-seam tests from emulator cases, and test both emulator-absent optional mode and required CI mode. |
-| XPKI-100 — MEDIUM / docs / 21 | AU2 — `authority` | [authority_test.go SetupSuite](authority/authority_test.go) loads HSM and writes configured CA fixtures; some issuer paths use KMS. Keep the new in-memory issuer/OCSP tests independent and isolate only integration cases. Verify selected unit tests still execute when fixture setup is unavailable. |
+| XPKI-100 — MEDIUM / docs / 21 — **authority portion Fixed (AU2, 2026-09-25)** | AU2 — `authority` | The suite loads (without connecting) the local-kms provider; only `TestNewRoot` needs local-kms and is gated by `internal/testenv.RequireTCP`; `TestShakenRoot`/`TestIssuerSign` moved to `inmemcrypto`; SoftHSM is not used. Verified skip (optional), fail (`XPKI_INTEGRATION=required`) and a reachable-but-broken endpoint (fails) with `kms2` stopped. |
 | XPKI-100 — MEDIUM / docs / 21 | CS1 — `csr` | [csrprov_test.go](csr/csrprov_test.go) includes HSM-backed paths, while current `TestCSR` uses inmemcrypto. Scope fixture handling to actual external cases; the codemap's claim that TestCSR needs SoftHSM is stale. Assert unit SAN/parsing tests still run without it. |
 | XPKI-100 — MEDIUM / docs / 21 | JW2 — `jwt` | [Test_SignPrivateKMS](jwt/jwt_test.go) requires local-kms; jwt TestMain only configures logging. Gate the KMS case, preserving all pure JWT/JWKS/parser tests. Verify unavailable-required mode fails rather than skipping the whole package. |
 | XPKI-100 — MEDIUM / docs / 21 | CU4 — `certutil` | TestKeyInfoKMS is the fixture-dependent case; the bundler/PEM tests use local/generated data. Coordinate 099-certutil; test no-infrastructure execution and the remaining required integration if retained. |
@@ -853,7 +915,7 @@ Other baselines below still need to be created where marked required.
 | 032 (AW2) | **Required** | ListKeys/DescribeKey counts, size/page/selectivity scaling, throttling, peak concurrency |
 | 035 (CU2) | **Required** for pool-copy/locking choice | serial/parallel Bundle, cache size, AIA misses, allocations and contention |
 | 039 (CU1) — **Fixed** | **Recorded before/after comparison** (`BenchmarkBundlerAIAFailingURL`, `-count=5 -cpu=1,4`, benchstat p=0.008) | depth 1/2/4/8: failed requests 3/5/9/17 → 1, total requests 4/7/13/25 → 2/3/5/9; wall time −10–18% on loopback, B/op −39–45%, allocs/op −25–30%; subsequent-call recovery covered by `TestBundlerAIARetriesOnNextCall` |
-| 052 (AU2) | **Required** for responder coordination redesign | warm cache, simultaneous cold start, renewal, and latency outside crypto work |
+| 052 (AU2) — **Fixed** | **Recorded before/after comparison** (`BenchmarkSignOCSP`, `-count=6 -cpu=1,4`, benchstat, HEAD worktree baseline) | delegated warm lookup 264 → 37 ns serial, 258 → 9.7 ns on 4 CPUs, 152 B / 4 allocs → 0; delegated sign 885.6 → 875.0 µs (−1.2%, p=0.004), 4-CPU not significant; CA path unchanged; issuance (`BenchmarkDelegatedOCSPCreate`) 318 µs / 660 allocs with no pre-fix baseline (deadlock); concurrent cold start/renewal proven by tests (exactly one issuance), not timed |
 | 055 (AU3) | **Recommended**; conditional on lock/copy design | lookup and profile snapshot costs as registry size/readers grow |
 | 062, 107 (TC1) — **Fixed** | **Not required**; generation/signing remain outside the serial mutex | verified unique serials/names, signed certificates, and option ownership with synchronized workers and the race detector |
 | 081 and shared-state portion of 080 (OA1) | **Recommended** | registry and token-request latency/allocations with concurrent config updates |
