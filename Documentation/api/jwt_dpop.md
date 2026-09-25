@@ -6,12 +6,27 @@
 import "github.com/effective-security/xpki/jwt/dpop"
 ```
 
-Package dpop implements OAuth 2.0 Demonstrating Proof of Possession \(RFC 9449\): clients build DPoP proof JWTs for HTTP requests with Signer and ForRequest; servers verify them with VerifyRequestClaims or VerifyClaims and bind the resulting key thumbprint to the access token "cnf.jkt" claim. Replay \(jti\) tracking and "ath" binding are left to the caller.
+Package dpop implements OAuth 2.0 Demonstrating Proof of Possession \(RFC 9449\): clients build DPoP proof JWTs for HTTP requests with Signer and ForRequest; servers verify them with VerifyRequestClaims or VerifyClaimsContext and bind the resulting key thumbprint to the access token "cnf.jkt" claim.
+
+Verification is opt\-in beyond the proof itself. Set VerifyConfig.ReplayCache \(NewMemoryReplayCache for one process, or a shared store\) to reject a replayed jti; without it replay detection is the caller's job. At a protected resource set both AccessToken, to require a matching "ath" claim, and ExpectedThumbprint, to the token "cnf.jkt"; these are per\-request values, so set them on a copy of a shared config. Set ExternalURL when the server's public scheme or host differs from the request it receives:
+
+```
+cfg := dpop.VerifyConfig{
+	ExternalURL:        "https://api.example.com",
+	ReplayCache:        replayCache, // shared by all requests
+	AccessToken:        accessToken,
+	ExpectedThumbprint: cnfJKT,
+}
+res, err := dpop.VerifyRequestClaims(cfg, req)
+```
+
+Clients add the "ath" claim with map\[string\]any\{dpop.ClaimAccessTokenHash: dpop.AccessTokenHash\(token\)\} as the ForRequest extra claims.
 
 ## Index
 
 - [Constants](<#constants>)
 - [Variables](<#variables>)
+- [func AccessTokenHash\(accessToken string\) string](<#AccessTokenHash>)
 - [func ForRequest\(p Signer, r \*http.Request, extraClaims any\) \(string, error\)](<#ForRequest>)
 - [func GenerateKey\(label string\) \(\*jose.JSONWebKey, error\)](<#GenerateKey>)
 - [func GetCnfClaim\(claims map\[string\]any\) \(string, error\)](<#GetCnfClaim>)
@@ -19,8 +34,14 @@ Package dpop implements OAuth 2.0 Demonstrating Proof of Possession \(RFC 9449\)
 - [func SaveKey\(folder string, k \*jose.JSONWebKey\) \(string, error\)](<#SaveKey>)
 - [func SetCnfClaim\(claims map\[string\]any, thumbprint string\)](<#SetCnfClaim>)
 - [func Thumbprint\(k \*jose.JSONWebKey\) \(string, error\)](<#Thumbprint>)
+- [type MemoryReplayCache](<#MemoryReplayCache>)
+  - [func NewMemoryReplayCache\(maxEntries int\) \*MemoryReplayCache](<#NewMemoryReplayCache>)
+  - [func \(c \*MemoryReplayCache\) Add\(\_ context.Context, key string, expiresAt time.Time\) error](<#MemoryReplayCache.Add>)
+  - [func \(c \*MemoryReplayCache\) Len\(\) int](<#MemoryReplayCache.Len>)
+- [type ReplayCache](<#ReplayCache>)
 - [type Result](<#Result>)
   - [func VerifyClaims\(cfg VerifyConfig, phdr, httpMethod, httpURI string\) \(\*Result, error\)](<#VerifyClaims>)
+  - [func VerifyClaimsContext\(ctx context.Context, cfg VerifyConfig, phdr, httpMethod, httpURI string\) \(\*Result, error\)](<#VerifyClaimsContext>)
   - [func VerifyRequestClaims\(cfg VerifyConfig, req \*http.Request\) \(\*Result, error\)](<#VerifyRequestClaims>)
 - [type Signer](<#Signer>)
   - [func NewSigner\(s crypto.Signer\) \(Signer, error\)](<#NewSigner>)
@@ -59,10 +80,32 @@ const (
 const (
     // CnfThumbprint is the claim name for JKT thumbprint
     CnfThumbprint = "jkt"
+
+    // ClaimAccessTokenHash is the proof claim name for the access token hash
+    ClaimAccessTokenHash = "ath"
 )
 ```
 
+<a name="DefaultReplayCacheSize"></a>DefaultReplayCacheSize is the capacity used by NewMemoryReplayCache when the requested size is not positive. Size the cache as peak accepted proofs per second times the acceptance window \(DefaultExpiration plus jwt.DefaultTimeSkew\).
+
+```go
+const DefaultReplayCacheSize = 100000
+```
+
 ## Variables
+
+<a name="ErrReplay"></a>
+
+```go
+var (
+    // ErrReplay is returned when a proof with the same key and jti was
+    // already accepted within its acceptance window.
+    ErrReplay = errors.New("dpop: proof replayed")
+    // ErrReplayCacheFull is returned by MemoryReplayCache when every entry
+    // is still unexpired. The proof is rejected (fail closed).
+    ErrReplayCacheFull = errors.New("dpop: replay cache is full")
+)
+```
 
 <a name="TimeNowFn"></a>TimeNowFn to override in unit tests
 
@@ -70,8 +113,17 @@ const (
 var TimeNowFn = time.Now
 ```
 
+<a name="AccessTokenHash"></a>
+## func [AccessTokenHash](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L63>)
+
+```go
+func AccessTokenHash(accessToken string) string
+```
+
+AccessTokenHash returns the ath claim value for accessToken: the base64url\-encoded SHA\-256 hash of its ASCII value \(RFC 9449 §4.2\). Clients add it to the proof extra claims when calling a protected resource.
+
 <a name="ForRequest"></a>
-## func [ForRequest](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/signer.go#L51>)
+## func [ForRequest](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/signer.go#L56>)
 
 ```go
 func ForRequest(p Signer, r *http.Request, extraClaims any) (string, error)
@@ -89,7 +141,7 @@ func GenerateKey(label string) (*jose.JSONWebKey, error)
 GenerateKey returns JSONWebKey to sign JWT
 
 <a name="GetCnfClaim"></a>
-## func [GetCnfClaim](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L57>)
+## func [GetCnfClaim](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L69>)
 
 ```go
 func GetCnfClaim(claims map[string]any) (string, error)
@@ -116,7 +168,7 @@ func SaveKey(folder string, k *jose.JSONWebKey) (string, error)
 SaveKey saves the key to storage
 
 <a name="SetCnfClaim"></a>
-## func [SetCnfClaim](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L50>)
+## func [SetCnfClaim](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L54>)
 
 ```go
 func SetCnfClaim(claims map[string]any, thumbprint string)
@@ -133,39 +185,167 @@ func Thumbprint(k *jose.JSONWebKey) (string, error)
 
 Thumbprint returns key thumbprint
 
+<a name="MemoryReplayCache"></a>
+## type [MemoryReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L63-L68>)
+
+MemoryReplayCache is a bounded, process\-local ReplayCache. Expired entries are evicted before a new key is admitted; when the cache is still full the new proof is rejected with ErrReplayCacheFull. Failing closed means a client that can mint valid proofs \(at a token endpoint, any client\) can fill the cache and have other proofs rejected for up to the acceptance window; size it for peak load and rate\-limit proof sources. It uses TimeNowFn as its clock.
+
+```go
+type MemoryReplayCache struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewMemoryReplayCache"></a>
+### func [NewMemoryReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L72>)
+
+```go
+func NewMemoryReplayCache(maxEntries int) *MemoryReplayCache
+```
+
+NewMemoryReplayCache returns a MemoryReplayCache holding at most maxEntries unexpired proofs, or DefaultReplayCacheSize when maxEntries is not positive.
+
+<a name="MemoryReplayCache.Add"></a>
+### func \(\*MemoryReplayCache\) [Add](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L83>)
+
+```go
+func (c *MemoryReplayCache) Add(_ context.Context, key string, expiresAt time.Time) error
+```
+
+Add records key until expiresAt; see ReplayCache.
+
+<a name="MemoryReplayCache.Len"></a>
+### func \(\*MemoryReplayCache\) [Len](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L104>)
+
+```go
+func (c *MemoryReplayCache) Len() int
+```
+
+Len returns the number of retained entries, including entries that have expired but were not evicted yet.
+
+<a name="ReplayCache"></a>
+## type [ReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L34-L42>)
+
+ReplayCache records accepted DPoP proofs so that VerifyClaims can reject a second use of the same proof \(RFC 9449 §11.1\). Implementations must be safe for concurrent use; a shared store \(for example Redis SET NX with an expiry\) is needed when several server instances accept proofs for the same resource.
+
+```go
+type ReplayCache interface {
+    // Add atomically records key through expiresAt (inclusive: the verifier
+    // still accepts a proof at that instant). It returns an error
+    // wrapping ErrReplay when key is already recorded and not expired, and
+    // any other error when the key cannot be recorded; VerifyClaims rejects
+    // the proof in both cases. Of concurrent Add calls for the same key,
+    // exactly one may succeed.
+    Add(ctx context.Context, key string, expiresAt time.Time) error
+}
+```
+
 <a name="Result"></a>
-## type [Result](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L80-L84>)
+## type [Result](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L104-L112>)
 
 Result is returned from VerifyClaims
 
 ```go
 type Result struct {
-    Claims     *jwtgo.Claims
-    Key        *jose.JSONWebKey
+    Claims *jwtgo.Claims
+    Key    *jose.JSONWebKey
+    // Thumbprint is the RFC 7638 SHA-256 thumbprint of Key, to compare
+    // with the access token cnf.jkt claim
     Thumbprint string
+    // AccessTokenHash is the proof ath claim, if present
+    AccessTokenHash string
 }
 ```
 
 <a name="VerifyClaims"></a>
-### func [VerifyClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L115>)
+### func [VerifyClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L143>)
 
 ```go
 func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error)
 ```
 
-VerifyClaims returns DPoP claims, raw claims, key; or error
+VerifyClaims is VerifyClaimsContext with context.Background\(\).
+
+<a name="VerifyClaimsContext"></a>
+### func [VerifyClaimsContext](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L157>)
+
+```go
+func VerifyClaimsContext(ctx context.Context, cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error)
+```
+
+VerifyClaimsContext verifies DPoP proof phdr for a request with httpMethod and httpURI \(RFC 9449 §4.3\) and returns its claims, key and key thumbprint. The signature is verified with the embedded public jwk before any claim is used. htu is compared with httpURI after URI normalization \(scheme and host case\-insensitive, path case\-sensitive, query and fragment ignored\). When set, cfg.AccessToken requires a matching ath claim and must be paired with cfg.ExpectedThumbprint, which requires the proof key to match the access token cnf.jkt; cfg.ReplayCache records the proof after every other check passed, rejecting a replayed jti with ErrReplay. Without cfg.ReplayCache the caller is responsible for replay detection.
 
 <a name="VerifyRequestClaims"></a>
-### func [VerifyRequestClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L95>)
+### func [VerifyRequestClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L126>)
 
 ```go
 func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error)
 ```
 
-VerifyRequestClaims returns DPoP claims, raw claims, key; or error
+VerifyRequestClaims verifies the DPoP proof of an HTTP request received by a server; see VerifyClaims. The htu claim is compared with the request URI built from cfg.ExternalURL, or else from the request URL and Host \(https when the URL has no scheme\), without query and fragment. The request context is passed to cfg.ReplayCache.
+
+<details><summary>Example</summary>
+<p>
+
+A protected resource verifies the proof sent with a DPoP\-bound access token: htu against its trusted external origin, ath against the presented token, the proof key against the token cnf.jkt, and jti against a replay cache shared by all requests.
+
+```go
+package main
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+
+	"github.com/effective-security/xpki/jwt/dpop"
+)
+
+func main() {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	signer, _ := dpop.NewSigner(key)
+	accessToken := "access-token-bound-to-the-key"
+	cnfJKT := signer.JWKThumbprint() // from the access token cnf.jkt claim
+
+	// client
+	creq, _ := http.NewRequest(http.MethodGet, "https://api.example.com/v1/items?page=2", nil)
+	_, _ = dpop.ForRequest(signer, creq, map[string]any{
+		dpop.ClaimAccessTokenHash: dpop.AccessTokenHash(accessToken),
+	})
+
+	// server, behind a proxy that forwards the request as plain HTTP
+	replay := dpop.NewMemoryReplayCache(0)
+	cfg := dpop.VerifyConfig{
+		ExternalURL:        "https://api.example.com",
+		ReplayCache:        replay,
+		AccessToken:        accessToken,
+		ExpectedThumbprint: cnfJKT,
+	}
+	sreq := httptest.NewRequest(http.MethodGet, "/v1/items?page=2", nil)
+	sreq.Host = "backend:8080"
+	sreq.Header.Set(dpop.HTTPHeader, creq.Header.Get(dpop.HTTPHeader))
+
+	res, err := dpop.VerifyRequestClaims(cfg, sreq)
+	fmt.Println(err, res.Claims.HTTPUri)
+	_, err = dpop.VerifyRequestClaims(cfg, sreq)
+	fmt.Println(err)
+}
+```
+
+#### Output
+
+```
+<nil> https://api.example.com/v1/items
+dpop: proof rejected: dpop: proof replayed
+```
+
+</p>
+</details>
 
 <a name="Signer"></a>
-## type [Signer](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L39-L44>)
+## type [Signer](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L43-L48>)
 
 Signer specifies an interface to sign HTTP requests with DPoP
 
@@ -179,7 +359,7 @@ type Signer interface {
 ```
 
 <a name="NewSigner"></a>
-### func [NewSigner](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/signer.go#L21>)
+### func [NewSigner](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/signer.go#L26>)
 
 ```go
 func NewSigner(s crypto.Signer) (Signer, error)
@@ -188,7 +368,7 @@ func NewSigner(s crypto.Signer) (Signer, error)
 NewSigner creates a DPoP signer that can generate DPoP headers for a request.
 
 <a name="TokenInfo"></a>
-## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L330-L338>)
+## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L421-L429>)
 
 TokenInfo is returned from GetTokenInfo
 
@@ -205,7 +385,7 @@ type TokenInfo struct {
 ```
 
 <a name="GetTokenInfo"></a>
-### func [GetTokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L341>)
+### func [GetTokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L432>)
 
 ```go
 func GetTokenInfo(t string) *TokenInfo
@@ -214,7 +394,7 @@ func GetTokenInfo(t string) *TokenInfo
 GetTokenInfo returns token info, if it's JWT or nil otherwise
 
 <a name="VerifyConfig"></a>
-## type [VerifyConfig](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L21-L32>)
+## type [VerifyConfig](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L22-L56>)
 
 VerifyConfig expresses the possible options for validating a JWT
 
@@ -230,6 +410,29 @@ type VerifyConfig struct {
     ExpectedNonce string
     // EnableQuery specifies to get `dpop` header from the QueryString
     EnableQuery bool
+
+    // ExternalURL is the trusted external origin of this server, as
+    // scheme://host[:port]. When set, VerifyRequestClaims takes the htu
+    // scheme and host from it instead of the request URL and Host header,
+    // which are client-controlled. Set it for plain-HTTP servers and for
+    // servers reached under a different name than the Host they receive.
+    ExternalURL string
+    // ReplayCache, when set, records each accepted proof and rejects a
+    // second use of the same jti with the same key (ErrReplay) until the
+    // proof leaves its acceptance window. When nil, VerifyClaims does not
+    // detect replayed proofs.
+    ReplayCache ReplayCache
+    // AccessToken, when set, is the access token presented with the proof
+    // to a protected resource. The proof must then carry an ath claim equal
+    // to AccessTokenHash(AccessToken), and ExpectedThumbprint must be set
+    // too: ath alone does not bind the proof key to the token. Leave it
+    // empty at the token endpoint. Set it per request, on a copy of a shared
+    // VerifyConfig.
+    AccessToken string
+    // ExpectedThumbprint, when set, is the cnf.jkt value of the access token
+    // presented with the proof; the proof key thumbprint must equal it. Set
+    // it per request, with AccessToken.
+    ExpectedThumbprint string
 }
 ```
 

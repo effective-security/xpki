@@ -17,10 +17,19 @@ with `context.Background()` and a `Sign` can hang on a network stall. Add
 
 ## DPoP: replay protection and access-token binding
 
-Implement RFC 9449 `jti` replay cache and `ath` binding in `jwt/dpop`
-(XPKI-075). Requires a pluggable store interface in `VerifyConfig` and an
-`ath` claim on `jwt.Claims`. Also either implement PSS/EdDSA in
-`jwt.VerifySignature` or trim the DPoP algorithm allow-list (XPKI-074).
+Done in DP1 (XPKI-074/075/076, 2026-09-24): `dpop.VerifyConfig` takes an
+opt-in `ReplayCache` (with a bounded, fail-closed `NewMemoryReplayCache`),
+`AccessToken` for `ath` and `ExpectedThumbprint` for `cnf.jkt`, plus a
+trusted `ExternalURL` for `htu`. go-jose verifies every allowed algorithm.
+`ath` lives in a dpop-local claims struct, and `jwt.Claims` is unchanged.
+Remaining:
+
+- a shared `ReplayCache` implementation (for example Redis `SET NX` with an
+  expiry) for servers with several instances;
+- server-issued nonces (RFC 9449 §8/§9): generating and rotating
+  `DPoP-Nonce` values and the `use_dpop_nonce` error. `ExpectedNonce`
+  compares only a caller-provided value today;
+- a decision on case-sensitive `htm` (XPKI-108).
 
 ## JWKS client hardening
 

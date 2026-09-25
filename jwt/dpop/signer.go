@@ -12,6 +12,11 @@ import (
 	hjwt "github.com/go-jose/go-jose/v4/jwt"
 )
 
+// proofIDLength is the jti length: about 131 bits from the 62-character
+// alphabet of certutil.RandomString; RFC 9449 §4.2 asks for at least 96 bits
+// of pseudorandom data so that replay caches do not see collisions.
+const proofIDLength = 22
+
 type signer struct {
 	prov jwt.Provider
 	tp   string
@@ -63,17 +68,20 @@ func (p *signer) Sign(ctx context.Context, method string, u *url.URL, extraClaim
 	now := TimeNowFn()
 	notBefore := now.Add(DefaultNotBefore)
 	exp := now.Add(DefaultExpiration)
+	jti := certutil.RandomString(proofIDLength)
 	claims := &hjwt.Claims{
-		ID:        certutil.RandomString(8),
+		ID:        jti,
 		NotBefore: hjwt.NewNumericDate(notBefore),
 		Expiry:    hjwt.NewNumericDate(exp),
 		IssuedAt:  hjwt.NewNumericDate(now),
 	}
 
+	// RawPath keeps escapes such as %2F that the decoded Path loses
 	coreURL := url.URL{
-		Scheme: u.Scheme,
-		Host:   u.Host,
-		Path:   u.Path,
+		Scheme:  u.Scheme,
+		Host:    u.Host,
+		Path:    u.Path,
+		RawPath: u.RawPath,
 	}
 
 	c := jwt.MapClaims{
@@ -86,7 +94,7 @@ func (p *signer) Sign(ctx context.Context, method string, u *url.URL, extraClaim
 	}
 
 	std := jwt.CreateClaims(
-		certutil.RandomString(8),
+		jti,
 		"",
 		p.prov.Issuer(),
 		nil,

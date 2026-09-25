@@ -81,9 +81,9 @@ drift; the symbol name is the stable reference.
 | XPKI-071 | jwt                                   | `jwks.go` `StaticKeySet.GetKey`/`RemoteKeySet.GetKey`          | Empty `kid` returns the first JWK regardless of `kty`/`use`                                                                                        | correctness | **Fixed** ([details](#xpki-071--jw1)) |
 | XPKI-072 | jwt                                   | `jwks.go` `StaticKeySet.PublicKeys`                            | Field documented but never read                                                                                                                    | bug         | **Fixed** ([details](#xpki-072--jw1)) |
 | XPKI-073 | jwt                                   | `sign.go` `signJWT`                                            | `jti` placed in the JOSE header (non-standard)                                                                                                     | correctness | Open           |
-| XPKI-074 | jwt/dpop                              | `verify.go` `supportedSignatureAlgorithm`                      | PS256/384/512 and EdDSA allowed but `jwt.VerifySignature` cannot verify them                                                                       | correctness | Open           |
-| XPKI-075 | jwt/dpop                              | `verify.go` `VerifyClaims`                                     | No `jti` replay protection and no `ath` binding although the doc lists both as MUST                                                                | security    | Needs Approval |
-| XPKI-076 | jwt/dpop                              | `verify.go` `VerifyRequestClaims`                              | Scheme always defaults to `https`; `htu` compared with `EqualFold` (path is case-sensitive)                                                        | correctness | Open           |
+| XPKI-074 | jwt/dpop                              | `verify.go` `supportedSignatureAlgorithm`                      | PS256/384/512 and EdDSA allowed but `jwt.VerifySignature` cannot verify them                                                                       | correctness | **Fixed** ([details](#xpki-074--dp1)) |
+| XPKI-075 | jwt/dpop                              | `verify.go` `VerifyClaims`                                     | No `jti` replay protection and no `ath` binding although the doc lists both as MUST                                                                | security    | **Fixed** ([details](#xpki-075--dp1)) |
+| XPKI-076 | jwt/dpop                              | `verify.go` `VerifyRequestClaims`                              | Scheme always defaults to `https`; `htu` compared with `EqualFold` (path is case-sensitive)                                                        | correctness | **Fixed** ([details](#xpki-076--dp1)) |
 | XPKI-078 | jwt/accesstoken                       | `accesstoken.go` `Sign`                                        | `pat.` tokens get no `exp`; they never expire and `TokenExpiry()` is ignored                                                                       | security    | Needs Approval |
 | XPKI-079 | jwt/accesstoken                       | `accesstoken.go` `PublicKey`                                   | Dereferences `p.dp` without nil check                                                                                                              | bug         | Open           |
 | XPKI-080 | jwt/oauth2client                      | `client.go`, `config.go`                                       | `verifyKey` written but never read; `JwksURL` unused; setters mutate shared state unsynchronized                                                   | correctness | Open           |
@@ -105,8 +105,169 @@ drift; the symbol name is the stable reference.
 | XPKI-105 | tests                                 | `cmd/xpki-tool/cli/suite_test.go` `SetupSuite`               | Fixed temporary directory is removed by concurrent coverage/race runs, causing missing fixture files                                               | bug         | **Fixed** ([details](#xpki-105--xc2)) |
 | XPKI-106 | dataprotection                        | `symmetric_test.go` `TestNewSymmetric`                         | Tamper test copies one random nonce byte over another; equal bytes leave the ciphertext unchanged and make the authentication-failure assertion flaky | bug         | Open           |
 | XPKI-107 | testca                                | `entity.go` `Issue`                                           | Appending the issuer overwrites caller option-slice storage when capacity remains and races when the slice is reused concurrently                      | race        | **Fixed** ([details](#xpki-107--tc1)) |
+| XPKI-108 | jwt/dpop                              | `verify.go` `VerifyClaimsContext`                              | `htm` is compared with `strings.EqualFold`, although HTTP methods are case-sensitive (RFC 9110 §9.1), so a proof for `get` is accepted for `GET` | correctness | Open           |
 
 ## Fixed items
+
+### XPKI-075 — DP1
+
+**Fixed on 2026-09-24.** Approved policy: an opt-in replay store, fail
+closed when the in-memory store is full, and `ath`/`cnf.jkt` binding only
+when the caller supplies the access token or thumbprint. New API in
+`jwt/dpop`:
+
+- `VerifyConfig.ReplayCache` (`ReplayCache` interface:
+  `Add(ctx, key, expiresAt) error`, atomic, exactly one concurrent `Add` of a
+  key may succeed). `VerifyClaims` records the proof **after** every other
+  check passed, so a proof rejected for its signature, htu, time or nonce
+  does not consume the jti. The key is base64url SHA-256 of the proof key
+  thumbprint and jti: jti is scoped per client key and the stored key is 43
+  bytes regardless of jti length. It is retained through `iat +
+  DefaultExpiration`, or `exp` if earlier, inclusive, because the verifier
+  still accepts the proof at that instant. A replay returns an error wrapping `ErrReplay`
+  (`dpop: proof rejected: dpop: proof replayed`); a store error is wrapped
+  the same way and also rejects. A nil cache keeps the old behavior and is
+  documented as providing no replay detection.
+- `NewMemoryReplayCache(max)`: a process-local store with one mutex, a map
+  and an expiry min-heap. Expired entries are evicted on every `Add`; when
+  the cache is still full, `ErrReplayCacheFull` rejects the proof. The
+  default size is 100000. Because it fails closed, a client able to mint
+  valid proofs (any client at a token endpoint) can fill it and have other
+  proofs rejected for up to the acceptance window; the doc comment says to
+  size it for peak load and rate-limit proof sources. Multi-instance servers need a shared
+  implementation, for example Redis `SET NX` with an expiry.
+- `VerifyConfig.AccessToken`: the proof must carry `ath` equal to
+  `AccessTokenHash(token)` (base64url SHA-256, RFC 9449 §4.2), compared in
+  constant time. Missing: `dpop: claim not found: ath`; different:
+  `dpop: claim mismatch: ath`. Anyone holding the token can compute `ath`,
+  so `AccessToken` without `ExpectedThumbprint` is rejected as `dpop:
+  ExpectedThumbprint is required with AccessToken` (code review). Leave it empty at the token endpoint, where a
+  present `ath` is ignored. `Result.AccessTokenHash` returns the claim.
+- `VerifyConfig.ExpectedThumbprint`: the proof key thumbprint must equal the
+  access token `cnf.jkt` (constant time), else `dpop: proof key does not
+  match cnf.jkt`.
+- `VerifyClaimsContext` passes a context to the store. `VerifyClaims` uses
+  `context.Background()` and `VerifyRequestClaims` uses the request context.
+- The signature is now verified before any claim is decoded (see XPKI-074).
+  Claims and the compact protected header are decoded with go-jose's
+  case-sensitive `json` fork, as `GetTokenInfo` and go-jose do, so `JTI`,
+  `HTU` or `TYP` are not taken for `jti`, `htu` or `typ` (code review).
+  Client jti grew from 8 to 22 characters (about 131 bits, RFC 9449 §4.2
+  asks for at least 96), and `ClaimAccessTokenHash` names the claim for
+  `ForRequest` extra claims.
+
+Compatibility: existing callers compile and behave as before unless they set
+the new fields. Legacy mode is not replay-safe.
+
+Validation passed:
+
+- Before the fix, a scratch test on a `git worktree` of HEAD verified the
+  same proof twice with no error. There was no way to supply an access
+  token. Code review of the first version reproduced, with a scratch test,
+  a thief's key accepted with a computed `ath` and no `cnf.jkt`, upper-case
+  `JTI`/`HTU` accepted, and a second `Add` succeeding at exactly
+  `expiresAt`. All three are fixed and covered above.
+- After the fix, `TestVerifyClaims_Replay` covers a nil cache accepting a
+  replay, second use rejected (`errors.Is(err, ErrReplay)`), a new proof
+  reusing a jti rejected, the same jti under another key accepted, a store
+  error propagated through `VerifyRequestClaims`, rejected proofs (wrong
+  htu, forged signature, wrong nonce) leaving the store untouched, retention
+  at `iat+10m` and at an earlier `exp`, and a 4096-byte jti stored as a
+  43-byte key. `TestVerifyClaims_MemberNameCase` rejects upper-case `JTI`,
+  `HTU` and `TYP`. `TestVerifyClaims_ConcurrentReplay` releases 32 goroutines on
+  a barrier with one proof: exactly 1 accepted, 31 `ErrReplay`, 1 retained
+  entry. `TestMemoryReplayCache_Expiry` uses a controlled clock: fail closed
+  when full, retention at the expiry instant and eviction 1ns later,
+  re-admission after expiry, a replay still detected at exactly
+  `iat+10m`, and a proof one second later rejected by the verifier before
+  the store.
+  `TestVerifyClaims_AccessTokenBinding` checks the RFC 9449 §7.1 `ath`
+  vector, a signer-produced `ath`, missing and substituted tokens, a
+  mismatched `cnf.jkt`, `ath` from a thief's key without `cnf.jkt`, and the
+  token-endpoint cases.
+  `ExampleVerifyRequestClaims` compiles and runs the `doc.go` sample.
+- `BenchmarkVerifyClaimsReplayCache` (`-count=6 -cpu=1,4`, unique ES256
+  proofs): 91.4µs serial and 23.7µs on 4 CPUs per verification, 232
+  allocs/op against 226 without a store (`BenchmarkVerifyClaims`, below).
+  `BenchmarkMemoryReplayCache`: a unique key costs 612ns serial and 457ns on
+  4 CPUs with 1 alloc (map growth to 2–3M entries included); a rejected
+  replay costs 367–376ns with 3 allocs; admitting at capacity 1024 while
+  evicting costs 214–256ns with 2 allocs and stays at 1 retained entry.
+- `go test ./jwt/dpop -race -count=5` passed. `make test RACE=true` passed
+  across the repository with SoftHSM and local-kms fixtures. `make lint`
+  passed with 0 issues. `make build docs` regenerated the API docs (and the
+  line-number drift that `jwt.md` had since JW1). `make covtest` passed at
+  **90.7%** aggregate, with `jwt/dpop` at 93.7%.
+
+### XPKI-076 — DP1
+
+**Fixed on 2026-09-24.** Approved policy: keep https as the default scheme
+for a server-side request with no URL scheme, so TLS-terminating proxies keep
+working, and add `VerifyConfig.ExternalURL`. That is a trusted
+`scheme://host[:port]` origin which overrides the client-controlled URL
+scheme/host and `Host` header. It must be http or https, with no path
+other than `/`, and no query, fragment or userinfo; otherwise `dpop: invalid
+ExternalURL ...`. Plain-HTTP servers set it.
+
+`htu` and the request URI are now compared after RFC 3986 §6.2.2/§6.2.3
+normalization (`jwt/dpop/htu.go`, `normalizeHTU`): scheme and host
+lowercased, the scheme's default port removed, unreserved escapes decoded
+and other escapes uppercased, and an empty path becoming `/`. The path stays
+case-sensitive; query and fragment are ignored. Dot segments are **not**
+removed (code review: a proof for `/public` verified on `/admin/../public`,
+which a router that does not clean paths may dispatch to `/admin/`).
+A relative or opaque `htu` is rejected as `dpop: invalid http_uri claim`.
+The request URI and the signer both keep `URL.RawPath`, so `/a%2Fb` stays
+distinct from `/a/b` and round-trips from client to server.
+
+Compatibility: a proof whose path differs from the request only in case is
+now rejected (the old whole-URI `EqualFold` accepted it). A proof whose
+scheme/host case, default port or escaping differs is now accepted. There is
+no case-insensitive compatibility option.
+
+Validation passed:
+
+- Before the fix, on HEAD: a proof for `/api/A` verified against
+  `/api/a`, and a plain-HTTP server request was rebuilt as `https://` and
+  rejected a correct `http://` proof.
+- After the fix, `TestVerifyRequestClaims_RequestURI` uses
+  `httptest.NewRequest` server-style requests (empty URL scheme and host)
+  and covers the https default, ignored query/fragment, host case with
+  `:443`, unreserved escapes, unresolved dot segments, `%2f` versus `%2F`, `%2F`
+  versus `/`, `/v1/Resource` versus `/v1/resource`, plain HTTP with and
+  without `ExternalURL`, `ExternalURL` overriding an internal and a spoofed
+  `Host`, five invalid `ExternalURL` forms, a relative `htu`, a TLS request,
+  and a signer-to-server round trip of an escaped path.
+  `TestNormalizeHTU` tables 22 inputs, including IPv6, non-default ports,
+  literal `.`/`..` and `%2E%2E`, and invalid escapes.
+- The same repository race, lint, docs and coverage runs as XPKI-075.
+
+### XPKI-074 — DP1
+
+**Fixed on 2026-09-24.** Approved option: verify with go-jose inside
+`jwt/dpop`, so every advertised algorithm works; package `jwt` is
+unchanged. `VerifyClaimsContext` parses the compact proof with the same
+allow-list (RS256/384/512, PS256/384/512, ES256/384/512, EdDSA) and calls
+`JSONWebSignature.Verify` with the embedded public JWK. go-jose rejects a
+key whose type or curve does not fit the alg. Claims are decoded (with
+`json.Number`) only from the verified payload. The unused `jwt.TokenParser`
+in `dpop` was removed.
+
+Validation passed:
+
+- Before the fix, on HEAD: PS256 and EdDSA proofs failed with `dpop: unable
+  to verify token: unsupported algorithm`.
+- After the fix, `TestVerifyClaims_Algorithms` verifies real signatures for
+  all 10 algorithms (RSA 2048, P-256/384/521, Ed25519). It rejects a
+  signature by another key, ES256 with a P-384 JWK, RS256 with an EC JWK and
+  EdDSA with an RSA JWK (`dpop: unable to verify token`), and `ES256K`
+  (`dpop: alg not allowed: ES256K`). Existing HMAC, private-JWK and
+  multi-signature cases still pass.
+- `BenchmarkVerifyClaims` (`-count=8 -cpu=1,4`, benchstat, ES256, HEAD
+  worktree against the fix): 91.7 → 89.9µs serial (−2.0%, p=0.007), 24.1 →
+  24.2µs on 4 CPUs (no significant change, p=0.96), 16.4 → 16.3 KiB and
+  247 → 226 allocs/op.
+- The same repository race, lint, docs and coverage runs as XPKI-075.
 
 ### XPKI-070 — JW1
 
@@ -616,7 +777,8 @@ Validation passed:
 - **XPKI-049 / XPKI-054 / XPKI-057** were approved and fixed by AU1 on
   2026-09-24; see their Fixed items for the chosen policy and compatibility
   notes.
-- **XPKI-075 / XPKI-078** require new API surface (`ath`/replay cache in
-  `dpop.VerifyConfig`; expiry policy for `pat.` tokens).
+- **XPKI-075** was approved and fixed by DP1 on 2026-09-24 (opt-in
+  `VerifyConfig.ReplayCache`, `AccessToken`, `ExpectedThumbprint`).
+- **XPKI-078** requires new API surface (expiry policy for `pat.` tokens).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.
