@@ -209,7 +209,7 @@ func VerifySignature(algo, signingString, signature string, key any) error
 VerifySignature returns error if JWT signature is invalid
 
 <a name="AlgorithmKeySet"></a>
-## type [AlgorithmKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L53-L58>)
+## type [AlgorithmKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L54-L59>)
 
 AlgorithmKeySet is a KeySet that can also restrict key selection to keys compatible with the token's signing algorithm. The parser uses it when the configured KeySet implements it.
 
@@ -385,7 +385,7 @@ type Key struct {
 ```
 
 <a name="KeySet"></a>
-## type [KeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L43-L48>)
+## type [KeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L44-L49>)
 
 KeySet is an interface for verifying JWT signatures.
 
@@ -809,7 +809,7 @@ func LoadProviderConfig(file string) (*ProviderConfig, error)
 LoadProviderConfig returns provider configuration loaded from a file
 
 <a name="RemoteKeySet"></a>
-## type [RemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L257-L278>)
+## type [RemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L258-L282>)
 
 RemoteKeySet is a KeySet implementation that validates JSON web tokens against a jwks\_uri endpoint. Key selection follows the StaticKeySet rules for KeySet entries. Create it with NewRemoteKeySet.
 
@@ -820,7 +820,7 @@ type RemoteKeySet struct {
 ```
 
 <a name="NewRemoteKeySet"></a>
-### func [NewRemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L229>)
+### func [NewRemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L230>)
 
 ```go
 func NewRemoteKeySet(ctx context.Context, jwksURL string, opts ...RemoteKeySetOption) *RemoteKeySet
@@ -829,7 +829,7 @@ func NewRemoteKeySet(ctx context.Context, jwksURL string, opts ...RemoteKeySetOp
 NewRemoteKeySet returns a KeySet that fetches a JWKS document from jwksURL over HTTP. NewParser uses it when ParserConfig.JWKSURL is set. Keys are fetched lazily on the first lookup and re\-fetched when no cached key fits the lookup; concurrent refreshes are coalesced, and a refresh starts at most once per refresh cooldown. ctx bounds the lifetime of every fetch; each fetch is also bounded by the fetch timeout and response size limit. Reuse one RemoteKeySet per URL rather than creating new ones.
 
 <a name="RemoteKeySet.GetKey"></a>
-### func \(\*RemoteKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L313>)
+### func \(\*RemoteKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L317>)
 
 ```go
 func (r *RemoteKeySet) GetKey(ctx context.Context, keyID string) (any, error)
@@ -838,7 +838,7 @@ func (r *RemoteKeySet) GetKey(ctx context.Context, keyID string) (any, error)
 GetKey returns the public key for the given kid.
 
 <a name="RemoteKeySet.GetKeyForAlgorithm"></a>
-### func \(\*RemoteKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L318>)
+### func \(\*RemoteKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L322>)
 
 ```go
 func (r *RemoteKeySet) GetKeyForAlgorithm(ctx context.Context, keyID, alg string) (any, error)
@@ -847,7 +847,7 @@ func (r *RemoteKeySet) GetKeyForAlgorithm(ctx context.Context, keyID, alg string
 GetKeyForAlgorithm returns the public key for the given kid and alg.
 
 <a name="RemoteKeySetOption"></a>
-## type [RemoteKeySetOption](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L180>)
+## type [RemoteKeySetOption](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L181>)
 
 RemoteKeySetOption configures a RemoteKeySet.
 
@@ -856,7 +856,7 @@ type RemoteKeySetOption func(*RemoteKeySet)
 ```
 
 <a name="WithFetchTimeout"></a>
-### func [WithFetchTimeout](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L204>)
+### func [WithFetchTimeout](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L205>)
 
 ```go
 func WithFetchTimeout(d time.Duration) RemoteKeySetOption
@@ -865,7 +865,7 @@ func WithFetchTimeout(d time.Duration) RemoteKeySetOption
 WithFetchTimeout bounds each fetch, including reading the body. Zero or negative keeps DefaultJWKSFetchTimeout.
 
 <a name="WithHTTPClient"></a>
-### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L184>)
+### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L185>)
 
 ```go
 func WithHTTPClient(client *http.Client) RemoteKeySetOption
@@ -874,7 +874,7 @@ func WithHTTPClient(client *http.Client) RemoteKeySetOption
 WithHTTPClient sets the client used to fetch the JWKS document. The fetch timeout still applies to each request. A nil client keeps the default.
 
 <a name="WithMaxResponseSize"></a>
-### func [WithMaxResponseSize](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L214>)
+### func [WithMaxResponseSize](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L215>)
 
 ```go
 func WithMaxResponseSize(n int64) RemoteKeySetOption
@@ -883,7 +883,7 @@ func WithMaxResponseSize(n int64) RemoteKeySetOption
 WithMaxResponseSize sets the largest accepted JWKS document in bytes. Zero or negative keeps DefaultJWKSMaxResponseSize.
 
 <a name="WithRefreshCooldown"></a>
-### func [WithRefreshCooldown](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L196>)
+### func [WithRefreshCooldown](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L197>)
 
 ```go
 func WithRefreshCooldown(d time.Duration) RemoteKeySetOption
@@ -945,7 +945,7 @@ func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error)
 NewSignerInfo returns \*SignerInfo
 
 <a name="StaticKeySet"></a>
-## type [StaticKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L68-L74>)
+## type [StaticKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L69-L75>)
 
 StaticKeySet is a verifier that validates JWT against a static set of public keys.
 
@@ -962,7 +962,7 @@ type StaticKeySet struct {
 ```
 
 <a name="StaticKeySet.GetKey"></a>
-### func \(\*StaticKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L77>)
+### func \(\*StaticKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L78>)
 
 ```go
 func (s *StaticKeySet) GetKey(ctx context.Context, keyID string) (any, error)
@@ -971,7 +971,7 @@ func (s *StaticKeySet) GetKey(ctx context.Context, keyID string) (any, error)
 GetKey returns the public key for the given kid.
 
 <a name="StaticKeySet.GetKeyForAlgorithm"></a>
-### func \(\*StaticKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L82>)
+### func \(\*StaticKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L83>)
 
 ```go
 func (s *StaticKeySet) GetKeyForAlgorithm(_ context.Context, keyID, alg string) (any, error)

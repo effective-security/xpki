@@ -3,8 +3,8 @@
 Reviewed against the working tree at `70307a9` on **2026-09-20**. Covers all
 **73 supplied findings**, including items marked **Needs Approval**, plus
 **XPKI-106**, discovered during the test review, and **XPKI-107**, discovered
-and fixed during TC1. Both are recorded in [FINDINGS.md](FINDINGS.md) as
-required by AGENTS.md: **75 findings total**.
+and fixed during TC1, and **XPKI-108**, discovered during DP1. All three are recorded in [FINDINGS.md](FINDINGS.md) as
+required by AGENTS.md: **76 findings total**.
 Pending assessments retain the original planning evidence. Fixed entries
 record the implementation and validation; completed batches are retained
 below and excluded from the pending queue.
@@ -21,6 +21,7 @@ below and excluded from the pending queue.
 | AU1 | [XPKI-049](FINDINGS.md#xpki-049--au1), [XPKI-050](FINDINGS.md#xpki-050--au1), [XPKI-054](FINDINGS.md#xpki-054--au1), [XPKI-057](FINDINGS.md#xpki-057--au1) | **Fixed** | 2026-09-24 |
 | CU1 | [XPKI-037](FINDINGS.md#xpki-037--cu1), [XPKI-041](FINDINGS.md#xpki-041--cu1), [XPKI-039](FINDINGS.md#xpki-039--cu1), [XPKI-044](FINDINGS.md#xpki-044--cu1) | **Fixed** | 2026-09-24 |
 | JW1 | [XPKI-070](FINDINGS.md#xpki-070--jw1), [XPKI-071](FINDINGS.md#xpki-071--jw1), [XPKI-072](FINDINGS.md#xpki-072--jw1) | **Fixed** | 2026-09-24 |
+| DP1 | [XPKI-075](FINDINGS.md#xpki-075--dp1), [XPKI-076](FINDINGS.md#xpki-076--dp1), [XPKI-074](FINDINGS.md#xpki-074--dp1) | **Fixed** | 2026-09-24 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -242,6 +243,54 @@ performance table. Compatibility: key-not-found text is now
 signing keys fail as ambiguous. A key published within 10s after a fetch
 waits for the cooldown.
 
+**DP1 / XPKI-075, 076, 074 (2026-09-24).** Decisions: an opt-in replay
+store (nil keeps the old, replay-unsafe behavior), a bounded in-memory store
+that fails closed when full, keep https as the default scheme and add a
+trusted `ExternalURL` origin, and verify signatures with go-jose inside
+`jwt/dpop`, so the advertised PS\*/EdDSA algorithms work. Package `jwt` is
+unchanged, and `ath` is decoded from a local proof-claims struct.
+
+- **075.** `VerifyConfig` gained `ReplayCache`, `AccessToken` and
+  `ExpectedThumbprint`, plus `VerifyClaimsContext`, `NewMemoryReplayCache`,
+  `ErrReplay`, `ErrReplayCacheFull`, `AccessTokenHash`,
+  `ClaimAccessTokenHash` and `Result.AccessTokenHash`. The store is called
+  last, only for a fully valid proof. Its key is SHA-256(thumbprint, jti),
+  retained through `iat+10m` or an earlier `exp`, inclusive. `AccessToken`
+  requires `ExpectedThumbprint`. Claims and header are decoded
+  case-sensitively. The signer's jti is now 22
+  characters.
+- **076.** `ExternalURL` overrides the client-controlled scheme/host.
+  `normalizeHTU` compares scheme/host case-insensitively without default
+  ports, normalizes escapes, keeps path case and dot segments, and ignores
+  query/fragment. The request URI and the signer keep `RawPath`.
+- **074.** `JSONWebSignature.Verify` with the embedded JWK runs before any
+  claim is read.
+
+New finding **XPKI-108** (LOW, Open): `htm` is still compared
+case-insensitively. It was left unchanged because fixing it would reject
+lowercase-method clients.
+
+Docs: `doc.go` usage (compiled by `ExampleVerifyRequestClaims`), codemap
+rules, concept rows and test layout, the ROADMAP DPoP entry (remaining:
+shared-store implementation and server nonces), and regenerated API docs.
+
+Validation: a scratch test on a HEAD worktree accepted a replayed proof and
+`/api/A` for `/api/a`, rebuilt a plain-HTTP request as https, and failed
+PS256/EdDSA with `unsupported algorithm`. After the fix, the new
+`verify_policy_test.go` and `htu_internal_test.go` tests pass, including a
+32-goroutine duplicate-proof race (exactly one accepted) and a
+controlled-clock expiry test. `go test ./jwt/dpop -race -count=5`,
+`make test RACE=true` (SoftHSM/local-kms) and `make lint` (0 issues) passed.
+`make build docs` passed, and `make covtest` passed at **90.7%** aggregate
+(`jwt/dpop` 93.7%). Benchmark evidence is in the performance table. A
+`/code-review` pass then reproduced four issues: `ath` accepted without
+`cnf.jkt`, case-insensitive claim names, dot-segment resolution of the
+received path, and a replay at exactly `expiresAt`. All four are fixed and
+tested, and `jwt/dpop` race (`-count=5`), lint and coverage (93.5%) were
+rerun. Compatibility: path case now matters in `htu`, while scheme/host case,
+default ports and escaping no longer do. The new checks apply only when
+their fields are set.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -285,7 +334,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| DP1 | `jwt/dpop` | 075, 076, 074 | P1 / 36 | High: proof acceptance and public verification API | 075 |
 | AT1 | `jwt/accesstoken` | 078, 079 | P1 / 36 | High: existing perpetual tokens and nil-provider contract | 078 |
 | AU2 | `authority` | 051, 052, 053; 100-authority | P1 / 35 | High: lock order, renewal, fallback signing | Specify renewal failure behavior |
 | PK1 | `crypto11` | 001, 002, 003, 005, 007; 100-crypto11 | P1 / 35 | High: module ownership and active HSM operations | Shared-module close contract |
@@ -331,10 +379,10 @@ Execution dependencies:
   propagation even though the nil check belongs in `certutil`.
 - GC2 must keep generation, lookup, export, signing, and destruction on the
   **same selected version**. Do not change just the string-building helper.
-- Implement DP1 within `jwt/dpop` using local proof claims and an honest
-  supported-algorithm list. If shared `jwt.Claims` or new JWT algorithms are
-  chosen instead, first create a separate `jwt` batch under the same finding;
-  do not hide a second package in DP1.
+- DP1 is **Fixed (2026-09-24)** within `jwt/dpop`: local proof claims carry
+  `ath`, and go-jose verifies every allowed algorithm; `jwt.Claims` and
+  `jwt.VerifySignature` are unchanged. Keep the order signature → claims →
+  replay store. XPKI-108 (`htm` case) is a separate open item.
 - BU1 precedes CI1. IV1 defines the runtime fallback before BU3 wires builds;
   neither portion alone closes 097.
 - XC2 is **Fixed (2026-09-20)**; overlapping CLI coverage/race processes now
@@ -467,19 +515,21 @@ through `KeySet`. JW2/JW3 need no benchmark. JW2 also owns the jwt portion of fi
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-075 — HIGH / security / 36 | [VerifyClaims](jwt/dpop/verify.go) requires jti but never consumes it in a replay store and has no access-token hash input. Define pluggable atomic replay checking with bounded retention and access-token binding for protected-resource use. Keep token-endpoint proofs distinct; ath is not universally required there. | **Partial:** [TestVerifyClaims / TestSigner](jwt/dpop/dpop_test.go) cover required claims, signature, times, and optional nonce/identity claims. They do not reject replay or token substitution. Add first-use/replay, simultaneous duplicate proofs (one accepted), store error, TTL/clock skew, correct/wrong/missing ath, and token-key thumbprint binding. Bind claims only after signature validation. |
-| XPKI-076 — HIGH / correctness / 33 | Request reconstruction defaults to https for a missing URL scheme, and the whole htu comparison is case-insensitive. Preserve path case, normalize only appropriate URI components, and derive the external request URI using an explicit trusted proxy/TLS policy. | **Partial:** existing tests vary method, host, and wholly different paths, but use full https URLs. Add real server-style requests with empty URL scheme, TLS/plain HTTP, `/A` versus `/a`, escaped path components, host casing, and ignored query/fragment. |
-| XPKI-074 — MEDIUM / correctness / 23 | The allow-list advertises PS*/EdDSA while the JWT verifier used afterward implements HS/RS/ES. Narrow the advertised supported list to actual verification capability, or separately add and test algorithms in `jwt`. | **Partial:** tests reject HMAC and verify ES256, but do not exercise every advertised algorithm with a real signature. Add an algorithm matrix with success for supported algorithms and explicit early rejection for unsupported ones. |
+| XPKI-075 — HIGH / security / 36 — **Fixed (DP1, 2026-09-24)** | [VerifyClaimsContext](jwt/dpop/verify.go) required jti but never consumed it and had no access-token input. It now takes an opt-in atomic `VerifyConfig.ReplayCache` (key SHA-256(thumbprint, jti), retained until `iat+10m` or an earlier `exp`, called only after every other check) with a bounded, fail-closed `NewMemoryReplayCache`. `AccessToken` requires a matching `ath`, and `ExpectedThumbprint` binds the proof key to the token `cnf.jkt`. Token-endpoint proofs leave both empty. A nil store is documented as not replay-safe. | **Verified:** `TestVerifyClaims_Replay` (first use and replay, reused jti, per-key scope, store error through the request context, rejected proofs not consuming the jti, retention at `iat+10m` and `exp`, fixed-length key), `TestVerifyClaims_MemberNameCase`, `TestVerifyClaims_ConcurrentReplay` (32 simultaneous duplicates, exactly one accepted), `TestMemoryReplayCache_Expiry` (controlled clock: full → fail closed, retention at the expiry instant, eviction after it, re-admission), and `TestVerifyClaims_AccessTokenBinding` (RFC 9449 §7.1 vector, missing/wrong ath, wrong `cnf.jkt`, ath without `cnf.jkt`, token endpoint). The signature is verified before claims are read. |
+| XPKI-076 — HIGH / correctness / 33 — **Fixed (DP1, 2026-09-24)** | An empty server-side URL scheme still means https (proxy compatibility). The trusted `VerifyConfig.ExternalURL` origin overrides the client-controlled scheme/host. `normalizeHTU` lowercases scheme/host, drops default ports, normalizes escapes, keeps path case and dot segments, and ignores query/fragment. The request URI and the signer keep `RawPath`. | **Verified:** `TestVerifyRequestClaims_RequestURI` uses server-style `httptest` requests with an empty URL scheme and covers TLS and plain HTTP, `/v1/Resource` versus `/v1/resource`, `%2f`/`%2F`/`/`, host case and `:443`, ignored query/fragment, `ExternalURL` overriding internal and spoofed Hosts, invalid `ExternalURL` forms, a relative htu, and a signer round trip of an escaped path. `TestNormalizeHTU` has 22 table cases; `/admin/../v1/Resource` does not match `/v1/Resource`. |
+| XPKI-074 — MEDIUM / correctness / 23 — **Fixed (DP1, 2026-09-24)** | The advertised list is kept. The proof is now verified by go-jose `JSONWebSignature.Verify` with the embedded JWK, which implements RS\*, PS\*, ES\* and EdDSA and rejects a key type or curve that does not fit the alg. `jwt` is unchanged. | **Verified:** `TestVerifyClaims_Algorithms` verifies real signatures for all 10 algorithms. It rejects another key's signature, ES256 with a P-384 JWK, RS256 with an EC JWK and EdDSA with an RSA JWK, and rejects ES256K early as `alg not allowed`. Existing HMAC/private-JWK/multi-signature rejections still pass. |
 
 The protected-resource binding and URI checks should follow
 [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449.html#section-4.3), with
 replay policy informed by [§11.1](https://www.rfc-editor.org/rfc/rfc9449.html#section-11.1).
-Regression risk is high because existing callers lack the new inputs/store.
-Specify legacy versus enforcing behavior and migration without implying the
-legacy mode supplies replay protection. **Benchmark recommended before adding
-the replay store:** concurrent verification, duplicate rejection, retained
-entries/eviction, and store latency. A real concurrent correctness test is
-mandatory; a benchmark cannot prove replay safety.
+DP1 is **Fixed (2026-09-24)**. Legacy behavior is kept when the new fields
+are unset and is documented as providing no replay protection; enforcement
+is per `VerifyConfig`. The concurrency proof is
+`TestVerifyClaims_ConcurrentReplay`, and the benchmarks are in the
+performance table. A shared-store implementation and server-issued nonces are
+in ROADMAP. XPKI-108 (`htm` compared case-insensitively) is open and
+unscheduled; a fix needs a compatibility decision for lowercase-method
+clients.
 
 ### jwt/accesstoken — AT1
 
@@ -768,7 +818,7 @@ Other baselines below still need to be created where marked required.
 | 062, 107 (TC1) — **Fixed** | **Not required**; generation/signing remain outside the serial mutex | verified unique serials/names, signed certificates, and option ownership with synchronized workers and the race detector |
 | 081 and shared-state portion of 080 (OA1) | **Recommended** | registry and token-request latency/allocations with concurrent config updates |
 | 070 (JW1) — **Fixed** | **Recorded before/after comparison** (`BenchmarkRemoteKeySet`, `-count=8 -cpu=1,4`, benchstat p<0.001 for unknown kids, loopback server) | unknown kids 1 → 0 fetches/op (0.25 → 0 with 4 goroutines); unknown-kid lookups −88–95% time (44.9µs → 3.3µs serial), 2.6–9.2 KB → 832–855 B, 32–105 → 12–13 allocs; known kids 16.6 → 17.6 ns (p=0.06, not significant), 0 allocs; miss tracking is O(1) (last fetch time/error); rotation covered by the controlled-clock test, not benchmarked |
-| 075 (DP1, new shared replay state) | **Recommended** | verification/store latency, contention, TTL eviction, bounded retained entries |
+| 075, 074 (DP1) — **Fixed** | **Recorded before/after comparison** for verification (`BenchmarkVerifyClaims`, `-count=8 -cpu=1,4`, benchstat, HEAD worktree) and new-store measurements (`BenchmarkVerifyClaimsReplayCache`, `BenchmarkMemoryReplayCache`, `-count=6 -cpu=1,4`) | go-jose verification 91.7 → 89.9µs serial (−2.0%, p=0.007), 24.1 → 24.2µs on 4 CPUs (p=0.96), 247 → 226 allocs; with the memory store 91.4µs / 23.7µs and 232 allocs; store alone: unique key 612/457ns, 1 alloc; replay 367–376ns, 3 allocs; admit-with-eviction at capacity 214–256ns, 2 allocs, 1 retained entry. Replay safety is proven by the 32-goroutine test, not the benchmark |
 | 105 (XC2, cross-process fixture interference) — **Fixed** | **Not needed** | verified 50 suite runs per overlapping coverage/race process and automatic fixture cleanup |
 
 Performance fixes require an existing-behavior reproduction plus a baseline

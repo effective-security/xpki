@@ -84,7 +84,9 @@ consumers. Nothing in the library imports `cmd/`.
 | JWT parsing (third-party tokens)           | `jwt/parser.go`                                                              | `ParserConfig`, `LoadParserConfig`, `NewParser`, `TokenParser`, `Keyfunc`                                                     |
 | Claims                                     | `jwt/claims.go`                                                              | `Claims`, `MapClaims`, `NumericDate`, `Audience`, `CreateClaims`, `SetClaimsExpiration`, `TimeNowFn`                          |
 | JWKS key sets                              | `jwt/jwks.go`                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`       |
-| DPoP proof create / verify                 | `jwt/dpop/signer.go`, `jwt/dpop/verify.go`                                   | `NewSigner`, `ForRequest`, `VerifyRequestClaims`, `VerifyClaims`, `GetTokenInfo`                                              |
+| DPoP proof create / verify                 | `jwt/dpop/signer.go`, `jwt/dpop/verify.go`                                   | `NewSigner`, `ForRequest`, `VerifyRequestClaims`, `VerifyClaims`, `VerifyClaimsContext`, `AccessTokenHash`, `GetTokenInfo` |
+| DPoP replay cache (`jti`)                  | `jwt/dpop/replay.go`                                                         | `ReplayCache`, `NewMemoryReplayCache`, `ErrReplay`, `ErrReplayCacheFull`                                                      |
+| DPoP `htu` request URI / normalization     | `jwt/dpop/htu.go`                                                            | `VerifyConfig.ExternalURL`, `requestURI`, `normalizeHTU`                                                                      |
 | DPoP keys                                  | `jwt/dpop/keys.go`                                                           | `GenerateKey`, `LoadKey`, `SaveKey`, `Thumbprint`                                                                             |
 | Opaque access tokens                       | `jwt/accesstoken/accesstoken.go`                                             | `New`, `Provider`                                                                                                             |
 | OAuth2 client registry                     | `jwt/oauth2client/*.go`                                                      | `LoadProvider`, `NewProvider`, `RegisterClient`, `ClientFor*`, `Client.CreateTokenRequest[WithContext]`                       |
@@ -504,16 +506,38 @@ and parallel unique-unknown kids.
 ## Packages jwt/dpop, jwt/accesstoken, jwt/oauth2client, dataprotection
 
 - **dpop**: `dpop.go` constants (`HTTPHeader`, `DefaultExpiration` 10m,
-  `CnfThumbprint`), `keys.go` P-256 JWK generate/load/save (`<folder>/<thumbprint>.jwk`,
-  0600), `signer.go` proof signer (`typ: dpop+jwt`, `jwk` header), `verify.go`
-  rules: compact proofs decode the protected header first (so a private `jwk`
-  or HMAC `alg` is a DPoP error, not a go-jose parse error); JSON JWS is
-  parsed so more than one signature is `token contains multiple headers`;
-  then `typ`, public `jwk`, alg in the asymmetric allow-list, `jti`/`htm`/`htu`/`iat`
-  present, `iat` within 10m, signature verified with the embedded JWK,
-  optional iss/sub/aud/nonce. No replay cache or `ath` (XPKI-075); PS\*/EdDSA
-  in the allow-list do not verify (XPKI-074). Binding to the access token:
-  compare `Result.Thumbprint` with the `cnf.jkt` claim.
+  `CnfThumbprint`, `ClaimAccessTokenHash`) and `AccessTokenHash` (ath =
+  base64url SHA-256), `keys.go` P-256 JWK generate/load/save
+  (`<folder>/<thumbprint>.jwk`, 0600), `signer.go` proof signer (`typ:
+  dpop+jwt`, `jwk` header, 22-character jti, htu keeps `RawPath`),
+  `verify.go` rules in order: compact proofs decode the protected header
+  first with go-jose's case-sensitive `json` fork (so a private `jwk` or
+  HMAC `alg` is a DPoP error, not a go-jose parse error, and `TYP` is not
+  `typ`); JSON JWS is parsed so more than one signature is `token
+  contains multiple headers`; then `typ`, public `jwk`, alg in the
+  asymmetric allow-list (RS\*, PS\*, ES\*, EdDSA); the signature is verified
+  by go-jose with the embedded JWK **before** any claim is read (go-jose
+  rejects a key type/curve that does not fit the alg), and claims are
+  decoded case-sensitively like `GetTokenInfo`; then
+  `jti`/`htm`/`htu`/`iat` present, `htu` equal after `htu.go`
+  normalization, `iat` within 10m, exp/nbf, optional iss/sub/aud/nonce,
+  `ath` when `VerifyConfig.AccessToken` is set (which requires
+  `ExpectedThumbprint`: `ath` alone is computable by a token thief), proof
+  thumbprint equal to `ExpectedThumbprint` (constant time), and last `ReplayCache.Add`, so only a
+  fully valid proof consumes its jti. `ReplayCache` is opt-in (nil = no
+  replay detection). The key is base64url SHA-256 of thumbprint + jti
+  (fixed 43 bytes), retained through `iat + DefaultExpiration` or `exp` if
+  earlier, inclusive. `replay.go` `MemoryReplayCache`: one mutex, map plus
+  expiry min-heap, evicts entries whose expiry is before now on every `Add`, fails closed with
+  `ErrReplayCacheFull` at capacity (default 100000), clock `TimeNowFn`.
+  `htu.go`: `VerifyRequestClaims` builds the request URI from
+  `ExternalURL` (trusted `scheme://host[:port]`, validated per call), else
+  URL scheme/host, then `req.Host`, with https for an empty scheme; query and
+  fragment dropped. `normalizeHTU` lowercases scheme and host, drops the
+  default port, decodes unreserved escapes, uppercases other escapes, keeps
+  path case and dot segments (a router may dispatch `/admin/../x` elsewhere); `htm` is still compared with
+  `EqualFold` (XPKI-108). Binding to the access token: `ExpectedThumbprint`,
+  or compare `Result.Thumbprint` with the `cnf.jkt` claim.
 - **accesstoken**: `pat.<base64url(AES-GCM(json claims))>`; non-`pat.` tokens
   delegate to the inner `jwt.Provider`. No `exp` is added (XPKI-078);
   `SetRevocation` is forwarded to the inner provider.
@@ -526,6 +550,13 @@ and parallel unique-unknown kids.
   → AES-256-GCM, blob `nonce(12) || ciphertext || tag`, no key id (XPKI-083).
 
 Tests are pure except `keys_test.go` writing under `os.TempDir()`.
+`dpop/verify_policy_test.go` covers replay (sequential, 32 simultaneous
+duplicates, store error, retention), ath/cnf.jkt binding, server-style
+requests for htu, and a real-signature matrix for every allowed alg;
+`htu_internal_test.go` tables the normalizer; `example_test.go` compiles the
+`doc.go` sample; `verify_bench_test.go` has `BenchmarkVerifyClaims`,
+`BenchmarkVerifyClaimsReplayCache` and `BenchmarkMemoryReplayCache`. Only
+the non-parallel `TestMemoryReplayCache_Expiry` replaces `dpop.TimeNowFn`.
 `oauth2client/request_coverage_test.go` checks token-request authentication,
 context cancellation, preservation of caller-owned form values, and registry
 conflicts/overrides; it makes no network requests.

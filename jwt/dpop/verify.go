@@ -1,19 +1,20 @@
 package dpop
 
 import (
+	"bytes"
+	"context"
+	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 
-	"cmp"
-
 	"github.com/cockroachdb/errors"
 	jwtgo "github.com/effective-security/xpki/jwt"
 	"github.com/go-jose/go-jose/v4"
+	josejson "github.com/go-jose/go-jose/v4/json"
 	"github.com/go-jose/go-jose/v4/jwt"
 )
 
@@ -29,6 +30,29 @@ type VerifyConfig struct {
 	ExpectedNonce string
 	// EnableQuery specifies to get `dpop` header from the QueryString
 	EnableQuery bool
+
+	// ExternalURL is the trusted external origin of this server, as
+	// scheme://host[:port]. When set, VerifyRequestClaims takes the htu
+	// scheme and host from it instead of the request URL and Host header,
+	// which are client-controlled. Set it for plain-HTTP servers and for
+	// servers reached under a different name than the Host they receive.
+	ExternalURL string
+	// ReplayCache, when set, records each accepted proof and rejects a
+	// second use of the same jti with the same key (ErrReplay) until the
+	// proof leaves its acceptance window. When nil, VerifyClaims does not
+	// detect replayed proofs.
+	ReplayCache ReplayCache
+	// AccessToken, when set, is the access token presented with the proof
+	// to a protected resource. The proof must then carry an ath claim equal
+	// to AccessTokenHash(AccessToken), and ExpectedThumbprint must be set
+	// too: ath alone does not bind the proof key to the token. Leave it
+	// empty at the token endpoint. Set it per request, on a copy of a shared
+	// VerifyConfig.
+	AccessToken string
+	// ExpectedThumbprint, when set, is the cnf.jkt value of the access token
+	// presented with the proof; the proof key thumbprint must equal it. Set
+	// it per request, with AccessToken.
+	ExpectedThumbprint string
 }
 
 /*
@@ -78,20 +102,27 @@ https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop-04#ref-IANA.MediaTyp
 
 // Result is returned from VerifyClaims
 type Result struct {
-	Claims     *jwtgo.Claims
-	Key        *jose.JSONWebKey
+	Claims *jwtgo.Claims
+	Key    *jose.JSONWebKey
+	// Thumbprint is the RFC 7638 SHA-256 thumbprint of Key, to compare
+	// with the access token cnf.jkt claim
 	Thumbprint string
+	// AccessTokenHash is the proof ath claim, if present
+	AccessTokenHash string
 }
 
-// parser verifies the proof signature only; temporal claims are checked in
-// VerifyClaims against a single per-call clock (TimeNowFn) so that the
-// freshness check and the exp/nbf checks cannot disagree.
-var parser = jwtgo.TokenParser{
-	UseJSONNumber:        true,
-	SkipClaimsValidation: true,
+// proofClaims are the DPoP proof claims: the shared JWT claims plus the
+// proof-only ath claim.
+type proofClaims struct {
+	jwtgo.Claims
+	AccessTokenHash string `json:"ath,omitempty"`
 }
 
-// VerifyRequestClaims returns DPoP claims, raw claims, key; or error
+// VerifyRequestClaims verifies the DPoP proof of an HTTP request received
+// by a server; see VerifyClaims. The htu claim is compared with the request
+// URI built from cfg.ExternalURL, or else from the request URL and Host
+// (https when the URL has no scheme), without query and fragment. The
+// request context is passed to cfg.ReplayCache.
 func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	phdr := req.Header.Get(HTTPHeader)
 	if phdr == "" && cfg.EnableQuery {
@@ -101,18 +132,33 @@ func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 		return nil, errors.New("dpop: HTTP Header not present in request")
 	}
 
-	u := req.URL
-	coreURL := url.URL{
-		Scheme: cmp.Or(u.Scheme, "https"),
-		Host:   cmp.Or(u.Host, req.Host),
-		Path:   u.Path,
+	uri, err := requestURI(cfg, req)
+	if err != nil {
+		return nil, err
 	}
-
-	return VerifyClaims(cfg, phdr, req.Method, coreURL.String())
+	return VerifyClaimsContext(req.Context(), cfg, phdr, req.Method, uri)
 }
 
-// VerifyClaims returns DPoP claims, raw claims, key; or error
+// VerifyClaims is VerifyClaimsContext with context.Background().
 func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error) {
+	return VerifyClaimsContext(context.Background(), cfg, phdr, httpMethod, httpURI)
+}
+
+// VerifyClaimsContext verifies DPoP proof phdr for a request with httpMethod
+// and httpURI (RFC 9449 §4.3) and returns its claims, key and key
+// thumbprint. The signature is verified with the embedded public jwk before
+// any claim is used. htu is compared with httpURI after URI normalization
+// (scheme and host case-insensitive, path case-sensitive, query and fragment
+// ignored). When set, cfg.AccessToken requires a matching ath claim and must
+// be paired with cfg.ExpectedThumbprint, which requires the proof key to match
+// the access token cnf.jkt; cfg.ReplayCache records the proof after every other check
+// passed, rejecting a replayed jti with ErrReplay. Without cfg.ReplayCache the
+// caller is responsible for replay detection.
+func VerifyClaimsContext(ctx context.Context, cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error) {
+	// anyone holding the token can compute ath; only cnf.jkt binds the key
+	if cfg.AccessToken != "" && cfg.ExpectedThumbprint == "" {
+		return nil, errors.New("dpop: ExpectedThumbprint is required with AccessToken")
+	}
 	headers, err := proofHeaders(phdr)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "dpop: failed to parse header")
@@ -122,16 +168,24 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 		return nil, err
 	}
 
-	pjwt, err := jwt.ParseSigned(phdr, supportedSignatureAlgorithms)
+	jws, err := jose.ParseSignedCompact(phdr, supportedSignatureAlgorithms)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "dpop: failed to parse header")
 	}
-
-	claims := &jwtgo.Claims{}
-	err = pjwt.UnsafeClaimsWithoutVerification(claims)
+	payload, err := jws.Verify(pjwk.Public().Key)
 	if err != nil {
+		return nil, errors.WithMessagef(err, "dpop: unable to verify token")
+	}
+
+	// go-jose's json fork matches member names case-sensitively, as
+	// GetTokenInfo and other go-jose consumers do; "JTI" is not "jti"
+	pc := &proofClaims{}
+	dec := josejson.NewDecoder(bytes.NewReader(payload))
+	dec.SetNumberType(josejson.UnmarshalJSONNumber)
+	if err = dec.Decode(pc); err != nil {
 		return nil, errors.WithMessagef(err, "dpop: claims not found in DPoP header")
 	}
+	claims := &pc.Claims
 	if claims.ID == "" {
 		return nil, errors.New("dpop: claim not found: jti")
 	}
@@ -145,14 +199,14 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 		return nil, errors.New("dpop: claim not found: iat")
 	}
 
+	// case-insensitive although HTTP methods are case-sensitive (XPKI-108)
 	if !strings.EqualFold(claims.HTTPMethod, httpMethod) {
 		return nil, errors.Errorf("dpop: claim mismatch: http_method: %q, actual: %q",
 			claims.HTTPMethod, httpMethod)
 	}
 
-	if !strings.EqualFold(claims.HTTPUri, httpURI) {
-		return nil, errors.Errorf("dpop: claim mismatch: http_uri: %q, actual: %q",
-			claims.HTTPUri, httpURI)
+	if err = matchHTU(claims.HTTPUri, httpURI); err != nil {
+		return nil, err
 	}
 
 	now := TimeNowFn()
@@ -163,19 +217,21 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 	if iat.After(now.Add(jwtgo.DefaultTimeSkew)) {
 		return nil, errors.Errorf("dpop: iat claim is in the future: %s", iat.String())
 	}
-	if claims.Expiry != nil && now.After(claims.Expiry.Time()) {
-		return nil, errors.Errorf("dpop: token expired at %s", claims.Expiry.Time().String())
+	// the proof is accepted until iat+DefaultExpiration, or exp if earlier
+	acceptedUntil := iat.Add(DefaultExpiration)
+	if claims.Expiry != nil {
+		exp := claims.Expiry.Time()
+		if now.After(exp) {
+			return nil, errors.Errorf("dpop: token expired at %s", exp.String())
+		}
+		if exp.Before(acceptedUntil) {
+			acceptedUntil = exp
+		}
 	}
 	if claims.NotBefore != nil && now.Add(jwtgo.DefaultTimeSkew).Before(claims.NotBefore.Time()) {
 		return nil, errors.Errorf("dpop: token is not valid before %s", claims.NotBefore.Time().String())
 	}
 
-	_, err = parser.Parse(phdr, nil, func(token *jwtgo.Token) (any, error) {
-		return pjwk.Public().Key, nil
-	})
-	if err != nil {
-		return nil, errors.WithMessagef(err, "dpop: unable to verify token")
-	}
 	if cfg.ExpectedIssuer != "" && claims.Issuer != cfg.ExpectedIssuer {
 		return nil, errors.Errorf("dpop: invalid issuer")
 	}
@@ -188,23 +244,55 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 	if cfg.ExpectedNonce != "" && claims.Nonce != cfg.ExpectedNonce {
 		return nil, errors.Errorf("dpop: invalid nonce")
 	}
+	if cfg.AccessToken != "" {
+		if pc.AccessTokenHash == "" {
+			return nil, errors.New("dpop: claim not found: ath")
+		}
+		if !constantTimeEqual(pc.AccessTokenHash, AccessTokenHash(cfg.AccessToken)) {
+			return nil, errors.New("dpop: claim mismatch: ath")
+		}
+	}
 	tb, err := Thumbprint(pjwk)
 	if err != nil {
 		return nil, err
 	}
-
-	res := &Result{
-		Claims:     claims,
-		Key:        pjwk,
-		Thumbprint: tb,
+	if cfg.ExpectedThumbprint != "" && !constantTimeEqual(tb, cfg.ExpectedThumbprint) {
+		return nil, errors.New("dpop: proof key does not match cnf.jkt")
 	}
 
-	// logger.KV(xlog.DEBUG,
-	// 	"key", res.Thumbprint,
-	// 	"claims", claims,
-	// )
+	if cfg.ReplayCache != nil {
+		if err = cfg.ReplayCache.Add(ctx, replayKey(tb, claims.ID), acceptedUntil); err != nil {
+			return nil, errors.WithMessagef(err, "dpop: proof rejected")
+		}
+	}
 
+	res := &Result{
+		Claims:          claims,
+		Key:             pjwk,
+		Thumbprint:      tb,
+		AccessTokenHash: pc.AccessTokenHash,
+	}
 	return res, nil
+}
+
+// matchHTU compares the htu claim with the request URI after normalization.
+func matchHTU(htu, httpURI string) error {
+	claimed, err := normalizeHTU(htu)
+	if err != nil {
+		return errors.WithMessagef(err, "dpop: invalid http_uri claim")
+	}
+	actual, err := normalizeHTU(httpURI)
+	if err != nil {
+		return errors.WithMessagef(err, "dpop: invalid request URI")
+	}
+	if claimed != actual {
+		return errors.Errorf("dpop: claim mismatch: http_uri: %q, actual: %q", htu, httpURI)
+	}
+	return nil
+}
+
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 const jwsJSONPrefix = "{"
@@ -253,8 +341,9 @@ func compactJOSEHeader(phdr string) (jose.Header, bool) {
 	if err != nil {
 		return jose.Header{}, false
 	}
+	// case-sensitive like go-jose's own header parsing, so "TYP" is not "typ"
 	var parsed compactProtectedHeader
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	if err := josejson.Unmarshal(raw, &parsed); err != nil {
 		return jose.Header{}, false
 	}
 	extra := map[jose.HeaderKey]any{}
@@ -301,7 +390,9 @@ func checkProofHeaders(headers []jose.Header) (*jose.JSONWebKey, error) {
 // after compact header checks. Compact proofs decode the protected header first
 // so a private jwk or HMAC alg is rejected with a DPoP error rather than a
 // parse error. JSON serialization is parsed here so a multi-signature proof
-// can be rejected as multiple headers.
+// can be rejected as multiple headers. The signature is verified by go-jose,
+// which implements every algorithm listed here and rejects a jwk whose key
+// type or curve does not fit the alg (XPKI-074).
 var supportedSignatureAlgorithms = slices.Sorted(maps.Keys(supportedSignatureAlgorithm))
 
 var supportedSignatureAlgorithm = map[jose.SignatureAlgorithm]bool{

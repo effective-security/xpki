@@ -2,6 +2,8 @@ package dpop
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"net/url"
 	"time"
 
@@ -31,6 +33,8 @@ const (
 	CnfThumbprint          = "jkt"
 	claimNameForHTTPMethod = "htm"
 	claimNameForHTTPURL    = "htu"
+	// ClaimAccessTokenHash is the proof claim name for the access token hash
+	ClaimAccessTokenHash = "ath"
 	// 10.2.  JSON Web Signature and Encryption Type Values Registration
 	jwtHeaderTypeDPOP = `dpop+jwt`
 )
@@ -51,6 +55,14 @@ func SetCnfClaim(claims map[string]any, thumbprint string) {
 	claims["cnf"] = map[string]any{
 		CnfThumbprint: thumbprint,
 	}
+}
+
+// AccessTokenHash returns the ath claim value for accessToken: the
+// base64url-encoded SHA-256 hash of its ASCII value (RFC 9449 §4.2). Clients
+// add it to the proof extra claims when calling a protected resource.
+func AccessTokenHash(accessToken string) string {
+	h := sha256.Sum256([]byte(accessToken))
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
 // GetCnfClaim gets DPoP `cnf` claim
