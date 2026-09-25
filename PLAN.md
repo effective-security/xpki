@@ -20,6 +20,7 @@ below and excluded from the pending queue.
 | IM1 | [XPKI-017-inmemcrypto](FINDINGS.md#xpki-017--im1) | **Fixed** (completes XPKI-017) | 2026-09-21 |
 | AU1 | [XPKI-049](FINDINGS.md#xpki-049--au1), [XPKI-050](FINDINGS.md#xpki-050--au1), [XPKI-054](FINDINGS.md#xpki-054--au1), [XPKI-057](FINDINGS.md#xpki-057--au1) | **Fixed** | 2026-09-24 |
 | CU1 | [XPKI-037](FINDINGS.md#xpki-037--cu1), [XPKI-041](FINDINGS.md#xpki-041--cu1), [XPKI-039](FINDINGS.md#xpki-039--cu1), [XPKI-044](FINDINGS.md#xpki-044--cu1) | **Fixed** | 2026-09-24 |
+| JW1 | [XPKI-070](FINDINGS.md#xpki-070--jw1), [XPKI-071](FINDINGS.md#xpki-071--jw1), [XPKI-072](FINDINGS.md#xpki-072--jw1) | **Fixed** | 2026-09-24 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -201,6 +202,46 @@ error rather than ambient system trust. A root file without certificates no
 longer degrades `cert validate` to Force. Non-200 or >1 MiB AIA responses
 are rejected.
 
+**JW1 / XPKI-070, 071, 072 (2026-09-24).** Decisions: accept a key only when
+it is the single eligible one, pass the token algorithm through the new
+optional `AlgorithmKeySet.GetKeyForAlgorithm` (`KeySet` is unchanged), treat
+`PublicKeys` as kid-less keys that also match by RFC 7638 thumbprint, and
+default to a 10s cooldown, 10s fetch timeout and 1 MiB limit.
+
+- **070.** `NewRemoteKeySet(ctx, url, opts...)` takes `WithHTTPClient`,
+  `WithRefreshCooldown`, `WithFetchTimeout` and `WithMaxResponseSize`. A
+  refetch starts at most once per cooldown, counted from the end of the last
+  fetch. Each fetch has a context deadline and a body limit, and errors never
+  echo the body. The shared fetch ignores waiter cancellation, and the cache
+  is published before waiters wake. PR #534 review: a fetch counter keeps
+  lookups that missed against an older snapshot from starting another fetch
+  when the cooldown is 0, and the read limit no longer overflows at
+  `math.MaxInt64`.
+- **071.** Eligibility: `use` is empty or `sig`, and the JWK `alg`, key type
+  and curve fit the token alg. Zero eligible keys return a wrapped
+  `ErrKeyNotFound`, and several return `ErrAmbiguousKey`. The parser passes
+  `token.SigningMethod`.
+- **072.** `PublicKeys` take part in kid-less selection and thumbprint
+  matching. Unsupported entries fail the lookup.
+
+Docs: codemap invariants and test layout, a README parser note, the ROADMAP
+JWKS entry (remaining: TTL background refresh and `ParserConfig` options),
+and regenerated API docs.
+
+Validation: a scratch test on a HEAD worktree showed 20 fetches for 20
+unknown kids, a waiter still blocked after the first timed out on a stalled
+endpoint, an 8 MiB JWKS accepted, an empty or `enc` kid returning the
+encryption key, and `PublicKeys` ignored. After the fix, the new
+`jwks_test.go`/`jwks_internal_test.go` tests pass, including a
+controlled-clock rotation test and a concurrent rotation race test.
+`make test RACE=true` passed with SoftHSM/local-kms fixtures, and
+`make lint` passed with 0 issues. `make build docs` passed, and
+`make covtest` passed at **90.6%** aggregate. Benchmark evidence is in the
+performance table. Compatibility: key-not-found text is now
+`kid="<kid>": key not found`. Kid-less tokens against several same-type
+signing keys fail as ambiguous. A key published within 10s after a fetch
+waits for the cooldown.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -244,7 +285,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| JW1 | `jwt` | 070, 071, 072 | P1 / 36 | High: rotation, cancellation, key selection | Missing-kid and PublicKeys contract |
 | DP1 | `jwt/dpop` | 075, 076, 074 | P1 / 36 | High: proof acceptance and public verification API | 075 |
 | AT1 | `jwt/accesstoken` | 078, 079 | P1 / 36 | High: existing perpetual tokens and nil-provider contract | 078 |
 | AU2 | `authority` | 051, 052, 053; 100-authority | P1 / 35 | High: lock order, renewal, fallback signing | Specify renewal failure behavior |
@@ -404,23 +444,24 @@ still required before CU2's cache/locking change
 (warm/cold Bundle, serial/parallel, clone cost versus cache size). CU4 fixture
 changes and the other helpers need no benchmark. See 099/100 scopes below.
 
-### jwt — JW1, JW2, JW3
+### jwt — JW1 (Fixed), JW2, JW3
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-070 — HIGH / security / 36 | [RemoteKeySet](jwt/jwks.go) uses unbounded `http.DefaultClient` reads and refetches each sequential unknown kid. Bound each fetch, inject a client, limit response size, and throttle misses while preserving rotation and inflight coalescing. A caller can already cancel its wait; that does not cancel the shared fetch using the set's lifetime context. | **Partial:** `Test_RemoteKeySet_GetKey_CacheHit` correctly counts one fetch for repeated known kid, but has no unknown-kid flood, stalled endpoint, or concurrent-miss test. Add request-count bounds, legitimate rotation during cooldown, cancellation of one waiter without harming others, oversized/invalid responses, recovery, and no stuck inflight state. |
-| XPKI-071 — MEDIUM / correctness / 23 | Static/remote GetKey returns the first JWK for empty kid without considering use/key type. Define unambiguous key selection and reject ambiguity/ineligible keys; do not choose merely by document order. | **Partial:** JWKS/parser tests verify ordinary known-key tokens, not mixed sets with absent kid. Add encryption-only keys, multiple signing keys, reordered sets, incompatible algorithms, and exactly one eligible key. The current GetKey API lacks an algorithm argument; account for that contract instead of pretending it can infer all selection criteria. |
-| XPKI-072 — MEDIUM / bug / 25 | `StaticKeySet.PublicKeys` is documented but never read by GetKey. Support the documented field with explicit ambiguity rules or deprecate it with migration; do not silently ignore supplied keys. | **Absent for PublicKeys-only configuration:** existing parser tests use JWK KeySet. Add RSA/EC PublicKeys-only verification and mixed KeySet/PublicKeys precedence. A raw public key has no kid, so multi-key behavior needs an explicit decision. |
+| XPKI-070 — HIGH / security / 36 — **Fixed (JW1, 2026-09-24)** | [RemoteKeySet](jwt/jwks.go) used unbounded `http.DefaultClient` reads and refetched on every unknown kid. It now takes options for an injected client, a per-fetch deadline (10s), a body limit (1 MiB) and a refresh cooldown (10s, measured from the end of the last fetch). Inflight coalescing is kept, the shared fetch ignores waiter cancellation, and the cache is published before waiters wake. | **Verified:** `TestRemoteKeySetRefresh` covers a 50-kid flood costing 1 fetch, rotation with cooldown 0, a stalled endpoint timing out and recovering (no stuck inflight), 8 waiters sharing 1 fetch past a cancelled waiter, exact and over-limit sizes, the default limit, a 500 response that is neither echoed nor retried, invalid JSON, an injected client and the parser. `TestRemoteKeySetRotationCooldown` (controlled clock) shows rotation refused inside the cooldown and served after it. `TestRemoteKeySetConcurrentRotation` runs under the race detector. PR #534 review: `TestRemoteKeySetStaleSnapshotSharesFetch` (stale snapshot shares a fetch or its failure; fails with the check disabled) and a `math.MaxInt64` size limit case (failed before the fix). |
+| XPKI-071 — MEDIUM / correctness / 23 — **Fixed (JW1, 2026-09-24)** | Selection now requires exactly one eligible key: `use` empty or `sig`, and when the alg is known, a matching JWK `alg`, key type and curve. The alg arrives through the optional `AlgorithmKeySet.GetKeyForAlgorithm`, which the parser uses. `GetKey` is unchanged in signature and checks only `use`. Ambiguous and ineligible results return wrapped `ErrAmbiguousKey`/`ErrKeyNotFound`. | **Verified:** `TestStaticKeySetSelection` (32 cases: enc-only, multiple signing keys, reordered sets, incompatible alg/curve/JWK alg, duplicate kids, unsupported alg) and `TestParserKeySelection` (real kid-less RS256/ES256 tokens through `NewParser` in two key orders, plus the ambiguous rejection). |
+| XPKI-072 — MEDIUM / bug / 25 — **Fixed (JW1, 2026-09-24)** | `StaticKeySet.PublicKeys` is now used. Entries are kid-less RSA/ECDSA keys that take part in empty-kid selection together with `KeySet`, and match a kid by RFC 7638 SHA-256 thumbprint only when no `KeySet` entry has that kid. Unsupported or nil entries fail every lookup. | **Verified:** RSA-only and EC-only, ambiguity across both lists, a single eligible key across both lists, `KeySet` precedence, thumbprint fallback, and rejected ed25519/nil entries. `TestParserKeySelection/public_keys_only` verifies real RS256, ES256 and thumbprint-kid tokens and rejects a different key. |
 | XPKI-066 — HIGH / bug / 35 | [NewProviderWithSymmetricKey](jwt/jwt.go) creates a signer without the verification ring/kid required by its own ParseToken. A new provider must verify its own signed tokens without exposing key material. | **Characterization:** `TestStandaloneSymmetricProvider` verifies with a raw-key parser, then explicitly expects provider verification to fail with missing kid. Convert to round-trip success and retain independent cryptographic verification; add wrong key, tampering, and agreed legacy missing-kid behavior. |
 | XPKI-104 — MEDIUM / bug / 25 | The same constructor leaves `headers` nil before applying nonempty WithHeaders. Initialize constructor state consistently, preserving caller-specified safe headers and the chosen key-ID behavior. | **Characterization:** the same test explicitly asserts a panic. Replace it with constructor success and decoded-header assertions; cover empty/nonempty options, option ordering, and successful verification with custom kid. |
 | XPKI-073 — LOW / correctness / 13 | [signJWT](jwt/sign.go) generates jti in the protected header. Stop presenting that header as the token identifier; preserve caller-provided payload jti and define whether absent payload jti is generated. This is not by itself proof that an otherwise valid signed token is invalid. | **Partial:** signing/claims tests verify signatures and claims, but not absence of header jti or preservation of a payload identifier. Add decoded header/payload assertions and compatibility coverage for consumers of the old custom header. |
 
-JW1 has high compatibility and availability risk. A cooldown that blocks real
-rotation, or cancellation tied to the first waiter, can turn hardening into an
-outage. **Benchmark required before cache/refresh changes:** known hits,
-concurrent misses, rotating keys, repeated unknown kids; record fetches/op,
-allocations, and contention. Use bounded memory for miss tracking. JW2/JW3 need
-no benchmark. JW2 also owns the jwt portion of fixture finding 100.
+JW1 is **Fixed (2026-09-24)**. The cooldown does not block rotation
+indefinitely: a new key is served on the first lookup after the cooldown, and
+waiter cancellation does not affect the shared fetch. Miss tracking uses no
+per-kid memory, only the last fetch time and error. The benchmark comparison
+is in the performance table. JW2 must keep the `AlgorithmKeySet` selection
+rules; any kid policy it chooses for the symmetric provider does not go
+through `KeySet`. JW2/JW3 need no benchmark. JW2 also owns the jwt portion of fixture finding 100.
 
 ### jwt/dpop — DP1
 
@@ -726,7 +767,7 @@ Other baselines below still need to be created where marked required.
 | 055 (AU3) | **Recommended**; conditional on lock/copy design | lookup and profile snapshot costs as registry size/readers grow |
 | 062, 107 (TC1) — **Fixed** | **Not required**; generation/signing remain outside the serial mutex | verified unique serials/names, signed certificates, and option ownership with synchronized workers and the race detector |
 | 081 and shared-state portion of 080 (OA1) | **Recommended** | registry and token-request latency/allocations with concurrent config updates |
-| 070 (JW1, security with performance effects) | **Required** before refresh/cache redesign | network fetches/op, known/unknown kid throughput, allocations and bounded miss-cache size |
+| 070 (JW1) — **Fixed** | **Recorded before/after comparison** (`BenchmarkRemoteKeySet`, `-count=8 -cpu=1,4`, benchstat p<0.001 for unknown kids, loopback server) | unknown kids 1 → 0 fetches/op (0.25 → 0 with 4 goroutines); unknown-kid lookups −88–95% time (44.9µs → 3.3µs serial), 2.6–9.2 KB → 832–855 B, 32–105 → 12–13 allocs; known kids 16.6 → 17.6 ns (p=0.06, not significant), 0 allocs; miss tracking is O(1) (last fetch time/error); rotation covered by the controlled-clock test, not benchmarked |
 | 075 (DP1, new shared replay state) | **Recommended** | verification/store latency, contention, TTL eviction, bounded retained entries |
 | 105 (XC2, cross-process fixture interference) — **Fixed** | **Not needed** | verified 50 suite runs per overlapping coverage/race process and automatic fixture cleanup |
 

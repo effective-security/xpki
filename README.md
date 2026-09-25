@@ -245,8 +245,11 @@ parsed, err := prov.ParseToken(ctx, token, &jwt.VerifyConfig{
 ```
 
 Tokens from a third-party OIDC issuer are verified with
-`jwt.NewParser(cfg)`, which loads keys from a static JWKS or a `jwks_uri`
-and refreshes them on unknown key IDs.
+`jwt.NewParser(cfg)`, which loads keys from a static JWKS or a `jwks_uri`.
+A key is chosen by `kid` and the token algorithm; a token without `kid` needs
+exactly one eligible signing key. Remote sets refetch when no cached key fits,
+at most once per 10s, with a 10s fetch timeout and a 1 MiB response limit
+(`jwt.NewRemoteKeySet` options change these).
 
 ## CLI tools
 

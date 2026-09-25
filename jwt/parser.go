@@ -218,6 +218,9 @@ func (p *parser) ParseToken(ctx context.Context, authorization string, cfg *Veri
 			}
 		}
 
+		if ks, ok := p.verifier.(AlgorithmKeySet); ok {
+			return ks.GetKeyForAlgorithm(ctx, keyID, token.SigningMethod)
+		}
 		return p.verifier.GetKey(ctx, keyID)
 	})
 	if err != nil {
