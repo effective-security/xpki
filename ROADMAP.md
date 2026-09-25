@@ -24,9 +24,12 @@ Implement RFC 9449 `jti` replay cache and `ath` binding in `jwt/dpop`
 
 ## JWKS client hardening
 
-`jwt.RemoteKeySet` should accept an injected `*http.Client`, apply a per-fetch
-timeout and body limit, throttle refreshes for unknown `kid`s, and support a
-TTL-based background refresh (XPKI-070).
+Done in JW1 (XPKI-070, 2026-09-24): `jwt.RemoteKeySet` accepts an injected
+`*http.Client`, applies a per-fetch timeout and body limit, and throttles
+refreshes with a cooldown. Remaining: TTL-based background refresh (honouring
+`Cache-Control`), so removed keys expire and new keys are picked up before the
+first miss, and `ParserConfig` fields for the `RemoteKeySet` options, which
+`NewParser` currently leaves at the defaults.
 
 ## PKCS#11 session management
 

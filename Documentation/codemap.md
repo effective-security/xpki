@@ -83,7 +83,7 @@ consumers. Nothing in the library imports `cmd/`.
 | JWT signing internals                      | `jwt/sign.go`                                                                | `NewSignerInfo`, `VerifySignature`                                                                                            |
 | JWT parsing (third-party tokens)           | `jwt/parser.go`                                                              | `ParserConfig`, `LoadParserConfig`, `NewParser`, `TokenParser`, `Keyfunc`                                                     |
 | Claims                                     | `jwt/claims.go`                                                              | `Claims`, `MapClaims`, `NumericDate`, `Audience`, `CreateClaims`, `SetClaimsExpiration`, `TimeNowFn`                          |
-| JWKS key sets                              | `jwt/jwks.go`                                                                | `KeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`                                                                   |
+| JWKS key sets                              | `jwt/jwks.go`                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`       |
 | DPoP proof create / verify                 | `jwt/dpop/signer.go`, `jwt/dpop/verify.go`                                   | `NewSigner`, `ForRequest`, `VerifyRequestClaims`, `VerifyClaims`, `GetTokenInfo`                                              |
 | DPoP keys                                  | `jwt/dpop/keys.go`                                                           | `GenerateKey`, `LoadKey`, `SaveKey`, `Thumbprint`                                                                             |
 | Opaque access tokens                       | `jwt/accesstoken/accesstoken.go`                                             | `New`, `Provider`                                                                                                             |
@@ -442,7 +442,7 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 | `sign.go`   | `SignerInfo`, alg selection from key, HMAC signer (constant-time verify), `VerifySignature`                                                                                             |
 | `parser.go` | `TokenParser` (`Parse`, `ParseWithClaims`, `ParseUnverified`), `ParserConfig`, `NewParser` (JWKS-backed)                                                                                |
 | `claims.go` | `Claims`, `MapClaims` getters/validation, `NumericDate`, `Audience`, `CreateClaims`, `TimeNowFn`, `DefaultTimeSkew`                                                                     |
-| `jwks.go`   | `KeySet`, `StaticKeySet`, `RemoteKeySet` (lazy fetch, inflight coalescing)                                                                                                              |
+| `jwks.go`   | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet` (lazy fetch, inflight coalescing, refresh cooldown), `RemoteKeySetOption`s, `ErrKeyNotFound`, `ErrAmbiguousKey`              |
 
 ### Invariants
 
@@ -454,8 +454,31 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
   Issuer/subject compared case-insensitively.
 - `provider.ParseToken` requires `kid` for HS tokens; `parser.ParseToken`
   refuses HS. `alg: none` is rejected. Numeric `kid` headers are stringified.
-- `RemoteKeySet` refreshes only on unknown `kid`, uses `http.DefaultClient`
-  without timeout (XPKI-070). `ParseWithClaims` verifies the signature before
+- Key selection (XPKI-071/072, `selectKey`): a key is eligible when its JWK
+  `use` is empty or `sig` and, when the alg is known, its type/curve and JWK
+  `alg` fit it (RS* → RSA, ES256/384/512 → P-256/384/521; other algs have no
+  eligible key). A `kid` selects `KeySet` entries with that `KeyID`, else
+  `StaticKeySet.PublicKeys` by RFC 7638 SHA-256 thumbprint (base64url); an
+  empty `kid` considers all entries of both lists. Exactly one eligible key
+  must remain, otherwise `ErrKeyNotFound` / `ErrAmbiguousKey` (wrapped).
+  `PublicKeys` accepts only `*rsa.PublicKey`/`*ecdsa.PublicKey`; anything
+  else fails every lookup. `parser.ParseToken` passes the token alg through
+  `AlgorithmKeySet.GetKeyForAlgorithm`; plain `GetKey` checks only `use`.
+- `RemoteKeySet` (XPKI-070) refetches when no cached key fits the lookup, at
+  most once per `WithRefreshCooldown` (default 10s, measured from the end of
+  the previous fetch, successful or not; 0 disables). Inside the cooldown a
+  miss fails from the cache, or with the last fetch error when nothing is
+  cached. Each fetch is bounded by `WithFetchTimeout` (default 10s, applied
+  as a context deadline even with an injected `WithHTTPClient`) and
+  `WithMaxResponseSize` (default 1 MiB, larger bodies rejected); response
+  bodies are never echoed in errors. The shared fetch runs on the set's
+  lifetime context, so cancelling one waiter does not cancel it. `refresh`
+  publishes cache/`lastFetch`, bumps the `fetches` counter and clears
+  `inflight` before waking waiters. A lookup whose cache snapshot predates a
+  completed fetch (`keysFromCache` returns the counter) shares that fetch's
+  result instead of starting another, so coalescing holds with cooldown 0.
+  The read limit is `maxResponseSize+1` except at `math.MaxInt64`.
+  `NewParser` uses the defaults. `ParseWithClaims` verifies the signature before
   validating claims. `MapClaims.Int/Int64/UInt64` return 0 (DEBUG log) on
   overflow, negative-to-unsigned, or parse failure. `NumericDate` and
   `MapClaims.Time` accept fractional seconds and truncate to whole seconds
@@ -469,6 +492,14 @@ embedded real ID tokens; `Test_SignPrivateKMS` needs local-kms on `:14555`.
 `parser_coverage_test.go` covers configuration files, malformed tokens, real
 symmetric/asymmetric signing, key-ID types, and claim conversions. It
 characterizes XPKI-066 and the `WithHeaders` panic in XPKI-104.
+`jwks_test.go` has table tests for key selection, parser round trips with
+kid-less tokens and `PublicKeys`, and `RemoteKeySet` behavior against a
+local `httptest` JWKS server (`jwksServer`: mutable body/status and a request
+gate for stalled fetches). `jwks_internal_test.go` drives the cooldown with
+the unexported `RemoteKeySet.now` clock and calls `keysFromRemote` with a stale
+snapshot count. `jwks_bench_test.go`
+(`BenchmarkRemoteKeySet`) reports `fetches/op` for known, repeated-unknown
+and parallel unique-unknown kids.
 
 ## Packages jwt/dpop, jwt/accesstoken, jwt/oauth2client, dataprotection
 

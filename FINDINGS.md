@@ -77,9 +77,9 @@ drift; the symbol name is the stable reference.
 | XPKI-062 | testca                                | `configuration.go` `cnCounter`, `entity.go` `NextSN`           | Global common-name and per-issuer serial counters incremented without synchronization                                                               | race        | **Fixed** ([details](#xpki-062--tc1)) |
 | XPKI-063 | testca                                | `utils.go` `ToPFX`/`ToPKCS8`                                   | Shell out to `openssl` and panic; stdlib `x509.MarshalPKCS8PrivateKey` covers PKCS#8                                                               | correctness | Open           |
 | XPKI-066 | jwt                                   | `jwt.go` `NewProviderWithSymmetricKey`                         | Provider signs without `kid` and has empty `keys`, so it cannot verify its own tokens                                                              | bug         | Open           |
-| XPKI-070 | jwt                                   | `jwks.go` `RemoteKeySet.updateKeys`/`GetKey`                   | `http.DefaultClient` without timeout, unbounded body, refresh on every unknown `kid`; a stalled JWKS endpoint blocks all cache misses              | security    | Open           |
-| XPKI-071 | jwt                                   | `jwks.go` `StaticKeySet.GetKey`/`RemoteKeySet.GetKey`          | Empty `kid` returns the first JWK regardless of `kty`/`use`                                                                                        | correctness | Open           |
-| XPKI-072 | jwt                                   | `jwks.go` `StaticKeySet.PublicKeys`                            | Field documented but never read                                                                                                                    | bug         | Open           |
+| XPKI-070 | jwt                                   | `jwks.go` `RemoteKeySet.updateKeys`/`GetKey`                   | `http.DefaultClient` without timeout, unbounded body, refresh on every unknown `kid`; a stalled JWKS endpoint blocks all cache misses              | security    | **Fixed** ([details](#xpki-070--jw1)) |
+| XPKI-071 | jwt                                   | `jwks.go` `StaticKeySet.GetKey`/`RemoteKeySet.GetKey`          | Empty `kid` returns the first JWK regardless of `kty`/`use`                                                                                        | correctness | **Fixed** ([details](#xpki-071--jw1)) |
+| XPKI-072 | jwt                                   | `jwks.go` `StaticKeySet.PublicKeys`                            | Field documented but never read                                                                                                                    | bug         | **Fixed** ([details](#xpki-072--jw1)) |
 | XPKI-073 | jwt                                   | `sign.go` `signJWT`                                            | `jti` placed in the JOSE header (non-standard)                                                                                                     | correctness | Open           |
 | XPKI-074 | jwt/dpop                              | `verify.go` `supportedSignatureAlgorithm`                      | PS256/384/512 and EdDSA allowed but `jwt.VerifySignature` cannot verify them                                                                       | correctness | Open           |
 | XPKI-075 | jwt/dpop                              | `verify.go` `VerifyClaims`                                     | No `jti` replay protection and no `ath` binding although the doc lists both as MUST                                                                | security    | Needs Approval |
@@ -107,6 +107,133 @@ drift; the symbol name is the stable reference.
 | XPKI-107 | testca                                | `entity.go` `Issue`                                           | Appending the issuer overwrites caller option-slice storage when capacity remains and races when the slice is reused concurrently                      | race        | **Fixed** ([details](#xpki-107--tc1)) |
 
 ## Fixed items
+
+### XPKI-070 — JW1
+
+**Fixed on 2026-09-24.** Approved policy: a 10s refresh cooldown, a 10s
+per-fetch timeout and a 1 MiB response limit by default. `NewRemoteKeySet`
+takes variadic options, so existing calls still compile: `WithHTTPClient`,
+`WithRefreshCooldown` (0 disables), `WithFetchTimeout` and
+`WithMaxResponseSize`. `RemoteKeySet` now:
+
+- refetches only when no cached key fits the lookup, and at most once per
+  cooldown, counted from the end of the previous fetch whether it succeeded
+  or failed. A miss inside the cooldown is answered from the cache, or with
+  `JWKS refresh throttled after failure: <last error>` when nothing is
+  cached;
+- bounds each fetch with a context deadline, which also applies to an
+  injected client; the default client has the same `Timeout`;
+- rejects bodies larger than the limit and non-200 responses, without
+  putting response bytes into errors;
+- runs the shared fetch on the set's lifetime context, so cancelling one
+  waiter does not cancel it. The goroutine publishes the cache, `lastFetch`,
+  a fetch counter and a cleared `inflight` before waking waiters. A nil
+  constructor context becomes `context.Background()`;
+- keeps coalescing when the cooldown is 0 (PR #534 review): a lookup that
+  read the cache before a fetch published, and locked after that fetch freed
+  its inflight slot, shares the fetch's result instead of starting another;
+- accepts `WithMaxResponseSize(math.MaxInt64)`. The read limit is the size
+  limit plus one, except at the maximum, where the addition would overflow
+  and make every body read as empty (PR #534 review).
+
+Compatibility: a key published in the 10s after a fetch is refused until the
+cooldown ends. `WithRefreshCooldown` tunes this. Background TTL refresh, and
+`ParserConfig` fields for these options, are in ROADMAP.
+
+Validation passed:
+
+- Before the fix, a scratch test on a `git worktree` of HEAD showed 20
+  fetches for 20 unknown kids. After a first waiter timed out on a stalled
+  endpoint, a second waiter was still blocked 2s later. An 8 MiB JWKS was
+  accepted.
+- After the fix, `TestRemoteKeySetRefresh` passes. It covers a 50-kid flood
+  costing 1 fetch; rotation with cooldown 0; a stalled endpoint returning
+  `context.DeadlineExceeded` within the 100ms fetch timeout and then
+  recovering; 8 waiters sharing 1 fetch while a cancelled waiter gets
+  `context.Canceled`; exact-size and one-byte-over limits; the 1 MiB
+  default; a 500 response that is neither echoed nor retried inside the
+  cooldown; invalid JSON; an injected client with a nil context; and
+  `NewParser` with `jwks_uri`. `TestRemoteKeySetRotationCooldown` uses a
+  controlled clock: the new kid is refused at cooldown−1ns with no fetch,
+  and is served at the cooldown with exactly one more fetch.
+  `TestRemoteKeySetConcurrentRotation` overlaps 8 lookup workers with
+  server-side rotation.
+- PR #534 review fixes: `max_int64_size_limit` failed before the fix with
+  `failed to decode keys: unexpected end of JSON input`.
+  `TestRemoteKeySetStaleSnapshotSharesFetch` failed with the stale-snapshot
+  check disabled (2 fetches instead of 1, and 3 instead of 2 for a shared
+  failure). Both now pass, and `go test ./jwt -race -count=5` passed.
+- `BenchmarkRemoteKeySet` (`-count=8 -cpu=1,4`, benchstat, loopback server).
+  Unknown kids went from 1 fetch/op (0.25 with four goroutines, coalesced) to
+  0 fetches/op. Time per lookup fell 88–95% (44.9µs → 3.3µs serial). Bytes
+  per op fell from 2.6–9.2 KB to 832–855 B, and allocations from 32–105 to
+  12–13. Known
+  kids showed no significant change (16.6 → 17.6 ns, p=0.06), with 0
+  allocations. Rotation is covered by the tests above, not benchmarked.
+- `make test RACE=true` passed across the repository with SoftHSM and
+  local-kms fixtures. `make lint` passed with 0 issues. `make build docs`
+  regenerated the API docs. `make covtest` passed at **90.6%** aggregate.
+
+### XPKI-071 — JW1
+
+**Fixed on 2026-09-24.** Approved policy: use a key only when it is the
+single eligible one, with the token algorithm supplied through an optional
+interface. `AlgorithmKeySet.GetKeyForAlgorithm(ctx, kid, alg)` is new, and
+`StaticKeySet` and `RemoteKeySet` implement it. `parser.ParseToken` passes
+`token.SigningMethod` when the key set supports it. `KeySet.GetKey` is
+unchanged, applies the same rules and checks only `use`.
+
+A key is eligible when its JWK `use` is empty or `sig` and, when an alg is
+given, its JWK `alg` is empty or equal to it and its type and curve fit the
+alg: RS256/384/512 need RSA, and ES256/384/512 need P-256/384/521. Other
+algorithms have no eligible key. An empty `kid` considers every key. A
+non-empty `kid` considers only keys with that `KeyID`, so a `use: enc` key is
+refused even when its kid is named. Zero eligible keys return a wrapped
+`ErrKeyNotFound`, and more than one returns `ErrAmbiguousKey`; both work
+with stdlib and cockroachdb `errors.Is`. `RemoteKeySet` refetches (subject to
+the cooldown) when cached selection fails for any reason.
+
+Compatibility: error text changed from `key not found: <kid>` to
+`kid="<kid>": key not found`. A kid-less token against a JWKS with several
+signing keys of the token's type now fails instead of taking the first.
+
+Validation passed:
+
+- Before the fix, on HEAD: an empty kid returned the `use: enc` RSA key ahead
+  of a signing EC key, and `kid=enc` returned the encryption key.
+- After the fix, `TestStaticKeySetSelection` passes with 32 cases: enc skipped
+  in either order, only-enc, two signing keys, alg choosing the key type in
+  either order, no alg ambiguous, JWK `alg` mismatch and match, wrong and
+  right curve, PS256, duplicate kids split by alg, and wrapped sentinels.
+  `TestParserKeySelection` verifies real RS256 and ES256 tokens without
+  `kid` through `NewParser`, in two key orders with an enc key present, and
+  rejects an ambiguous set. `TestParserKeyIDTypes` was updated for the new
+  error text.
+- The same repository race, lint, docs and coverage runs as XPKI-070.
+
+### XPKI-072 — JW1
+
+**Fixed on 2026-09-24.** Approved policy: support `PublicKeys` as kid-less
+keys. Each entry must be `*rsa.PublicKey` or `*ecdsa.PublicKey`; any other
+type, including nil, fails every lookup with `unsupported public key type at
+index N: T`, so a supplied key is never silently ignored. With an empty
+`kid`, `PublicKeys` join the `KeySet` entries in single-eligible selection.
+With a `kid`, `KeySet` entries win. Only when no `KeySet` entry has that kid
+are `PublicKeys` matched by RFC 7638 SHA-256 thumbprint (base64url, no
+padding).
+
+Validation passed:
+
+- Before the fix, on HEAD: a `PublicKeys`-only set returned
+  `key not found: `.
+- After the fix, the `TestStaticKeySetSelection` cases pass: RSA-only and
+  EC-only, alg choosing the type, two RSA keys ambiguous, thumbprint match,
+  unknown kid, ambiguity across both lists, a single eligible key across both
+  lists, `KeySet` taking precedence, thumbprint fallback, ed25519 and nil
+  entries rejected. `TestParserKeySelection/public_keys_only` verifies real
+  RS256, ES256 and thumbprint-kid tokens through `TokenParser`, and
+  rejects a signature from a different key.
+- The same repository race, lint, docs and coverage runs as XPKI-070.
 
 ### XPKI-037 — CU1
 

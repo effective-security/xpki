@@ -95,7 +95,7 @@ func TestParserKeyIDTypes(t *testing.T) {
 		kid  any
 		want string
 	}{
-		{"string", "42", ""}, {"numeric", 42, ""}, {"invalid", true, "invalid kid header type: bool"}, {"unknown", "missing", "key not found: missing"},
+		{"string", "42", ""}, {"numeric", 42, ""}, {"invalid", true, "invalid kid header type: bool"}, {"unknown", "missing", `kid="missing": key not found`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			provider, err := jwt.NewProviderFromCryptoSigner(key, jwt.WithHeaders(map[string]any{"kid": tc.kid}))
