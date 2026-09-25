@@ -88,7 +88,7 @@ consumers. Nothing in the library imports `cmd/`.
 | DPoP replay cache (`jti`)                  | `jwt/dpop/replay.go`                                                         | `ReplayCache`, `NewMemoryReplayCache`, `ErrReplay`, `ErrReplayCacheFull`                                                      |
 | DPoP `htu` request URI / normalization     | `jwt/dpop/htu.go`                                                            | `VerifyConfig.ExternalURL`, `requestURI`, `normalizeHTU`                                                                      |
 | DPoP keys                                  | `jwt/dpop/keys.go`                                                           | `GenerateKey`, `LoadKey`, `SaveKey`, `Thumbprint`                                                                             |
-| Opaque access tokens                       | `jwt/accesstoken/accesstoken.go`                                             | `New`, `Provider`                                                                                                             |
+| Opaque access tokens                       | `jwt/accesstoken/accesstoken.go`                                             | `New`, `Provider`, `WithTokenExpiry`, `WithAllowNoExpiry`, `TokenPrefix`                                                      |
 | OAuth2 client registry                     | `jwt/oauth2client/*.go`                                                      | `LoadProvider`, `NewProvider`, `RegisterClient`, `ClientFor*`, `Client.CreateTokenRequest[WithContext]`                       |
 | Data protection                            | `dataprotection/dp.go`, `symmetric.go`                                       | `Provider`, `NewSymmetric`, `ProtectObject`, `UnprotectObject`                                                                |
 | Human-readable printing                    | `x/print/certutil.go`                                                        | `Certificate(s)`, `CertificateRequest`, `CertificateList`, `OCSPResponse`, `CertAndKey`, `JSON`                               |
@@ -539,8 +539,19 @@ and parallel unique-unknown kids.
   `EqualFold` (XPKI-108). Binding to the access token: `ExpectedThumbprint`,
   or compare `Result.Thumbprint` with the `cnf.jkt` claim.
 - **accesstoken**: `pat.<base64url(AES-GCM(json claims))>`; non-`pat.` tokens
-  delegate to the inner `jwt.Provider`. No `exp` is added (XPKI-078);
-  `SetRevocation` is forwarded to the inner provider.
+  delegate to the inner `jwt.Provider`. `Sign` copies the claims (the caller
+  map is never modified), keeps caller `exp`/`iat`/`nbf` normalized to
+  NumericDate (rejecting unparsable ones), and without `exp` adds `exp` =
+  now + `TokenExpiry()` plus `iat`/`nbf` when absent, using `jwt.TimeNowFn`.
+  `TokenExpiry()` = `WithTokenExpiry` if non-zero (negative → 0), else the
+  inner provider's, else 0; a non-positive value makes `Sign` fail.
+  `ParseToken` requires `exp` unless `WithAllowNoExpiry` (legacy migration;
+  an unparsable `exp` is always rejected) (XPKI-078). `jwt.Provider.Sign`
+  does not normalize time claims, so a `time.Time` `nbf`/`exp` is silently
+  unchecked there (XPKI-109). A nil `dp` is allowed:
+  `PublicKey` returns nil and `pat.` `Sign`/`ParseToken` return an error
+  (XPKI-079). `SetRevocation` is forwarded to the inner provider. Tests that
+  pin `jwt.TimeNowFn` (`setClock`) must not call `t.Parallel`.
 - **oauth2client**: `config.go` `Config`/`ClientConfig` (`env://` values via
   `x/configloader`), `client.go` `Client`, `CreateTokenRequest[WithContext]`,
   `provider.go` registry lookups by provider id, email, domain
