@@ -212,7 +212,10 @@ func (lib *PKCS11Lib) findKeyPairOnSession(session pkcs11.SessionHandle, slot ui
 	if attributes, err = lib.Ctx.GetAttributeValue(session, privHandle, attributes); err != nil {
 		return nil, errors.WithStack(err)
 	}
-	keyType := BytesToUlong(attributes[0].Value)
+	keyType, err := bytesToUlong(attributes[0].Value)
+	if err != nil {
+		return nil, errors.WithMessage(err, "CKA_KEY_TYPE")
+	}
 	if pubHandle, err = lib.findKey(session, keyID, label, pkcs11.CKO_PUBLIC_KEY, keyType); err != nil {
 		return nil, errors.WithStack(err)
 	}

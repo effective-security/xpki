@@ -53,7 +53,7 @@ consumers. Nothing in the library imports `cmd/`.
 | PKCS#11 key URI                            | `cryptoprov/uri.go`                                                          | `ParseTokenURI`, `ParsePrivateKeyURI`, `PrivateKeyURI`                                                                        |
 | Load key from PEM or URI                   | `cryptoprov/utils.go`, `cryptoprov/signer.go`                                | `Crypto.LoadPrivateKey`, `NewSignerFromPEM`, `NewSignerFromFromFile`, `LoadTLSKeyPair`                                        |
 | AES-GCM helpers                            | `cryptoprov/gcm.go`                                                          | `GcmEncrypt`, `GcmDecrypt`                                                                                                    |
-| PKCS#11 init / token select / login        | `crypto11/config.go`                                                         | `Init`, `ConfigureFromFile`, `LoadTokenConfig`, `WithMaxSessions`, `DefaultMaxSessions`                                       |
+| PKCS#11 init / token select / login        | `crypto11/config.go`                                                         | `Init`, `selectToken`, `ConfigureFromFile`, `LoadTokenConfig`, `WithMaxSessions`, `DefaultMaxSessions`                        |
 | PKCS#11 module sharing / finalize          | `crypto11/module.go`, `crypto11/crypto11.go`                                 | `openModule`, `module.release`, `PKCS11Lib.Close`                                                                             |
 | PKCS#11 session pool                       | `crypto11/sessions.go`                                                       | `withSession`, `sessionPool`, `sessionUnusable`, `NewSession`                                                                 |
 | PKCS#11 key generation / lookup            | `crypto11/keys.go`, `rsa.go`, `ecdsa.go`                                     | `GenerateRSAKey`, `GenerateECDSAKey`, `FindKeyPair*`, `GetKey`, `ExportKey`                                                   |
@@ -169,7 +169,7 @@ C toolchain (cgo) and dlopens the module named in the config.
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `doc.go`      | Package comment                                                                                                                                    |
 | `crypto11.go` | Sentinel errors (`errClosed` after Close), `PKCS11Lib`, `PKCS11Object`, `PKCS11PrivateKey`, `Close() error`                                        |
-| `config.go`   | `TokenConfig`, `Init` (module ref, select token by serial OR label, login session, unwind on error), `Option`/`WithMaxSessions`, `ConfigureFromFile`, `LoadTokenConfig` |
+| `config.go`   | `TokenConfig`, `Init` (module ref, `selectToken` by every configured serial/label, login session, unwind on error), `Option`/`WithMaxSessions`, `ConfigureFromFile`, `LoadTokenConfig` |
 | `module.go`   | Process-wide module registry matched by loader handle, else `moduleID`: `openModule`, `module.release` (last ref finalizes and unloads)          |
 | `module_dl_unix.go`, `module_dl_other.go` | `loadedHandle` (cgo `dlopen`/`dlclose`, `-ldl` on Linux); 0 on non-unix                                                   |
 | `sessions.go` | `sessionPool` (bounded per slot), `withSession`, `NewSession`, lifecycle guard (`acquirePool`/`enter`/`exit`), `sessionOps` test seam              |
@@ -177,7 +177,7 @@ C toolchain (cgo) and dlopens the module named in the config.
 | `keys.go`     | `KeyPurpose`, `findKey`, `ListKeys`, `FindKeyPair*`, `ConvertToPublic`, `GetKey`, `ExportKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `IdentifyKey` |
 | `rsa.go`      | `PKCS11PrivateKeyRSA`: generate, `Sign` (PKCS#1 v1.5, PSS), `Decrypt` (PKCS#1 v1.5, OAEP), `Validate`                                              |
 | `ecdsa.go`    | `PKCS11PrivateKeyECDSA`: curve table (P-224/256/384/521), generate, `Sign` (DER r,s)                                                               |
-| `common.go`   | Attribute/class/type name maps, `UlongToBytes`/`BytesToUlong` (unsafe), ECDSA signature DER helpers, label/ID generation on the held session       |
+| `common.go`   | Attribute/class/type name maps, CK_ULONG codec (`ulongSize`, checked `bytesToUlong`, `keyTypeAndClass`, deprecated `BytesToUlong`, `UlongToBytes`), ECDSA signature DER helpers, label/ID generation on the held session |
 | `util.go`     | `CurrentSlotID`, `TokensInfo`, `DestroyKeyPairOnSlot`, `getPublicKeyPEM` (on a given session)                                                      |
 | `rand.go`     | `GenRandom`                                                                                                                                        |
 
@@ -225,9 +225,20 @@ C toolchain (cgo) and dlopens the module named in the config.
   write-protected tokens list. Direct use of the exported `Ctx` and caller
   sessions from `NewSession` are untracked; close them before `Close`, and do
   not call `Close` from inside an operation.
-- Token selection: serial OR label match, first wins; empty configured fields
-  match empty token fields (XPKI-006). `Pin` may be `file:<path>` (trailing
-  line endings stripped, other whitespace kept).
+- Token selection (XPKI-006, `selectToken`): a token must match every
+  nonempty configured field (serial AND label when both are set); empty fields
+  are ignored, never matched against empty token fields. `Init` returns
+  `errNoTokenSelector` before loading the module when both are empty, and
+  `errTokenNotFound` when nothing matches; among several matches the first
+  slot wins. `Pin` may be `file:<path>` (trailing line endings stripped,
+  other whitespace kept).
+- CK_ULONG attributes (XPKI-011): values are exactly `ulongSize` bytes
+  (`C.sizeof_ulong`: 8 on LP64 unix, 4 on Windows/32-bit) in host byte order,
+  decoded with `encoding/binary.NativeEndian`, no `unsafe`. Internal readers
+  (`EnumKeys`, `KeyInfo`, `FindKeyPair`/`FindKeyPairOnSession`)
+  use `bytesToUlong` and return `errMalformedUlong` for any other length. The
+  deprecated exported `BytesToUlong` returns `CK_UNAVAILABLE_INFORMATION`
+  (`^uint(0)`) instead of panicking.
 - RSA: exponent 65537; PSS accepts `PSSSaltLengthAuto` (largest salt that
   fits, as `crypto/rsa`), `PSSSaltLengthEqualsHash` or an explicit length;
   PKCS#1 v1.5 and OAEP support SHA-1/224/256/384/512 (SoftHSM2 only does SHA-1
@@ -241,7 +252,7 @@ C toolchain (cgo) and dlopens the module named in the config.
 - `DestroyKeyPairOnSlot` returns `errKeyNotFound` when neither the private
   nor the public object exists; `ConvertToPublic` also accepts the wrapper
   returned by `GenerateRSAKey`/`GenerateECDSAKey`.
-- Panics: `mustMarshal` at init, `BytesToUlong` on short input (XPKI-011),
+- Panics: `mustMarshal` at init,
   RSA `Sign(nil opts)` (same as stdlib). Everything else returns wrapped errors.
 
 ### Test layout

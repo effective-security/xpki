@@ -3,11 +3,11 @@ package crypto11
 import (
 	"C"
 	"encoding/asn1"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math/big"
 	"time"
-	"unsafe"
 
 	"github.com/cockroachdb/errors"
 	"github.com/miekg/pkcs11"
@@ -38,14 +38,67 @@ var KeyTypeNames = map[uint]string{
 	pkcs11.CKK_EC:  "ECDSA",
 }
 
-// UlongToBytes converts Ulong to []byte
+// ulongSize is the width in bytes of a PKCS#11 CK_ULONG (C unsigned long)
+// on this platform: 8 on LP64 unix, 4 on Windows and 32-bit platforms.
+const ulongSize = int(C.sizeof_ulong)
+
+// unavailableInformation is CK_UNAVAILABLE_INFORMATION, the PKCS#11 value
+// for an attribute that cannot be read; BytesToUlong returns it for
+// malformed input.
+const unavailableInformation = ^uint(0)
+
+// UlongToBytes encodes n as a native CK_ULONG attribute value (host byte
+// order, ulongSize bytes). Where CK_ULONG is 32 bits, only the low 32 bits
+// of n are kept.
 func UlongToBytes(n uint) []byte {
-	return C.GoBytes(unsafe.Pointer(&n), C.sizeof_ulong) // ugh!
+	bs := make([]byte, ulongSize)
+	if ulongSize == 8 {
+		binary.NativeEndian.PutUint64(bs, uint64(n))
+	} else {
+		binary.NativeEndian.PutUint32(bs, uint32(n))
+	}
+	return bs
 }
 
-// BytesToUlong converts []byte to Ulong
-func BytesToUlong(bs []byte) (n uint) {
-	return *(*uint)(unsafe.Pointer(&bs[0])) // ugh
+// BytesToUlong decodes a native CK_ULONG attribute value, such as
+// CKA_KEY_TYPE or CKA_CLASS. It returns CK_UNAVAILABLE_INFORMATION (^uint(0))
+// when bs is not exactly one CK_ULONG long, including a nil value for an
+// attribute the token could not return.
+//
+// Deprecated: BytesToUlong cannot report malformed input; check the length
+// and decode the value with encoding/binary.NativeEndian instead.
+func BytesToUlong(bs []byte) uint {
+	n, err := bytesToUlong(bs)
+	if err != nil {
+		return unavailableInformation
+	}
+	return n
+}
+
+// bytesToUlong decodes a native CK_ULONG attribute value and returns
+// errMalformedUlong unless bs is exactly ulongSize bytes (XPKI-011).
+func bytesToUlong(bs []byte) (uint, error) {
+	if len(bs) != ulongSize {
+		return 0, errors.Wrapf(errMalformedUlong, "length %d, expected %d", len(bs), ulongSize)
+	}
+	if ulongSize == 8 {
+		return uint(binary.NativeEndian.Uint64(bs)), nil
+	}
+	return uint(binary.NativeEndian.Uint32(bs)), nil
+}
+
+// keyTypeAndClass returns the names of the CKA_KEY_TYPE and CKA_CLASS
+// attribute values; unknown values give empty names.
+func keyTypeAndClass(keyType, class *pkcs11.Attribute) (string, string, error) {
+	t, err := bytesToUlong(keyType.Value)
+	if err != nil {
+		return "", "", errors.WithMessage(err, "CKA_KEY_TYPE")
+	}
+	c, err := bytesToUlong(class.Value)
+	if err != nil {
+		return "", "", errors.WithMessage(err, "CKA_CLASS")
+	}
+	return KeyTypeNames[t], ObjectClassNames[c], nil
 }
 
 // Representation of a *DSA signature

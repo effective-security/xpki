@@ -13,8 +13,9 @@ import (
 
 // TokenConfig holds PKCS#11 configuration information.
 //
-// A token may be identified either by serial number or label.  If
-// both are specified then the first match wins.
+// A token may be identified by serial number, label, or both; how they are
+// used is provider specific. The PKCS#11 provider (crypto11) requires at
+// least one of them and selects the first token matching every nonempty one.
 //
 // Supply this to Configure(), or alternatively use ConfigureFromFile().
 type TokenConfig interface {

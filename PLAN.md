@@ -26,6 +26,7 @@ below and excluded from the pending queue.
 | AT1 | [XPKI-078](FINDINGS.md#xpki-078--at1), [XPKI-079](FINDINGS.md#xpki-079--at1) | **Fixed** | 2026-09-25 |
 | AU2 | [XPKI-051](FINDINGS.md#xpki-051--au2), [XPKI-052](FINDINGS.md#xpki-052--au2), [XPKI-053](FINDINGS.md#xpki-053--au2), [XPKI-100-authority](FINDINGS.md#xpki-100-authority--au2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 | PK1 | [XPKI-001](FINDINGS.md#xpki-001--pk1), [XPKI-002](FINDINGS.md#xpki-002--pk1), [XPKI-003](FINDINGS.md#xpki-003--pk1), [XPKI-005](FINDINGS.md#xpki-005--pk1), [XPKI-007](FINDINGS.md#xpki-007--pk1), [XPKI-100-crypto11](FINDINGS.md#xpki-100-crypto11--pk1) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
+| PK2 | [XPKI-011](FINDINGS.md#xpki-011--pk2), [XPKI-006](FINDINGS.md#xpki-006--pk2) | **Fixed** | 2026-09-25 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -477,6 +478,22 @@ until return, the saturation benchmark propagates borrower errors with a
 bounded fill wait, and the stale FINDINGS text was corrected. Re-validated after the follow-ups: `go test -race ./crypto11` ×3 and with `-cpu 1,4,8`, `make lint`,
 `make test RACE=true`, `make build docs` and `make covtest`.
 
+**PK2 / XPKI-011, XPKI-006 (2026-09-25):** decisions: internal readers use a
+checked `bytesToUlong` (exact `C.sizeof_ulong` width, `binary.NativeEndian`,
+no `unsafe`; `errMalformedUlong` from `EnumKeys`, `KeyInfo` and
+`FindKeyPair`). The exported `BytesToUlong` keeps its signature, returns
+`^uint(0)` for malformed input and is `Deprecated`. Token selection matches
+every nonempty configured field, so both set means AND. `Init` rejects a
+config with neither before loading the module (`errNoTokenSelector`).
+Pre-fix evidence came from a HEAD worktree. A 1-byte slice decoded seven
+bytes past its end, `nil` panicked, and SoftHSM opened the unit-test token
+for label plus a wrong serial and for serial plus a wrong label. The new
+selection table, run against HEAD's predicate, failed 6 of 10 cases.
+Validation: `go test -race -count=1 ./crypto11`, `make lint`, `make build
+docs` and `make covtest` (**91.5%**; `crypto11` 81.0%) passed. Limitation: the
+4-byte CK_ULONG branch is untested because no 32-bit C toolchain is
+installed. No benchmark was run; the plan asked for boundary tests only.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -520,7 +537,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| PK2 | `crypto11` | 011, 006 | P1 / 35 | High: native attribute width and token selection | Checked conversion API if needed |
 | JW2 | `jwt` | 066, 104; 100-jwt | P1 / 35 | Medium: kid compatibility and custom headers | Standalone key-ID policy |
 | CU2 | `certutil` | 035 | P1 / 34 | High: cache ownership and lock contention | Exported mutable fields |
 | CP1 | `cryptoprov` | 016, 026; 099-cryptoprov, 100-cryptoprov | P1 / 34 | Medium: duplicate registrations and nil constructors | Duplicate/replacement policy |
@@ -602,7 +618,7 @@ policy, lifecycle, or concurrency completeness.
 
 | Package | Existing local profile | Particularly misleading or missing coverage |
 | --- | ---: | --- |
-| `crypto11` | 77.2% | `Close` 0% (after PK1: package 79.1%, `Close` 96.7%); `BytesToUlong` 100% does not cover short buffers |
+| `crypto11` | 77.2% | `Close` 0% (after PK1: package 79.1%, `Close` 96.7%); `BytesToUlong` 100% does not cover short buffers (after PK2: package 81.0%, malformed lengths covered) |
 | `cryptoprov` | 84.8% | AWS/GCP wrapper tests are empty; registry concurrency absent |
 | `cryptoprov/inmemcrypto` | 84.3% | Serial key operations only |
 | `cryptoprov/testprov` | 73.9% | Serial key operations only |
@@ -738,18 +754,18 @@ and key rotation are unchanged (see DT1 and ROADMAP).
 | XPKI-003 — HIGH / bug / 35 — **Fixed (PK1, 2026-09-25)** | Pools are created on first use for any slot; an invalid slot returns the wrapped `C_OpenSession` error and releases its pool slot. | **Verified:** the pre-fix hang reproduced (3s deadline); `TestWithSession_PoolCreatedOnFirstUse`, `TestWithSession_OpenErrorReleasesSlot` and a new SoftHSM wrapper's first operations pass with deadlines. |
 | XPKI-005 — HIGH / performance / 32 — **Fixed (PK1, 2026-09-25)** | `sessionPool` caps live sessions per slot (`DefaultMaxSessions` 1024, `WithMaxSessions`); borrowers wait, returns never block, and panics or `sessionUnusable` codes close the session. Nested borrows were removed (`randomOnSession`, single-session `KeyInfo`). | **Verified:** `BenchmarkSession_Saturation` went from 76/1,100 stuck (peak 1,100) to 0 stuck (peak 1,024). Fake-session tests cover bounds, contention peak, disposal table, panic, open error and close while borrowed. Benchmarks are recorded under [completed batches](#completed-batches). |
 | XPKI-007 — HIGH / bug / 35 — **Fixed (PK1, 2026-09-25)** | [Init](crypto11/config.go) takes a module reference first; a deferred `Close` unwinds the login session, pools and reference on every later error. | **Verified:** a fresh-process child shows the module finalized after an unknown label and after a wrong PIN, and a retry succeeding. `TestInit_FailureReleases` checks refs and live sessions in process. `Test_LoadConfigTwice` closes both wrappers. |
-| XPKI-011 — HIGH / bug / 35 | [BytesToUlong](crypto11/common.go) dereferences `&bs[0]` as native uint without a length check. Reject malformed attributes before unsafe access and preserve correct PKCS#11 width/endianness. | **Indirect only:** 100% statement coverage does not exercise invalid lengths. [common_test.go](crypto11/common_test.go) tests labels/IDs and DSA encoding, not this boundary. Add zero/short/exact/oversized lengths and supported-platform width cases; use a checked internal decoder or decide an exported API migration. |
-| XPKI-006 — MEDIUM / correctness / 23 | Init uses `serial == configuredSerial || label == configuredLabel`, including empty selectors. Match only configured nonempty fields and define both-empty behavior. | **Partial:** config tests load successful configs, not a multi-token selection matrix. Add empty token fields, one/both selectors, conflicting selectors, no match, and unchanged documented OR semantics unless explicitly revised. |
+| XPKI-011 — HIGH / bug / 35 — **Fixed (PK2, 2026-09-25)** | [common.go](crypto11/common.go) `bytesToUlong` accepts exactly `ulongSize` (`C.sizeof_ulong`) bytes via `binary.NativeEndian` and returns `errMalformedUlong` otherwise. `EnumKeys`, `KeyInfo` and `FindKeyPair` propagate it. The deprecated exported `BytesToUlong` returns `^uint(0)` instead of panicking. No `unsafe` remains in `common.go`. | **Verified:** the pre-fix OOB read and nil panic were reproduced at HEAD. `Test_bytesToUlong_Malformed` (zero/short/long/double lengths with guard bytes), `Test_bytesToUlong_RoundTrip` (against miekg's own encoding, up to the largest CK_ULONG), `Test_keyTypeAndClass` and SoftHSM `Test_KeyTypeAndClass` pass. The 4-byte width was not run (no 32-bit toolchain). |
+| XPKI-006 — MEDIUM / correctness / 23 — **Fixed (PK2, 2026-09-25)** | [selectToken](crypto11/config.go) returns the first token matching every nonempty selector (AND when both are set), `errTokenNotFound` when none match, and `errNoTokenSelector` when both are empty. `Init` checks for no selector before loading the module. | **Verified:** at HEAD, SoftHSM accepted conflicting selectors, and the table failed 6/10 cases against the old predicate. `Test_selectToken` (fixture-free matrix), `TestInit_NoTokenSelector` and SoftHSM `TestInit_TokenSelection` pass. |
 
-PK1 is **Fixed (2026-09-25)**; see [completed batches](#completed-batches).
-PK2 remains. These fixes belong in lifecycle and input batches, not an indiscriminate HSM
+PK1 and PK2 are **Fixed (2026-09-25)**; see [completed batches](#completed-batches).
+PK3 (XPKI-110) remains. These fixes belong in lifecycle and input batches, not an indiscriminate HSM
 rewrite. Regression risk is high, especially finalization ownership and
 conversion across platforms. Use real SoftHSM plus small unexported seams only
 where needed; do not invent a new broad mock hierarchy.
 PK1's benchmark ([sessions_bench_test.go](crypto11/sessions_bench_test.go):
 serial/parallel `GenRandom`, parallel sign, time-bounded saturation and
 Init/Close with open/live session counts) is recorded under completed batches.
-PK2 needs boundary tests, not a speed benchmark.
+PK2 needed boundary tests, not a speed benchmark, and added them.
 
 ### cryptoprov — CP1, CP2
 
