@@ -176,9 +176,9 @@ func TestBundlerChainBehavior(t *testing.T) {
 	assert.Equal(t, leaf.Certificate.NotAfter, chain.Expires)
 	assert.Contains(t, chain.Status.Messages[0], "#1 #2")
 	assert.Len(t, chain.Status.ExpiringSKIs, 2)
-	// XPKI-036: characterize the existing empty-input result without changing it.
+	// XPKI-036: empty input is an error; see TestBundlerEmptyInput.
 	chain, err = force.Bundle(nil, nil)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, certutil.ErrNoCertificates)
 	assert.Nil(t, chain)
 	_, err = force.Bundle([]*x509.Certificate{leaf.Certificate, root.Certificate}, nil)
 	require.EqualError(t, err, "unable to verify the certificate chain")
