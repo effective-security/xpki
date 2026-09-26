@@ -57,48 +57,93 @@ func (s *Signer) String() string {
 	)
 }
 
-// Sign implements signing operation
+// Sign signs digest with the KMS key. opts is required and must name
+// SHA-256, SHA-384 or SHA-512, and digest must have that hash's length; the
+// padding and curve come from the key's KMS algorithm. Invalid options fail
+// before any RPC (XPKI-025). The response is accepted only when KMS
+// verified the digest checksum and the signature matches its checksum
+// (XPKI-023). After the provider is closed, Sign returns ErrClosed.
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "sign")
 
-	digestCRC32C := Crc32c(digest)
+	if s.prov == nil {
+		return nil, errors.New("signer has no provider")
+	}
+	kmsDigest, err := signDigest(digest, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	req := &kmspb.AsymmetricSignRequest{
 		Name:         s.prov.keyVersionName(s.KeyID()),
-		Digest:       &kmspb.Digest{},
-		DigestCrc32C: wrapperspb.Int64(int64(digestCRC32C)),
+		Digest:       kmsDigest,
+		DigestCrc32C: wrapperspb.Int64(int64(Crc32c(digest))),
 	}
 
-	switch opts.HashFunc() {
-	case crypto.SHA256:
-		req.Digest.Digest = &kmspb.Digest_Sha256{Sha256: digest}
-	case crypto.SHA384:
-		req.Digest.Digest = &kmspb.Digest_Sha384{Sha384: digest}
-	case crypto.SHA512:
-		req.Digest.Digest = &kmspb.Digest_Sha512{Sha512: digest}
-	default:
-		return nil, errors.Errorf("unsupported hash: %s", reflect.TypeOf(opts))
+	if err = s.prov.enter(); err != nil {
+		return nil, err
 	}
+	defer s.prov.exit()
 
 	result, err := s.prov.AsymmetricSign(context.Background(), req)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to sign")
 	}
+	if result == nil {
+		return nil, errors.WithMessage(errEmptyResponse, "unable to sign")
+	}
 
-	// Optional, but recommended: perform integrity verification on result.
-	// For more details on ensuring E2E in-transit integrity to and from Cloud KMS visit:
+	// Integrity verification of the result; see
 	// https://cloud.google.com/kms/docs/data-integrity-guidelines
-	if !result.VerifiedDigestCrc32C {
+	if !result.GetVerifiedDigestCrc32C() {
 		return nil, errors.Errorf("request corrupted in-transit")
 	}
 	// if result.Name != req.Name {
 	//      return errors.New("AsymmetricSign: request corrupted in-transit")
 	// }
-	if int64(Crc32c(result.Signature)) != result.SignatureCrc32C.Value {
+	// a missing checksum is never taken as a verified signature
+	sigCRC := result.GetSignatureCrc32C()
+	if sigCRC == nil {
+		return nil, errors.Errorf("response has no signature checksum")
+	}
+	if int64(Crc32c(result.GetSignature())) != sigCRC.GetValue() {
 		return nil, errors.Errorf("response corrupted in-transit")
 	}
 
-	return result.Signature, nil
+	return result.GetSignature(), nil
+}
+
+// signDigest validates opts and digest and returns the KMS digest.
+func signDigest(digest []byte, opts crypto.SignerOpts) (*kmspb.Digest, error) {
+	if isNilOpts(opts) {
+		return nil, errors.New("signer options are required")
+	}
+	hash := opts.HashFunc()
+	var kmsDigest *kmspb.Digest
+	switch hash {
+	case crypto.SHA256:
+		kmsDigest = &kmspb.Digest{Digest: &kmspb.Digest_Sha256{Sha256: digest}}
+	case crypto.SHA384:
+		kmsDigest = &kmspb.Digest{Digest: &kmspb.Digest_Sha384{Sha384: digest}}
+	case crypto.SHA512:
+		kmsDigest = &kmspb.Digest{Digest: &kmspb.Digest_Sha512{Sha512: digest}}
+	default:
+		return nil, errors.Errorf("unsupported hash: %s", hash)
+	}
+	if len(digest) != hash.Size() {
+		return nil, errors.Errorf("digest length %d does not match %s (%d bytes)", len(digest), hash, hash.Size())
+	}
+	return kmsDigest, nil
+}
+
+// isNilOpts reports whether opts is nil or a nil pointer, such as a nil
+// *rsa.PSSOptions, whose HashFunc would panic.
+func isNilOpts(opts crypto.SignerOpts) bool {
+	if opts == nil {
+		return true
+	}
+	v := reflect.ValueOf(opts)
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 // Crc32c computes digest's CRC32C.

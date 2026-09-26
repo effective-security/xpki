@@ -137,10 +137,14 @@ func (c *Crypto) Default() Provider {
 }
 
 // Add registers p for lookup by its manufacturer and model. Adding the same
-// provider instance again, including the default one, is a no-op. A
-// different provider with the manufacturer and model of a registered or the
-// default provider returns ErrDuplicateProvider (XPKI-016), and a nil
-// provider, including a typed nil, returns ErrNilProvider.
+// provider again, including the default one, is a no-op when its dynamic
+// value is comparable, such as a pointer; the provider types in this module
+// are. A provider value that is not comparable (a struct holding a map,
+// slice or func) can not be matched, so adding it again returns
+// ErrDuplicateProvider. A different provider with the manufacturer and model
+// of a registered or the default provider returns ErrDuplicateProvider
+// (XPKI-016), and a nil provider, including a typed nil, returns
+// ErrNilProvider.
 func (c *Crypto) Add(p Provider) error {
 	if isNilProvider(p) {
 		return errors.Wrap(ErrNilProvider, "unable to add provider")

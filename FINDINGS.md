@@ -39,14 +39,14 @@ drift; the symbol name is the stable reference.
 | XPKI-011 | crypto11                              | `common.go` `BytesToUlong`                                     | Panics on empty input and reads out of bounds on short attribute values                                                                            | bug         | **Fixed** ([details](#xpki-011--pk2)) |
 | XPKI-016 | cryptoprov                            | `provider.go` `Crypto.Add`/`ByManufacturer`                    | No synchronization; duplicate check in `Add` is unreachable (key already includes model)                                                           | race        | Fixed |
 | XPKI-017 | cryptoprov/inmemcrypto, testprov      | `provider.go` `keyIDToPvk`                                     | Key map written by `Generate*` and read by `GetKey` without a lock (used by `authority/ocsp.go`)                                                   | race        | **Fixed** ([details](#xpki-017--im1)) |
-| XPKI-018 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Close`                                        | Sets embedded `KmsClient` to nil unsynchronized; later `Sign` panics                                                                               | race        | Open           |
+| XPKI-018 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Close`                                        | Sets embedded `KmsClient` to nil unsynchronized; later `Sign` panics                                                                               | race        | Fixed |
 | XPKI-019 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GenerateRSAKey`                               | `purpose==2` sets ASYMMETRIC_DECRYPT with a SIGN algorithm; 4096-bit forces SHA512 while `Sign` picks digest from opts                             | correctness | Open           |
 | XPKI-020 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GetKey`, `keyVersionName`, `ExportKey`        | `cryptoKeyVersions/1` hard-coded; rotated keys sign/destroy the wrong version                                                                      | correctness | Open           |
 | XPKI-021 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Init`                                         | `Endpoint` attribute parsed but never applied to the client                                                                                        | correctness | Open           |
 | XPKI-022 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `KeyLabelAndID`                                | 4 hex chars of entropy (65k) and no label sanitisation; ALREADY_EXISTS / INVALID_ARGUMENT                                                          | correctness | Open           |
-| XPKI-023 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `keyInfo`, `signer.go` `Sign`                  | Direct proto field access (`VersionTemplate`, `SignatureCrc32C`) may nil-deref                                                                     | bug         | Open           |
+| XPKI-023 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `keyInfo`, `signer.go` `Sign`                  | Direct proto field access (`VersionTemplate`, `SignatureCrc32C`) may nil-deref                                                                     | bug         | Fixed |
 | XPKI-024 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `genKey`                                       | Up to 60 s blocking `time.Sleep` poll ignoring ctx; matches error by substring                                                                     | performance | Open           |
-| XPKI-025 | cryptoprov/awskmscrypto, gcpkmscrypto | `signer.go` `Sign`                                             | `opts == nil` → nil interface method call panic (`inmemcrypto` defaults to SHA256)                                                                 | bug         | Open           |
+| XPKI-025 | cryptoprov/awskmscrypto, gcpkmscrypto | `signer.go` `Sign`                                             | `opts == nil` → nil interface method call panic (`inmemcrypto` defaults to SHA256)                                                                 | bug         | In Progress ([gcpkmscrypto](#xpki-025-gcpkmscrypto--gc1) portion; awskmscrypto in AW1) |
 | XPKI-026 | cryptoprov                            | `provider.go` `New`                                            | `New(nil, ...)` panics on `defaultProvider.Manufacturer()`                                                                                         | bug         | Fixed |
 | XPKI-027 | cryptoprov                            | `uri.go` `ParseTokenURI`/`ParsePrivateKeyURI`                  | RFC 7512 `?pin-value=`/`?module-path=` query attributes are dropped                                                                                | correctness | Open           |
 | XPKI-031 | cryptoprov/awskmscrypto               | `awskmsprov.go` `GenerateRSAKey`                               | `purpose==2` creates ENCRYPT_DECRYPT key but returns a `Signer`; no `crypto.Decrypter`                                                             | correctness | Open           |
@@ -110,8 +110,127 @@ drift; the symbol name is the stable reference.
 | XPKI-110 | crypto11                              | `sessions.go` `withSession`; `config.go` `Init`                | After a device/token error the pooled sessions are reopened, but the login session is not, so a reinserted token stays logged out (`CKR_USER_NOT_LOGGED_IN`) until a new `Init` | correctness | Open           |
 | XPKI-111 | authority                             | `ocsp_responder_test.go` `TestDelegatedOCSPSlowFailureAfterExpiry` | Timing-dependent: the 100ms signer gate is armed before the attempt starts, so under load the attempt can see less than 100ms and fail the `retryAt` bound (seen once in `make test RACE=true` during CU2) | bug         | Open           |
 | XPKI-112 | jwt                                   | `jwt.go` `provider.ParseToken`                                     | The `NewProvider` HS256 key ring also verifies HS384/HS512 tokens signed with a ring key; only `NewProviderWithSymmetricKey` is pinned to HS256 (found in the PR #543 review)                              | correctness | Open           |
+| XPKI-113 | cryptoprov                            | `loader.go` `Load`                                             | `Load` re-adds the default provider; for a provider whose dynamic type is not comparable (a struct value with a map/slice field) `sameProvider` is false, so `Load` always returns `ErrDuplicateProvider` (found in the CP1 review)                          | bug         | Fixed |
 
 ## Fixed items
+
+### XPKI-113 — CP3
+
+**Fixed on 2026-09-26** (PR #544 review). `Load` passed the default provider
+to `New` and then called `c.Add(p)` with it again. `Add` matches instances with
+`reflect`, and a provider value that is not comparable (a struct holding a map,
+slice or func) never matches, so `Load` reported that provider as a duplicate
+of itself and always failed. The re-add is removed: `ByManufacturer` checks
+the default before the map, so the extra entry did nothing. The same review
+narrowed two contracts to what the code does: `Crypto.Add`'s no-op re-add is
+documented only for comparable providers (such as pointers, which all
+providers in this module are); re-adding a non-comparable value is still
+`ErrDuplicateProvider`. `gcpkmscrypto.ErrClosed` is documented only for the
+operations that call KMS, since `EnumTokens`, `ExportKey` and `IdentifyKey`
+keep working after `Close`.
+
+Validation: `TestLoad_NonComparableDefault` (a throwaway loader returning a
+non-comparable provider value, default plus one extra config) failed against
+the committed `loader.go` with `manufacturer "cryptoprov-test-value" and model
+"a": duplicate provider`, and passes now; it checks both lookups.
+`go test -race ./cryptoprov/...`, `make lint` (0 issues) and `make build docs`
+passed.
+
+### XPKI-018 — GC1
+
+**Fixed on 2026-09-26.** Approved policy: Close waits for calls in flight, as
+crypto11 does (PK1). `Provider.Close` closed the embedded client and set it
+to nil with no synchronization. A `Signer.Sign` or provider call running at
+the same time raced with that write, and any call after Close panicked with
+a nil dereference. Now every provider method that uses the client
+(`GetKey`, `KeyInfo`, `EnumKeys`, `DestroyKeyPairOnSlot`, and key generation
+through `genKey`) and `Signer.Sign` registers with `enter`/`exit`. `Close`
+runs once (`sync.Once`): it rejects new calls with a wrapped `ErrClosed`,
+waits for the calls in flight, then closes the client and returns its error,
+which it used to discard. Concurrent and later `Close` calls wait for the
+first and return nil. The `KmsClient` field is never cleared. Methods that do
+not use the client (`ExportKey`, `EnumTokens`, `IdentifyKey`) still work
+after Close.
+Limits: Close also waits for `genKey`'s wait for key generation (up to 60
+one-second polls, XPKI-024, GC3). Calling methods of the embedded
+`KmsClient` directly bypasses the guard; this is documented on `Provider`.
+
+Validation:
+
+- Before the fix (HEAD worktree, the new tests with a stub `ErrClosed`):
+  `TestCloseWaitsForInflightSign` failed with `Close returned while signing
+  RPCs were in flight`. `Sign` after `Close` panicked with a nil pointer
+  dereference, and a Sign loop overlapping `Close` gave a data race report
+  under `-race`.
+- After: `TestCloseWaitsForInflightSign` holds 4 signs inside the fake RPC
+  and starts 3 `Close` calls. Close stays blocked for 50 ms, and the fake
+  client is never closed while a sign is in flight. All signs succeed,
+  exactly one `Close` returns the client's error (`unable to close KMS client:
+  close failed`), and a fourth returns nil. After that, `Sign`, `GetKey`,
+  `KeyInfo`, `EnumKeys`, `DestroyKeyPairOnSlot`, `GenerateRSAKey` and
+  `GenerateECDSAKey` return `ErrClosed` with no RPC. `TestCloseIdle` closes
+  twice with one client `Close`. These tests pass `-race -count=20 -cpu
+  1,4,8`.
+- No benchmark: the guard only adds two short mutex sections per call
+  around the RPC and does not serialize signing (PLAN: not required when
+  synchronization is limited to close).
+
+### XPKI-023 — GC1
+
+**Fixed on 2026-09-26.** Approved policy: optional metadata that KMS does
+not return is left out. `keyInfo` read `VersionTemplate` and `CreateTime`
+directly, and `Sign` read `SignatureCrc32C` directly, so a response without
+them panicked. Now `keyInfo` uses the proto getters. Without a
+`VersionTemplate`, there is no `protection`/`algo` Meta key and no
+`protection=` label part. Without a `CreateTime`, `CreationTime` is nil
+instead of 1970. `purpose` is always set, and `state` only with a primary
+version. Labels are sorted by name; before, the order followed map iteration
+and changed between runs. A nil response with no error, which a real client
+never returns, is now an `empty response` error from `GetCryptoKey` (GetKey,
+KeyInfo), `GetPublicKey` in KeyInfo (also for an empty PEM), and
+`CreateCryptoKey`. A nil `DestroyCryptoKeyVersion` response is still
+success; its destroy time is only logged when present. `Sign` accepts a
+result only when it is non-nil, `VerifiedDigestCrc32C` is true, and
+`SignatureCrc32C` is present and matches the signature. A missing checksum
+is an error (`response has no signature checksum`), never a verified
+signature.
+
+Validation: on HEAD, `TestKeyInfoMissingMetadata`, the updated
+`TestEnumKeysPagination` (second page without metadata),
+`TestSignResponseIntegrity` and `TestEmptyResponses` panicked with nil
+dereferences, and `TestKeyInfoFullMetadata` failed on label order. After:
+`TestKeyInfoMissingMetadata` and `TestKeyInfoFullMetadata` assert the exact
+label, Meta map and `CreationTime`; `TestEnumKeysPagination` asserts a bare
+key's Meta is only `purpose`, with nil `CreationTime` and an empty label;
+`TestSignResponseIntegrity` covers a nil response, an unverified digest, a
+missing checksum, a wrong checksum and a changed signature;
+`TestEmptyResponses` asserts the exact errors.
+
+### XPKI-025-gcpkmscrypto — GC1
+
+**gcpkmscrypto portion Fixed on 2026-09-26; XPKI-025 stays In Progress
+(awskmscrypto portion in AW1).** Approved policy: return an error; no
+default digest. `Signer.Sign` called `opts.HashFunc()` without checking
+opts, so nil opts, or a nil `*rsa.PSSOptions`, panicked. Now `signDigest`
+rejects nil and nil-pointer opts (`signer options are required`), hashes other
+than SHA-256/384/512 (`unsupported hash: SHA-1`; the message used to name the
+opts type), and a digest whose length differs from the hash size (`digest
+length 20 does not match SHA-256 (32 bytes)`). All of these fail before any
+RPC. A `Signer` with no provider returns `signer has no provider`.
+
+Validation: on HEAD, `TestSignRejectsOptionsLocally` and
+`TestSignNilProvider` panicked. After: `TestSignRejectsOptionsLocally`
+covers nil, typed nil, `Hash(0)`, SHA-1, SHA-224, PSS with SHA-1 and three
+wrong digest lengths with exact errors, and records no RPC.
+`TestSignRequest` checks the key version name, the digest variant for SHA-256,
+SHA-384, SHA-512 and PSS SHA-256, and the digest CRC32C.
+
+GC1 validation (all three items): `go test ./cryptoprov/gcpkmscrypto -cover`
+95.6% at HEAD → 97.1%. `make lint` (0 issues), `make test RACE=true
+TEST_FLAGS=-count=1` (uncached, with SoftHSM and local-kms), `make build
+docs` and `make covtest` (all packages passed, total **91.7%**) passed. The
+new tests use `fakeKMS` (`fake_test.go`) with `export_test.go`
+`NewTestProvider`, so they need no global factory swap and run in parallel.
 
 ### XPKI-016 — CP1
 
@@ -1766,5 +1885,9 @@ Validation passed:
   the same provider instance is a no-op, a different instance with the same
   manufacturer and model is `ErrDuplicateProvider`, and nil and typed-nil
   providers are `ErrNilProvider`).
+- **XPKI-018 / XPKI-023 / XPKI-025 (gcpkmscrypto)** were approved and fixed by
+  GC1 on 2026-09-26 (Close rejects new calls and waits for in-flight ones;
+  missing optional KMS metadata is omitted; nil or unsupported signer options
+  are an error before any RPC).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.

@@ -51,6 +51,12 @@ const ProviderName = "GCPKMS"
 
 ## Variables
 
+<a name="ErrClosed"></a>ErrClosed is returned after Close by the operations that call KMS: GetKey, KeyInfo, EnumKeys, DestroyKeyPairOnSlot, GenerateRSAKey, GenerateECDSAKey and Signer.Sign. Operations that do not call KMS, such as EnumTokens, ExportKey and IdentifyKey, keep working.
+
+```go
+var ErrClosed = errors.New("gcpkms: provider is closed")
+```
+
 <a name="KmsClientFactory"></a>KmsClientFactory override for unittest
 
 ```go
@@ -66,7 +72,7 @@ var KmsClientFactory = func() (KmsClient, error) {
 ```
 
 <a name="Crc32c"></a>
-## func [Crc32c](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L105>)
+## func [Crc32c](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L150>)
 
 ```go
 func Crc32c(data []byte) uint32
@@ -75,7 +81,7 @@ func Crc32c(data []byte) uint32
 Crc32c computes digest's CRC32C.
 
 <a name="KeyLabelAndID"></a>
-## func [KeyLabelAndID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L441>)
+## func [KeyLabelAndID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L562>)
 
 ```go
 func KeyLabelAndID(val string) (label string, id string)
@@ -84,7 +90,7 @@ func KeyLabelAndID(val string) (label string, id string)
 KeyLabelAndID adds a date suffix to ID of a key
 
 <a name="KmsLoader"></a>
-## func [KmsLoader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L432>)
+## func [KmsLoader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L553>)
 
 ```go
 func KmsLoader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error)
@@ -102,7 +108,7 @@ func NewSigner(keyID string, label string, publicKey crypto.PublicKey, prov *Pro
 NewSigner creates new signer
 
 <a name="KmsClient"></a>
-## type [KmsClient](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L35-L44>)
+## type [KmsClient](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L38-L47>)
 
 KmsClient interface
 
@@ -120,9 +126,11 @@ type KmsClient interface {
 ```
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L58-L64>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L76-L88>)
 
-Provider implements Provider interface for KMS
+Provider implements Provider interface for KMS.
+
+Its methods and signers are safe for concurrent use with Close: Close rejects new operations with ErrClosed, waits for those in flight, then closes the client. The embedded KmsClient is set up by Init; its methods called directly bypass that guard.
 
 ```go
 type Provider struct {
@@ -132,7 +140,7 @@ type Provider struct {
 ```
 
 <a name="Init"></a>
-### func [Init](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L67>)
+### func [Init](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L91>)
 
 ```go
 func Init(tc cryptoprov.TokenConfig) (*Provider, error)
@@ -141,16 +149,16 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error)
 Init configures Kms based hsm impl
 
 <a name="Provider.Close"></a>
-### func \(\*Provider\) [Close](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L423>)
+### func \(\*Provider\) [Close](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L525>)
 
 ```go
 func (p *Provider) Close() error
 ```
 
-Close allocated resources and file reloader
+Close rejects new operations with ErrClosed, waits for the operations in flight, then closes the client and returns its error. Later and concurrent calls wait for the first one and return nil. The KmsClient field is kept \(XPKI\-018\).
 
 <a name="Provider.CurrentSlotID"></a>
-### func \(\*Provider\) [CurrentSlotID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L112>)
+### func \(\*Provider\) [CurrentSlotID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L136>)
 
 ```go
 func (p *Provider) CurrentSlotID() uint
@@ -159,7 +167,7 @@ func (p *Provider) CurrentSlotID() uint
 CurrentSlotID returns current slot id. For KMS only one slot is assumed to be available.
 
 <a name="Provider.DestroyKeyPairOnSlot"></a>
-### func \(\*Provider\) [DestroyKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L344>)
+### func \(\*Provider\) [DestroyKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L418>)
 
 ```go
 func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error
@@ -168,7 +176,7 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error
 DestroyKeyPairOnSlot destroys key pair on slot. For KMS slotID is ignored and KMS retire API is used to destroy the key.
 
 <a name="Provider.EnumKeys"></a>
-### func \(\*Provider\) [EnumKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L293>)
+### func \(\*Provider\) [EnumKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L359>)
 
 ```go
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error)
@@ -177,7 +185,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 EnumKeys returns list of keys on the slot. For KMS slotID is ignored.
 
 <a name="Provider.EnumTokens"></a>
-### func \(\*Provider\) [EnumTokens](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L282>)
+### func \(\*Provider\) [EnumTokens](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L348>)
 
 ```go
 func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error)
@@ -186,7 +194,7 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 EnumTokens lists tokens. For KMS currentSlotOnly is ignored and only one slot is assumed to be available.
 
 <a name="Provider.ExportKey"></a>
-### func \(\*Provider\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L407>)
+### func \(\*Provider\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L506>)
 
 ```go
 func (p *Provider) ExportKey(keyID string) (string, []byte, error)
@@ -195,7 +203,7 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error)
 ExportKey returns PKCS\#11 URI for specified key ID. It does not return key bytes
 
 <a name="Provider.FindKeyPairOnSlot"></a>
-### func \(\*Provider\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L418>)
+### func \(\*Provider\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L517>)
 
 ```go
 func (p *Provider) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.PrivateKey, error)
@@ -204,7 +212,7 @@ func (p *Provider) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.P
 FindKeyPairOnSlot retrieves a previously created asymmetric key, using a specified slot.
 
 <a name="Provider.GenerateECDSAKey"></a>
-### func \(\*Provider\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L209>)
+### func \(\*Provider\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L267>)
 
 ```go
 func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
@@ -213,7 +221,7 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 GenerateECDSAKey creates signer using randomly generated ECDSA key
 
 <a name="Provider.GenerateRSAKey"></a>
-### func \(\*Provider\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L117>)
+### func \(\*Provider\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L165>)
 
 ```go
 func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
@@ -222,7 +230,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 GenerateRSAKey creates signer using randomly generated RSA key
 
 <a name="Provider.GetKey"></a>
-### func \(\*Provider\) [GetKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L256>)
+### func \(\*Provider\) [GetKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L314>)
 
 ```go
 func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error)
@@ -231,7 +239,7 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error)
 GetKey returns PrivateKey
 
 <a name="Provider.IdentifyKey"></a>
-### func \(\*Provider\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L247>)
+### func \(\*Provider\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L305>)
 
 ```go
 func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error)
@@ -240,7 +248,7 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 IdentifyKey returns key id and label for the given private key
 
 <a name="Provider.KeyInfo"></a>
-### func \(\*Provider\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L359>)
+### func \(\*Provider\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L440>)
 
 ```go
 func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error)
@@ -249,7 +257,7 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 KeyInfo retrieves info about key with the specified id
 
 <a name="Provider.Manufacturer"></a>
-### func \(\*Provider\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L102>)
+### func \(\*Provider\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L126>)
 
 ```go
 func (p *Provider) Manufacturer() string
@@ -258,7 +266,7 @@ func (p *Provider) Manufacturer() string
 Manufacturer returns manufacturer for the provider
 
 <a name="Provider.Model"></a>
-### func \(\*Provider\) [Model](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L107>)
+### func \(\*Provider\) [Model](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/gcpkmsprov.go#L131>)
 
 ```go
 func (p *Provider) Model() string
@@ -305,13 +313,13 @@ func (s *Signer) Public() crypto.PublicKey
 Public returns public key for the signer
 
 <a name="Signer.Sign"></a>
-### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L61>)
+### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L66>)
 
 ```go
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
 ```
 
-Sign implements signing operation
+Sign signs digest with the KMS key. opts is required and must name SHA\-256, SHA\-384 or SHA\-512, and digest must have that hash's length; the padding and curve come from the key's KMS algorithm. Invalid options fail before any RPC \(XPKI\-025\). The response is accepted only when KMS verified the digest checksum and the signature matches its checksum \(XPKI\-023\). After the provider is closed, Sign returns ErrClosed.
 
 <a name="Signer.String"></a>
 ### func \(\*Signer\) [String](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L53>)

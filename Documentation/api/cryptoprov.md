@@ -185,16 +185,16 @@ func New(defaultProvider Provider, providers []Provider) (*Crypto, error)
 New creates an instance of Crypto providers. defaultProvider is required; providers are added with Add, so a nil entry or a conflicting duplicate fails New.
 
 <a name="Crypto.Add"></a>
-### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L144>)
+### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L148>)
 
 ```go
 func (c *Crypto) Add(p Provider) error
 ```
 
-Add registers p for lookup by its manufacturer and model. Adding the same provider instance again, including the default one, is a no\-op. A different provider with the manufacturer and model of a registered or the default provider returns ErrDuplicateProvider \(XPKI\-016\), and a nil provider, including a typed nil, returns ErrNilProvider.
+Add registers p for lookup by its manufacturer and model. Adding the same provider again, including the default one, is a no\-op when its dynamic value is comparable, such as a pointer; the provider types in this module are. A provider value that is not comparable \(a struct holding a map, slice or func\) can not be matched, so adding it again returns ErrDuplicateProvider. A different provider with the manufacturer and model of a registered or the default provider returns ErrDuplicateProvider \(XPKI\-016\), and a nil provider, including a typed nil, returns ErrNilProvider.
 
 <a name="Crypto.ByManufacturer"></a>
-### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L178>)
+### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L182>)
 
 ```go
 func (c *Crypto) ByManufacturer(manufacturer, model string) (Provider, error)

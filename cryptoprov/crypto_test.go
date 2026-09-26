@@ -255,6 +255,34 @@ func TestLoad_ClosesOnError(t *testing.T) {
 	})
 }
 
+const valueManufacturer = "cryptoprov-test-value"
+
+// TestLoad_NonComparableDefault loads a default provider whose dynamic value
+// is not comparable; Load must not report it as its own duplicate
+// (XPKI-113).
+func TestLoad_NonComparableDefault(t *testing.T) {
+	require.NoError(t, cryptoprov.Register(valueManufacturer, func(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error) {
+		return valueProvider{namedProvider: newNamedProvider(tc.Manufacturer(), tc.Model())}, nil
+	}))
+	t.Cleanup(func() {
+		_, err := cryptoprov.Unregister(valueManufacturer)
+		assert.NoError(t, err)
+	})
+
+	cp, err := cryptoprov.Load(writeTokenConfig(t, valueManufacturer, "a"), []string{
+		writeTokenConfig(t, valueManufacturer, "b"),
+	})
+	require.NoError(t, err)
+	assert.IsType(t, valueProvider{}, cp.Default())
+
+	def, err := cp.ByManufacturer(valueManufacturer, "a")
+	require.NoError(t, err)
+	assert.Equal(t, "a", def.Model())
+	b, err := cp.ByManufacturer(valueManufacturer, "b")
+	require.NoError(t, err)
+	assert.Equal(t, "b", b.Model())
+}
+
 func TestLoad_InmemDuplicate(t *testing.T) {
 	// inmem_testprov.json names the same manufacturer and model as the
 	// default "" config, but loads another instance

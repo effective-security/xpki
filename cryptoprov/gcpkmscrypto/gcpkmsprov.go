@@ -7,8 +7,11 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"path"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 	"uuid"
 
@@ -54,13 +57,34 @@ var KmsClientFactory = func() (KmsClient, error) {
 	return client, nil
 }
 
-// Provider implements Provider interface for KMS
+// ErrClosed is returned after Close by the operations that call KMS:
+// GetKey, KeyInfo, EnumKeys, DestroyKeyPairOnSlot, GenerateRSAKey,
+// GenerateECDSAKey and Signer.Sign. Operations that do not call KMS, such as
+// EnumTokens, ExportKey and IdentifyKey, keep working.
+var ErrClosed = errors.New("gcpkms: provider is closed")
+
+// errEmptyResponse is returned when KMS returns neither a response nor an
+// error.
+var errEmptyResponse = errors.New("empty response")
+
+// Provider implements Provider interface for KMS.
+//
+// Its methods and signers are safe for concurrent use with Close: Close
+// rejects new operations with ErrClosed, waits for those in flight, then
+// closes the client. The embedded KmsClient is set up by Init; its methods
+// called directly bypass that guard.
 type Provider struct {
 	KmsClient
 
 	tc       cryptoprov.TokenConfig
 	endpoint string
 	keyring  string
+
+	mu        sync.Mutex
+	active    int
+	closed    bool
+	drained   chan struct{}
+	closeOnce sync.Once
 }
 
 // Init configures Kms based hsm impl
@@ -113,6 +137,30 @@ func (p *Provider) CurrentSlotID() uint {
 	return 0
 }
 
+// enter registers an operation that uses the client; it returns ErrClosed
+// after Close. Each successful enter must be paired with exit. Operations do
+// not nest.
+func (p *Provider) enter() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return errors.WithStack(ErrClosed)
+	}
+	p.active++
+	return nil
+}
+
+// exit ends an operation registered by enter.
+func (p *Provider) exit() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.active--
+	if p.active == 0 && p.drained != nil {
+		close(p.drained)
+		p.drained = nil
+	}
+}
+
 // GenerateRSAKey creates signer using randomly generated RSA key
 func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_rsa")
@@ -154,10 +202,20 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 	return p.genKey(ctx, req, label)
 }
 
+// genKey creates the key of req and waits for its public key. Close waits
+// for it, including the wait for key generation.
 func (p *Provider) genKey(ctx context.Context, req *kmspb.CreateCryptoKeyRequest, label string) (crypto.PrivateKey, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.exit()
+
 	resp, err := p.CreateCryptoKey(ctx, req)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to create key")
+	}
+	if resp == nil {
+		return nil, errors.WithMessage(errEmptyResponse, "failed to create key")
 	}
 
 	logger.KV(xlog.NOTICE,
@@ -258,11 +316,19 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
 
 	logger.KV(xlog.INFO, "keyID", keyID)
 
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.exit()
+
 	ctx := context.Background()
 	name := p.keyName(keyID)
 	key, err := p.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: name})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to get key")
+	}
+	if key == nil {
+		return nil, errors.WithMessage(errEmptyResponse, "failed to get key")
 	}
 
 	pubResponse, err := p.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: name + "/cryptoKeyVersions/1"})
@@ -270,11 +336,11 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
 		return nil, errors.WithMessagef(err, "failed to get public key")
 	}
 
-	pub, err := parseKeyFromPEM([]byte(pubResponse.Pem))
+	pub, err := parseKeyFromPEM([]byte(pubResponse.GetPem()))
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to parse public key")
 	}
-	signer := NewSigner(keyID, key.Labels["label"], pub, p)
+	signer := NewSigner(keyID, key.GetLabels()["label"], pub, p)
 	return signer, nil
 }
 
@@ -292,6 +358,11 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 // EnumKeys returns list of keys on the slot. For KMS slotID is ignored.
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
 	logger.KV(xlog.DEBUG, "endpoint", p.endpoint, "slotID", slotID, "prefix", prefix)
+
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.exit()
 
 	iter := p.ListCryptoKeys(
 		context.Background(),
@@ -329,20 +400,28 @@ func (p *Provider) keyVersionName(keyID string) string {
 	return p.keyring + "/cryptoKeys/" + keyID + "/cryptoKeyVersions/1"
 }
 
+// keyLabelInfo returns "protection=LEVEL" when the key has a version
+// template, followed by the key's labels sorted by name, comma separated.
 func keyLabelInfo(key *kmspb.CryptoKey) string {
-	label := "protection=" + key.VersionTemplate.ProtectionLevel.String()
-	for k, v := range key.Labels {
-		if label != "" {
-			label += ","
-		}
-		label += k + "=" + v
+	var parts []string
+	if vt := key.GetVersionTemplate(); vt != nil {
+		parts = append(parts, "protection="+vt.GetProtectionLevel().String())
 	}
-	return label
+	labels := key.GetLabels()
+	for _, k := range slices.Sorted(maps.Keys(labels)) {
+		parts = append(parts, k+"="+labels[k])
+	}
+	return strings.Join(parts, ",")
 }
 
 // DestroyKeyPairOnSlot destroys key pair on slot. For KMS slotID is ignored and KMS retire API is used to destroy the key.
 func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	logger.KV(xlog.NOTICE, "slot", slotID, "key", keyID)
+	if err := p.enter(); err != nil {
+		return err
+	}
+	defer p.exit()
+
 	resp, err := p.DestroyCryptoKeyVersion(context.Background(),
 		&kmspb.DestroyCryptoKeyVersionRequest{
 			Name: p.keyVersionName(keyID),
@@ -350,7 +429,9 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	if err != nil {
 		return errors.WithMessagef(err, "failed to schedule key deletion: %s", keyID)
 	}
-	logger.KV(xlog.NOTICE, "id", keyID, "deletion_time", resp.DestroyTime.AsTime())
+	if destroyTime := resp.GetDestroyTime(); destroyTime != nil {
+		logger.KV(xlog.NOTICE, "id", keyID, "deletion_time", destroyTime.AsTime())
+	}
 
 	return nil
 }
@@ -364,9 +445,17 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 
 	logger.KV(xlog.DEBUG, "key", name)
 
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.exit()
+
 	key, err := p.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: name})
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
+	}
+	if key == nil {
+		return nil, errors.WithMessagef(errEmptyResponse, "failed to describe key, id=%s", keyID)
 	}
 
 	res := keyInfo(key)
@@ -375,28 +464,38 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 		}
-		res.PublicKey = pub.Pem
+		if pub.GetPem() == "" {
+			return nil, errors.WithMessagef(errEmptyResponse, "failed to get public key, id=%s", keyID)
+		}
+		res.PublicKey = pub.GetPem()
 	}
 
 	return res, nil
 }
 
+// keyInfo converts key. Optional metadata that KMS did not return is left
+// out: no CreationTime without CreateTime, and no "protection"/"algo" Meta
+// without VersionTemplate (XPKI-023).
 func keyInfo(key *kmspb.CryptoKey) *cryptoprov.KeyInfo {
-	createdAt := key.CreateTime.AsTime()
 	ki := &cryptoprov.KeyInfo{
-		ID:               path.Base(key.Name),
+		ID:               path.Base(key.GetName()),
 		Label:            keyLabelInfo(key),
 		CurrentVersionID: "1",
-		CreationTime:     &createdAt,
 
 		Meta: map[string]string{
-			"protection": key.VersionTemplate.ProtectionLevel.String(),
-			"algo":       key.VersionTemplate.Algorithm.String(),
-			"purpose":    key.Purpose.String(),
+			"purpose": key.GetPurpose().String(),
 		},
 	}
-	if key.Primary != nil {
-		ki.Meta["state"] = key.Primary.State.String()
+	if ct := key.GetCreateTime(); ct != nil {
+		createdAt := ct.AsTime()
+		ki.CreationTime = &createdAt
+	}
+	if vt := key.GetVersionTemplate(); vt != nil {
+		ki.Meta["protection"] = vt.GetProtectionLevel().String()
+		ki.Meta["algo"] = vt.GetAlgorithm().String()
+	}
+	if primary := key.GetPrimary(); primary != nil {
+		ki.Meta["state"] = primary.GetState().String()
 	}
 
 	return ki
@@ -419,13 +518,35 @@ func (p *Provider) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.P
 	return nil, errors.Errorf("unsupported command for this crypto provider")
 }
 
-// Close allocated resources and file reloader
+// Close rejects new operations with ErrClosed, waits for the operations in
+// flight, then closes the client and returns its error. Later and
+// concurrent calls wait for the first one and return nil. The KmsClient
+// field is kept (XPKI-018).
 func (p *Provider) Close() error {
-	if p.KmsClient != nil {
-		_ = p.KmsClient.Close()
-		p.KmsClient = nil
+	var err error
+	p.closeOnce.Do(func() {
+		err = p.close()
+	})
+	return err
+}
+
+func (p *Provider) close() error {
+	p.mu.Lock()
+	p.closed = true
+	var drained chan struct{}
+	if p.active > 0 {
+		drained = make(chan struct{})
+		p.drained = drained
 	}
-	return nil
+	p.mu.Unlock()
+
+	if drained != nil {
+		<-drained
+	}
+	if p.KmsClient == nil {
+		return nil
+	}
+	return errors.WithMessage(p.KmsClient.Close(), "unable to close KMS client")
 }
 
 // KmsLoader provides loader for KMS provider
