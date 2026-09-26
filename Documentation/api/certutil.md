@@ -113,6 +113,12 @@ const (
 
 ## Variables
 
+<a name="ErrNoCertificates"></a>ErrNoCertificates is returned, wrapped, when a Bundler or BuildBundle is given no certificate to bundle.
+
+```go
+var ErrNoCertificates = errors.New("no certificates")
+```
+
 <a name="HTTPClient"></a>HTTPClient is not read by this package.
 
 Deprecated: AIA downloads use the client passed to WithHTTPClient, or a client with a 3s timeout when none is given; setting this variable has no effect \(XPKI\-044\).
@@ -128,22 +134,22 @@ var IntermediateStash string
 ```
 
 <a name="BuildBundle"></a>
-## func [BuildBundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L80>)
+## func [BuildBundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L85>)
 
 ```go
 func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error)
 ```
 
-BuildBundle returns Bundle
+BuildBundle returns the Bundle and BundleStatus of a Chain built by a Bundler. A nil c or c.Cert returns an error; a nil c.Status is treated as an empty status, and a nil c.Root \(a Force chain\) leaves RootCert and RootCertPEM empty \(XPKI\-042\).
 
 <a name="CreateOCSPRequest"></a>
-## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L15>)
+## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L18>)
 
 ```go
 func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte, error)
 ```
 
-CreateOCSPRequest returns DER encoded OCSP request
+CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer key with hash. A nil crt or issuer, an unavailable hash, or an issuer that did not issue crt returns an error before any work \(XPKI\-103\).
 
 <a name="CreatePoolFromPEM"></a>
 ## func [CreatePoolFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L147>)
@@ -200,7 +206,7 @@ func EncodeToPEMString(withComments bool, certs ...*x509.Certificate) (string, e
 EncodeToPEMString converts certificates to PEM format, with optional comments
 
 <a name="ExpiryTime"></a>
-## func [ExpiryTime](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L863>)
+## func [ExpiryTime](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L874>)
 
 ```go
 func ExpiryTime(chain []*x509.Certificate) (notAfter time.Time)
@@ -227,7 +233,7 @@ func FindExtensionValue(list []pkix.Extension, oid asn1.ObjectIdentifier) []byte
 FindExtensionValue returns extension value, or nil
 
 <a name="FindIssuer"></a>
-## func [FindIssuer](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L164>)
+## func [FindIssuer](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L180>)
 
 ```go
 func FindIssuer(crt *x509.Certificate, chain []*x509.Certificate, root *x509.Certificate) *x509.Certificate
@@ -254,13 +260,13 @@ func GetIssuerID(c *x509.Certificate) string
 GetIssuerID returns ID of the issuer. If present, it uses Authority Key Identifier, otherwise SHA1 of the Issuer name
 
 <a name="GetKeyDERFromPEM"></a>
-## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L296>)
+## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L304>)
 
 ```go
 func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
 ```
 
-GetKeyDERFromPEM parses a PEM\-encoded private key and returns DER\-format key bytes.
+GetKeyDERFromPEM parses a PEM\-encoded private key and returns DER\-format key bytes, decrypting it with password when it is encrypted. Encrypted PKCS\#8 keys are supported only with PBES2, PBKDF2 \(HMAC\-SHA1, \-SHA224, \-SHA256, \-SHA384 or \-SHA512, at most 10,000,000 iterations\) and AES\-128/192/256\-CBC, which OpenSSL 3 writes by default. Other PKCS\#8 schemes \(PBES1, PKCS\#12 PBE, scrypt, DES\) return an "unsupported PKCS\#8 encryption" error \(XPKI\-043\).
 
 <a name="GetSubjectID"></a>
 ## func [GetSubjectID](<https://github.com/effective-security/xpki/blob/main/certutil/cert_id.go#L26>)
@@ -344,7 +350,7 @@ func JoinPEM(p1, p2 []byte) []byte
 JoinPEM returns concantenated PEM
 
 <a name="LoadAndVerifyBundleFromPEM"></a>
-## func [LoadAndVerifyBundleFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L137>)
+## func [LoadAndVerifyBundleFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L153>)
 
 ```go
 func LoadAndVerifyBundleFromPEM(certFile, intCAFile, rootFile string, opt ...Option) (*Bundle, *BundleStatus, error)
@@ -425,7 +431,7 @@ func ParseHexDigestWithPrefix(digest string) (hash.Hash, []byte, error)
 ParseHexDigestWithPrefix parses encoded digest in \{alg\}:\{hex\} format
 
 <a name="ParsePrivateKeyDER"></a>
-## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L323>)
+## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L337>)
 
 ```go
 func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error)
@@ -443,13 +449,13 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error)
 ParsePrivateKeyPEM parses and returns a PEM\-encoded private key. The private key may be either an unencrypted PKCS\#8, PKCS\#1, or elliptic private key.
 
 <a name="ParsePrivateKeyPEMWithPassword"></a>
-## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L286>)
+## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L288>)
 
 ```go
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.Signer, err error)
 ```
 
-ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, or a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\); encrypted PKCS\#8 \(ENCRYPTED PRIVATE KEY\) is not supported. The key may be RSA or ECDSA.
+ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\), or an encrypted PKCS\#8 key \(ENCRYPTED PRIVATE KEY\) as described by GetKeyDERFromPEM. The key may be RSA, ECDSA, or Ed25519 \(PKCS\#8 only\). A nil password fails for an encrypted key; a wrong password returns an error that matches x509.IncorrectPasswordError.
 
 <a name="ParseRSAPublicKeyFromPEM"></a>
 ## func [ParseRSAPublicKeyFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L201>)
@@ -542,7 +548,7 @@ func StrToHashAlgo(algo string) crypto.Hash
 StrToHashAlgo converts string to hash algorithm
 
 <a name="VerifyBundleFromPEM"></a>
-## func [VerifyBundleFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L64>)
+## func [VerifyBundleFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L66>)
 
 ```go
 func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte, opt ...Option) (bundle *Bundle, status *BundleStatus, err error)
@@ -575,25 +581,25 @@ type Bundle struct {
 ```
 
 <a name="SortBundlesByExpiration"></a>
-### func [SortBundlesByExpiration](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L178>)
+### func [SortBundlesByExpiration](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L197>)
 
 ```go
 func SortBundlesByExpiration(bundles []*Bundle) []*Bundle
 ```
 
-SortBundlesByExpiration returns bundles sorted by expiration in descending order
+SortBundlesByExpiration returns a new slice of bundles sorted by Expires in descending order. The sort is stable, so bundles with the same Expires keep their input order, and nil bundles go last. The caller's slice is not reordered; the bundles themselves are shared \(XPKI\-038\).
 
 <a name="Bundle.ExpiresInHours"></a>
-### func \(\*Bundle\) [ExpiresInHours](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L59>)
+### func \(\*Bundle\) [ExpiresInHours](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L61>)
 
 ```go
 func (b *Bundle) ExpiresInHours() time.Duration
 ```
 
-ExpiresInHours returns cert expiration rounded up in hours
+ExpiresInHours returns the time until Expires truncated toward zero to whole hours: 90 minutes is 1h, and an expiry 90 minutes ago is \-1h \(XPKI\-045\).
 
 <a name="BundleFlavor"></a>
-## type [BundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L40>)
+## type [BundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L44>)
 
 BundleFlavor is named optimization strategy on certificate chain selection when bundling.
 
@@ -651,7 +657,7 @@ func (b *BundleStatus) IsUntrusted() bool
 IsUntrusted returns true if the cert's issuers are not trusted
 
 <a name="Bundler"></a>
-## type [Bundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L78-L85>)
+## type [Bundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L82-L89>)
 
 A Bundler contains the certificate pools for producing certificate bundles. It contains any intermediates and root certificates that should be used.
 
@@ -669,7 +675,7 @@ type Bundler struct {
 ```
 
 <a name="LoadBundler"></a>
-### func [LoadBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L152>)
+### func [LoadBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L156>)
 
 ```go
 func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler, error)
@@ -678,7 +684,7 @@ func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler,
 LoadBundler creates a new Bundler from the files passed in; these files should contain a list of valid root certificates and a list of valid intermediate certificates, respectively.
 
 <a name="NewBundler"></a>
-### func [NewBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L206>)
+### func [NewBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L210>)
 
 ```go
 func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundler, error)
@@ -687,7 +693,7 @@ func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundl
 NewBundler returns a Bundler that trusts roots, plus the system roots with WithSystemRoots, and uses intermediates to build chains. The flavor defaults to Optimal with trust roots and to Force without them; Optimal without trust roots is an error, so a Bundler never trusts system roots implicitly. RootPool is nil only when there are no trust roots.
 
 <a name="NewBundlerFromPEM"></a>
-### func [NewBundlerFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L188>)
+### func [NewBundlerFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L192>)
 
 ```go
 func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundler, error)
@@ -696,16 +702,16 @@ func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bund
 NewBundlerFromPEM creates a new Bundler from PEM\-encoded root certificates and intermediate certificates. Without root certificates the default flavor is Force; see NewBundler.
 
 <a name="Bundler.Bundle"></a>
-### func \(\*Bundler\) [Bundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L702>)
+### func \(\*Bundler\) [Bundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L708>)
 
 ```go
 func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, error)
 ```
 
-Bundle takes an X509 certificate \(already in the Certificate structure\), a private key as crypto.Signer in one of the appropriate formats \(i.e. \*rsa.PrivateKey or \*ecdsa.PrivateKey, or even a opaque key\), using them to build a certificate bundle.
+Bundle takes an X509 certificate \(already in the Certificate structure\), a private key as crypto.Signer in one of the appropriate formats \(i.e. \*rsa.PrivateKey or \*ecdsa.PrivateKey, or even a opaque key\), using them to build a certificate bundle. certs\[0\] is the leaf \(a reversed chain is detected\). A nil or empty certs returns an error matching ErrNoCertificates, and a nil entry returns an error \(XPKI\-036\).
 
 <a name="Bundler.BundleContext"></a>
-### func \(\*Bundler\) [BundleContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L710>)
+### func \(\*Bundler\) [BundleContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L716>)
 
 ```go
 func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, key crypto.Signer) (*Chain, error)
@@ -714,7 +720,7 @@ func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, 
 BundleContext is Bundle with a context that bounds and cancels AIA downloads. When ctx is done during an AIA download, the returned error matches ctx.Err\(\) with errors.Is. An Optimal Bundler whose RootPool is nil fails instead of verifying against the system roots.
 
 <a name="Bundler.ChainFromFile"></a>
-### func \(\*Bundler\) [ChainFromFile](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L325>)
+### func \(\*Bundler\) [ChainFromFile](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L329>)
 
 ```go
 func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*Chain, error)
@@ -723,7 +729,7 @@ func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*C
 ChainFromFile takes a set of files containing the PEM\-encoded leaf certificate \(optionally along with some intermediate certs\), the PEM\-encoded private key and returns the bundle built from that key and the certificate\(s\).
 
 <a name="Bundler.ChainFromPEM"></a>
-### func \(\*Bundler\) [ChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L348>)
+### func \(\*Bundler\) [ChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L352>)
 
 ```go
 func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain, error)
@@ -732,7 +738,7 @@ func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain
 ChainFromPEM builds a certificate chain from the set of byte slices containing the PEM or DER\-encoded certificate\(s\), private key.
 
 <a name="Bundler.ChainFromPEMContext"></a>
-### func \(\*Bundler\) [ChainFromPEMContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L354>)
+### func \(\*Bundler\) [ChainFromPEMContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L358>)
 
 ```go
 func (b *Bundler) ChainFromPEMContext(ctx context.Context, certsRaw, keyPEM []byte, password string) (*Chain, error)
@@ -741,7 +747,7 @@ func (b *Bundler) ChainFromPEMContext(ctx context.Context, certsRaw, keyPEM []by
 ChainFromPEMContext is ChainFromPEM with a context that bounds and cancels AIA downloads; see BundleContext.
 
 <a name="Bundler.VerifyOptions"></a>
-### func \(\*Bundler\) [VerifyOptions](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L261>)
+### func \(\*Bundler\) [VerifyOptions](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L265>)
 
 ```go
 func (b *Bundler) VerifyOptions() x509.VerifyOptions
@@ -750,7 +756,7 @@ func (b *Bundler) VerifyOptions() x509.VerifyOptions
 VerifyOptions returns the x509.VerifyOptions used by Optimal bundling. Roots is never nil: without a RootPool it is an empty pool, so the options never fall back to the system roots. It is a snapshot: intermediates learned later are not added to it.
 
 <a name="Chain"></a>
-## type [Chain](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L658-L669>)
+## type [Chain](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L662-L673>)
 
 Chain contains a certificate and its trust chain. It is intended to store the most widely applicable chain, with shortness an explicit goal.
 
@@ -794,7 +800,7 @@ func NewKeyInfo(k any) (*KeyInfo, error)
 NewKeyInfo returns \*KeyInfo
 
 <a name="Option"></a>
-## type [Option](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L103>)
+## type [Option](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L107>)
 
 An Option sets options such as allowed key usages, etc.
 
@@ -803,7 +809,7 @@ type Option func(*options)
 ```
 
 <a name="WithAIA"></a>
-### func [WithAIA](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L124>)
+### func [WithAIA](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L128>)
 
 ```go
 func WithAIA(enable bool) Option
@@ -812,7 +818,7 @@ func WithAIA(enable bool) Option
 WithAIA lets to enable downloading issuers from AIA.
 
 <a name="WithBundleFlavor"></a>
-### func [WithBundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L117>)
+### func [WithBundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L121>)
 
 ```go
 func WithBundleFlavor(flavor BundleFlavor) Option
@@ -821,7 +827,7 @@ func WithBundleFlavor(flavor BundleFlavor) Option
 WithBundleFlavor selects Optimal or Force chain building. Without this option the flavor is Optimal when the Bundler has trust roots \(explicit roots or WithSystemRoots\) and Force otherwise. NewBundler rejects Optimal without trust roots and any other flavor value; the last option wins.
 
 <a name="WithHTTPClient"></a>
-### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L143>)
+### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L147>)
 
 ```go
 func WithHTTPClient(client *http.Client) Option
@@ -830,7 +836,7 @@ func WithHTTPClient(client *http.Client) Option
 WithHTTPClient sets the client for AIA downloads. Each request is bounded by the client's Timeout, or 3s when it is zero, and by the context given to BundleContext. Only a 200 response of at most 1 MiB is parsed. Without this option a client with a 3s timeout is used.
 
 <a name="WithKeyUsages"></a>
-### func [WithKeyUsages](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L107>)
+### func [WithKeyUsages](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L111>)
 
 ```go
 func WithKeyUsages(usages ...x509.ExtKeyUsage) Option
@@ -839,7 +845,7 @@ func WithKeyUsages(usages ...x509.ExtKeyUsage) Option
 WithKeyUsages lets you set which Extended Key Usage values are acceptable. By default x509.ExtKeyUsageAny will be used.
 
 <a name="WithSystemRoots"></a>
-### func [WithSystemRoots](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L133>)
+### func [WithSystemRoots](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L137>)
 
 ```go
 func WithSystemRoots(enable bool) Option

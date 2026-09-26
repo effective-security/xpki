@@ -5,7 +5,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,7 +55,9 @@ type Bundle struct {
 	RootCertPEM string
 }
 
-// ExpiresInHours returns cert expiration rounded up in hours
+// ExpiresInHours returns the time until Expires truncated toward zero to
+// whole hours: 90 minutes is 1h, and an expiry 90 minutes ago is -1h
+// (XPKI-045).
 func (b *Bundle) ExpiresInHours() time.Duration {
 	return b.Expires.Sub(time.Now().UTC()) / time.Hour * time.Hour
 }
@@ -76,8 +78,22 @@ func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte, opt ...Option) (bund
 	return BuildBundle(c)
 }
 
-// BuildBundle returns Bundle
+// BuildBundle returns the Bundle and BundleStatus of a Chain built by a
+// Bundler. A nil c or c.Cert returns an error; a nil c.Status is treated as
+// an empty status, and a nil c.Root (a Force chain) leaves RootCert and
+// RootCertPEM empty (XPKI-042).
 func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error) {
+	if c == nil {
+		return nil, nil, errors.New("chain is nil")
+	}
+	if c.Cert == nil {
+		return nil, nil, errors.Wrap(ErrNoCertificates, "chain has no leaf certificate")
+	}
+	cs := c.Status
+	if cs == nil {
+		cs = &BundleStatus{}
+	}
+
 	var pemCert, pemRoot, pemCA string
 
 	pemCert, err = EncodeToPEMString(false, c.Cert)
@@ -113,21 +129,21 @@ func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error) {
 		RootCertPEM: pemRoot,
 	}
 
-	if len(c.Status.Messages) > 0 {
-		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "messages", strings.Join(c.Status.Messages, ";"))
+	if len(cs.Messages) > 0 {
+		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "messages", strings.Join(cs.Messages, ";"))
 	}
-	if len(c.Status.ExpiringSKIs) > 0 {
-		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "ExpiringSKIs", strings.Join(c.Status.ExpiringSKIs, ";"))
+	if len(cs.ExpiringSKIs) > 0 {
+		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "ExpiringSKIs", strings.Join(cs.ExpiringSKIs, ";"))
 	}
-	if len(c.Status.Untrusted) > 0 {
-		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "Untrusted", strings.Join(c.Status.Untrusted, ";"))
+	if len(cs.Untrusted) > 0 {
+		logger.KV(xlog.WARNING, "CN", c.Cert.Subject.CommonName, "Untrusted", strings.Join(cs.Untrusted, ";"))
 	}
 
 	status = &BundleStatus{
-		Code:         c.Status.Code,
-		ExpiringSKIs: c.Status.ExpiringSKIs,
-		Untrusted:    c.Status.Untrusted,
-		Messages:     c.Status.Messages,
+		Code:         cs.Code,
+		ExpiringSKIs: cs.ExpiringSKIs,
+		Untrusted:    cs.Untrusted,
+		Messages:     cs.Messages,
 	}
 
 	return
@@ -174,11 +190,22 @@ func FindIssuer(crt *x509.Certificate, chain []*x509.Certificate, root *x509.Cer
 	return nil
 }
 
-// SortBundlesByExpiration returns bundles sorted by expiration in descending order
+// SortBundlesByExpiration returns a new slice of bundles sorted by Expires in
+// descending order. The sort is stable, so bundles with the same Expires keep
+// their input order, and nil bundles go last. The caller's slice is not
+// reordered; the bundles themselves are shared (XPKI-038).
 func SortBundlesByExpiration(bundles []*Bundle) []*Bundle {
-	sorted := bundles[:]
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Expires.After(sorted[j].Expires)
+	sorted := slices.Clone(bundles)
+	slices.SortStableFunc(sorted, func(a, b *Bundle) int {
+		switch {
+		case a == nil && b == nil:
+			return 0
+		case a == nil:
+			return 1
+		case b == nil:
+			return -1
+		}
+		return b.Expires.Compare(a.Expires)
 	})
 	return sorted
 }

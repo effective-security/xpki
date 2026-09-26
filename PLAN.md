@@ -35,6 +35,9 @@ below and excluded from the pending queue.
 | CP1 | [XPKI-016](FINDINGS.md#xpki-016--cp1), [XPKI-026](FINDINGS.md#xpki-026--cp1), [XPKI-099-cryptoprov](FINDINGS.md#xpki-099-cryptoprov--cp1), [XPKI-100-cryptoprov](FINDINGS.md#xpki-100-cryptoprov--cp1) | **Fixed** (XPKI-099 and XPKI-100 stay In Progress) | 2026-09-26 |
 | GC1 | [XPKI-018](FINDINGS.md#xpki-018--gc1), [XPKI-023](FINDINGS.md#xpki-023--gc1), [XPKI-025-gcpkmscrypto](FINDINGS.md#xpki-025-gcpkmscrypto--gc1) | **Fixed** (XPKI-025 stays In Progress) | 2026-09-26 |
 | CP3 | [XPKI-113](FINDINGS.md#xpki-113--cp3) | **Fixed** | 2026-09-26 |
+| CU3 | [XPKI-036](FINDINGS.md#xpki-036--cu3), [XPKI-042](FINDINGS.md#xpki-042--cu3), [XPKI-038](FINDINGS.md#xpki-038--cu3), [XPKI-045](FINDINGS.md#xpki-045--cu3) | **Fixed** | 2026-09-26 |
+| CU4 | [XPKI-103](FINDINGS.md#xpki-103--cu4) (certutil and CLI test), [XPKI-099-certutil](FINDINGS.md#xpki-099-certutil--cu4), [XPKI-100-certutil](FINDINGS.md#xpki-100-certutil--cu4) | **Fixed** (completes XPKI-099 and XPKI-103; XPKI-100 stays In Progress) | 2026-09-26 |
+| CU5 | [XPKI-043](FINDINGS.md#xpki-043--cu5) | **Fixed** | 2026-09-26 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -584,6 +587,43 @@ no-op is documented for comparable providers only, and
 `TestLoad_NonComparableDefault` failed on the committed code and passes now;
 `go test -race ./cryptoprov/...`, `make lint` and `make build docs` passed.
 
+**CU3 / XPKI-036, 042, 038, 045 (2026-09-26):** approved decisions:
+`Bundle`/`BundleContext` of a nil or empty list return an error matching the
+new exported `ErrNoCertificates`, and a nil entry is an error.
+`SortBundlesByExpiration` returns a stably sorted copy (nil bundles last,
+input untouched). `BuildBundle` rejects a nil chain or `Cert` and treats a nil
+`Status` as empty. `ExpiresInHours` is documented as truncating (comment
+only). Validation: `TestBundlerEmptyInput`, `TestBuildBundleInput` and
+`TestSortBundlesByExpirationContract` failed at HEAD (no error, then nil
+pointer panics) and pass now; the `TestBundlerChainBehavior` characterization
+now requires `ErrNoCertificates`.
+
+**CU4 / XPKI-103, 099-certutil, 100-certutil (2026-09-26):**
+`CreateOCSPRequest` returns `certificate is nil`, `issuer certificate is nil`,
+or `hash algorithm is not available` before any work. `OCSPValidation`
+already propagated the error with `ocsp.Unknown`, so the XC1 CLI portion
+(103-xpki-cli) was only its test. The `assert.Panics` characterization now
+asserts the error, `ocsp.Unknown` and zero requests through a counting client;
+this completes XPKI-103. `TestKeyInfoOpaqueKeys` covers opaque
+signers/decrypters without KMS, which completes XPKI-099. `TestKeyInfoKMS` is
+gated by `testenv.RequireTCP` on `:14556`. Validation: `TestCreateOCSPRequestInput`
+and the CLI cases failed (panicked) at HEAD. With `kms2` stopped, HEAD's
+`TestKeyInfoKMS` failed; now it is skipped when optional and fails when
+required. A fake listener fails it; restarted, it passes.
+
+**CU5 / XPKI-043 (2026-09-26):** approved decision: decrypt PKCS#8 PBES2
+with PBKDF2 (HMAC-SHA1/224/256/384/512, at most 10,000,000 iterations) and
+AES-128/192/256-CBC using stdlib `crypto/pbkdf2` in the new
+`certutil/pkcs8.go`. Other schemes return `unsupported PKCS#8 encryption: …`,
+and a wrong password matches `x509.IncorrectPasswordError`. Validation:
+OpenSSL 3.5.5 fixtures in `certutil/testdata/pkcs8/` (4 supported, 3
+unsupported), a 72-case Go-built PRF × AES × `keyLength` round trip, and 23
+malformed/password cases. All failed at HEAD.
+
+CU3–CU5 validation: `go test ./certutil -cover` 93.5% at HEAD → 94.4%;
+`make lint` (0 issues) and `make test RACE=true TEST_FLAGS=-count=1` passed
+(all 24 packages, uncached, SoftHSM and local-kms up).
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -630,15 +670,12 @@ the test prerequisites below can move a small preparatory change earlier.
 | AU3 | `authority` | 055 | P1 / 34 | High: live maps and pointer ownership | Snapshot/mutation contract |
 | OA1 | `jwt/oauth2client` | 081, 080 | P1 / 34 | High: registry consistency and mutable config pointers | Scope of unused verification settings |
 | GC2 | `cryptoprov/gcpkmscrypto` | 020, 019, 022 | P1 / 33 | High: persisted key identity and destructive operations | Version and unsupported-purpose policy |
-| CU3 | `certutil` | 036, 042, 038, 045 | P2 / 25 | Medium: return values and slice ownership | 036, 038 |
-| CU4 | `certutil` | 103-certutil; 099-certutil, 100-certutil | P2 / 25 | Low: invalid-input errors; medium for fixture separation | None |
 | AW1 | `cryptoprov/awskmscrypto` | 025-awskmscrypto, 031; 100-awskmscrypto | P2 / 25 | Medium: signing options and key purpose | Unsupported-purpose policy |
 | HC1 | `cmd/hsm-tool/cli` | 084, 101; 100-hsm-cli | P2 / 25 | Medium: CLI errors, exit status, parser state | None |
-| XC1 | `cmd/xpki-tool/cli` | 103-xpki-cli, 102 | P2 / 25 | Medium: exit status used by scripts | Partial endpoint success policy |
+| XC1 | `cmd/xpki-tool/cli` | 102 (103-xpki-cli done by CU4) | P2 / 23 | Medium: exit status used by scripts | Partial endpoint success policy |
 | GC3 | `cryptoprov/gcpkmscrypto` | 021, 024 | P2 / 23 | Medium: client factory, retry classification, timing | Context propagation extension |
 | AW2 | `cryptoprov/awskmscrypto` | 033, 032 | P2 / 23 | Medium: listing completeness and throttling | Partial results and prefix meaning |
 | CP2 | `cryptoprov` | 027 | P2 / 23 | Medium: URI parsing and credential precedence | Query/path conflict policy |
-| CU5 | `certutil` | 043 | P2 / 23 | Medium: encrypted-key compatibility | Supported PKCS#8 encryption formats |
 | PK3 | `crypto11` | 110 | P2 / 23 | Medium: re-login on a live token after device errors | Re-login trigger and PIN retention |
 | CS1 | `csr` | 059; 100-csr | P2 / 23 | High: existing names and nil/empty SAN semantics | DNS validation and error API |
 | AR1 | `armor` | 047 | P2 / 23 | Medium: acceptance of legacy corruption fixtures | CRC acceptance contract |
@@ -664,10 +701,11 @@ Execution dependencies:
 - CU1 is **Fixed (2026-09-24)**: trust/client options are specified
   (`WithSystemRoots`, `BundleContext`, per-traversal URL set). CU2 is
   **Fixed (2026-09-25)** and kept them; no lock is held during AIA I/O or
-  `x509.Verify`. CU3/CU4 must keep the copy-on-write rule: never modify a
-  published `IntermediatePool`/`KnownIssuers` in place.
-- CU4 precedes XC1's nil-issuer assertion update. The CLI portion must verify
-  propagation even though the nil check belongs in `certutil`.
+  `x509.Verify`. CU3/CU4/CU5 are **Fixed (2026-09-26)** and kept the
+  copy-on-write rule: never modify a published
+  `IntermediatePool`/`KnownIssuers` in place.
+- CU4 is **Fixed (2026-09-26)** and also replaced XC1's nil-issuer
+  assertion (103-xpki-cli); XC1 keeps only 102.
 - GC2 must keep generation, lookup, export, signing, and destruction on the
   **same selected version**. Do not change just the string-building helper.
 - DP1 is **Fixed (2026-09-24)** within `jwt/dpop`: local proof claims carry
@@ -713,7 +751,7 @@ policy, lifecycle, or concurrency completeness.
 | `cryptoprov/testprov` | 73.9% | Serial key operations only |
 | `cryptoprov/awskmscrypto` | 89.9% | Listing contents/prefix and credential refresh are not established |
 | `cryptoprov/gcpkmscrypto` | 95.6% | Generation and Close 100%; permissive mocks and no concurrent close |
-| `certutil` | 94.5% | `ExpiresInHours` 0%; sorting 100% without ownership/tie assertions (after CU2: 93.5%, concurrent Bundle covered) |
+| `certutil` | 94.5% | `ExpiresInHours` 0%; sorting 100% without ownership/tie assertions (after CU2: 93.5%, concurrent Bundle covered; after CU3–CU5: 94.4%, sorting ownership/ties and PKCS#8 covered, `ExpiresInHours` still 0% by design) |
 | `authority` | 91.0% | Fresh delegated responder creation bypassed; constructor only 37.2% |
 | `csr` | 94.3% | SAN 92.9% without the full nil/empty/duplicate/validation matrix |
 | `jwt` | 91.8% | Known symmetric-provider defects explicitly asserted (after JW2: 93.0%, replaced by round-trip and header tests) |
@@ -759,7 +797,7 @@ lock order; avoid callbacks or signing while holding a registry mutex.
 locks; it is recommended, not a blocker for a minimal race fix. AU1/AU4 need no
 performance benchmark. Fixture scope 100-authority was completed by AU2.
 
-### certutil — CU1 through CU5
+### certutil — CU1 through CU5 (all Fixed)
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
@@ -768,21 +806,21 @@ performance benchmark. Fixture scope 100-authority was completed by AU2.
 | XPKI-039 — MEDIUM / performance / 22 — **Fixed (CU1, 2026-09-24)** | `fetchIntermediates` marks each URL seen before fetching; failing and duplicate URLs are requested once per call and retried on the next call. | **Covered:** `TestBundlerAIARequestsPerTraversal` (exact per-path counts at depth 1/2/4, warm call makes none), `TestBundlerAIARetriesOnNextCall`, and `BenchmarkBundlerAIAFailingURL`. |
 | XPKI-044 — LOW / docs / 11 — **Fixed (CU1, 2026-09-24)** | `HTTPClient` is marked `Deprecated` and documented as never read; `WithHTTPClient` documents the request rules. The global was not activated. | **Covered:** `TestBundlerAIAUsesInjectedClient` asserts the injected transport carries the request. |
 | XPKI-035 — HIGH / race / 34 — **Fixed (CU2, 2026-09-25)** | [Bundler](certutil/bundler.go) guards its fields with `mu` once in use. Calls verify a `snapshot` without the lock, and `verifyChain` learns into a private clone that `learn` publishes (merging after a concurrent publish). Pools and maps once read are never modified. The exported fields are set-up state. | **Verified:** `TestBundlerConcurrentBundle` (warm plus two AIA chains, 8 workers each, released together, fixtures built first) failed with 60 races and a fatal map access before the fix and passes `-race -count=20` after. It checks exact chains and roots, per-worker fetch bounds and no request after learning. `TestBundlerLearnMerge` and `TestBundlerLearnNilPool` cover the merge and nil set-up paths. The benchmark is in the performance table. |
-| XPKI-036 — MEDIUM / bug / 25 | `Bundle` returns `(nil, nil)` for empty input. After the existing decision, return a clear input error for nil and empty certificate slices. | **Characterization:** `TestBundlerChainBehavior` explicitly requires nil chain and no error. Replace this expectation with exact error behavior and test downstream callers; do not merely add a new test elsewhere. |
-| XPKI-042 — MEDIUM / bug / 25 | [BuildBundle](certutil/bundle.go) dereferences the input chain, its certificate, and status. Validate required members and return an error, or initialize an optional status according to the contract. | **Partial:** bundle-loading tests cover fully populated chains. Add nil chain/certificate/status separately, plus legitimate rootless Force output so validation does not reject a supported chain shape. |
-| XPKI-038 — LOW / correctness / 13 | `SortBundlesByExpiration` aliases the input backing array and uses unstable sorting. After the existing decision, return a copied, stably ordered slice without reordering the caller's slice. | **Partial:** `Test_SortBundlesByExpiration` checks only descending output for distinct expiries. Add input preservation, shared backing-array independence, equal-expiry ordering, and nil/empty slices. Copying certificates themselves is not implied. |
-| XPKI-045 — LOW / docs / 11 | `ExpiresInHours` truncates an integer duration while its comment promises rounding up. Prefer documenting truncation; changing rounding is a separate observable-behavior decision. | **Absent:** existing profile reports 0%. If behavior changes, add deterministic fractional/negative/exact-hour cases using a controlled time seam. A comment-only correction needs no new test mirroring the one-line implementation. |
-| XPKI-103-certutil — MEDIUM / bug / 25 | [CreateOCSPRequest](certutil/ocsp.go) dereferences crt/issuer before checking either. Return wrapped invalid-input errors before any work. | **Partial:** `Test_LoadAndVerifyBundleFromPEM` checks valid and mismatched issuers. The nil panic is only characterized in CLI tests. Add package-local black-box nil certificate, nil issuer, both nil, valid chain, and mismatch cases. |
-| XPKI-043 — MEDIUM / correctness / 23 | [GetKeyDERFromPEM / ParsePrivateKeyPEMWithPassword](certutil/pem.go) handles legacy PEM encryption but does not decrypt encrypted PKCS#8 containers. Define supported encryption formats; implement explicit support or report an accurate unsupported-format error and correct the claim. | **Partial:** `TestPEMMalformedInputs` covers malformed legacy encryption and unencrypted PKCS#8, not an encrypted PKCS#8 round trip. Add generated encrypted RSA/EC samples, correct/wrong/missing password, malformed parameters, and preserved existing formats. Supporting one scheme must not be documented as supporting all PKCS#8 encryption. |
+| XPKI-036 — MEDIUM / bug / 25 — **Fixed (CU3, 2026-09-26)** | [BundleContext](certutil/bundler.go) returns `no certificates` (matches exported `ErrNoCertificates`) for nil/empty input and `nil certificate at index N` for a nil entry; `ChainFromPEM` keeps `failed to parse certificates`. | **Verified:** `TestBundlerEmptyInput` (nil/empty/nil leaf/nil intermediate × Force/Optimal × `Bundle`/`BundleContext`, exact message and `errors.Is`) failed at HEAD; the `TestBundlerChainBehavior` characterization now requires `ErrNoCertificates`. No in-module caller relied on `(nil, nil)`. |
+| XPKI-042 — MEDIUM / bug / 25 — **Fixed (CU3, 2026-09-26)** | [BuildBundle](certutil/bundle.go) returns `chain is nil` / `chain has no leaf certificate: no certificates`, treats a nil `Status` as empty, and keeps rootless Force chains (empty `RootCert`/`RootCertPEM`). | **Verified:** `TestBuildBundleInput` (nil chain, nil Cert, nil Status, real rootless Force chain, Optimal chain with root) failed at HEAD with a nil pointer panic. |
+| XPKI-038 — LOW / correctness / 13 — **Fixed (CU3, 2026-09-26)** | `SortBundlesByExpiration` returns `slices.Clone` sorted with `slices.SortStableFunc` by `Expires` descending, nil bundles last; nil→nil, empty→empty; bundles are shared. | **Verified:** `TestSortBundlesByExpirationContract` (nil, empty, one, distinct, equal expiries in two orders, nil entries, adjacent nils, nil after a bundle; input order and backing-array independence) failed at HEAD; comparator 100% covered. |
+| XPKI-045 — LOW / docs / 11 — **Fixed (CU3, 2026-09-26)** | The `ExpiresInHours` comment now states truncation toward zero with examples; behavior unchanged. | **Comment only:** no test mirrors the one-line implementation, as planned. |
+| XPKI-103-certutil — MEDIUM / bug / 25 — **Fixed (CU4, 2026-09-26)** | [CreateOCSPRequest](certutil/ocsp.go) returns `certificate is nil`, `issuer certificate is nil` or `hash algorithm is not available: …` before any work. | **Verified:** package-local `TestCreateOCSPRequestInput` (nil cert, nil issuer, both, `crypto.Hash(0)`, self-issuer and non-issuer mismatch, valid SHA-1/SHA-256 parsed and compared with `ocsp.CreateRequest`) panicked at HEAD. |
+| XPKI-043 — MEDIUM / correctness / 23 — **Fixed (CU5, 2026-09-26)** | [decryptPKCS8](certutil/pkcs8.go), used by `GetKeyDERFromPEM`, supports PBES2 + PBKDF2 (HMAC-SHA1/224/256/384/512, ≤ 10,000,000 iterations) + AES-128/192/256-CBC; other schemes return `unsupported PKCS#8 encryption: …`; wrong password matches `x509.IncorrectPasswordError`. Docs list exactly these formats. | **Verified:** OpenSSL 3.5.5 fixtures (RSA/P-256/Ed25519 supported; des3, scrypt, PKCS#12 3DES unsupported), 72 Go-built round trips (PRF × AES × keyLength, RSA and P-384), 23 malformed/password cases, unencrypted formats preserved. All failed at HEAD. |
 
-CU1 is Fixed; its compatibility notes are recorded under Completed batches.
-CU2 can regress trust and cache behavior; test chain output, root selection,
-timeouts, and successful AIA recovery together. CU3 has medium contract risk,
-CU4 low input-validation risk, and CU5 medium encoding/dependency risk.
+CU1 through CU5 are Fixed; their compatibility notes are recorded under
+Completed batches. All `certutil` findings are closed. Remaining contract work
+(accessors instead of the exported pool fields, cross-call AIA coalescing,
+dropping legacy RFC 1423 decryption) is in [ROADMAP.md](ROADMAP.md).
 **Benchmarks:** CU1's 039 and CU2's 035 comparisons are recorded in the
 performance table (CU2: warm/learn Bundle, serial/parallel, clone cost versus
-pool size). CU4 fixture
-changes and the other helpers need no benchmark. See 099/100 scopes below.
+pool size). CU3–CU5 change input validation, a copy of a slice and key
+decryption only, so no benchmark was needed.
 
 ### jwt — JW1 (Fixed), JW2 (Fixed), JW3
 
@@ -1042,7 +1080,7 @@ and `csr` command paths. No benchmark is required. Include 100-hsm-cli.
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
 | XPKI-102 — MEDIUM / correctness / 23 | [OCSPFetchCmd.Run](cmd/xpki-tool/cli/ocsp.go) prints endpoint errors but returns nil. Return failure when every endpoint fails; specify whether one valid response is enough for success. Preserve useful endpoint diagnostics. | **Characterization:** [TestRevocationFetchAndInfo](cmd/xpki-tool/cli/coverage_test.go) requires success after a bad endpoint and checks only printed ERROR text. Change the returned-error assertion; add all-fail, first-fail/second-success, mixed-success, and output-write failure cases. Smoke-test nonzero CLI exit status. |
-| XPKI-103-xpki-cli — MEDIUM / bug / 25 | [OCSPValidation](cmd/xpki-tool/cli/certs.go) forwards to certutil then would perform HTTP work. Propagate CU4's input error with ocsp.Unknown and no network request. | **Characterization:** TestRevocationValidationFailures explicitly asserts nil-issuer panic. Replace it after CU4; assert returned error/status and zero HTTP calls, retaining valid/mismatched-issuer and cancellation tests. |
+| XPKI-103-xpki-cli — MEDIUM / bug / 25 — **Fixed (by CU4, 2026-09-26)** | `OCSPValidation` already returned `ocsp.Unknown` with the `CreateOCSPRequest` error; no CLI code changed. | **Verified:** `TestRevocationValidationFailures` replaced `assert.Panics` with nil-issuer and nil-certificate cases (exact error, `ocsp.Unknown`, nil DER, zero requests through a counting client) plus one valid request; both cases failed at HEAD. Valid/mismatched-issuer and cancellation cases are retained. |
 | XPKI-105 — MEDIUM / bug / 25 — **Fixed (XC2, 2026-09-20)** | [suite_test.go](cmd/xpki-tool/cli/suite_test.go) allocates a unique `s.T().TempDir()` in `SetupSuite`; Go cleans up after the suite. Shared-path creation and manual deletion are removed. | **Verified:** reproduced missing files with two pre-fix processes; overlapping coverage/race binaries each passed 50 suite runs under a shared temporary root, with separate outputs and no leftover fixtures. `make lint`, `make test RACE=true`, and `make covtest` passed (90.1%; most unchanged packages cached). See [completed batches](#completed-batches). |
 
 XC1 has **medium** script compatibility risk; completed XC2 has **low** product
@@ -1076,14 +1114,14 @@ classification; a high-priority batch can contain lower-priority test cleanup.
 | Finding / importance | Batch and owner | Evidence; expected outcome and completeness check |
 | --- | --- | --- |
 | XPKI-099 — LOW / docs / 11 — **cryptoprov portion Fixed (CP1, 2026-09-26)** | CP1 — `cryptoprov` | The empty stubs are replaced by [TestLoad_KMSProviders](cryptoprov/provider_test.go): `Load` dispatches to the self-registered AWS (lazy client) and GCP (stubbed `KmsClientFactory`, restored) loaders without KMS, checks types, lookup and a duplicate AWS config; `TestRegistered` also checks `SoftHSM`. |
-| XPKI-099 — LOW / docs / 11 | CU4 — `certutil` | [TestKeyInfoKMS](certutil/keyinfo_test.go) connects to configured KMS and may create a key. Exercise pure KeyInfo with generated/local signer data and classify any retained KMS case as an explicit integration. Assert type, size, and public-key identity; no real cloud account should be needed for unit tests. |
+| XPKI-099 — LOW / docs / 11 — **certutil portion Fixed (CU4, 2026-09-26); completes 099** | CU4 — `certutil` | `TestKeyInfoOpaqueKeys` wraps generated RSA-2048/P-256/P-384 keys as opaque `crypto.Signer`/`crypto.Decrypter` and asserts type, size, hash, `IsPrivate`, key and public-key identity, plus the Ed25519 error. `TestKeyInfoKMS` stays as an explicit gated integration test (dropped the unused `:14555` config load; also asserts hash and identity). |
 | XPKI-100 — MEDIUM / docs / 21 — **crypto11 portion Fixed (PK1, 2026-09-25)** | PK1 — `crypto11` | [TestMain](crypto11/crypto11_test.go) loads SoftHSM only when its config exists and closes it explicitly (a close error fails the run); SoftHSM tests call `requireP11` (`internal/testenv.RequireFile`), and pool/config/DSA tests are fixture-free. **Verified:** config absent → 21 skips and a pass; absent with `XPKI_INTEGRATION=required` → fail; present but broken → fail. |
 | XPKI-100 — MEDIUM / docs / 21 — **cryptoprov portion Fixed (CP1, 2026-09-26)** | CP1 — `cryptoprov` | Only `Test_LoadConfig`, `Test_Load`, `Test_P11` and `Test_LoadSigner_P11` need SoftHSM and call `requireSoftHSM` (`testenv.RequireFile`); the rest use inmemcrypto/testprov; no test unregisters a built-in loader. **Verified:** HEAD failed 7 tests without the config; now optional → 4 skips and a pass, required → fail, broken config → fail. |
 | XPKI-100 — MEDIUM / docs / 21 | AW1 — `cryptoprov/awskmscrypto` | [awskmsprov_test.go](cryptoprov/awskmscrypto/awskmsprov_test.go) requires local-kms. Separate deterministic client-seam tests from emulator cases, and test both emulator-absent optional mode and required CI mode. |
 | XPKI-100 — MEDIUM / docs / 21 — **authority portion Fixed (AU2, 2026-09-25)** | AU2 — `authority` | The suite loads (without connecting) the local-kms provider; only `TestNewRoot` needs local-kms and is gated by `internal/testenv.RequireTCP`; `TestShakenRoot`/`TestIssuerSign` moved to `inmemcrypto`; SoftHSM is not used. Verified skip (optional), fail (`XPKI_INTEGRATION=required`) and a reachable-but-broken endpoint (fails) with `kms2` stopped. |
 | XPKI-100 — MEDIUM / docs / 21 | CS1 — `csr` | [csrprov_test.go](csr/csrprov_test.go) includes HSM-backed paths, while current `TestCSR` uses inmemcrypto. Scope fixture handling to actual external cases; the codemap's claim that TestCSR needs SoftHSM is stale. Assert unit SAN/parsing tests still run without it. |
 | XPKI-100 — MEDIUM / docs / 21 — **jwt portion Fixed (JW2, 2026-09-25)** | JW2 — `jwt` | [Test_SignPrivateKMS](jwt/jwt_test.go) is gated by `testenv.RequireTCP` on `localhost:14555` (`kmsConfig`/`localKMSAddr`); all other jwt tests are fixture-free. **Verified** with `kms1` stopped: optional → skip and the package passes; required → fail; fake listener → fail; restarted → pass. |
-| XPKI-100 — MEDIUM / docs / 21 | CU4 — `certutil` | TestKeyInfoKMS is the fixture-dependent case; the bundler/PEM tests use local/generated data. Coordinate 099-certutil; test no-infrastructure execution and the remaining required integration if retained. |
+| XPKI-100 — MEDIUM / docs / 21 — **certutil portion Fixed (CU4, 2026-09-26)** | CU4 — `certutil` | Only `TestKeyInfoKMS` needs a fixture; it is gated by `testenv.RequireTCP` on `localhost:14556`. **Verified** with `kms2` stopped: HEAD failed after 4s of retries; optional → skip and the package passes; required → fail; a fake listener → fail; restarted → pass. |
 | XPKI-100 — MEDIUM / docs / 21 | HC1 — `cmd/hsm-tool/cli` | [csr_test.go](cmd/hsm-tool/cli/csr_test.go) depends on KMS/config fixtures. Keep parser/provider-error tests independent; guard only fixture-dependent command cases and verify they run in provisioned CI. |
 
 Regression risk for 099 is low except accidental loss of integration coverage.

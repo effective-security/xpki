@@ -279,10 +279,12 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error) {
 }
 
 // ParsePrivateKeyPEMWithPassword parses and returns a PEM-encoded private
-// key. The private key may be an unencrypted PKCS#8, PKCS#1, or SEC1 key,
-// or a legacy PEM block encrypted per RFC 1423 (Proc-Type: 4,ENCRYPTED);
-// encrypted PKCS#8 (ENCRYPTED PRIVATE KEY) is not supported. The key may be
-// RSA or ECDSA.
+// key. The private key may be an unencrypted PKCS#8, PKCS#1, or SEC1 key, a
+// legacy PEM block encrypted per RFC 1423 (Proc-Type: 4,ENCRYPTED), or an
+// encrypted PKCS#8 key (ENCRYPTED PRIVATE KEY) as described by
+// GetKeyDERFromPEM. The key may be RSA, ECDSA, or Ed25519 (PKCS#8 only).
+// A nil password fails for an encrypted key; a wrong password returns an
+// error that matches x509.IncorrectPasswordError.
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.Signer, err error) {
 	keyDER, err := GetKeyDERFromPEM(keyPEM, password)
 	if err != nil {
@@ -292,7 +294,13 @@ func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.
 	return ParsePrivateKeyDER(keyDER)
 }
 
-// GetKeyDERFromPEM parses a PEM-encoded private key and returns DER-format key bytes.
+// GetKeyDERFromPEM parses a PEM-encoded private key and returns DER-format
+// key bytes, decrypting it with password when it is encrypted. Encrypted
+// PKCS#8 keys are supported only with PBES2, PBKDF2 (HMAC-SHA1, -SHA224,
+// -SHA256, -SHA384 or -SHA512, at most 10,000,000 iterations) and
+// AES-128/192/256-CBC, which OpenSSL 3 writes by default. Other PKCS#8
+// schemes (PBES1, PKCS#12 PBE, scrypt, DES) return an "unsupported PKCS#8
+// encryption" error (XPKI-043).
 func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 	// Ignore any EC PARAMETERS blocks when looking for a key (openssl includes
 	// them by default).
@@ -304,6 +312,12 @@ func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 		}
 	}
 	if keyDER != nil {
+		if keyDER.Type == pemTypeEncryptedPKCS8 {
+			if password == nil {
+				return nil, errors.Errorf("encrypted private key")
+			}
+			return decryptPKCS8(keyDER.Bytes, password)
+		}
 		if procType, ok := keyDER.Headers["Proc-Type"]; ok {
 			if strings.Contains(procType, "ENCRYPTED") {
 				if password != nil {

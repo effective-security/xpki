@@ -36,6 +36,10 @@ var IntermediateStash string
 // effect (XPKI-044).
 var HTTPClient = http.DefaultClient
 
+// ErrNoCertificates is returned, wrapped, when a Bundler or BuildBundle is
+// given no certificate to bundle.
+var ErrNoCertificates = errors.New("no certificates")
+
 // BundleFlavor is named optimization strategy on certificate chain selection when bundling.
 type BundleFlavor string
 
@@ -698,7 +702,9 @@ func (b *Chain) buildHostnames() {
 // Bundle takes an X509 certificate (already in the
 // Certificate structure), a private key as crypto.Signer in one of the appropriate
 // formats (i.e. *rsa.PrivateKey or *ecdsa.PrivateKey, or even a opaque key), using them to
-// build a certificate bundle.
+// build a certificate bundle. certs[0] is the leaf (a reversed chain is
+// detected). A nil or empty certs returns an error matching
+// ErrNoCertificates, and a nil entry returns an error (XPKI-036).
 func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, error) {
 	return b.BundleContext(context.Background(), certs, key)
 }
@@ -709,7 +715,12 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 // fails instead of verifying against the system roots.
 func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, key crypto.Signer) (*Chain, error) {
 	if len(certs) == 0 {
-		return nil, nil
+		return nil, errors.WithStack(ErrNoCertificates)
+	}
+	for i, c := range certs {
+		if c == nil {
+			return nil, errors.Errorf("nil certificate at index %d", i)
+		}
 	}
 
 	// Detect reverse ordering of the cert chain.

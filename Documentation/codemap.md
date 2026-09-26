@@ -526,13 +526,14 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
 | File            | Role                                                                                                                                                            |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pem.go`        | Parse/encode certificates, public and private keys (PKCS#8 → PKCS#1 → SEC1; RSA/ECDSA/Ed25519 parse, RSA/ECDSA encode; legacy `Proc-Type: 4,ENCRYPTED` decrypt) |
+| `pkcs8.go`      | `decryptPKCS8`: `ENCRYPTED PRIVATE KEY` with PBES2 + PBKDF2 (HMAC-SHA1/224/256/384/512) + AES-128/192/256-CBC, used by `GetKeyDERFromPEM`                        |
 | `bundler.go`    | `Bundler`, options (`WithKeyUsages`, `WithBundleFlavor`, `WithAIA`, `WithHTTPClient`, `WithSystemRoots`), `Chain`, `Bundle`/`BundleContext`, `ChainFromPEM[Context]`, AIA fetch, expiry checks, `IntermediateStash` |
 | `bundle.go`     | `Bundle`/`BundleStatus`, `VerifyBundleFromPEM`, `LoadAndVerifyBundleFromPEM`, `BuildBundle`, `FindIssuer`, `SortBundlesByExpiration`                            |
 | `hash.go`       | Hash name maps, `Digest`, `SHA1*`, `SHA256*`, `HashToHex/Base64URL`, `ParseHexDigestWithPrefix`                                                                 |
 | `cert_id.go`    | `GetThumbprintStr` (SHA-1 of DER), `GetSubjectKeyID`, `GetAuthorityKeyID`, `GetSubjectID`, `GetIssuerID`                                                        |
 | `keyinfo.go`    | `KeyInfo`, `NewKeyInfo` (RSA/ECDSA from signer, decrypter or JWK)                                                                                               |
 | `name.go`       | `NameToString` (OpenSSL-style DN)                                                                                                                               |
-| `ocsp.go`       | `CreateOCSPRequest`                                                                                                                                             |
+| `ocsp.go`       | `CreateOCSPRequest` (nil certificate/issuer or unavailable hash is an error)                                                                                    |
 | `extensions.go` | `FindExtension*`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                                                                              |
 | `random.go`     | `RandReader`, `Random`, `RandomString` (panic on RNG failure)                                                                                                   |
 
@@ -569,15 +570,38 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   `VerifyOptions`. Learning costs one pool clone per newly learned
   intermediate (O(pool)); warm calls take only the read lock. Concurrent
   misses on one issuer each fetch its URL, at most once per call, with no
-  cross-call coalescing. `Bundle` of an empty list returns `(nil, nil)`
-  (XPKI-036). Only RSA/ECDSA leaf keys accepted.
+  cross-call coalescing. Only RSA/ECDSA leaf keys accepted.
+- Input (XPKI-036, XPKI-042): `Bundle`/`BundleContext` of a nil or empty list
+  returns an error matching `ErrNoCertificates`, and a nil entry is an error.
+  `BuildBundle` rejects a nil `Chain` or `Cert` (the latter wraps
+  `ErrNoCertificates`), treats a nil `Status` as empty, and accepts a rootless
+  `Force` chain (empty `RootCert`/`RootCertPEM`).
+- `SortBundlesByExpiration` (XPKI-038) returns a new slice, stably sorted by
+  `Expires` descending with nil bundles last; the input slice is not
+  reordered and the bundles are shared. `ExpiresInHours` truncates toward
+  zero (XPKI-045).
+- Encrypted keys (XPKI-043): `GetKeyDERFromPEM` decrypts legacy RFC 1423 PEM
+  and PKCS#8 PBES2 with PBKDF2 (HMAC-SHA1 default, SHA-224/256/384/512, at
+  most 10,000,000 iterations, `keyLength` must match) and AES-CBC. PBES1,
+  PKCS#12 PBE, scrypt, DES/3DES and other ciphers return
+  `unsupported PKCS#8 encryption: …`. A nil password fails with `encrypted
+  private key`; a wrong password (bad padding, or plaintext that is not one
+  DER value) matches `x509.IncorrectPasswordError`.
 - Process-global: `IntermediateStash` (fetched intermediates written `0644`),
   `RandReader`. `HTTPClient` is deprecated and never read (XPKI-044); use
   `WithHTTPClient`. Default AIA client timeout 3s.
 - `ParseChainFromPEM` returns the parsed prefix and an error on trailing garbage.
 
 Tests: `testdata/` holds a Mozilla root bundle, 229 intermediates, test server
-chain and hash fixtures; `TestKeyInfoKMS` needs local-kms.
+chain and hash fixtures; `testdata/pkcs8/` holds OpenSSL-generated
+plain and encrypted (password `xpki-test`) RSA/EC/Ed25519 PKCS#8 keys,
+including unsupported des3/scrypt/PKCS#12 samples. `pkcs8_test.go` also
+builds PBES2 structures in Go for the PRF × AES matrix and malformed
+parameters. `TestKeyInfoKMS` is the only fixture test: it is gated with
+`testenv.RequireTCP` on local-kms `:14556`; `TestKeyInfoOpaqueKeys` covers
+opaque signers without KMS. `bundle_input_test.go` covers the nil/empty
+input contracts of `Bundle`, `BuildBundle`, `SortBundlesByExpiration` and
+`CreateOCSPRequest`.
 `bundler_coverage_test.go` uses fresh `testca` chains, temporary files and local
 HTTP servers for AIA fetching, caching, validation, and expiry behavior; it
 restores `IntermediateStash` and runs serially. `bundler_aia_test.go` uses a
@@ -805,7 +829,7 @@ conflicts/overrides; it makes no network requests.
 | Fixture                                                                                          | Provided by                                    | Needed by                                                                                             |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr`                                                    |
-| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS`), `cmd/hsm-tool/cli` (`csr_test.go`) |
+| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS` only, gated), `cmd/hsm-tool/cli` (`csr_test.go`) |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
 
@@ -814,14 +838,15 @@ fixture skips it unless `XPKI_INTEGRATION=required`, which the Makefile
 exports (so `make test`/`covtest` and CI fail); a reachable fixture always
 runs it. `internal/testenv.RequireFile` does the same for a fixture file
 (`crypto11` and `cryptoprov` gate on the SoftHSM config). `authority`,
-`crypto11`, `jwt` and `cryptoprov` use them so far; the other packages still
+`crypto11`, `jwt`, `cryptoprov` and `certutil` use them so far; the other packages still
 fail hard when a fixture is missing (XPKI-100, remaining portions).
 
 `cmd/xpki-tool/cli/coverage_test.go` uses generated certificates and local HTTP
 servers to cover certificate filters, trust validation, concurrent revocation
 checks, CRL/OCSP fetch and inspection, and input/transport errors. It
-characterizes OCSP fetch success after endpoint failures (XPKI-102) and nil
-issuer panics (XPKI-103). Fixtures use `t.TempDir()`. In
+characterizes OCSP fetch success after endpoint failures (XPKI-102), and
+asserts that a nil certificate or issuer returns the `CreateOCSPRequest` error
+with `ocsp.Unknown` and no HTTP request (XPKI-103). Fixtures use `t.TempDir()`. In
 `cmd/xpki-tool/cli/suite_test.go`, `testSuite.SetupSuite` allocates a unique
 directory on the suite's parent test; Go removes it after all suite subtests
 finish. Overlapping CLI test processes cannot overwrite or remove one
