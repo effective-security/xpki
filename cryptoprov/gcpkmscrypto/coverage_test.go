@@ -63,9 +63,12 @@ func (s *listingKMSServer) ListCryptoKeys(_ context.Context, req *kmspb.ListCryp
 		Primary: &kmspb.CryptoKeyVersion{State: kmspb.CryptoKeyVersion_ENABLED},
 	}
 	if req.PageToken == "second" {
-		key.Name = coverageKeyring + "/cryptoKeys/no-primary"
-		key.Primary = nil
-		return &kmspb.ListCryptoKeysResponse{CryptoKeys: []*kmspb.CryptoKey{key}}, nil
+		// no optional metadata: Primary, VersionTemplate, CreateTime (XPKI-023)
+		bare := &kmspb.CryptoKey{
+			Name:    coverageKeyring + "/cryptoKeys/no-primary",
+			Purpose: kmspb.CryptoKey_ASYMMETRIC_SIGN,
+		}
+		return &kmspb.ListCryptoKeysResponse{CryptoKeys: []*kmspb.CryptoKey{bare}}, nil
 	}
 	disabled := &kmspb.CryptoKey{
 		Name:    coverageKeyring + "/cryptoKeys/disabled",
@@ -109,7 +112,9 @@ func TestEnumKeysPagination(t *testing.T) {
 			assert.Equal(t, "enabled", keys[0].ID)
 			assert.Equal(t, "no-primary", keys[1].ID)
 			assert.Equal(t, "ENABLED", keys[0].Meta["state"])
-			assert.NotContains(t, keys[1].Meta, "state")
+			assert.Equal(t, map[string]string{"purpose": "ASYMMETRIC_SIGN"}, keys[1].Meta)
+			assert.Nil(t, keys[1].CreationTime)
+			assert.Empty(t, keys[1].Label)
 			assert.Equal(t, "HSM", keys[0].Meta["protection"])
 			assert.Equal(t, time.Unix(1000, 0).UTC(), *keys[0].CreationTime)
 			first, second := <-service.requests, <-service.requests

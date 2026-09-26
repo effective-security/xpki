@@ -8,7 +8,7 @@ discovered during the AT1 review. All four are recorded in [FINDINGS.md](FINDING
 required by AGENTS.md: **77 findings total**. Later remediation added
 **XPKI-110** (PK1 review, batch PK3), **XPKI-111** (a timing-dependent
 `authority` test seen during CU2, batch AU5) and **XPKI-112** (PR #543 review,
-batch JW4).
+batch JW4), and **XPKI-113** (CP1 review, batch CP3).
 Pending assessments retain the original planning evidence. Fixed entries
 record the implementation and validation; completed batches are retained
 below and excluded from the pending queue.
@@ -33,6 +33,8 @@ below and excluded from the pending queue.
 | JW2 | [XPKI-066](FINDINGS.md#xpki-066--jw2), [XPKI-104](FINDINGS.md#xpki-104--jw2), [XPKI-100-jwt](FINDINGS.md#xpki-100-jwt--jw2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 | CU2 | [XPKI-035](FINDINGS.md#xpki-035--cu2) | **Fixed** | 2026-09-25 |
 | CP1 | [XPKI-016](FINDINGS.md#xpki-016--cp1), [XPKI-026](FINDINGS.md#xpki-026--cp1), [XPKI-099-cryptoprov](FINDINGS.md#xpki-099-cryptoprov--cp1), [XPKI-100-cryptoprov](FINDINGS.md#xpki-100-cryptoprov--cp1) | **Fixed** (XPKI-099 and XPKI-100 stay In Progress) | 2026-09-26 |
+| GC1 | [XPKI-018](FINDINGS.md#xpki-018--gc1), [XPKI-023](FINDINGS.md#xpki-023--gc1), [XPKI-025-gcpkmscrypto](FINDINGS.md#xpki-025-gcpkmscrypto--gc1) | **Fixed** (XPKI-025 stays In Progress) | 2026-09-26 |
+| CP3 | [XPKI-113](FINDINGS.md#xpki-113--cp3) | **Fixed** | 2026-09-26 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -557,6 +559,31 @@ needs a checkout named `xpki`, and the empty `Test_Aws`/`Test_Gcp` became
 issues), `make test RACE=true TEST_FLAGS=-count=1`, `make build docs` and
 `make covtest` (**91.8%**; `cryptoprov` 81.6% → 84.9%) passed.
 
+**GC1 / XPKI-018, XPKI-023, XPKI-025-gcpkmscrypto (2026-09-26):** decisions:
+Close rejects new calls with `ErrClosed`, waits for in-flight ones (the
+crypto11 PK1 model, `enter`/`exit` plus `sync.Once`), then closes the client
+and returns its error; the `KmsClient` field is kept. Missing optional KMS
+metadata is omitted (no `protection`/`algo` Meta, nil `CreationTime`), and
+labels are sorted. A missing signature checksum or a nil response is an
+error. Nil, typed-nil or unsupported signer options and wrong digest lengths
+fail before any RPC; there is no default digest. Pre-fix (HEAD worktree):
+Close returned during in-flight signs, Sign after Close panicked, a
+Close/Sign overlap raced, nil opts, missing checksums, missing metadata and
+nil responses panicked, and label order varied. After: the lifecycle,
+signer and metadata tests pass `-race -count=20 -cpu 1,4,8`. No benchmark
+(the guard adds two short mutex sections per call and does not serialize
+signing). Validation: `make lint` (0 issues), `make test RACE=true
+TEST_FLAGS=-count=1`, `make build docs` and `make covtest` (**91.7%**;
+`gcpkmscrypto` 95.6% → 97.1%) passed. The CP1 review item, `Load` rejecting a
+non-comparable default provider, is recorded as XPKI-113 (CP3).
+
+**CP3 / XPKI-113 (2026-09-26, PR #544 review):** `Load` no longer re-adds the
+default provider, so a non-comparable default loads; `Crypto.Add`'s re-add
+no-op is documented for comparable providers only, and
+`gcpkmscrypto.ErrClosed` for KMS-calling operations only.
+`TestLoad_NonComparableDefault` failed on the committed code and passes now;
+`go test -race ./cryptoprov/...`, `make lint` and `make build docs` passed.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -600,7 +627,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| GC1 | `cryptoprov/gcpkmscrypto` | 018, 023, 025-gcpkmscrypto | P1 / 34 | Medium: close/sign lifecycle and checksum validation | Nil signer-options contract |
 | AU3 | `authority` | 055 | P1 / 34 | High: live maps and pointer ownership | Snapshot/mutation contract |
 | OA1 | `jwt/oauth2client` | 081, 080 | P1 / 34 | High: registry consistency and mutable config pointers | Scope of unused verification settings |
 | GC2 | `cryptoprov/gcpkmscrypto` | 020, 019, 022 | P1 / 33 | High: persisted key identity and destructive operations | Version and unsupported-purpose policy |
@@ -873,9 +899,9 @@ lock only map access, preserving parallel generation and cryptographic work.
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-018 — HIGH / race / 34 | [Close](cryptoprov/gcpkmscrypto/gcpkmsprov.go) closes and nils the embedded client while signers dereference it. Define an idempotent close boundary and safe in-flight/post-close calls returning errors. | **Partial:** `Test_KmsProvider` calls Close only after all operations. Add blocked fake RPC overlapping Close, concurrent Close calls, and Sign/GetKey after Close. Require no data race or nil panic. |
-| XPKI-023 — MEDIUM / bug / 25 | keyInfo accesses VersionTemplate directly; [Sign](cryptoprov/gcpkmscrypto/signer.go) dereferences SignatureCrc32C. Treat missing required response fields as errors, and distinguish optional metadata. Never interpret a missing checksum as verified integrity. | **Partial:** [coverage_test.go](cryptoprov/gcpkmscrypto/coverage_test.go) supplies VersionTemplate; signer mocks supply a checksum. Add missing metadata, nil response/checksum, unverified digest, and mismatched signature CRC cases. |
-| XPKI-025-gcpkmscrypto — MEDIUM / bug / 25 | Sign invokes opts.HashFunc without validating opts. Return a clear error for nil/unsupported options, or define a consistent documented default; do not guess a digest for a fixed-algorithm KMS key. | **Absent for nil:** existing signing cases pass valid options. Add nil, typed-nil options where relevant, supported/unsupported hash and digest-size cases, asserting no RPC for locally rejected input. |
+| XPKI-018 — HIGH / race / 34 — **Fixed (GC1, 2026-09-26)** | [Close](cryptoprov/gcpkmscrypto/gcpkmsprov.go) runs once, rejects new calls with `ErrClosed`, waits for in-flight calls registered by `enter`/`exit`, then closes the client and returns its error; the client field is kept. | **Verified:** [lifecycle_test.go](cryptoprov/gcpkmscrypto/lifecycle_test.go) blocks 4 signs in the fake RPC under 3 concurrent Close calls (Close stays blocked, the client is never closed mid-sign, one Close reports the client error), then checks `ErrClosed` with no RPC for every client-using method; passes `-race -count=20 -cpu 1,4,8`. |
+| XPKI-023 — MEDIUM / bug / 25 — **Fixed (GC1, 2026-09-26)** | Getters everywhere; missing `VersionTemplate`/`CreateTime` omitted, labels sorted; nil responses are `empty response` errors; Sign requires `VerifiedDigestCrc32C` and a present, matching `SignatureCrc32C`. | **Verified:** [metadata_test.go](cryptoprov/gcpkmscrypto/metadata_test.go), [signer_test.go](cryptoprov/gcpkmscrypto/signer_test.go) and a bare key in `TestEnumKeysPagination` (all panicked or failed on HEAD) assert exact Meta, labels, `CreationTime`, errors and the five response-integrity cases. |
+| XPKI-025-gcpkmscrypto — MEDIUM / bug / 25 — **Fixed (GC1, 2026-09-26)** | `signDigest` rejects nil/typed-nil opts, hashes other than SHA-256/384/512 and wrong digest lengths before any RPC; no default digest. | **Verified:** `TestSignRejectsOptionsLocally` (9 cases, no RPC recorded) and `TestSignRequest` (digest variant, name, CRC32C for 4 option types); HEAD panicked on nil opts. |
 | XPKI-020 — HIGH / correctness / 33 | GetKey/genKey/keyVersionName and exported URI metadata assume version 1. Resolve an explicit version, preserve it in signer/exported identity, and use it consistently for public-key lookup, signing, metadata, and destruction. | **Characterization/partial:** `Test_KmsProvider` asserts serial=1; `TestKMSFailurePropagation` asserts destroying version 1. Add two versions with different public keys, reload an exported reference after rotation, disabled/missing versions, and verify exactly which version is signed/destroyed. Do not assume every asymmetric key has a useful Primary version. |
 | XPKI-019 — MEDIUM / correctness / 23 | GenerateRSAKey pairs ASYMMETRIC_DECRYPT purpose with signing algorithms; Sign uses opts independently of the selected key algorithm. Reject unsupported decrypt purpose before creation, or design a proper decrypter separately; validate algorithm/hash compatibility. | **Partial but insufficient:** [Test_KmsProvider](cryptoprov/gcpkmscrypto/gcpkmsprov_test.go) returns one EC public key and arbitrary signature bytes even for RSA requests and accepts requests via mock.Anything. Add exact request matchers, realistic RSA keys, allowed/rejected purpose/hash matrix, and real local signature verification. |
 | XPKI-022 — MEDIUM / correctness / 23 | KeyLabelAndID adds four UUID hex characters, then truncates the entire ID to 63 bytes; long labels can lose the entire random suffix. Sanitize labels/IDs according to their separate constraints and reserve enough random suffix space. | **Partial:** TestKeyLabelOrID compares two short names; coverage tests assert long label and ID lengths, preserving the problem. Add deterministic length/charset/truncation assertions, long-label suffix retention, invalid characters, and service collision handling. Avoid probabilistic uniqueness as the sole test. |
@@ -883,9 +909,10 @@ lock only map access, preserving parallel generation and cryptographic work.
 | XPKI-024 — MEDIUM / performance / 22 | genKey polls up to 60 times with unconditional one-second sleeps and substring error matching. Use cancellation-aware bounded waits and structured retry classification; stop immediately on permanent errors. | **Partial:** failure tests cover immediate errors, not pending generation/cancellation/exhaustion. Add fake-clock or controlled retry tests, precise attempt counts, and cancellation latency. Public methods currently create Background contexts, so caller cancellation needs a separately agreed context-aware API; fixing the internal wait alone does not supply it. |
 
 GC2 has high persisted-identity risk and needs migration tests for saved URIs.
-GC1/GC3 have medium lifecycle/transport risk. **Benchmark not required for
-018** if synchronization is confined to close/client acquisition; add one if
-the design serializes Sign. **Benchmark required for 024** before timing/retry
+**GC1 is Fixed (2026-09-26)**; its guard does not serialize Sign, so 018
+needed no benchmark. GC3 has medium transport risk; note that Close now also
+waits for `genKey`'s generation wait, which GC3's cancellation-aware wait
+will shorten. **Benchmark required for 024** before timing/retry
 changes: attempts, cancellation latency, readiness latency, and allocations
 with a deterministic fake service/clock, not a real 60-second cloud wait.
 
@@ -1079,7 +1106,7 @@ Other baselines below still need to be created where marked required.
 | 016 (CP1) — **Fixed** | **Recorded before/after comparison** (`BenchmarkByManufacturer`, `BenchmarkByManufacturerWithAdd`, `-count 6 -cpu 1,4`, benchstat, before = unchanged code) | hits 0 allocs before/after: default 6.2–6.4 → 5.2–5.3 ns, registered 26.1–30.1 → 20.5–21.3 ns serial, 7.1–7.9 → 5.7–5.9 ns on 4 CPUs; misses 416 B / 7 allocs, not significant except +7.6% in one case; rejected RWMutex variant 46–71 ns parallel hits; mixed (1 Add in 1024) 29.9 / 7.3 ns vs RWMutex 27.8 / 53.1 ns, no pre-fix baseline (crash) |
 | 017-inmemcrypto (IM1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.25 → 17.15 ns/op, 0 allocations; misses 1902 → 1983 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |
 | 017-testprov (TP1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.79 → 17.97 ns/op, 0 allocations; misses 1842 → 1935 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |
-| 018 (GC1) | **Not required** for close-only synchronization; conditional if all RPCs are serialized | if needed, sign/client-acquisition contention with a controlled client |
+| 018 (GC1) — **Fixed** | **Not required**: the `enter`/`exit` guard adds two short mutex sections per call and does not serialize RPCs | none recorded; correctness proven by the blocked-RPC lifecycle test under `-race` |
 | 024 (GC3) | **Required**, using deterministic timing | retry count, readiness/cancellation latency, allocations; distinguish wall time from CPU work |
 | 032 (AW2) | **Required** | ListKeys/DescribeKey counts, size/page/selectivity scaling, throttling, peak concurrency |
 | 035 (CU2) — **Fixed** | **Recorded before/after comparison** (`BenchmarkBundle`, `-count 6 -cpu 1,4`, benchstat, before = unchanged code) | warm Bundle serial/parallel at pool 0/100/1000 unchanged (124.7–128.5 µs serial, 32.7–33.4 µs on 4 CPUs, 51 allocs; one +0.9% serial case); learning one intermediate: pool 0 unchanged, pool 100 +2.6%, pool 1000 +23–25% (707 → 884 µs, 20.6 → 346 KiB, 335 → 1,361 allocs) from the pool clone; concurrent learning has no pre-fix baseline (racy) and is proven by the race test |

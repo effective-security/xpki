@@ -95,12 +95,8 @@ func Load(defaultConfig string, providersConfigs []string) (c *Crypto, err error
 	}
 	loaded = append(loaded, p)
 
+	// ByManufacturer finds the default provider without adding it (XPKI-113)
 	c, err = New(p, nil)
-	if err != nil {
-		return nil, err
-	}
-	// the default provider is also listed by manufacturer and model
-	err = c.Add(p)
 	if err != nil {
 		return nil, err
 	}
