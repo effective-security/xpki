@@ -11,8 +11,20 @@ import (
 	"golang.org/x/crypto/ocsp"
 )
 
-// CreateOCSPRequest returns DER encoded OCSP request
+// CreateOCSPRequest returns the DER encoded OCSP request for crt issued by
+// issuer, hashing the issuer key with hash. A nil crt or issuer, an
+// unavailable hash, or an issuer that did not issue crt returns an error
+// before any work (XPKI-103).
 func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte, error) {
+	if crt == nil {
+		return nil, errors.New("certificate is nil")
+	}
+	if issuer == nil {
+		return nil, errors.New("issuer certificate is nil")
+	}
+	if !hash.Available() {
+		return nil, errors.Errorf("hash algorithm is not available: %s", hash)
+	}
 	if !bytes.Equal(crt.RawIssuer, issuer.RawSubject) {
 		return nil, errors.Errorf("invalid chain: issuer does not match")
 	}

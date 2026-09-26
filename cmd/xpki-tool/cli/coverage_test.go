@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -219,10 +220,49 @@ func TestRevocationValidationFailures(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	_, _, err = cli.OCSPValidation(context.Background(), client, f.leaf.Certificate, &x509.Certificate{}, f.server.URL)
 	require.Error(t, err)
-	// XPKI-103: nil issuers currently panic in CreateOCSPRequest.
-	assert.Panics(t, func() {
-		_, _, _ = cli.OCSPValidation(context.Background(), client, f.leaf.Certificate, nil, f.server.URL)
-	})
+	// XPKI-103: a nil certificate or issuer is an input error from
+	// CreateOCSPRequest, with ocsp.Unknown and no HTTP request.
+	var requests atomic.Int32
+	counting := &http.Client{
+		Timeout: time.Second,
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			requests.Add(1)
+			return http.DefaultTransport.RoundTrip(r)
+		}),
+	}
+	for _, tc := range []struct {
+		name        string
+		crt, issuer *x509.Certificate
+		want        string
+	}{
+		{name: "nil issuer", crt: f.leaf.Certificate, issuer: nil, want: "issuer certificate is nil"},
+		{name: "nil certificate", crt: nil, issuer: f.root.Certificate, want: "certificate is nil"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var status int
+			var der []byte
+			var err error
+			require.NotPanics(t, func() {
+				status, der, err = cli.OCSPValidation(context.Background(), counting, tc.crt, tc.issuer, f.server.URL+"/ocsp")
+			})
+			require.EqualError(t, err, tc.want)
+			assert.Equal(t, ocsp.Unknown, status)
+			assert.Nil(t, der)
+			assert.Zero(t, requests.Load())
+		})
+	}
+	// The counting client does reach the server for a valid chain.
+	status, _, err := cli.OCSPValidation(context.Background(), counting, f.leaf.Certificate, f.root.Certificate, f.server.URL+"/ocsp")
+	require.NoError(t, err)
+	assert.Equal(t, ocsp.Good, status)
+	assert.Equal(t, int32(1), requests.Load())
+}
+
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
 
 func TestRevocationFetchAndInfo(t *testing.T) {

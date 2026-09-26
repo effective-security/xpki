@@ -54,15 +54,15 @@ drift; the symbol name is the stable reference.
 | XPKI-033 | cryptoprov/awskmscrypto               | `awskmsprov.go` `EnumKeys`                                     | `DescribeKey` errors logged and skipped; throttled keys vanish from listings                                                                       | correctness | Open           |
 | XPKI-034 | cryptoprov/awskmscrypto               | `awskmsprov.go` `Init`                                         | Env credentials forced into a static provider; redundant with SDK chain, non-refreshable                                                           | correctness | Open           |
 | XPKI-035 | certutil                              | `bundler.go` `verifyChain`/`fetchIntermediates`                | `Bundler` mutates `KnownIssuers` and `IntermediatePool` per call; concurrent `Bundle` panics                                                       | race        | **Fixed** ([details](#xpki-035--cu2)) |
-| XPKI-036 | certutil                              | `bundler.go` `Bundler.Bundle`                                  | Empty cert list returns `(nil, nil)`                                                                                                               | bug         | Needs Approval |
+| XPKI-036 | certutil                              | `bundler.go` `Bundler.Bundle`                                  | Empty cert list returns `(nil, nil)`                                                                                                               | bug         | **Fixed** ([details](#xpki-036--cu3)) |
 | XPKI-037 | certutil                              | `bundler.go` `fetchRemoteCertificate`                          | AIA fetch: no status check, unbounded `io.ReadAll`, no context, body logged in full                                                                | security    | **Fixed** ([details](#xpki-037--cu1)) |
-| XPKI-038 | certutil                              | `bundle.go` `SortBundlesByExpiration`                          | Sorts the caller's slice in place with unstable `sort.Slice`                                                                                       | correctness | Needs Approval |
+| XPKI-038 | certutil                              | `bundle.go` `SortBundlesByExpiration`                          | Sorts the caller's slice in place with unstable `sort.Slice`                                                                                       | correctness | **Fixed** ([details](#xpki-038--cu3)) |
 | XPKI-039 | certutil                              | `bundler.go` `fetchIntermediates`                              | `seen[url]` set only on success; failing AIA URLs re-fetched each iteration                                                                        | performance | **Fixed** ([details](#xpki-039--cu1)) |
 | XPKI-041 | certutil                              | `bundler.go` `NewBundler`                                      | No roots + `WithBundleFlavor(Optimal)` leaves `RootPool` nil, so `x509.Verify` trusts system roots                                                 | security    | **Fixed** ([details](#xpki-041--cu1)) |
-| XPKI-042 | certutil                              | `bundle.go` `BuildBundle`                                      | Dereferences `c.Status`/`c.Cert` without nil checks                                                                                                | bug         | Open           |
-| XPKI-043 | certutil                              | `pem.go` `ParsePrivateKeyPEMWithPassword`                      | PKCS#8 `ENCRYPTED PRIVATE KEY` unsupported; falls through to an opaque error; doc claims support                                                   | correctness | Open           |
+| XPKI-042 | certutil                              | `bundle.go` `BuildBundle`                                      | Dereferences `c.Status`/`c.Cert` without nil checks                                                                                                | bug         | **Fixed** ([details](#xpki-042--cu3)) |
+| XPKI-043 | certutil                              | `pem.go` `ParsePrivateKeyPEMWithPassword`                      | PKCS#8 `ENCRYPTED PRIVATE KEY` unsupported; falls through to an opaque error; doc claims support                                                   | correctness | **Fixed** ([details](#xpki-043--cu5)) |
 | XPKI-044 | certutil                              | `bundler.go` `HTTPClient`                                      | Exported global documented as used for all HTTP requests but never read                                                                            | docs        | **Fixed** ([details](#xpki-044--cu1)) |
-| XPKI-045 | certutil                              | `bundle.go` `ExpiresInHours`                                   | Doc says "rounded up"; integer division truncates                                                                                                  | docs        | Open           |
+| XPKI-045 | certutil                              | `bundle.go` `ExpiresInHours`                                   | Doc says "rounded up"; integer division truncates                                                                                                  | docs        | **Fixed** ([details](#xpki-045--cu3)) |
 | XPKI-047 | armor                                 | `armor.go` `Decode`                                            | CRC24 trailer mandatory; RFC 9580 requires accepting armor without it                                                                              | correctness | Open           |
 | XPKI-049 | authority                             | `issuer.go` `Sign` (`safeTemplate = *requesterCsrTemplate`)    | All CSR `ExtraExtensions` (KU/EKU/SAN/…) copied into the template; empty `AllowedExtensions` allows every OID                                      | security    | **Fixed** ([details](#xpki-049--au1)) |
 | XPKI-050 | authority                             | `issuer.go` `Sign` profile extensions                          | Profile `Extensions` appended without dedupe against CSR extensions; `CreateCertificate` output then fails to parse                                | correctness | **Fixed** ([details](#xpki-050--au1)) |
@@ -96,11 +96,11 @@ drift; the symbol name is the stable reference.
 | XPKI-096 | build                                 | `Makefile` `tools`                                             | Tools installed `@latest`; a golangci-lint major bump can break `.golangci.yaml`                                                                   | correctness | Open           |
 | XPKI-097 | build                                 | `internal/version/current.go`, `Makefile` `version`            | Tracked generated file is stale (`v0.2.76`); `make version` not wired into `build`/`all`/CI                                                        | bug         | Open           |
 | XPKI-098 | build                                 | `docker-compose.yml`                                           | Obsolete `version:`; fixed subnet is a public range; `local-kms` image untagged                                                                    | correctness | Open           |
-| XPKI-099 | tests                                 | `cryptoprov/provider_test.go` `Test_Aws`/`Test_Gcp`            | Empty stubs; `certutil.TestKeyInfoKMS` needs live KMS                                                                                              | docs        | In Progress ([cryptoprov](#xpki-099-cryptoprov--cp1) portion; certutil in CU4) |
-| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority](#xpki-100-authority--au2), [crypto11](#xpki-100-crypto11--pk1), [jwt](#xpki-100-jwt--jw2), [cryptoprov](#xpki-100-cryptoprov--cp1) portions) |
+| XPKI-099 | tests                                 | `cryptoprov/provider_test.go` `Test_Aws`/`Test_Gcp`            | Empty stubs; `certutil.TestKeyInfoKMS` needs live KMS                                                                                              | docs        | **Fixed** ([cryptoprov](#xpki-099-cryptoprov--cp1), [certutil](#xpki-099-certutil--cu4) portions) |
+| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority](#xpki-100-authority--au2), [crypto11](#xpki-100-crypto11--pk1), [jwt](#xpki-100-jwt--jw2), [cryptoprov](#xpki-100-cryptoprov--cp1), [certutil](#xpki-100-certutil--cu4) portions) |
 | XPKI-101 | tests                                 | `cmd/hsm-tool/cli/hsm_cli_test.go`                             | Shared kong parser across `Parse` calls masks the `--cfg` required check                                                                           | docs        | Open           |
 | XPKI-102 | cmd/xpki-tool/cli                     | `ocsp.go` `OCSPFetchCmd.Run`                                   | All OCSP endpoint failures are printed but the command returns success                                                                             | correctness | Open           |
-| XPKI-103 | certutil, cmd/xpki-tool/cli           | `ocsp.go` `CreateOCSPRequest`, `certs.go` `OCSPValidation`     | Nil issuer certificate panics instead of returning an input error                                                                                  | bug         | Open           |
+| XPKI-103 | certutil, cmd/xpki-tool/cli           | `ocsp.go` `CreateOCSPRequest`, `certs.go` `OCSPValidation`     | Nil issuer certificate panics instead of returning an input error                                                                                  | bug         | **Fixed** ([details](#xpki-103--cu4)) |
 | XPKI-104 | jwt                                   | `jwt.go` `NewProviderWithSymmetricKey`                         | Applying nonempty `WithHeaders` panics because the constructor leaves `headers` nil                                                                | bug         | **Fixed** ([details](#xpki-104--jw2)) |
 | XPKI-105 | tests                                 | `cmd/xpki-tool/cli/suite_test.go` `SetupSuite`               | Fixed temporary directory is removed by concurrent coverage/race runs, causing missing fixture files                                               | bug         | **Fixed** ([details](#xpki-105--xc2)) |
 | XPKI-106 | dataprotection                        | `symmetric_test.go` `TestNewSymmetric`                         | Tamper test copies one random nonce byte over another; equal bytes leave the ciphertext unchanged and make the authentication-failure assertion flaky | bug         | Open           |
@@ -113,6 +113,167 @@ drift; the symbol name is the stable reference.
 | XPKI-113 | cryptoprov                            | `loader.go` `Load`                                             | `Load` re-adds the default provider; for a provider whose dynamic type is not comparable (a struct value with a map/slice field) `sameProvider` is false, so `Load` always returns `ErrDuplicateProvider` (found in the CP1 review)                          | bug         | Fixed |
 
 ## Fixed items
+
+### XPKI-036 — CU3
+
+**Fixed on 2026-09-26** (approved: error plus an exported sentinel).
+`Bundler.Bundle`/`BundleContext` returned `(nil, nil)` for a nil or empty
+list, so callers that checked only `err` dereferenced a nil `*Chain`. They now
+return `no certificates`, which matches the new exported `ErrNoCertificates`
+with stdlib and cockroachdb `errors.Is`. A nil entry anywhere in the list
+returns `nil certificate at index N` instead of panicking in the key or
+signature checks. `ChainFromPEM` keeps its `failed to parse certificates`
+error for PEM without certificates. No caller in this module relied on the
+old result.
+
+Validation: `TestBundlerEmptyInput` (nil, empty, nil leaf, nil intermediate ×
+Force and Optimal × `Bundle` and `BundleContext`, exact message and
+`errors.Is`) failed at HEAD (`An error is expected but got nil`, then a nil
+pointer panic for the nil leaf). The `TestBundlerChainBehavior`
+characterization now requires `ErrNoCertificates`.
+
+### XPKI-038 — CU3
+
+**Fixed on 2026-09-26** (approved: stable sorted copy).
+`SortBundlesByExpiration` sorted the caller's slice in place (`bundles[:]`
+aliases it) with the unstable `sort.Slice`, and panicked on a nil bundle. It
+now returns `slices.Clone` stable-sorted with `slices.SortStableFunc` by
+`Expires` descending. Equal expiries keep input order, nil bundles go last,
+nil input returns nil and empty input returns an empty slice. The bundles
+themselves are shared, not copied.
+
+Validation: `TestSortBundlesByExpirationContract` covers nil, empty, one,
+distinct, equal expiries in two input orders, nil entries, adjacent nils, and
+a nil after a bundle. Every case checks the exact output, that the input
+order is unchanged, and that writing to the result does not change the input.
+At HEAD it failed with a nil pointer panic; the existing
+`Test_SortBundlesByExpiration` still passes. The comparator has 100%
+coverage.
+
+### XPKI-042 — CU3
+
+**Fixed on 2026-09-26** (approved: nil `Status` means an empty status).
+`BuildBundle` dereferenced `c`, `c.Cert` and `c.Status`. A nil chain now
+returns `chain is nil`, and a nil `Cert` returns `chain has no leaf
+certificate: no certificates` (wraps `ErrNoCertificates`). A nil `Status`
+is treated as an empty status (Code 0, no messages). A rootless Force chain
+stays valid with empty `RootCert`/`RootCertPEM`.
+
+Validation: `TestBuildBundleInput` covers nil chain and nil `Cert` (exact
+errors, nil results), a hand-built chain with nil `Status` (status equals
+`&BundleStatus{}`, issuer found, no root), a real Force chain without a root
+(status code, `CACertsPEM`, empty root), and an Optimal chain with a root
+(`RootCertPEM`). At HEAD it failed with a nil pointer panic.
+
+### XPKI-045 — CU3
+
+**Fixed on 2026-09-26** (documentation only, as planned). `ExpiresInHours`
+said "rounded up in hours", but `Duration` division truncates toward zero. The
+comment now describes truncation with examples (90 minutes → 1h, 90 minutes
+ago → -1h). Behavior is unchanged, so no test mirrors the one-line
+implementation.
+
+### XPKI-103 — CU4
+
+**Fixed on 2026-09-26** (certutil fix; the CLI needed only its test).
+`CreateOCSPRequest` dereferenced `crt` and `issuer` before checking either, and
+`Digest` panics on an unavailable hash. It now returns `certificate is nil`,
+`issuer certificate is nil` (a nil certificate is reported first), or `hash
+algorithm is not available: …` before any other work.
+`cli.OCSPValidation` already returned `ocsp.Unknown` with the
+`CreateOCSPRequest` error, so no CLI code changed.
+
+Validation: the package-local `TestCreateOCSPRequestInput` covers nil
+certificate, nil issuer, both nil, `crypto.Hash(0)`, a leaf used as its own
+issuer, a root that is not the issuer (exact errors, no panic), and valid
+SHA-1/SHA-256 requests. The valid requests are parsed with `ocsp.ParseRequest`
+and match `ocsp.CreateRequest`'s issuer key hash. At HEAD, four cases
+panicked (nil certificate, nil issuer, both nil, unavailable hash). In `cmd/xpki-tool/cli`, `TestRevocationValidationFailures`' `assert.Panics`
+characterization became nil-issuer and nil-certificate cases. They assert the
+exact error, `ocsp.Unknown`, nil DER and zero requests through a counting
+client, and a valid chain then makes exactly one request. At HEAD both cases
+failed.
+
+### XPKI-099-certutil — CU4
+
+**Fixed on 2026-09-26; completes XPKI-099** (the cryptoprov portion was fixed
+by CP1). `KeyInfo` of an opaque key is now tested without KMS:
+`TestKeyInfoOpaqueKeys` wraps generated RSA-2048, P-256 and P-384 keys as a
+`crypto.Signer` or `crypto.Decrypter` that hides the concrete type. It
+asserts type, size, hash, `IsPrivate == false`, that `Key` is the given key,
+and public-key identity; an opaque Ed25519 signer returns `key not supported:
+ed25519.PublicKey`. `TestKeyInfoKMS` is kept as an explicit integration test
+of a real KMS signer. It no longer loads the unused `:14555` JSON config, and
+it now also checks the hash, `IsPrivate` and key identity.
+
+### XPKI-100-certutil — CU4
+
+**certutil portion Fixed on 2026-09-26; XPKI-100 stays In Progress.**
+`TestKeyInfoKMS` is the only certutil test that needs a fixture. It starts
+with `testenv.RequireTCP(t, "local-kms", localKMSAddr)` (`localhost:14556`,
+the endpoint in `aws-dev-kms.yaml`).
+
+Validation, with the `xpki-kms-kms2-1` container stopped and then restarted:
+
+- HEAD: `TestKeyInfoKMS` failed after 4s of `CreateKey` retries (`connection
+  refused`).
+- Stopped, variable unset: the test was skipped with the `testenv` message
+  and the whole package passed.
+- Stopped, `XPKI_INTEGRATION=required`: the test failed.
+- Present but broken (a plain TCP listener on `:14556` that closes every
+  connection), variable unset: the test failed instead of skipping.
+- Restarted: the test passed with `XPKI_INTEGRATION=required`.
+
+Remaining XPKI-100 portions: AW1 (awskmscrypto), CS1 (csr) and HC1
+(cmd/hsm-tool/cli).
+
+### XPKI-043 — CU5
+
+**Fixed on 2026-09-26** (approved: PBES2 with PBKDF2 and AES-CBC, no new
+dependency). `GetKeyDERFromPEM` handled only legacy RFC 1423 encryption. An
+`ENCRYPTED PRIVATE KEY` block reached `ParsePrivateKeyDER` still encrypted
+and failed with the opaque `unable to parse private key`. The new
+`certutil/pkcs8.go` decrypts an RFC 5958 `EncryptedPrivateKeyInfo` with PBES2
+(RFC 8018): PBKDF2 (stdlib `crypto/pbkdf2`) with HMAC-SHA1 (the default when
+no PRF is given) or HMAC-SHA224/256/384/512, and AES-128/192/256-CBC with a
+16-byte IV. This is what OpenSSL 3 writes by default.
+
+- PBES1, PKCS#12 PBE, scrypt, DES/3DES and other ciphers or PRFs return
+  `unsupported PKCS#8 encryption: <scheme|key derivation|PRF|cipher> <OID>`.
+  A non-`OCTET STRING` salt source is also unsupported.
+- The iteration count must be 1–10,000,000, a present `keyLength` must match
+  the AES key size, and the ciphertext must be a non-empty whole number of
+  blocks. Trailing DER data and malformed parameters are errors.
+- A nil password returns `encrypted private key`, as for legacy PEM. A wrong
+  password (bad PKCS#7 padding, or plaintext that is not exactly one DER
+  value) returns an error matching `x509.IncorrectPasswordError`.
+- The doc comments of `ParsePrivateKeyPEMWithPassword` and `GetKeyDERFromPEM`
+  list exactly these formats.
+
+Validation:
+
+- `TestEncryptedPKCS8OpenSSL` uses OpenSSL 3.5.5 fixtures in
+  `testdata/pkcs8/`: RSA-2048 AES-256/SHA-256, P-256 AES-128/SHA-1 and
+  AES-192/SHA-512, and Ed25519 AES-256/SHA-384. It checks the DER equals the
+  plain PKCS#8 fixture, the key equals the parsed plain key, and that nil,
+  wrong and empty passwords fail.
+- `TestEncryptedPKCS8OpenSSLUnsupported` covers OpenSSL des3, scrypt and
+  PKCS#12 3DES samples with exact messages.
+- `TestEncryptedPKCS8RoundTrip` builds PBES2 structures in Go for RSA and
+  P-384 keys × 6 PRF settings × 3 AES sizes, with and without `keyLength`
+  (72 cases).
+- `TestEncryptedPKCS8Malformed` has 19 parameter/padding/password cases with
+  exact errors and no panic, plus 4 structural cases. It also checks that
+  unencrypted PKCS#8 fixtures and SEC1 PEM still parse when a password is
+  given.
+- At HEAD all four tests failed. Round trips and OpenSSL fixtures got
+  `unable to parse private key`; malformed cases returned no error because
+  the encrypted bytes were returned as DER.
+
+CU3/CU4/CU5 validation: `go test ./certutil -cover` went from 93.5% at HEAD
+to 94.4%. `make lint` (0 issues) and `make test RACE=true
+TEST_FLAGS=-count=1` passed (all 24 packages, uncached, with SoftHSM and
+local-kms).
 
 ### XPKI-113 — CP3
 
@@ -311,7 +472,8 @@ valid default with no extra providers.
 ### XPKI-099-cryptoprov — CP1
 
 **cryptoprov portion Fixed on 2026-09-26; XPKI-099 stays In Progress (certutil
-portion in CU4).** The empty `Test_Aws`/`Test_Gcp` are replaced by
+portion in CU4).** The certutil portion was fixed later by CU4
+([XPKI-099-certutil](#xpki-099-certutil--cu4)), which completes XPKI-099. The empty `Test_Aws`/`Test_Gcp` are replaced by
 `TestLoad_KMSProviders`. It loads `awskmscrypto/testdata/aws-dev-kms.json`
 and a GCP token config through `cryptoprov.Load`, by the loaders the
 packages register in `init()`. The AWS client is created lazily, and
@@ -353,7 +515,8 @@ Validation, with `/tmp/xpki/softhsm_unittest.json` moved aside and restored
 - Restored: the package passed with `XPKI_INTEGRATION=required`.
 
 Remaining XPKI-100 portions: AW1 (awskmscrypto), CS1 (csr), CU4 (certutil)
-and HC1 (cmd/hsm-tool/cli).
+and HC1 (cmd/hsm-tool/cli). The certutil portion was fixed later by CU4
+([XPKI-100-certutil](#xpki-100-certutil--cu4)).
 
 CP1 validation (all four items): `go test ./cryptoprov -cover` 81.6% at HEAD
 → 84.9%. `make lint` (0 issues) and `make test RACE=true
@@ -517,7 +680,8 @@ Validation, with the `xpki-kms-kms1-1` container stopped and then restarted:
 
 Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
 (csr), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The cryptoprov portion was fixed later by CP1
-([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)).
+([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)). The certutil portion was fixed later by CU4
+([XPKI-100-certutil](#xpki-100-certutil--cu4)).
 
 JW2 validation (all three items): `make lint` (0 issues), `make covtest` (all
 packages passed, total coverage **91.5%**; `jwt` 92.6% at HEAD → 93.0%) and
@@ -894,7 +1058,8 @@ PR #540 second-round follow-ups (2026-09-25):
 Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
 (csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The jwt portion
 was fixed later by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)). The cryptoprov portion was fixed later by CP1
-([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)).
+([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)). The certutil portion was fixed later by CU4
+([XPKI-100-certutil](#xpki-100-certutil--cu4)).
 
 ### XPKI-051 — AU2
 
@@ -1098,7 +1263,8 @@ Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
 (csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The crypto11
 portion was fixed later by PK1 ([XPKI-100-crypto11](#xpki-100-crypto11--pk1)),
 and the jwt portion by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)). The cryptoprov portion was fixed later by CP1
-([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)).
+([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)). The certutil portion was fixed later by CU4
+([XPKI-100-certutil](#xpki-100-certutil--cu4)).
 Use `internal/testenv`.
 
 ### XPKI-078 — AT1
@@ -1849,8 +2015,11 @@ Validation passed:
 
 ## Notes on items needing approval
 
-- **XPKI-036 / XPKI-038** change exported return values (`Bundle` returning an
-  error for empty input; `SortBundlesByExpiration` returning a copy).
+- **XPKI-036 / XPKI-038 / XPKI-042 / XPKI-043** were approved and fixed by
+  CU3/CU5 on 2026-09-26 (`Bundle` of empty input returns an error matching
+  `ErrNoCertificates`; `SortBundlesByExpiration` returns a stable sorted copy;
+  `BuildBundle` treats a nil `Status` as empty; encrypted PKCS#8 is decrypted
+  for PBES2 + PBKDF2 + AES-CBC only).
 - **XPKI-049 / XPKI-054 / XPKI-057** were approved and fixed by AU1 on
   2026-09-24; see their Fixed items for the chosen policy and compatibility
   notes.
