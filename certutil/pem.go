@@ -300,7 +300,9 @@ func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.
 // -SHA256, -SHA384 or -SHA512, at most 10,000,000 iterations) and
 // AES-128/192/256-CBC, which OpenSSL 3 writes by default. Other PKCS#8
 // schemes (PBES1, PKCS#12 PBE, scrypt, DES) return an "unsupported PKCS#8
-// encryption" error (XPKI-043).
+// encryption" error (XPKI-043). The decrypted bytes are returned only when
+// they are a PKCS#8 PrivateKeyInfo; otherwise, as for bad padding, the
+// error matches x509.IncorrectPasswordError (XPKI-115).
 func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 	// Ignore any EC PARAMETERS blocks when looking for a key (openssl includes
 	// them by default).

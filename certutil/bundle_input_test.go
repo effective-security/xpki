@@ -242,6 +242,17 @@ func TestCreateOCSPRequestInput(t *testing.T) {
 		})
 	}
 
+	// XPKI-121: the same subject name with another key is not the issuer.
+	t.Run("same name other key", func(t *testing.T) {
+		t.Parallel()
+		impostor := bundlerCA(t, "Input Intermediate", c.root).Certificate
+		require.Equal(t, issuer.RawSubject, impostor.RawSubject)
+		require.NotEqual(t, issuer.RawSubjectPublicKeyInfo, impostor.RawSubjectPublicKeyInfo)
+		der, err := certutil.CreateOCSPRequest(leaf, impostor, crypto.SHA256)
+		require.ErrorContains(t, err, "invalid chain: issuer did not sign the certificate")
+		assert.Nil(t, der)
+	})
+
 	for _, hash := range []crypto.Hash{crypto.SHA1, crypto.SHA256} {
 		t.Run("valid "+hash.String(), func(t *testing.T) {
 			t.Parallel()

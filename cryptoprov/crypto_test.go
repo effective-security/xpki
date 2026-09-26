@@ -211,10 +211,15 @@ func registerCloserLoader(t *testing.T) *atomic.Int32 {
 	return closed
 }
 
-func writeTokenConfig(t *testing.T, manufacturer, model string) string {
+// writeTokenConfig writes a YAML token config with manufacturer, model and
+// the optional attributes line.
+func writeTokenConfig(t *testing.T, manufacturer, model string, attributes ...string) string {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), "token.yaml")
 	body := "manufacturer: " + manufacturer + "\nmodel: " + model + "\n"
+	for _, attr := range attributes {
+		body += "attributes: " + attr + "\n"
+	}
 	require.NoError(t, os.WriteFile(cfg, []byte(body), 0600))
 	return cfg
 }
