@@ -22,9 +22,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// closeProvider closes p when it implements Close() error, such as a
+// PKCS#11 library.
+func closeProvider(t *testing.T, p cryptoprov.Provider) {
+	t.Helper()
+	if closer, ok := p.(interface{ Close() error }); ok {
+		assert.NoError(t, closer.Close())
+	}
+}
+
+// loadP11Provider loads the SoftHSM token until the end of t; it skips or
+// fails t as testenv.RequireFile does when the token is not configured.
 func loadP11Provider(t *testing.T) cryptoprov.Provider {
+	requireSoftHSM(t)
 	p11, err := crypto11.ConfigureFromFile(SoftHSMConfig)
 	require.NoError(t, err)
+	t.Cleanup(func() { closeProvider(t, p11) })
 
 	prov, supported := any(p11).(cryptoprov.Provider)
 	require.True(t, supported)
@@ -40,9 +53,14 @@ func TestRegistered(t *testing.T) {
 	l := cryptoprov.Registered()
 	require.NotEmpty(t, l)
 
-	assert.True(t, slices.Contains(l, inmemcrypto.ProviderName))
-	assert.True(t, slices.Contains(l, awskmscrypto.ProviderName))
-	assert.True(t, slices.Contains(l, gcpkmscrypto.ProviderName))
+	for _, name := range []string{
+		"SoftHSM",
+		inmemcrypto.ProviderName,
+		awskmscrypto.ProviderName,
+		gcpkmscrypto.ProviderName,
+	} {
+		assert.True(t, slices.Contains(l, name), "%s is not registered: %v", name, l)
+	}
 }
 
 func TestInmem(t *testing.T) {
@@ -177,8 +195,43 @@ func Test_P11(t *testing.T) {
 	})
 }
 
-func Test_Aws(t *testing.T) {
+// gcpStubClient satisfies gcpkmscrypto.KmsClient; loading a provider does
+// not call the client.
+type gcpStubClient struct {
+	gcpkmscrypto.KmsClient
 }
 
-func Test_Gcp(t *testing.T) {
+// TestLoad_KMSProviders loads the self-registered AWS and GCP KMS loaders by
+// manufacturer from token configs, without contacting KMS: the AWS client is
+// created lazily and the GCP client factory is replaced (XPKI-099).
+func TestLoad_KMSProviders(t *testing.T) {
+	original := gcpkmscrypto.KmsClientFactory
+	t.Cleanup(func() { gcpkmscrypto.KmsClientFactory = original })
+	gcpkmscrypto.KmsClientFactory = func() (gcpkmscrypto.KmsClient, error) {
+		return gcpStubClient{}, nil
+	}
+
+	gcpCfg := writeTokenConfig(t, gcpkmscrypto.ProviderName, "unittest")
+	cp, err := cryptoprov.Load("", []string{
+		"awskmscrypto/testdata/aws-dev-kms.json",
+		gcpCfg,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, inmemcrypto.ProviderName, cp.Default().Manufacturer())
+
+	aws, err := cp.ByManufacturer(awskmscrypto.ProviderName, "14555")
+	require.NoError(t, err)
+	assert.IsType(t, &awskmscrypto.Provider{}, aws)
+
+	gcp, err := cp.ByManufacturer(gcpkmscrypto.ProviderName, "unittest")
+	require.NoError(t, err)
+	require.IsType(t, &gcpkmscrypto.Provider{}, gcp)
+	assert.Equal(t, gcpStubClient{}, gcp.(*gcpkmscrypto.Provider).KmsClient)
+
+	// a second AWS config with the same manufacturer and model is rejected
+	_, err = cryptoprov.Load("", []string{
+		"awskmscrypto/testdata/aws-dev-kms.json",
+		writeTokenConfig(t, awskmscrypto.ProviderName, "14555"),
+	})
+	assertIs(t, err, cryptoprov.ErrDuplicateProvider)
 }
