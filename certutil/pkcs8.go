@@ -77,6 +77,31 @@ type pbkdf2Params struct {
 	PRF            pkix.AlgorithmIdentifier `asn1:"optional"`
 }
 
+// The RFC 5958 OneAsymmetricKey versions: v1 is the PKCS#8 PrivateKeyInfo,
+// v2 may add a public key.
+const (
+	privateKeyInfoV1 = 0
+	privateKeyInfoV2 = 1
+)
+
+// privateKeyInfo is the shape every decrypted payload must have: an RFC 5958
+// OneAsymmetricKey (PKCS#8 PrivateKeyInfo) with its version, algorithm and
+// key. encoding/asn1 accepts the optional trailing attributes and public
+// key; the key itself is parsed by the caller (XPKI-115).
+type privateKeyInfo struct {
+	Version    int
+	Algorithm  pkix.AlgorithmIdentifier
+	PrivateKey []byte
+}
+
+// isPrivateKeyInfo reports whether der is exactly one PrivateKeyInfo.
+func isPrivateKeyInfo(der []byte) bool {
+	var info privateKeyInfo
+	rest, err := asn1.Unmarshal(der, &info)
+	return err == nil && len(rest) == 0 &&
+		(info.Version == privateKeyInfoV1 || info.Version == privateKeyInfoV2)
+}
+
 // errUnsupportedPKCS8 reports an encryption scheme, KDF, PRF or cipher that
 // decryptPKCS8 does not implement (XPKI-043).
 func errUnsupportedPKCS8(what string, oid asn1.ObjectIdentifier) error {
@@ -86,8 +111,9 @@ func errUnsupportedPKCS8(what string, oid asn1.ObjectIdentifier) error {
 // decryptPKCS8 decrypts an RFC 5958 EncryptedPrivateKeyInfo and returns the
 // PKCS#8 PrivateKeyInfo DER. Only PBES2 with PBKDF2 (HMAC-SHA1, -SHA224,
 // -SHA256, -SHA384 or -SHA512) and AES-128/192/256-CBC is supported; other
-// schemes return an "unsupported PKCS#8 encryption" error. A wrong password
-// returns an error that matches x509.IncorrectPasswordError.
+// schemes return an "unsupported PKCS#8 encryption" error. The plaintext
+// must be a PrivateKeyInfo; a wrong password returns an error that matches
+// x509.IncorrectPasswordError.
 func decryptPKCS8(der, password []byte) ([]byte, error) {
 	var info encryptedPrivateKeyInfo
 	rest, err := asn1.Unmarshal(der, &info)
@@ -161,10 +187,10 @@ func decryptPKCS8(der, password []byte) ([]byte, error) {
 	if !ok {
 		return nil, errors.WithStack(x509.IncorrectPasswordError)
 	}
-	// A wrong password leaves valid padding about once in 256 attempts;
-	// the result must also be exactly one DER value.
-	var value asn1.RawValue
-	if rest, err = asn1.Unmarshal(plain, &value); err != nil || len(rest) != 0 {
+	// A wrong password leaves valid padding about once in 256 attempts, and
+	// the padded bytes may still decode as some DER value; the result must
+	// be exactly one PrivateKeyInfo (XPKI-115).
+	if !isPrivateKeyInfo(plain) {
 		return nil, errors.WithStack(x509.IncorrectPasswordError)
 	}
 	return plain, nil

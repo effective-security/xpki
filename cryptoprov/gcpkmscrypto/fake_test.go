@@ -18,6 +18,7 @@ import (
 // test sees any RPC it did not expect.
 type fakeKMS struct {
 	getCryptoKey            func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error)
+	getCryptoKeyVersion     func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error)
 	getPublicKey            func(*kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error)
 	destroyCryptoKeyVersion func(*kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error)
 	asymmetricSign          func(*kmspb.AsymmetricSignRequest) (*kmspb.AsymmetricSignResponse, error)
@@ -45,11 +46,29 @@ func (f *fakeKMS) Calls() []string {
 	return append([]string(nil), f.calls...)
 }
 
+// CallCount returns how often the method name was called.
+func (f *fakeKMS) CallCount(name string) int {
+	count := 0
+	for _, call := range f.Calls() {
+		if call == name {
+			count++
+		}
+	}
+	return count
+}
+
 // ListCryptoKeys returns nil: an iterator can not be built outside the kms
 // package, so listing is tested against a local gRPC server
-// (TestEnumKeysPagination).
+// (TestEnumKeysPagination and fakeKMSServer).
 func (f *fakeKMS) ListCryptoKeys(context.Context, *kmspb.ListCryptoKeysRequest, ...gax.CallOption) *kms.CryptoKeyIterator {
 	f.record("ListCryptoKeys")
+	return nil
+}
+
+// ListCryptoKeyVersions returns nil for the same reason as ListCryptoKeys;
+// tests with bare key IDs use fakeKMSServer.
+func (f *fakeKMS) ListCryptoKeyVersions(context.Context, *kmspb.ListCryptoKeyVersionsRequest, ...gax.CallOption) *kms.CryptoKeyVersionIterator {
+	f.record("ListCryptoKeyVersions")
 	return nil
 }
 
@@ -69,9 +88,12 @@ func (f *fakeKMS) GetPublicKey(_ context.Context, req *kmspb.GetPublicKeyRequest
 	return f.getPublicKey(req)
 }
 
-func (f *fakeKMS) GetCryptoKeyVersion(context.Context, *kmspb.GetCryptoKeyVersionRequest, ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+func (f *fakeKMS) GetCryptoKeyVersion(_ context.Context, req *kmspb.GetCryptoKeyVersionRequest, _ ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
 	f.record("GetCryptoKeyVersion")
-	return nil, errors.WithStack(errUnexpectedCall)
+	if f.getCryptoKeyVersion == nil {
+		return nil, errors.WithStack(errUnexpectedCall)
+	}
+	return f.getCryptoKeyVersion(req)
 }
 
 func (f *fakeKMS) DestroyCryptoKeyVersion(_ context.Context, req *kmspb.DestroyCryptoKeyVersionRequest, _ ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
@@ -116,8 +138,28 @@ func signResponse(req *kmspb.AsymmetricSignRequest, sig []byte) *kmspb.Asymmetri
 	}
 }
 
+// enabledVersion returns an ENABLED HSM version of the key in coverageKeyring
+// with algorithm.
+func enabledVersion(key string, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) *kmspb.CryptoKeyVersion {
+	return &kmspb.CryptoKeyVersion{
+		Name:            coverageKeyring + "/cryptoKeys/" + key + "/cryptoKeyVersions/1",
+		State:           kmspb.CryptoKeyVersion_ENABLED,
+		Algorithm:       algorithm,
+		ProtectionLevel: kmspb.ProtectionLevel_HSM,
+	}
+}
+
+// testTokenCfg is the token config of test providers.
+func testTokenCfg(keyring string) *mockTokenCfg {
+	return &mockTokenCfg{
+		manufacturer: gcpkmscrypto.ProviderName,
+		model:        "KMS",
+		atts:         "Keyring=" + keyring,
+	}
+}
+
 // newProvider returns a provider for coverageKeyring that uses client.
 func newProvider(t *testing.T, client gcpkmscrypto.KmsClient) *gcpkmscrypto.Provider {
 	t.Helper()
-	return gcpkmscrypto.NewTestProvider(client, coverageKeyring)
+	return gcpkmscrypto.NewTestProvider(testTokenCfg(coverageKeyring), client, coverageKeyring)
 }

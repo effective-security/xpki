@@ -14,7 +14,6 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
@@ -26,11 +25,16 @@ import (
 
 const coverageKeyring = "projects/test/locations/global/keyRings/coverage"
 
+// p256PublicPEM is a P-256 public key as GetPublicKey returns it.
+const p256PublicPEM = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEpSwQTzpTI9LFgLtdHAMHl0oEIgwf
+2i7YbXYfrucbC0xPekQgsxEJJqQJauSwOugli7FYYKxyapk3j6lGImVCbA==
+-----END PUBLIC KEY-----
+`
+
 func coverageProvider(t *testing.T, client gcpkmscrypto.KmsClient) *gcpkmscrypto.Provider {
 	t.Helper()
-	original := gcpkmscrypto.KmsClientFactory
-	gcpkmscrypto.KmsClientFactory = func() (gcpkmscrypto.KmsClient, error) { return client, nil }
-	t.Cleanup(func() { gcpkmscrypto.KmsClientFactory = original })
+	swapFactory(t, func(string) (gcpkmscrypto.KmsClient, error) { return client, nil })
 	provider, err := gcpkmscrypto.Init(&mockTokenCfg{
 		manufacturer: gcpkmscrypto.ProviderName,
 		model:        "KMS",
@@ -59,8 +63,11 @@ func (s *listingKMSServer) ListCryptoKeys(_ context.Context, req *kmspb.ListCryp
 			ProtectionLevel: kmspb.ProtectionLevel_HSM,
 			Algorithm:       kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256,
 		},
-		Labels:  map[string]string{"label": "test"},
-		Primary: &kmspb.CryptoKeyVersion{State: kmspb.CryptoKeyVersion_ENABLED},
+		Labels: map[string]string{"label": "test"},
+		Primary: &kmspb.CryptoKeyVersion{
+			Name:  coverageKeyring + "/cryptoKeys/enabled/cryptoKeyVersions/3",
+			State: kmspb.CryptoKeyVersion_ENABLED,
+		},
 	}
 	if req.PageToken == "second" {
 		// no optional metadata: Primary, VersionTemplate, CreateTime (XPKI-023)
@@ -112,7 +119,9 @@ func TestEnumKeysPagination(t *testing.T) {
 			assert.Equal(t, "enabled", keys[0].ID)
 			assert.Equal(t, "no-primary", keys[1].ID)
 			assert.Equal(t, "ENABLED", keys[0].Meta["state"])
+			assert.Equal(t, "3", keys[0].CurrentVersionID)
 			assert.Equal(t, map[string]string{"purpose": "ASYMMETRIC_SIGN"}, keys[1].Meta)
+			assert.Empty(t, keys[1].CurrentVersionID)
 			assert.Nil(t, keys[1].CreationTime)
 			assert.Empty(t, keys[1].Label)
 			assert.Equal(t, "HSM", keys[0].Meta["protection"])
@@ -125,73 +134,145 @@ func TestEnumKeysPagination(t *testing.T) {
 	}
 }
 
+// TestKMSFailurePropagation checks that every KMS error is returned wrapped
+// from the operation that made the call.
 func TestKMSFailurePropagation(t *testing.T) {
+	t.Parallel()
+
 	failure := errors.New("KMS unavailable")
-	key := &kmspb.CryptoKey{
-		Name:            coverageKeyring + "/cryptoKeys/key",
-		VersionTemplate: &kmspb.CryptoKeyVersionTemplate{},
+	key := func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) {
+		return &kmspb.CryptoKey{
+			Name:            coverageKeyring + "/cryptoKeys/key",
+			VersionTemplate: &kmspb.CryptoKeyVersionTemplate{},
+		}, nil
 	}
-	for _, operation := range []string{"create", "generate public", "generate malformed", "get", "get public", "get malformed", "describe", "describe public", "destroy"} {
-		t.Run(operation, func(t *testing.T) {
-			client := &mockedProvider{}
-			client.Test(t)
-			t.Cleanup(func() { client.AssertExpectations(t) })
-			provider := coverageProvider(t, client)
-			var err error
-			switch operation {
-			case "create":
-				client.On("CreateCryptoKey", mock.Anything, mock.Anything, mock.Anything).Return((*kmspb.CryptoKey)(nil), failure).Once()
-				_, err = provider.GenerateRSAKey("test", 2048, 2)
-			case "generate public", "generate malformed":
-				client.On("CreateCryptoKey", mock.Anything, mock.Anything, mock.Anything).Return(key, nil).Once()
-				if operation == "generate public" {
-					client.On("GetPublicKey", mock.Anything, mock.Anything, mock.Anything).Return((*kmspb.PublicKey)(nil), failure).Once()
-				} else {
-					client.On("GetPublicKey", mock.Anything, mock.Anything, mock.Anything).Return(&kmspb.PublicKey{Pem: "invalid"}, nil).Once()
-				}
-				_, err = provider.GenerateECDSAKey("test", elliptic.P256())
-			case "get", "describe":
-				client.On("GetCryptoKey", mock.Anything, mock.Anything, mock.Anything).Return((*kmspb.CryptoKey)(nil), failure).Once()
-				if operation == "get" {
-					_, err = provider.GetKey("key")
-				} else {
-					_, err = provider.KeyInfo(0, "key", false)
-				}
-			case "get public", "get malformed", "describe public":
-				client.On("GetCryptoKey", mock.Anything, mock.Anything, mock.Anything).Return(key, nil).Once()
-				if operation == "get malformed" {
-					client.On("GetPublicKey", mock.Anything, mock.Anything, mock.Anything).Return(&kmspb.PublicKey{Pem: string(pem.EncodeToMemory(&pem.Block{
-						Type:  "PUBLIC KEY",
-						Bytes: []byte("invalid"),
-					}))}, nil).Once()
-				} else {
-					client.On("GetPublicKey", mock.Anything, mock.Anything, mock.Anything).Return((*kmspb.PublicKey)(nil), failure).Once()
-				}
-				if operation == "describe public" {
-					_, err = provider.KeyInfo(0, "key", true)
-				} else {
-					_, err = provider.GetKey("key")
-				}
-			case "destroy":
-				client.On("DestroyCryptoKeyVersion", mock.Anything, mock.Anything, mock.Anything).Return((*kmspb.CryptoKeyVersion)(nil), failure).Once()
-				err = provider.DestroyKeyPairOnSlot(0, "key")
-			}
+	version := func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+		return enabledVersion("key", kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256), nil
+	}
+	failVersion := func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) { return nil, failure }
+	failPublic := func(*kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error) { return nil, failure }
+	malformedPublic := func(*kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error) {
+		return &kmspb.PublicKey{Pem: string(pem.EncodeToMemory(&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: []byte("invalid"),
+		}))}, nil
+	}
+	created := func(*kmspb.CreateCryptoKeyRequest) (*kmspb.CryptoKey, error) {
+		return &kmspb.CryptoKey{Name: coverageKeyring + "/cryptoKeys/key"}, nil
+	}
+
+	for _, tc := range []struct {
+		name   string
+		client *fakeKMS
+		op     func(*gcpkmscrypto.Provider) error
+	}{
+		{
+			name:   "create",
+			client: &fakeKMS{createCryptoKey: func(*kmspb.CreateCryptoKeyRequest) (*kmspb.CryptoKey, error) { return nil, failure }},
+			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GenerateRSAKey("test", 2048, 1); return err },
+		},
+		{
+			name:   "generate version",
+			client: &fakeKMS{createCryptoKey: created, getCryptoKeyVersion: failVersion},
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GenerateECDSAKey("test", elliptic.P256())
+				return err
+			},
+		},
+		{
+			name:   "generate public",
+			client: &fakeKMS{createCryptoKey: created, getCryptoKeyVersion: version, getPublicKey: failPublic},
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GenerateECDSAKey("test", elliptic.P256())
+				return err
+			},
+		},
+		{
+			name:   "generate malformed",
+			client: &fakeKMS{createCryptoKey: created, getCryptoKeyVersion: version, getPublicKey: malformedPublic},
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GenerateECDSAKey("test", elliptic.P256())
+				return err
+			},
+		},
+		{
+			name:   "get",
+			client: &fakeKMS{getCryptoKey: func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) { return nil, failure }},
+			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+		},
+		{
+			name:   "get version",
+			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: failVersion},
+			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+		},
+		{
+			name:   "get public",
+			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: version, getPublicKey: failPublic},
+			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+		},
+		{
+			name:   "get malformed",
+			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: version, getPublicKey: malformedPublic},
+			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+		},
+		{
+			name:   "describe",
+			client: &fakeKMS{getCryptoKey: func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) { return nil, failure }},
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.KeyInfo(0, "key/cryptoKeyVersions/1", false)
+				return err
+			},
+		},
+		{
+			name:   "describe version",
+			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: failVersion},
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.KeyInfo(0, "key/cryptoKeyVersions/1", false)
+				return err
+			},
+		},
+		{
+			name:   "describe public",
+			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: version, getPublicKey: failPublic},
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.KeyInfo(0, "key/cryptoKeyVersions/1", true)
+				return err
+			},
+		},
+		{
+			name: "destroy",
+			client: &fakeKMS{destroyCryptoKeyVersion: func(*kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+				return nil, failure
+			}},
+			op: func(p *gcpkmscrypto.Provider) error { return p.DestroyKeyPairOnSlot(0, "key/cryptoKeyVersions/1") },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.op(newProvider(t, tc.client))
 			require.Error(t, err)
-			if strings.Contains(operation, "malformed") {
+			if strings.Contains(tc.name, "malformed") {
 				assert.Contains(t, err.Error(), "failed to parse public key")
 			} else {
 				assert.ErrorIs(t, err, failure)
 			}
 		})
 	}
+
 	t.Run("destroy success", func(t *testing.T) {
-		client := &mockedProvider{}
-		provider := coverageProvider(t, client)
-		client.On("DestroyCryptoKeyVersion", mock.Anything, mock.MatchedBy(func(req *kmspb.DestroyCryptoKeyVersionRequest) bool {
-			return req.Name == coverageKeyring+"/cryptoKeys/key/cryptoKeyVersions/1"
-		}), mock.Anything).Return(&kmspb.CryptoKeyVersion{DestroyTime: timestamppb.Now()}, nil).Once()
-		require.NoError(t, provider.DestroyKeyPairOnSlot(0, "key"))
-		client.AssertExpectations(t)
+		t.Parallel()
+		var destroyed string
+		client := &fakeKMS{
+			destroyCryptoKeyVersion: func(req *kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+				destroyed = req.GetName()
+				return &kmspb.CryptoKeyVersion{DestroyTime: timestamppb.Now()}, nil
+			},
+		}
+		provider := newProvider(t, client)
+		require.NoError(t, provider.DestroyKeyPairOnSlot(0, "key/cryptoKeyVersions/1"))
+		assert.Equal(t, coverageKeyring+"/cryptoKeys/key/cryptoKeyVersions/1", destroyed)
+		assert.Equal(t, []string{"DestroyCryptoKeyVersion"}, client.Calls())
+
 		_, err := provider.GenerateRSAKey("test", 1024, 1)
 		require.EqualError(t, err, "unsupported key size: 1024")
 		_, err = provider.GenerateECDSAKey("test", elliptic.P521())
@@ -199,14 +280,17 @@ func TestKMSFailurePropagation(t *testing.T) {
 		_, _, err = provider.IdentifyKey(struct{}{})
 		require.EqualError(t, err, "not supported key")
 	})
-	t.Run("factory failure", func(t *testing.T) {
-		original := gcpkmscrypto.KmsClientFactory
-		t.Cleanup(func() { gcpkmscrypto.KmsClientFactory = original })
-		gcpkmscrypto.KmsClientFactory = func() (gcpkmscrypto.KmsClient, error) { return nil, failure }
-		_, err := gcpkmscrypto.KmsLoader(&mockTokenCfg{})
-		require.ErrorIs(t, err, failure)
+
+	t.Run("unsupported algorithm", func(t *testing.T) {
+		t.Parallel()
+		client := &fakeKMS{
+			getCryptoKey: key,
+			getCryptoKeyVersion: func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+				return enabledVersion("key", kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_2048_SHA256), nil
+			},
+		}
+		_, err := newProvider(t, client).GetKey("key/cryptoKeyVersions/1")
+		require.EqualError(t, err, "unsupported key algorithm RSA_DECRYPT_OAEP_2048_SHA256: key/cryptoKeyVersions/1")
+		assert.Equal(t, 0, client.CallCount("GetPublicKey"))
 	})
-	label, id := gcpkmscrypto.KeyLabelAndID(strings.Repeat("A", 80) + "*")
-	assert.Equal(t, strings.Repeat("a", 80), label)
-	assert.Len(t, id, 63)
 }

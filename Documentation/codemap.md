@@ -60,7 +60,7 @@ consumers. Nothing in the library imports `cmd/`.
 | PKCS#11 signing / decryption               | `crypto11/rsa.go`, `crypto11/ecdsa.go`                                       | `PKCS11PrivateKeyRSA.Sign/Decrypt`, `PKCS11PrivateKeyECDSA.Sign`                                                              |
 | PKCS#11 token / key enumeration            | `crypto11/provider.go`, `crypto11/util.go`                                   | `EnumTokens`, `EnumKeys`, `KeyInfo`, `DestroyKeyPairOnSlot`                                                                   |
 | AWS KMS                                    | `cryptoprov/awskmscrypto/awskmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `Signer`                                                                             |
-| GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `KeyLabelAndID`, `Crc32c`, `Provider.Close`, `ErrClosed`                             |
+| GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory` (takes the endpoint), `KmsClient`, `KeyLabelAndID`, `NewSigner`, `Signer.Algorithm`, `Crc32c`, `Provider.Close`, `ErrClosed` |
 | In-memory keys                             | `cryptoprov/inmemcrypto/provider.go`, `concurrency_test.go`                   | `NewProvider`, `Loader`, `ProviderName`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                   |
 | Test-provider key registry                 | `cryptoprov/testprov/provider.go`, `concurrency_test.go`                     | `Init`, `Loader`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                                        |
 | CSR request types                          | `csr/csr.go`                                                                 | `CertificateRequest`, `SignRequest`, `X509Subject`, `X509Name`, `X509Extension`, `AllowedFields`                              |
@@ -308,27 +308,62 @@ token unless the test destroys them.
 | Package        | Manufacturer | Key material                                        | `ExportKey` returns                | Config `Attributes`                                                                  |
 | -------------- | ------------ | --------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------ |
 | `awskmscrypto` | `AWSKMS`     | KMS RSA 2048/3072/4096, P-256/384/521 sign keys     | `pkcs11:` URI (serial = ARN)       | `Endpoint=<url>,Region=<r>` (both optional)                                          |
-| `gcpkmscrypto` | `GCPKMS`     | Cloud KMS HSM-level RSA 2048/3072/4096, P-256/384   | `pkcs11:` URI (serial = 1)         | `Keyring=projects/P/locations/L/keyRings/R` (required; `Endpoint` ignored, XPKI-021) |
+| `gcpkmscrypto` | `GCPKMS`     | Cloud KMS HSM-level RSA 2048/3072/4096, P-256/384 signing keys | `pkcs11:` URI (`id` = `K/cryptoKeyVersions/N`, serial = 1) | `Keyring=projects/P/locations/L/keyRings/R` (required), `Endpoint=host:port` (optional) |
 | `inmemcrypto`  | `inmem`      | In-process RSA/ECDSA                                | PKCS#1 / SEC1 PEM bytes            | none                                                                                 |
 | `testprov`     | `testprov`   | In-process RSA/ECDSA, implements `crypto.Decrypter` | `pkcs11:` URI with `token=<label>` | none                                                                                 |
 
 Invariants: KMS providers call the SDKs with `context.Background()` (ROADMAP);
-`KmsClientFactory` package vars are the test seams; AWS `EnumKeys` is a full
-account scan with one `DescribeKey` per key (XPKI-032); GCP always uses
-`cryptoKeyVersions/1` (XPKI-020) and `Close` must be called to release gRPC.
+`KmsClientFactory` package vars are the test seams (the GCP one takes the
+`Endpoint` attribute, applied with `option.WithEndpoint`, XPKI-021); AWS
+`EnumKeys` is a full account scan with one `DescribeKey` per key (XPKI-032);
+GCP `Close` must be called to release gRPC.
+GCP key identity (XPKI-020): a key ID is `K` or `K/cryptoKeyVersions/N`;
+`GetKey`, `KeyInfo` and `DestroyKeyPairOnSlot` use the named version. A bare
+`K` is resolved at each call from `ListCryptoKeyVersions`: `GetKey` signs
+with the newest `ENABLED` version (none is an error); `KeyInfo` describes
+the newest `ENABLED`, else the newest not `DESTROYED`, else the key alone
+without version fields (`includePublic` is then an error, XPKI-117);
+`DestroyKeyPairOnSlot` schedules every `ENABLED` or `DISABLED` version,
+newest first, stopping at the first error (none is an error, XPKI-116), and
+an explicit version is destroyed with one RPC. Signers from `GenerateRSAKey`,
+`GenerateECDSAKey` and `GetKey` carry `K/cryptoKeyVersions/N` as their key ID
+and resolve their version resource name once in `NewSigner`, so
+`ExportKey`'s URI pins the version; `ExportKey` makes no RPC and copies the
+id as given (`serial` is always `1`). `EnumKeys` does not list versions
+(`CurrentVersionID` only from a primary version). GCP keys are signing keys
+only (XPKI-019): `GenerateRSAKey` rejects purpose 2 before any RPC and treats
+every other purpose as signing, like the other providers (XPKI-118); the
+algorithm is PKCS#1 v1.5 SHA-256 (2048/3072) or SHA-512 (4096), P-256/SHA-256,
+P-384/SHA-384 (XPKI-114: `csr` signs 3072-bit keys with SHA-384); `GetKey`
+rejects a version that is not `ENABLED` or whose algorithm is not in
+`signSchemes` (PKCS#1/PSS RSA and P-256/P-384 digest signing; secp256k1 is
+excluded because `crypto/x509` cannot parse its key, XPKI-119). `Init`
+requires the `Keyring` attribute (XPKI-120). `KeyLabelAndID`
+(XPKI-022) lower-cases the name, maps characters outside `[a-z0-9_-]` to `-`,
+cuts the label to 63 and the id to 54 characters plus `-` and 8 `crypto/rand`
+characters; `genKey` retries a new id up to 3 times on `ALREADY_EXISTS`. Key
+generation (XPKI-024) polls `GetCryptoKeyVersion` (state, not error text) at
+most 60 times, 1 s apart, stops at once on an RPC error or a state other than
+`PENDING_GENERATION`, and the wait between polls ends on `Close` (`ErrClosed`)
+or context cancellation; the interval, attempt count and wait are unexported
+fields set by `export_test.go`.
 GCP lifecycle (XPKI-018): every client-using `Provider` method and
 `Signer.Sign` registers with `enter`/`exit` (not nested); `Close` (once, via
-`sync.Once`) rejects new calls with wrapped `ErrClosed`, waits for in-flight
-ones (including `genKey`'s wait for key generation), then closes the client
-and returns its error; concurrent/later `Close` wait and return nil. The
-`KmsClient` field is never cleared; calling its methods directly bypasses the
-guard. GCP `Signer.Sign` (XPKI-025) requires non-nil opts with SHA-256/384/512
-and a digest of that hash's length, checked before any RPC, and (XPKI-023)
-accepts a response only with `VerifiedDigestCrc32C` and a present, matching
-`SignatureCrc32C`. Nil KMS responses are `empty response` errors; missing
-optional metadata (`VersionTemplate`, `CreateTime`) is omitted from `KeyInfo`
-(no `protection`/`algo` Meta, nil `CreationTime`), and GCP key labels are
-sorted by name. AWS `Signer.Sign` with nil opts still panics
+`sync.Once`) rejects new calls with wrapped `ErrClosed`, ends the wait for key
+generation, waits for in-flight ones, then closes the client and returns its
+error; concurrent/later `Close` wait and return nil. The `KmsClient` field is
+never cleared; calling its methods directly bypasses the guard. GCP
+`Signer.Sign` (XPKI-025, XPKI-019) requires non-nil opts whose hash is the
+key algorithm's, a digest of that hash's length, and `*rsa.PSSOptions` (salt
+`PSSSaltLengthEqualsHash` or the hash size; `PSSSaltLengthAuto` is rejected
+because KMS cannot produce a maximal salt, XPKI-124) exactly for PSS algorithms,
+checked before any RPC; (XPKI-023) it accepts a response only with
+`VerifiedDigestCrc32C` and a present, matching `SignatureCrc32C`. Nil KMS
+responses are `empty response` errors; missing optional metadata
+(`VersionTemplate`, `CreateTime`) is omitted from `KeyInfo` (no
+`protection`/`algo` Meta, nil `CreationTime`), the selected version supplies
+`CurrentVersionID`, `state` and, when set, `algo`/`protection`, and GCP key
+labels are sorted by name. AWS `Signer.Sign` with nil opts still panics
 (XPKI-025-awskmscrypto, AW1); `inmemcrypto.NewProvider()` is
 used at runtime by `authority/ocsp.go` for delegated responder keys. Both
 `inmemcrypto` and `testprov` registries use an RWMutex for map publication
@@ -340,18 +375,27 @@ PKCS#11 URI with nil key bytes. Token configuration passed to `Loader` must
 remain unchanged during use. Metrics: `metricskey.PerfCryptoOperation`.
 
 Tests: `awskmsprov_test.go` needs `local-kms` on `:14556`
-(`make start-local-kms`, dummy `AWS_*` env). `gcpkmsprov_test.go` uses a
-testify mock via `KmsClientFactory`. `gcpkmscrypto/coverage_test.go` additionally
-uses a local gRPC KMS server for real SDK iterator pagination, disabled-key
-filtering, keys without optional metadata and permission errors, and the
-existing mock for provider failures. `gcpkmscrypto/fake_test.go` has
-`fakeKMS` (func-field client that records calls; unexpected calls return an
-error) and `newProvider`, built on `export_test.go` `NewTestProvider` so
-tests need not swap the global factory and can run in parallel.
-`lifecycle_test.go` overlaps blocked signs with concurrent `Close`;
-`signer_test.go` covers option/digest rejection without RPC, request
-digests and response integrity; `metadata_test.go` covers missing metadata
-and nil responses.
+(`make start-local-kms`, dummy `AWS_*` env). GCP tests need no fixture and no
+testify mock. `gcpkmscrypto/kmsserver_test.go` is an in-process gRPC KMS
+(`fakeKMSServer`: keys and versions with real local keys, id/label/state/digest
+checks, paged version listing, injectable pending polls and creation errors)
+reached through the real SDK client (`grpcProvider`, `export_test.go`
+`NewKmsClient`); `gcpkmsprov_test.go` loads it through `KmsLoader` and the
+`Endpoint` attribute end to end. `fake_test.go` has `fakeKMS` (func-field
+client that records calls; unexpected calls return an error; its listing
+methods return nil) and `newProvider`, built on `NewTestProvider`, so tests
+need not swap the global factory and can run in parallel. `versions_test.go`
+covers version selection, rotation, pinned/legacy URIs, disabled/missing
+versions, paging, KeyInfo and destruction; `signer_test.go` option/padding
+rejection without RPC, request digests, response integrity and local
+verification of every algorithm; `generate_test.go` label/id rules, purpose
+rejection, `ALREADY_EXISTS` retries, poll/wait counts, exhaustion, permanent
+states and cancellation by `Close`/context; `gen_bench_test.go` the wait and
+Close-latency benchmarks; `endpoint_test.go` `Init`-to-factory endpoint wiring
+and the SDK path against the local server; `coverage_test.go` real SDK
+pagination (`listingKMSServer`) and failure propagation; `lifecycle_test.go`
+overlaps blocked signs with concurrent `Close`; `metadata_test.go` missing
+metadata and nil responses.
 `inmemcrypto`, `testprov` are pure.
 `inmemcrypto/concurrency_test.go` and `testprov/concurrency_test.go` overlap
 generation with lookup/export on one provider and check generated key
@@ -533,7 +577,7 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
 | `cert_id.go`    | `GetThumbprintStr` (SHA-1 of DER), `GetSubjectKeyID`, `GetAuthorityKeyID`, `GetSubjectID`, `GetIssuerID`                                                        |
 | `keyinfo.go`    | `KeyInfo`, `NewKeyInfo` (RSA/ECDSA from signer, decrypter or JWK)                                                                                               |
 | `name.go`       | `NameToString` (OpenSSL-style DN)                                                                                                                               |
-| `ocsp.go`       | `CreateOCSPRequest` (nil certificate/issuer or unavailable hash is an error)                                                                                    |
+| `ocsp.go`       | `CreateOCSPRequest` (nil certificate/issuer or unavailable hash is an error; the issuer must carry crt's issuer name and its key must verify crt's signature, SHA-1 allowed, XPKI-121) |
 | `extensions.go` | `FindExtension*`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                                                                              |
 | `random.go`     | `RandReader`, `Random`, `RandomString` (panic on RNG failure)                                                                                                   |
 
@@ -586,7 +630,9 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   PKCS#12 PBE, scrypt, DES/3DES and other ciphers return
   `unsupported PKCS#8 encryption: …`. A nil password fails with `encrypted
   private key`; a wrong password (bad padding, or plaintext that is not one
-  DER value) matches `x509.IncorrectPasswordError`.
+  RFC 5958 `PrivateKeyInfo` structure, XPKI-115) matches
+  `x509.IncorrectPasswordError`; the key inside is parsed afterwards by
+  `ParsePrivateKeyDER`.
 - Process-global: `IntermediateStash` (fetched intermediates written `0644`),
   `RandReader`. `HTTPClient` is deprecated and never read (XPKI-044); use
   `WithHTTPClient`. Default AIA client timeout 3s.
@@ -596,8 +642,8 @@ Tests: `testdata/` holds a Mozilla root bundle, 229 intermediates, test server
 chain and hash fixtures; `testdata/pkcs8/` holds OpenSSL-generated
 plain and encrypted (password `xpki-test`) RSA/EC/Ed25519 PKCS#8 keys,
 including unsupported des3/scrypt/PKCS#12 samples. `pkcs8_test.go` also
-builds PBES2 structures in Go for the PRF × AES matrix and malformed
-parameters. `TestKeyInfoKMS` is the only fixture test: it is gated with
+builds PBES2 structures in Go for the PRF × AES matrix, malformed
+parameters and DER plaintexts that are not a `PrivateKeyInfo`. `TestKeyInfoKMS` is the only fixture test: it is gated with
 `testenv.RequireTCP` on local-kms `:14556`; `TestKeyInfoOpaqueKeys` covers
 opaque signers without KMS. `bundle_input_test.go` covers the nil/empty
 input contracts of `Bundle`, `BuildBundle`, `SortBundlesByExpiration` and

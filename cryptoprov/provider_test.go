@@ -207,11 +207,11 @@ type gcpStubClient struct {
 func TestLoad_KMSProviders(t *testing.T) {
 	original := gcpkmscrypto.KmsClientFactory
 	t.Cleanup(func() { gcpkmscrypto.KmsClientFactory = original })
-	gcpkmscrypto.KmsClientFactory = func() (gcpkmscrypto.KmsClient, error) {
+	gcpkmscrypto.KmsClientFactory = func(string) (gcpkmscrypto.KmsClient, error) {
 		return gcpStubClient{}, nil
 	}
 
-	gcpCfg := writeTokenConfig(t, gcpkmscrypto.ProviderName, "unittest")
+	gcpCfg := writeTokenConfig(t, gcpkmscrypto.ProviderName, "unittest", "Keyring=projects/p/locations/l/keyRings/r")
 	cp, err := cryptoprov.Load("", []string{
 		"awskmscrypto/testdata/aws-dev-kms.json",
 		gcpCfg,

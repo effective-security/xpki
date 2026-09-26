@@ -481,3 +481,118 @@ func TestEncryptedPKCS8Malformed(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, key.Equal(parsed))
 }
+
+var (
+	oidTestECPublicKey = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
+	oidTestP256        = asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}
+	oidTestDSA         = asn1.ObjectIdentifier{1, 2, 840, 10040, 4, 1}
+)
+
+// testPrivateKeyInfo is an RFC 5958 OneAsymmetricKey with the optional v2
+// public key.
+type testPrivateKeyInfo struct {
+	Version    int
+	Algorithm  testAlgorithm
+	PrivateKey []byte
+	PublicKey  asn1.BitString `asn1:"tag:1,optional"`
+}
+
+// encryptPlaintext encrypts exactly plain (with valid padding) as an
+// ENCRYPTED PRIVATE KEY under the default spec.
+func encryptPlaintext(t *testing.T, plain []byte) []byte {
+	t.Helper()
+	spec := defaultPBES2()
+	spec.pad = func([]byte) []byte { return pkcs7Pad(slices.Clone(plain)) }
+	return encryptPKCS8(t, nil, spec)
+}
+
+// XPKI-115: a plaintext with valid padding that is a DER value but not a
+// PKCS#8 PrivateKeyInfo is a wrong password, not a key; a PrivateKeyInfo
+// with an unsupported algorithm is decrypted and fails to parse afterwards.
+func TestEncryptedPKCS8PlaintextNotPrivateKeyInfo(t *testing.T) {
+	t.Parallel()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	sec1, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	ecAlgorithm := testAlgorithm{
+		Algorithm:  oidTestECPublicKey,
+		Parameters: asn1.RawValue{FullBytes: mustMarshal(t, oidTestP256)},
+	}
+
+	for _, tc := range []struct {
+		name  string
+		plain []byte
+	}{
+		{name: "INTEGER", plain: mustMarshal(t, 42)},
+		{name: "SEQUENCE of INTEGERs", plain: mustMarshal(t, struct{ A, B int }{1, 2})},
+		{name: "SEC1 key", plain: sec1},
+		{name: "PrivateKeyInfo version 2", plain: mustMarshal(t, testPrivateKeyInfo{
+			Version:    2,
+			Algorithm:  ecAlgorithm,
+			PrivateKey: sec1,
+		})},
+		{name: "PrivateKeyInfo without private key", plain: mustMarshal(t, struct {
+			Version   int
+			Algorithm testAlgorithm
+		}{0, ecAlgorithm})},
+		{name: "empty", plain: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			encrypted := encryptPlaintext(t, tc.plain)
+			der, err := certutil.GetKeyDERFromPEM(encrypted, []byte(pkcs8Password))
+			require.ErrorIs(t, err, x509.IncorrectPasswordError)
+			assert.Nil(t, der)
+			parsed, err := certutil.ParsePrivateKeyPEMWithPassword(encrypted, []byte(pkcs8Password))
+			require.ErrorIs(t, err, x509.IncorrectPasswordError)
+			assert.Nil(t, parsed)
+		})
+	}
+
+	t.Run("OneAsymmetricKey v2 with public key", func(t *testing.T) {
+		t.Parallel()
+		pub, err := key.PublicKey.ECDH()
+		require.NoError(t, err)
+		v2 := mustMarshal(t, testPrivateKeyInfo{
+			Version:    1,
+			Algorithm:  ecAlgorithm,
+			PrivateKey: sec1,
+			PublicKey:  asn1.BitString{Bytes: pub.Bytes(), BitLength: len(pub.Bytes()) * 8},
+		})
+		encrypted := encryptPlaintext(t, v2)
+		der, err := certutil.GetKeyDERFromPEM(encrypted, []byte(pkcs8Password))
+		require.NoError(t, err)
+		assert.Equal(t, v2, der)
+		parsed, err := certutil.ParsePrivateKeyPEMWithPassword(encrypted, []byte(pkcs8Password))
+		require.NoError(t, err)
+		assert.True(t, key.Equal(parsed))
+	})
+
+	t.Run("PrivateKeyInfo v1", func(t *testing.T) {
+		t.Parallel()
+		encrypted := encryptPlaintext(t, pkcs8)
+		der, err := certutil.GetKeyDERFromPEM(encrypted, []byte(pkcs8Password))
+		require.NoError(t, err)
+		assert.Equal(t, pkcs8, der)
+	})
+
+	t.Run("unsupported key algorithm", func(t *testing.T) {
+		t.Parallel()
+		dsa := mustMarshal(t, testPrivateKeyInfo{
+			Version:    0,
+			Algorithm:  testAlgorithm{Algorithm: oidTestDSA, Parameters: asn1.NullRawValue},
+			PrivateKey: mustMarshal(t, 7),
+		})
+		encrypted := encryptPlaintext(t, dsa)
+		der, err := certutil.GetKeyDERFromPEM(encrypted, []byte(pkcs8Password))
+		require.NoError(t, err, "the password is right; the key type is not supported")
+		assert.Equal(t, dsa, der)
+		_, err = certutil.ParsePrivateKeyPEMWithPassword(encrypted, []byte(pkcs8Password))
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, x509.IncorrectPasswordError)
+		assert.ErrorContains(t, err, "unable to parse private key")
+	})
+}

@@ -47,7 +47,7 @@ func TestCloseWaitsForInflightSign(t *testing.T) {
 		},
 	}
 	provider := newProvider(t, client)
-	signer := gcpkmscrypto.NewSigner("key", "label", nil, provider)
+	signer := gcpkmscrypto.NewSigner(signKeyID, "label", nil, kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256, provider)
 	digest := sha256.Sum256([]byte("to be signed"))
 
 	var signs sync.WaitGroup
@@ -112,6 +112,10 @@ func TestCloseWaitsForInflightSign(t *testing.T) {
 			_, err := provider.GetKey("key")
 			return err
 		},
+		"GetKey version": func() error {
+			_, err := provider.GetKey(signKeyID)
+			return err
+		},
 		"KeyInfo": func() error {
 			_, err := provider.KeyInfo(0, "key", true)
 			return err
@@ -121,7 +125,7 @@ func TestCloseWaitsForInflightSign(t *testing.T) {
 			return err
 		},
 		"DestroyKeyPairOnSlot": func() error {
-			return provider.DestroyKeyPairOnSlot(0, "key")
+			return provider.DestroyKeyPairOnSlot(0, signKeyID)
 		},
 		"GenerateRSAKey": func() error {
 			_, err := provider.GenerateRSAKey("label", 2048, 1)
@@ -151,4 +155,7 @@ func TestCloseIdle(t *testing.T) {
 	uri, _, err := provider.ExportKey("key")
 	require.NoError(t, err)
 	assert.Contains(t, uri, "id=key")
+	uri, _, err = provider.ExportKey(signKeyID)
+	require.NoError(t, err)
+	assert.Contains(t, uri, "id="+signKeyID+";")
 }

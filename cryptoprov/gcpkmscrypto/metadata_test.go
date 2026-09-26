@@ -11,16 +11,29 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const (
+	bareKeyID     = "bare"
+	bareVersionID = bareKeyID + "/cryptoKeyVersions/1"
+)
+
 // bareKey has none of the optional metadata: no VersionTemplate, CreateTime
 // or Primary.
 func bareKey() *kmspb.CryptoKey {
 	return &kmspb.CryptoKey{
-		Name:    coverageKeyring + "/cryptoKeys/bare",
+		Name:    coverageKeyring + "/cryptoKeys/" + bareKeyID,
 		Purpose: kmspb.CryptoKey_ASYMMETRIC_SIGN,
 		Labels: map[string]string{
 			"zeta":  "z",
 			"label": "bare",
 		},
+	}
+}
+
+// bareVersion has only a name and a state.
+func bareVersion() *kmspb.CryptoKeyVersion {
+	return &kmspb.CryptoKeyVersion{
+		Name:  coverageKeyring + "/cryptoKeys/" + bareVersionID,
+		State: kmspb.CryptoKeyVersion_ENABLED,
 	}
 }
 
@@ -33,13 +46,20 @@ func TestKeyInfoMissingMetadata(t *testing.T) {
 		getCryptoKey: func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) {
 			return bareKey(), nil
 		},
+		getCryptoKeyVersion: func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+			return bareVersion(), nil
+		},
 	}
-	ki, err := newProvider(t, client).KeyInfo(0, "bare", false)
+	ki, err := newProvider(t, client).KeyInfo(0, bareVersionID, false)
 	require.NoError(t, err)
 	assert.Equal(t, "bare", ki.ID)
+	assert.Equal(t, "1", ki.CurrentVersionID)
 	assert.Equal(t, "label=bare,zeta=z", ki.Label)
 	assert.Nil(t, ki.CreationTime)
-	assert.Equal(t, map[string]string{"purpose": "ASYMMETRIC_SIGN"}, ki.Meta)
+	assert.Equal(t, map[string]string{
+		"purpose": "ASYMMETRIC_SIGN",
+		"state":   "ENABLED",
+	}, ki.Meta)
 }
 
 func TestKeyInfoFullMetadata(t *testing.T) {
@@ -53,21 +73,29 @@ func TestKeyInfoFullMetadata(t *testing.T) {
 		Algorithm:       kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256,
 	}
 	key.Primary = &kmspb.CryptoKeyVersion{State: kmspb.CryptoKeyVersion_ENABLED}
+	// the version's own algorithm and protection win over the template's
+	version := enabledVersion(bareKeyID, kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384)
+	version.ProtectionLevel = kmspb.ProtectionLevel_SOFTWARE
+	version.State = kmspb.CryptoKeyVersion_DISABLED
 	client := &fakeKMS{
 		getCryptoKey: func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) {
 			return key, nil
 		},
+		getCryptoKeyVersion: func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+			return version, nil
+		},
 	}
-	ki, err := newProvider(t, client).KeyInfo(0, "bare", false)
+	ki, err := newProvider(t, client).KeyInfo(0, bareVersionID, false)
 	require.NoError(t, err)
 	assert.Equal(t, "protection=HSM,label=bare,zeta=z", ki.Label)
+	assert.Equal(t, "1", ki.CurrentVersionID)
 	require.NotNil(t, ki.CreationTime)
 	assert.Equal(t, created, *ki.CreationTime)
 	assert.Equal(t, map[string]string{
-		"protection": "HSM",
-		"algo":       "EC_SIGN_P256_SHA256",
+		"protection": "SOFTWARE",
+		"algo":       "EC_SIGN_P384_SHA384",
 		"purpose":    "ASYMMETRIC_SIGN",
-		"state":      "ENABLED",
+		"state":      "DISABLED",
 	}, ki.Meta)
 }
 
@@ -77,8 +105,12 @@ func TestEmptyResponses(t *testing.T) {
 	t.Parallel()
 
 	noKey := func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) { return nil, nil }
+	noVersion := func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) { return nil, nil }
 	noPublic := func(*kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error) { return nil, nil }
 	withKey := func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) { return bareKey(), nil }
+	withVersion := func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+		return enabledVersion(bareKeyID, kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256), nil
+	}
 
 	for _, tc := range []struct {
 		name   string
@@ -89,26 +121,44 @@ func TestEmptyResponses(t *testing.T) {
 		{
 			name:   "GetKey key",
 			client: &fakeKMS{getCryptoKey: noKey},
-			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).GetKey("bare"); return err },
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).GetKey(bareVersionID); return err },
 			err:    "failed to get key: empty response",
 		},
 		{
+			name:   "GetKey version",
+			client: &fakeKMS{getCryptoKey: withKey, getCryptoKeyVersion: noVersion},
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).GetKey(bareVersionID); return err },
+			err:    "failed to get key version bare/cryptoKeyVersions/1: empty response",
+		},
+		{
+			name:   "GetKey versions",
+			client: &fakeKMS{getCryptoKey: withKey},
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).GetKey(bareKeyID); return err },
+			err:    "failed to list versions of key bare: empty response",
+		},
+		{
 			name:   "GetKey public",
-			client: &fakeKMS{getCryptoKey: withKey, getPublicKey: noPublic},
-			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).GetKey("bare"); return err },
-			err:    "failed to parse public key: invalid block type",
+			client: &fakeKMS{getCryptoKey: withKey, getCryptoKeyVersion: withVersion, getPublicKey: noPublic},
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).GetKey(bareVersionID); return err },
+			err:    "failed to get public key: empty response",
 		},
 		{
 			name:   "KeyInfo key",
 			client: &fakeKMS{getCryptoKey: noKey},
-			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).KeyInfo(0, "bare", false); return err },
-			err:    "failed to describe key, id=bare: empty response",
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).KeyInfo(0, bareVersionID, false); return err },
+			err:    "failed to describe key, id=bare/cryptoKeyVersions/1: empty response",
+		},
+		{
+			name:   "KeyInfo version",
+			client: &fakeKMS{getCryptoKey: withKey, getCryptoKeyVersion: noVersion},
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).KeyInfo(0, bareVersionID, false); return err },
+			err:    "failed to get key version bare/cryptoKeyVersions/1: empty response",
 		},
 		{
 			name:   "KeyInfo public",
-			client: &fakeKMS{getCryptoKey: withKey, getPublicKey: noPublic},
-			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).KeyInfo(0, "bare", true); return err },
-			err:    "failed to get public key, id=bare: empty response",
+			client: &fakeKMS{getCryptoKey: withKey, getCryptoKeyVersion: withVersion, getPublicKey: noPublic},
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).KeyInfo(0, bareVersionID, true); return err },
+			err:    "failed to get public key, id=bare/cryptoKeyVersions/1: empty response",
 		},
 		{
 			name: "GenerateECDSAKey create",
@@ -121,6 +171,32 @@ func TestEmptyResponses(t *testing.T) {
 			},
 			err: "failed to create key: empty response",
 		},
+		{
+			name: "GenerateECDSAKey version",
+			client: &fakeKMS{
+				createCryptoKey: func(*kmspb.CreateCryptoKeyRequest) (*kmspb.CryptoKey, error) {
+					return bareKey(), nil
+				},
+				getCryptoKeyVersion: noVersion,
+			},
+			op: func(c *fakeKMS) error {
+				_, err := newProvider(t, c).GenerateECDSAKey("label", elliptic.P256())
+				return err
+			},
+			err: "failed to get key version " + coverageKeyring + "/cryptoKeys/bare/cryptoKeyVersions/1: empty response",
+		},
+		{
+			name:   "KeyInfo versions",
+			client: &fakeKMS{getCryptoKey: withKey},
+			op:     func(c *fakeKMS) error { _, err := newProvider(t, c).KeyInfo(0, bareKeyID, false); return err },
+			err:    "failed to list versions of key bare: empty response",
+		},
+		{
+			name:   "DestroyKeyPairOnSlot versions",
+			client: &fakeKMS{},
+			op:     func(c *fakeKMS) error { return newProvider(t, c).DestroyKeyPairOnSlot(0, bareKeyID) },
+			err:    "failed to list versions of key bare: empty response",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -132,12 +208,13 @@ func TestEmptyResponses(t *testing.T) {
 
 	t.Run("DestroyKeyPairOnSlot", func(t *testing.T) {
 		t.Parallel()
-		// the destroy time is only logged; the request succeeded
+		// a nil response confirms nothing (XPKI-123)
 		client := &fakeKMS{
 			destroyCryptoKeyVersion: func(*kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
 				return nil, nil
 			},
 		}
-		assert.NoError(t, newProvider(t, client).DestroyKeyPairOnSlot(0, "bare"))
+		err := newProvider(t, client).DestroyKeyPairOnSlot(0, bareVersionID)
+		require.EqualError(t, err, "failed to schedule key deletion: bare/cryptoKeyVersions/1: empty response")
 	})
 }

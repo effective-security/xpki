@@ -40,12 +40,12 @@ drift; the symbol name is the stable reference.
 | XPKI-016 | cryptoprov                            | `provider.go` `Crypto.Add`/`ByManufacturer`                    | No synchronization; duplicate check in `Add` is unreachable (key already includes model)                                                           | race        | Fixed |
 | XPKI-017 | cryptoprov/inmemcrypto, testprov      | `provider.go` `keyIDToPvk`                                     | Key map written by `Generate*` and read by `GetKey` without a lock (used by `authority/ocsp.go`)                                                   | race        | **Fixed** ([details](#xpki-017--im1)) |
 | XPKI-018 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Close`                                        | Sets embedded `KmsClient` to nil unsynchronized; later `Sign` panics                                                                               | race        | Fixed |
-| XPKI-019 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GenerateRSAKey`                               | `purpose==2` sets ASYMMETRIC_DECRYPT with a SIGN algorithm; 4096-bit forces SHA512 while `Sign` picks digest from opts                             | correctness | Open           |
-| XPKI-020 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GetKey`, `keyVersionName`, `ExportKey`        | `cryptoKeyVersions/1` hard-coded; rotated keys sign/destroy the wrong version                                                                      | correctness | Open           |
-| XPKI-021 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Init`                                         | `Endpoint` attribute parsed but never applied to the client                                                                                        | correctness | Open           |
-| XPKI-022 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `KeyLabelAndID`                                | 4 hex chars of entropy (65k) and no label sanitisation; ALREADY_EXISTS / INVALID_ARGUMENT                                                          | correctness | Open           |
+| XPKI-019 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GenerateRSAKey`                               | `purpose==2` sets ASYMMETRIC_DECRYPT with a SIGN algorithm; 4096-bit forces SHA512 while `Sign` picks digest from opts                             | correctness | **Fixed** ([details](#xpki-019--gc2)) |
+| XPKI-020 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GetKey`, `keyVersionName`, `ExportKey`        | `cryptoKeyVersions/1` hard-coded; rotated keys sign/destroy the wrong version                                                                      | correctness | **Fixed** ([details](#xpki-020--gc2)) |
+| XPKI-021 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Init`                                         | `Endpoint` attribute parsed but never applied to the client                                                                                        | correctness | **Fixed** ([details](#xpki-021--gc3)) |
+| XPKI-022 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `KeyLabelAndID`                                | 4 hex chars of entropy (65k) and no label sanitisation; ALREADY_EXISTS / INVALID_ARGUMENT                                                          | correctness | **Fixed** ([details](#xpki-022--gc2)) |
 | XPKI-023 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `keyInfo`, `signer.go` `Sign`                  | Direct proto field access (`VersionTemplate`, `SignatureCrc32C`) may nil-deref                                                                     | bug         | Fixed |
-| XPKI-024 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `genKey`                                       | Up to 60 s blocking `time.Sleep` poll ignoring ctx; matches error by substring                                                                     | performance | Open           |
+| XPKI-024 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `genKey`                                       | Up to 60 s blocking `time.Sleep` poll ignoring ctx; matches error by substring                                                                     | performance | **Fixed** ([details](#xpki-024--gc3)) |
 | XPKI-025 | cryptoprov/awskmscrypto, gcpkmscrypto | `signer.go` `Sign`                                             | `opts == nil` → nil interface method call panic (`inmemcrypto` defaults to SHA256)                                                                 | bug         | In Progress ([gcpkmscrypto](#xpki-025-gcpkmscrypto--gc1) portion; awskmscrypto in AW1) |
 | XPKI-026 | cryptoprov                            | `provider.go` `New`                                            | `New(nil, ...)` panics on `defaultProvider.Manufacturer()`                                                                                         | bug         | Fixed |
 | XPKI-027 | cryptoprov                            | `uri.go` `ParseTokenURI`/`ParsePrivateKeyURI`                  | RFC 7512 `?pin-value=`/`?module-path=` query attributes are dropped                                                                                | correctness | Open           |
@@ -111,8 +111,386 @@ drift; the symbol name is the stable reference.
 | XPKI-111 | authority                             | `ocsp_responder_test.go` `TestDelegatedOCSPSlowFailureAfterExpiry` | Timing-dependent: the 100ms signer gate is armed before the attempt starts, so under load the attempt can see less than 100ms and fail the `retryAt` bound (seen once in `make test RACE=true` during CU2) | bug         | Open           |
 | XPKI-112 | jwt                                   | `jwt.go` `provider.ParseToken`                                     | The `NewProvider` HS256 key ring also verifies HS384/HS512 tokens signed with a ring key; only `NewProviderWithSymmetricKey` is pinned to HS256 (found in the PR #543 review)                              | correctness | Open           |
 | XPKI-113 | cryptoprov                            | `loader.go` `Load`                                             | `Load` re-adds the default provider; for a provider whose dynamic type is not comparable (a struct value with a map/slice field) `sameProvider` is false, so `Load` always returns `ErrDuplicateProvider` (found in the CP1 review)                          | bug         | Fixed |
+| XPKI-114 | csr, cryptoprov/gcpkmscrypto          | `csr/csrprov.go` `DefaultSigAlgo`; `csr/keyreq.go` `SigAlgo`   | 3072-bit RSA keys are signed with SHA-384, which no GCP KMS 3072-bit algorithm accepts (`RSA_SIGN_PKCS1_3072_SHA256` only), so a 3072-bit GCP key cannot sign a CSR or certificate with the csr defaults (found during GC2) | correctness | Open           |
+| XPKI-115 | certutil                              | `pkcs8.go` `decryptPKCS8`                                      | Decrypted plaintext was checked to be any DER value, not a `PrivateKeyInfo`; a wrong password with valid padding and a DER-shaped plaintext escaped `x509.IncorrectPasswordError` (found in the CU5 PR review) | correctness | **Fixed** ([details](#xpki-115--cu6)) |
+| XPKI-116 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `DestroyKeyPairOnSlot`                         | A bare key id destroyed only the newest ENABLED version, so a rotated key kept signing after a successful destroy, and a key with only DISABLED versions could not be destroyed (PR #546 review) | correctness | **Fixed** ([details](#xpki-116--gc4)) |
+| XPKI-117 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `KeyInfo`                                      | A bare key id failed with `no enabled version` for a disabled or destroy-scheduled key instead of describing it (PR #546 review)                    | correctness | **Fixed** ([details](#xpki-117--gc4)) |
+| XPKI-118 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GenerateRSAKey`                               | Purpose 0 (`csr.Undefined`, the `KeyRequest` zero value) was rejected although the other providers treat every purpose but 2 as signing (PR #546 review) | correctness | **Fixed** ([details](#xpki-118--gc4)) |
+| XPKI-119 | cryptoprov/gcpkmscrypto               | `signer.go` `signSchemes`                                      | `EC_SIGN_SECP256K1_SHA256` was listed as supported although `x509.ParsePKIXPublicKey` cannot parse secp256k1 keys, so `GetKey` failed with a parse error (PR #546 review) | correctness | **Fixed** ([details](#xpki-119--gc4)) |
+| XPKI-120 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Init`                                         | A config without the required `Keyring` attribute produced a provider whose every RPC failed with NotFound on `/cryptoKeys/K` (PR #546 review)        | correctness | **Fixed** ([details](#xpki-120--gc4)) |
+| XPKI-121 | certutil                              | `ocsp.go` `CreateOCSPRequest`                                  | The documented "issuer that did not issue crt" check only compared the issuer name with the issuer's subject; another certificate with the same subject and a different key passed (PR #546 Copilot review) | correctness | **Fixed** ([details](#xpki-121--cu7)) |
+| XPKI-122 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `publicKey`                                    | A nil `GetPublicKey` response was reported as a malformed PEM instead of `empty response`, unlike every other nil KMS response (PR #546 Copilot review) | bug         | **Fixed** ([details](#xpki-122--gc5)) |
+| XPKI-123 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `destroyVersion`                               | A nil `DestroyCryptoKeyVersion` response was reported as a successful destruction (PR #546 Copilot review)                                          | bug         | **Fixed** ([details](#xpki-123--gc5)) |
+| XPKI-124 | cryptoprov/gcpkmscrypto               | `signer.go` `pssSaltLengthOK`                                  | `rsa.PSSSaltLengthAuto`, the largest salt when signing, was accepted although KMS always uses the digest-length salt (PR #546 Copilot review)      | correctness | **Fixed** ([details](#xpki-124--gc5)) |
 
 ## Fixed items
+
+### XPKI-121 — CU7
+
+**Fixed on 2026-09-26** (PR #546 Copilot review). `CreateOCSPRequest`
+documented that "an issuer that did not issue crt" is rejected, but only
+compared `crt.RawIssuer` with `issuer.RawSubject`, so a different
+certificate with the same subject name and another key produced a request
+carrying the wrong issuer key hash. Now, after the name check, the issuer's
+key must verify crt's signature (`issuer.CheckSignature` over
+`RawTBSCertificate`; `invalid chain: issuer did not sign the certificate:
+…`). `CheckSignature` is used rather than `CheckSignatureFrom` so that
+legacy SHA-1-signed certificates still get requests and no CA policy (basic
+constraints, key usage) is applied by a request builder.
+
+Validation: `TestCreateOCSPRequestInput/same name other key` (a second
+intermediate issued by the same root with the same subject) failed at
+d0f40da, where a request was built, and passes now; the valid cases, the
+bundler's OCSP path and the xpki-tool OCSP tests are unchanged.
+
+### XPKI-122 — GC5
+
+**Fixed on 2026-09-26** (PR #546 Copilot review). `publicKey` passed a nil
+`GetPublicKey` response to the PEM parser, so `GetKey` and key generation
+reported `failed to parse public key: invalid block type`, and
+`TestEmptyResponses` codified it, while every other nil KMS response is an
+`empty response` error (`KeyInfo` already checked its own). Now it is
+`failed to get public key: empty response`.
+
+### XPKI-123 — GC5
+
+**Fixed on 2026-09-26** (PR #546 Copilot review). `destroyVersion` treated
+a nil `DestroyCryptoKeyVersion` response as success because the destroy-time
+getter tolerates a nil receiver (a GC1 choice recorded under XPKI-023), so a
+destruction could be reported without any confirmation from KMS. A nil
+response is now `failed to schedule key deletion: K/cryptoKeyVersions/N:
+empty response`, and a bare-id destroy stops there.
+
+### XPKI-124 — GC5
+
+**Fixed on 2026-09-26** (PR #546 Copilot review). `pssSaltLengthOK`
+accepted `rsa.PSSSaltLengthAuto`, which when signing asks for the largest
+possible salt, while KMS always uses the digest-length salt, so the
+signature had different parameters from those requested. Now only
+`rsa.PSSSaltLengthEqualsHash` and the explicit hash size are accepted, and
+`Auto` fails before any RPC with `PSS salt length 0 is not supported: KMS
+uses the digest length 32`. Go's `crypto/x509`, `crypto/tls` and go-jose
+sign with `PSSSaltLengthEqualsHash`, so they are unaffected.
+
+GC5 also made the fake KMS cap `ListCryptoKeyVersions` pages at two
+versions, so `TestKeyVersionPaging` now drives the SDK iterator across three
+pages for five versions (it asserts the page count); before, the provider's
+zero `PageSize` returned everything in one page. The review's remaining
+comment, the PR title, is not a code change.
+
+Validation for CU7 and GC5: the updated tests were run in a worktree at
+d0f40da: `TestCreateOCSPRequestInput/same name other key` got no error,
+`TestEmptyResponses/DestroyKeyPairOnSlot` got no error,
+`TestEmptyResponses/GetKey public` got the PEM error, and
+`TestSignRejectsOptionsLocally/PSS salt auto` was accepted and sent to KMS.
+After: `go test -race -count=1 -cover ./certutil ./cryptoprov/gcpkmscrypto
+./cmd/xpki-tool/...` (94.4%, 97.8%, 81.8%, 96.4%), `make lint` (0 issues),
+`make build docs` and `make test RACE=true TEST_FLAGS=-count=1` (all 24
+packages, uncached, SoftHSM and local-kms up) passed.
+
+### XPKI-116 — GC4
+
+**Fixed on 2026-09-26** (PR #546 review, fix requested by the reviewer).
+GC2 made a bare key id select the newest ENABLED version for every
+operation, including `DestroyKeyPairOnSlot`, so destroying `K` scheduled one
+version and returned nil while older enabled versions kept signing, and a
+retired key whose versions were all DISABLED could not be destroyed at all
+(`key K has no enabled version`). Now a bare id lists the versions and
+schedules every ENABLED or DISABLED one for destruction, newest first,
+stopping at the first error; a key with no such version is `key K has no
+version to destroy`. An explicit `K/cryptoKeyVersions/N` is destroyed with
+one RPC and no lookup, whatever its state; KMS reports a missing version.
+DESTROY_SCHEDULED, DESTROYED and pending versions are skipped by a bare id.
+
+Validation: at HEAD (7a49b83) `TestDestroyVersions` failed: after a bare
+destroy, version 1 was still ENABLED and `GetKey("rot")` still succeeded.
+Now it checks five versions (ENABLED, ENABLED, DISABLED, DESTROY_SCHEDULED,
+PENDING_GENERATION): an explicit destroy touches only its version with one
+RPC; a bare destroy with an injected failure on version 2 stops there
+(version 3 scheduled, 1 and 2 untouched, exact error); with the failure
+cleared, versions 1 to 3 are scheduled, 4 and 5 untouched, `GetKey` refuses
+the key, and a second bare destroy is `key rot has no version to destroy`
+with no RPC; a key whose only version is DISABLED is destroyed by its bare
+id; a missing version is NotFound with no `GetCryptoKeyVersion` call.
+
+### XPKI-117 — GC4
+
+**Fixed on 2026-09-26** (PR #546 review). `KeyInfo` with a bare id used the
+same newest-ENABLED rule as `GetKey`, so describing a disabled or
+destroy-scheduled key failed with `key K has no enabled version`, where the
+pre-GC2 code returned the key's metadata. Now a bare id describes the newest
+ENABLED version, else the newest version that is not DESTROYED, else the key
+alone (no `CurrentVersionID`, no `state`), and `includePublic` on a key with
+no version is `key K has no version with a public key`. The public key of a
+disabled version is still requested from KMS, which refuses it
+(`FailedPrecondition`); that error is returned as is.
+
+Validation: at HEAD `TestKeyInfoVersions` failed with `key rot has no
+enabled version` for a key with two DISABLED versions. Now it asserts
+`CurrentVersionID` 2 with state DISABLED, then 1 after version 2 is
+DESTROYED, then the key alone with Meta `purpose`/`algo`/`protection` only,
+the `includePublic` error, and the KMS `FailedPrecondition` for the public
+key of a disabled version.
+
+### XPKI-118 — GC4
+
+**Fixed on 2026-09-26** (PR #546 review). GC2 made `GenerateRSAKey` reject
+every purpose but 1, although `csr.KeyRequest.P` defaults to 0
+(`csr.Undefined`) and the AWS and in-memory providers treat every purpose but
+2 as a signing key. Now only purpose 2 is rejected (`unsupported key purpose:
+2, only signing keys are supported`), before any RPC.
+
+Validation: at HEAD `TestGenerateRSAKeyPurpose` failed (the old check
+rejected 0 and 3 with `only signing keys (1) are supported`). Now purpose 2
+and an unsupported size fail with no RPC, and purposes 0, 1 and 3 reach
+`CreateCryptoKey` (three recorded calls).
+
+### XPKI-119 — GC4
+
+**Fixed on 2026-09-26** (PR #546 review). `signSchemes` listed
+`EC_SIGN_SECP256K1_SHA256`, but public keys are parsed with
+`x509.ParsePKIXPublicKey`, which rejects secp256k1, so `GetKey` on such a
+version failed with `failed to parse public key: x509: unsupported elliptic
+curve` and a `Signer` built for it sent the request to KMS. The algorithm is
+removed from the table and documented as unsupported.
+
+Validation: at HEAD `TestSignRejectsOptionsLocally/secp256k1` failed: the
+sign request was sent (`AsymmetricSign` recorded). Now it is `unsupported
+key algorithm: EC_SIGN_SECP256K1_SHA256` with no RPC, and `TestSignRequest`
+no longer has a secp256k1 case.
+
+### XPKI-120 — GC4
+
+**Fixed on 2026-09-26** (PR #546 review). `Init` accepted a token config
+without the `Keyring` attribute (documented as required) and returned a
+provider whose every RPC later failed with NotFound on the malformed name
+`/cryptoKeys/K`. Now `Init` returns `gcpkms: the Keyring attribute is
+required` before the client factory is called. `cryptoprov`'s
+`TestLoad_KMSProviders` config gained a keyring (`writeTokenConfig` takes
+optional attribute lines).
+
+Validation: at HEAD `TestInitEndpoint/missing_keyring` failed (`Init`
+returned nil). Now empty attributes, `Endpoint` only, a lower-case `keyring`
+and an empty `Keyring=` all return the error and never call the factory.
+
+GC4 also applied three review items without a finding ID: `NewSigner`
+resolves the version resource name once (a version-less or invalid key ID
+fails every `Sign` with the error recorded at construction; `Sign` no longer
+parses the id per call), `keyIDVersion` runs once per `GetKey`, `KeyInfo`
+and `DestroyKeyPairOnSlot` (the split is passed to `enabledVersion`,
+`getVersion` and `listVersions`), and PLAN.md no longer links to
+`Documentation/coverage-plan.md`, removed in PR #546. The reviewer's
+remaining item, the third RPC in `GetKey` for a pinned id, was left as is:
+`GetCryptoKeyVersion` supplies the version's state and algorithm for the
+explicit `key version … is DISABLED` and `unsupported key algorithm` errors.
+
+GC4 validation: `go test -race -count=1 -cover ./cryptoprov/gcpkmscrypto
+./cryptoprov` (97.6% → 98.0%), `make lint` (0 issues), `make build docs` and
+`make test RACE=true TEST_FLAGS=-count=1` (all 24 packages, uncached, SoftHSM
+and local-kms up) passed.
+
+### XPKI-115 — CU6
+
+**Fixed on 2026-09-26** (PR review of CU5). After AES-CBC decryption and
+PKCS#7 unpadding, `decryptPKCS8` only checked that the plaintext was one
+DER value, so a wrong password that happened to leave valid padding and a
+DER-shaped plaintext was reported as success: `GetKeyDERFromPEM` returned
+bytes that were not a PKCS#8 key, and `ParsePrivateKeyPEMWithPassword`
+failed with `unable to parse private key` instead of an error matching
+`x509.IncorrectPasswordError`, against its documented contract. Now the
+plaintext must be exactly one RFC 5958 `OneAsymmetricKey` (`PrivateKeyInfo`)
+structure: version 0 or 1, an `AlgorithmIdentifier` and an OCTET STRING
+private key, with the optional attributes and v2 public key allowed. Any
+other plaintext is `x509.IncorrectPasswordError`. The check is structural
+rather than `x509.ParsePKCS8PrivateKey`, so a correct password on a key type
+this module does not parse (for example DSA) still returns the decrypted
+bytes from `GetKeyDERFromPEM` and `unable to parse private key` from
+`ParsePrivateKeyPEMWithPassword`, not a false "incorrect password".
+
+Validation: `TestEncryptedPKCS8PlaintextNotPrivateKeyInfo` encrypts, with
+valid padding, an INTEGER, a SEQUENCE of INTEGERs, a SEC1 key, a
+PrivateKeyInfo with version 2 and one without a private key: at HEAD all
+five were returned as DER (no error); now `GetKeyDERFromPEM` and
+`ParsePrivateKeyPEMWithPassword` match `x509.IncorrectPasswordError`. A v2
+`OneAsymmetricKey` with a public key and a v1 PrivateKeyInfo still decrypt
+and parse to the original key, and a DSA PrivateKeyInfo decrypts but fails
+to parse without matching `x509.IncorrectPasswordError`. `go test -race
+-count=1 -cover ./certutil` (94.4%), `make lint` (0 issues), `make build
+docs` and `make test RACE=true TEST_FLAGS=-count=1` (all 24 packages,
+uncached, SoftHSM and local-kms up) passed.
+
+### XPKI-020 — GC2
+
+**Fixed on 2026-09-26.** Decision taken (see the approval notes): a key ID is
+either a CryptoKey id `K` or a version `K/cryptoKeyVersions/N`; a bare id
+resolves, at every call, to the newest `ENABLED` version, and signers and
+exported URIs name the version. `GetKey`, `KeyInfo`, `DestroyKeyPairOnSlot`,
+`Signer.Sign` and `genKey` all built `.../cryptoKeyVersions/1`, and
+`ExportKey` wrote `id=K;serial=1`, so after a new version was added the
+provider kept signing with version 1 while `KeyInfo` reported it as current,
+`DestroyKeyPairOnSlot` scheduled version 1 for destruction whatever was in
+use, and a saved URI could never name another version. Now `keyIDVersion`
+validates the id (`invalid key ID: "a/b"`, before any RPC), `resolveVersion`
+fetches the named version (`GetCryptoKeyVersion`) or lists the key's versions
+(`ListCryptoKeyVersions`, added to `KmsClient`) and picks the highest-numbered
+`ENABLED` one (`key K has no enabled version` otherwise). `GetKey` requires
+the selected version to be `ENABLED` (`key version K/cryptoKeyVersions/2 is
+DISABLED`) and fetches that version's public key; `KeyInfo` reports the
+selected version in `CurrentVersionID` and its `state`, `algo` and
+`protection` Meta, and returns its public key; `DestroyKeyPairOnSlot`
+destroys exactly the selected version. Signers carry `K/cryptoKeyVersions/N`
+as `KeyID`, so `IdentifyKey` and `ExportKey` produce
+`id=K/cryptoKeyVersions/N;serial=1`, which reloads the same version after a
+rotation; a legacy `id=K` URI still loads and follows the newest enabled
+version. `ExportKey` stays RPC-free and copies the id as given; `serial` is a
+constant `1` because the URI parser requires it. `EnumKeys` no longer claims
+version `1`: `CurrentVersionID` is set only from a primary version, which
+asymmetric keys do not have.
+
+Validation: in a HEAD worktree, the pre-fix proof (`headproof_test.go`, the
+new fake KMS with two enabled versions) failed on every assertion: the bare
+id returned version 1's public key and signed with it, the exported URI was
+`id=rot;serial=1`, `GetKey("rot/cryptoKeyVersions/2")` failed with NotFound
+(`.../2/cryptoKeyVersions/1`), and `DestroyKeyPairOnSlot("rot")` destroyed
+version 1. After: `TestKeyVersions` (two P-256 versions with different keys,
+signatures verified locally against the right version, pinned and legacy URIs
+through `cryptoprov.ParsePrivateKeyURI`, disabled and missing versions),
+`TestKeyVersionPaging` (5 versions, disabled and destroyed ones skipped),
+`TestKeyInfoVersions`, `TestDestroyVersions` (exact version states after each
+call) and `TestInvalidKeyIDs` (7 malformed ids, no RPC) pass against the
+in-process gRPC KMS through the real SDK client.
+
+### XPKI-019 — GC2
+
+**Fixed on 2026-09-26.** Decision taken: the provider has no decrypter, so
+the encryption purpose is rejected, and `Sign` enforces the key algorithm.
+`GenerateRSAKey(label, bits, 2)` created an `ASYMMETRIC_DECRYPT` key with a
+`RSA_SIGN_*` algorithm (KMS rejects the combination, after an RPC), and
+`Signer.Sign` built the digest from `opts` alone, so a 4096-bit key
+(`RSA_SIGN_PKCS1_4096_SHA512`) asked to sign a SHA-256 digest, or a PKCS#1 key
+given `*rsa.PSSOptions`, sent the request and got `INVALID_ARGUMENT` back, or
+a signature with the wrong padding. Now `GenerateRSAKey` returns
+`unsupported key purpose: 2, only signing keys (1) are supported` before any
+RPC. Signers carry the version's KMS algorithm (`NewSigner` takes it,
+`Signer.Algorithm` returns it; `GetKey` reads it from the version, `genKey`
+from the request), and `signDigest` checks opts against `signSchemes`: the
+hash must be the algorithm's (`hash SHA-256 does not match key algorithm
+RSA_SIGN_PKCS1_4096_SHA512`), the digest that hash's length, `*rsa.PSSOptions`
+are required for `RSA_SIGN_PSS_*` (`requires *rsa.PSSOptions`) and rejected
+otherwise (`does not use PSS padding`), and a PSS salt length must be
+hash-length or the hash size (`PSS salt length 20 is not supported: KMS uses
+the digest length 32`; `PSSSaltLengthAuto` was accepted here and rejected by
+XPKI-124). Versions with other algorithms (raw PKCS#1, Ed25519,
+post-quantum, decryption, MAC) are rejected by `GetKey` (`unsupported key
+algorithm RSA_DECRYPT_OAEP_2048_SHA256: key/cryptoKeyVersions/1`) and by
+`Sign`. The generated algorithms are unchanged (SHA-256 for 2048/3072,
+SHA-512 for 4096); `csr.DefaultSigAlgo`'s SHA-384 for 3072-bit keys, which no
+KMS 3072-bit algorithm accepts, is recorded as XPKI-114.
+
+Validation: at HEAD, `TestHead019Purpose` made one `CreateCryptoKey` RPC for
+purpose 2 and one `AsymmetricSign` RPC for a SHA-256 digest on a
+`RSA_SIGN_PKCS1_4096_SHA512` key (both rejected by the fake KMS). After:
+`TestGenerateRSAKeyPurpose` (purposes 0, 2, 3, no RPC),
+`TestSignRejectsOptionsLocally` (18 cases with exact errors, no RPC) and
+`TestSignVerifiesLocally` (PKCS#1 2048/3072/4096-SHA512, PSS 2048 and
+4096-SHA512, P-256, P-384 through the real SDK client; every signature
+verified with `rsa.VerifyPKCS1v15`, `rsa.VerifyPSS` or `ecdsa.VerifyASN1`,
+and one mismatched option per key rejected without an `AsymmetricSign` call).
+
+### XPKI-022 — GC2
+
+**Fixed on 2026-09-26.** `KeyLabelAndID` lower-cased the name, appended four
+UUID hex characters and cut the whole id to 63 bytes, so a label with a
+space, dot or slash produced an `INVALID_ARGUMENT` id and label, a name of 59
+or more characters lost the suffix entirely (the id became the deterministic
+truncated label), and the 16 bits of suffix made `ALREADY_EXISTS` likely
+after a few hundred keys with the same label. Now the label is the name
+with every character outside `[a-z0-9_-]` replaced by `-` and cut to 63
+characters (the KMS label limit); the id is the label cut to 54 characters,
+`-` and 8 lower-case characters of `crypto/rand.Text()` (40 bits), so it is
+at most 63 characters and always keeps its suffix; an empty name gives the
+suffix alone. `genKey` retries `CreateCryptoKey` with a new id when KMS
+returns `ALREADY_EXISTS`, three attempts in all, and returns any other error
+at once.
+
+Validation: at HEAD, `TestHead022KeyLabelAndID` got label
+`my key.v1/test:ca_2`, id `my key.v1/test:ca_29209`, two equal ids for an
+80-character name, and `INVALID_ARGUMENT` from the fake KMS for
+`GenerateECDSAKey("My Key.v1", …)`. After: `TestKeyLabelAndID` (charset,
+`*` suffix, unicode, 80-character and exactly-fitting names, empty names,
+repeated label and distinct id) and `TestGenerateKeyIDExists` (two
+`ALREADY_EXISTS` then success: three `CreateCryptoKey` calls with distinct ids
+and the same label; three failures: the error with `codes.AlreadyExists` and
+no further RPC; `INVALID_ARGUMENT`: one call) pass; `TestGenerateKeyRequest`
+checks the generated ids against `^(rsa|ec)-(…)-[a-z2-7]{8}$` through the
+fake KMS, which enforces the KMS id and label patterns.
+
+### XPKI-021 — GC3
+
+**Fixed on 2026-09-26.** `Init` parsed the `Endpoint` attribute into the
+provider but `KmsClientFactory` took no arguments, so the SDK client always
+used the default endpoint. `KmsClientFactory` now takes the endpoint
+(`func(endpoint string) (KmsClient, error)`), and the default factory calls
+`newKmsClient`, which adds `option.WithEndpoint(endpoint)` when it is not
+empty and otherwise keeps the SDK defaults (Application Default
+Credentials). `cryptoprov`'s `TestLoad_KMSProviders` stub was updated to the
+new signature.
+
+Validation: `TestInitEndpoint` records the endpoint the factory receives for
+attributes without `Endpoint`, with it first and with it last, and, with the
+factory building the client through `newKmsClient` plus insecure local
+options, `Init` with `Endpoint=<addr>` serves `KeyInfo` from the in-process
+KMS at that address (one `GetCryptoKey` recorded). `TestNewKmsClientEndpoint`
+lists keys from the local server through `newKmsClient(ctx, addr, …)` and
+constructs a client with the default endpoint without an RPC.
+`TestProviderEndToEnd` loads the provider through `KmsLoader` with
+`Endpoint=<addr>,Keyring=…`. At HEAD the factory had no endpoint parameter,
+so no test could pass an endpoint through `Init`.
+
+### XPKI-024 — GC3
+
+**Fixed on 2026-09-26.** Decision taken: cancellation by `Close` and by the
+internal context; the public methods still use `context.Background()`
+(ROADMAP, context propagation). `genKey` polled `GetPublicKey` up to 60
+times with an unconditional `time.Sleep(1 * time.Second)` and retried only
+when the error text contained `PENDING_GENERATION`. Now it polls
+`GetCryptoKeyVersion` and reads the version's `State`: `PENDING_GENERATION`
+waits, `ENABLED` fetches the public key, and any other state
+(`GENERATION_FAILED` with its reason, `DISABLED`, …) or any RPC error returns
+at once. The wait is bounded (60 polls, 1 s apart, `key version … is still
+PENDING_GENERATION after 60 polls`) and interruptible: it ends when the
+context is done or when `Close` is called (`… is PENDING_GENERATION: gcpkms:
+provider is closed`, `errors.Is(err, ErrClosed)`), so `Close` no longer
+blocks for up to a minute behind a key generation. The interval, attempt
+count and the wait itself are unexported provider fields set through
+`export_test.go` for deterministic tests.
+
+Validation: at HEAD, `TestHead024Wait` took 2.0 s for two pending polls
+(`Sleep` not injectable) and `Close` did not return within 1 s of the first
+poll. After: `TestGenerateKeyWait` asserts exact poll, wait and
+`GetPublicKey` counts for ready-at-once, ready after 3 polls, ready on the
+last (5th) poll, exhausted (5 polls, 4 waits), `GENERATION_FAILED` (1 poll,
+no wait), `DISABLED` after 2 pending polls, and an RPC error (1 poll);
+`TestGenerateKeyWaitCancelled` ends a real 1-hour wait by `Close` (Close
+returns well under 1 s, the generation returns `ErrClosed`, one poll) and by
+context cancellation (`context.Canceled`). Both pass `-race -count=20 -cpu
+1,4,8`. Benchmark (`gen_bench_test.go`, `-count 3`, injected wait):
+`BenchmarkGenerateKeyWait` 3.4 µs / 37 allocs (ready at once), 3.7 µs / 40
+allocs (3 pending polls), 8.0 µs / 96 allocs (59 pending polls), with the
+reported `polls/op` 1/4/60 and `waits/op` 0/3/59;
+`BenchmarkGenerateKeyCloseLatency` 9.0 µs / 10 allocs from `Close` to the
+generation returning. Pre-fix, each pending poll cost one second of wall time
+and no CPU, and Close waited for all of them.
+
+GC2/GC3 validation (all five items): `go test ./cryptoprov/gcpkmscrypto
+-cover` 97.1% at HEAD → 97.6%; `go test -race -count=1
+./cryptoprov/gcpkmscrypto ./cryptoprov`, `make lint` (0 issues), `make test
+RACE=true TEST_FLAGS=-count=1` (all 24 packages, uncached, SoftHSM and
+local-kms up), `make build docs` and `make covtest` (total **92.1%**)
+passed. The testify mock (`mockedProvider`, `Test_KmsProvider`)
+was replaced by the in-process gRPC KMS (`kmsserver_test.go`) with real local
+keys, so every request is checked by the server and every signature is
+verified locally.
 
 ### XPKI-036 — CU3
 
@@ -245,8 +623,9 @@ no PRF is given) or HMAC-SHA224/256/384/512, and AES-128/192/256-CBC with a
   the AES key size, and the ciphertext must be a non-empty whole number of
   blocks. Trailing DER data and malformed parameters are errors.
 - A nil password returns `encrypted private key`, as for legacy PEM. A wrong
-  password (bad PKCS#7 padding, or plaintext that is not exactly one DER
-  value) returns an error matching `x509.IncorrectPasswordError`.
+  password (bad PKCS#7 padding, or plaintext that is not a `PrivateKeyInfo`;
+  narrowed from "one DER value" by XPKI-115) returns an error matching
+  `x509.IncorrectPasswordError`.
 - The doc comments of `ParsePrivateKeyPEMWithPassword` and `GetKeyDERFromPEM`
   list exactly these formats.
 
@@ -312,8 +691,9 @@ which it used to discard. Concurrent and later `Close` calls wait for the
 first and return nil. The `KmsClient` field is never cleared. Methods that do
 not use the client (`ExportKey`, `EnumTokens`, `IdentifyKey`) still work
 after Close.
-Limits: Close also waits for `genKey`'s wait for key generation (up to 60
-one-second polls, XPKI-024, GC3). Calling methods of the embedded
+Limits: Close also waited for `genKey`'s wait for key generation (up to 60
+one-second polls) until GC3 made that wait end on Close (XPKI-024). Calling
+methods of the embedded
 `KmsClient` directly bypasses the guard; this is documented on `Provider`.
 
 Validation:
@@ -349,8 +729,9 @@ version. Labels are sorted by name; before, the order followed map iteration
 and changed between runs. A nil response with no error, which a real client
 never returns, is now an `empty response` error from `GetCryptoKey` (GetKey,
 KeyInfo), `GetPublicKey` in KeyInfo (also for an empty PEM), and
-`CreateCryptoKey`. A nil `DestroyCryptoKeyVersion` response is still
-success; its destroy time is only logged when present. `Sign` accepts a
+`CreateCryptoKey`. A nil `DestroyCryptoKeyVersion` response was left as
+success here (its destroy time only logged when present) until XPKI-123 made
+it an `empty response` error too. `Sign` accepts a
 result only when it is non-nil, `VerifiedDigestCrc32C` is true, and
 `SignatureCrc32C` is present and matches the signature. A missing checksum
 is an error (`response has no signature checksum`), never a verified
@@ -2058,5 +2439,20 @@ Validation passed:
   GC1 on 2026-09-26 (Close rejects new calls and waits for in-flight ones;
   missing optional KMS metadata is omitted; nil or unsupported signer options
   are an error before any RPC).
+- **XPKI-019 / XPKI-020 / XPKI-022 / XPKI-024** (GC2, GC3) were fixed on
+  2026-09-26 with these decisions, taken without prior sign-off and open to
+  review: key IDs are `K` or `K/cryptoKeyVersions/N`, a bare id resolves to
+  the newest enabled version at each call and signers/URIs pin the version;
+  the encryption purpose is rejected and `Sign` enforces the version's KMS
+  algorithm (hash and padding); ids get a 40-bit random suffix; the
+  generation wait ends on `Close`, while the public API keeps
+  `context.Background()` (ROADMAP). XPKI-114 (3072-bit RSA keys signed with
+  SHA-384 by `csr`) needs a policy: SHA-256 for 3072-bit keys, or providers
+  advertising their key's hash.
+- **XPKI-116 / XPKI-117 / XPKI-118 / XPKI-120** (GC4, requested from the PR
+  #546 review on 2026-09-26) revised the GC2 bare-id policies: a bare id
+  destroys every enabled or disabled version, `KeyInfo` falls back to the
+  newest non-destroyed version or the key alone, only purpose 2 is rejected,
+  and `Init` requires `Keyring`.
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.

@@ -143,13 +143,13 @@ func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error)
 BuildBundle returns the Bundle and BundleStatus of a Chain built by a Bundler. A nil c or c.Cert returns an error; a nil c.Status is treated as an empty status, and a nil c.Root \(a Force chain\) leaves RootCert and RootCertPEM empty \(XPKI\-042\).
 
 <a name="CreateOCSPRequest"></a>
-## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L18>)
+## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L19>)
 
 ```go
 func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte, error)
 ```
 
-CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer key with hash. A nil crt or issuer, an unavailable hash, or an issuer that did not issue crt returns an error before any work \(XPKI\-103\).
+CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer key with hash. A nil crt or issuer or an unavailable hash returns an error before any work \(XPKI\-103\), and so does an issuer whose subject is not crt's issuer name or whose key did not sign crt \(XPKI\-121\). The signature check accepts SHA\-1 and applies no CA policy.
 
 <a name="CreatePoolFromPEM"></a>
 ## func [CreatePoolFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L147>)
@@ -260,13 +260,13 @@ func GetIssuerID(c *x509.Certificate) string
 GetIssuerID returns ID of the issuer. If present, it uses Authority Key Identifier, otherwise SHA1 of the Issuer name
 
 <a name="GetKeyDERFromPEM"></a>
-## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L304>)
+## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L306>)
 
 ```go
 func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
 ```
 
-GetKeyDERFromPEM parses a PEM\-encoded private key and returns DER\-format key bytes, decrypting it with password when it is encrypted. Encrypted PKCS\#8 keys are supported only with PBES2, PBKDF2 \(HMAC\-SHA1, \-SHA224, \-SHA256, \-SHA384 or \-SHA512, at most 10,000,000 iterations\) and AES\-128/192/256\-CBC, which OpenSSL 3 writes by default. Other PKCS\#8 schemes \(PBES1, PKCS\#12 PBE, scrypt, DES\) return an "unsupported PKCS\#8 encryption" error \(XPKI\-043\).
+GetKeyDERFromPEM parses a PEM\-encoded private key and returns DER\-format key bytes, decrypting it with password when it is encrypted. Encrypted PKCS\#8 keys are supported only with PBES2, PBKDF2 \(HMAC\-SHA1, \-SHA224, \-SHA256, \-SHA384 or \-SHA512, at most 10,000,000 iterations\) and AES\-128/192/256\-CBC, which OpenSSL 3 writes by default. Other PKCS\#8 schemes \(PBES1, PKCS\#12 PBE, scrypt, DES\) return an "unsupported PKCS\#8 encryption" error \(XPKI\-043\). The decrypted bytes are returned only when they are a PKCS\#8 PrivateKeyInfo; otherwise, as for bad padding, the error matches x509.IncorrectPasswordError \(XPKI\-115\).
 
 <a name="GetSubjectID"></a>
 ## func [GetSubjectID](<https://github.com/effective-security/xpki/blob/main/certutil/cert_id.go#L26>)
@@ -431,7 +431,7 @@ func ParseHexDigestWithPrefix(digest string) (hash.Hash, []byte, error)
 ParseHexDigestWithPrefix parses encoded digest in \{alg\}:\{hex\} format
 
 <a name="ParsePrivateKeyDER"></a>
-## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L337>)
+## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L339>)
 
 ```go
 func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error)
