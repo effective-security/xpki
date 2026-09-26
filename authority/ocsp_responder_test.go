@@ -606,6 +606,8 @@ func TestDelegatedOCSPSlowFailureAfterExpiry(t *testing.T) {
 	signer.fail.Store(true)
 	signer.gate = make(chan struct{})
 	const signDelay = 100 * time.Millisecond
+	// XPKI-111: the gate is armed before the attempt starts, so on a loaded
+	// machine the attempt can wait less than signDelay and fail the bounds below.
 	time.AfterFunc(signDelay, func() { close(signer.gate) })
 
 	// valid when the attempt starts, expired when the slow failure returns

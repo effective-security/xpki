@@ -4,8 +4,14 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/json"
+	"fmt"
+	"hash"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +81,27 @@ func tokenHeader(t *testing.T, token string) map[string]any {
 	return header
 }
 
+// signHMAC returns a compact token with the given header, signed with key
+// by the HMAC hash of alg, independent of the provider under test.
+func signHMAC(t *testing.T, alg string, key []byte, header map[string]any) string {
+	t.Helper()
+	hashes := map[string]func() hash.Hash{
+		"HS256": sha256.New,
+		"HS384": sha512.New384,
+		"HS512": sha512.New,
+	}
+	newHash, ok := hashes[alg]
+	require.True(t, ok, alg)
+	h := map[string]any{"alg": alg}
+	maps.Copy(h, header)
+	rawHeader, err := json.Marshal(h)
+	require.NoError(t, err)
+	signing := jwt.EncodeSegment(rawHeader) + "." + jwt.EncodeSegment([]byte(`{"sub":"subject"}`))
+	mac := hmac.New(newHash, key)
+	mac.Write([]byte(signing))
+	return signing + "." + jwt.EncodeSegment(mac.Sum(nil))
+}
+
 func newSymmetricKey(t *testing.T) []byte {
 	t.Helper()
 	key := make([]byte, 32)
@@ -135,7 +162,16 @@ func TestStandaloneSymmetricProvider(t *testing.T) {
 	ecToken, err := ecProvider.Sign(ctx, jwt.MapClaims{"sub": "subject"})
 	require.NoError(t, err)
 	_, err = provider.ParseToken(ctx, ecToken, nil)
-	require.ErrorContains(t, err, "unable to verify token: invalid key type for ECDSA signature")
+	require.EqualError(t, err, "unable to verify token: unsupported signing method: ES256")
+
+	// only HS256 is accepted, even with the right key (PR #543)
+	for _, alg := range []string{"HS384", "HS512"} {
+		_, err = provider.ParseToken(ctx, signHMAC(t, alg, key, nil), nil)
+		require.EqualError(t, err, "unable to verify token: unsupported signing method: "+alg, alg)
+	}
+	claims, err = provider.ParseToken(ctx, signHMAC(t, "HS256", key, nil), nil)
+	require.NoError(t, err)
+	assert.Equal(t, "subject", claims.String("sub"))
 
 	// the provider keeps its own copy of the key
 	key[0] ^= 0xff
@@ -177,6 +213,32 @@ func TestStandaloneSymmetricProviderKeyID(t *testing.T) {
 		{name: "kid provider, other kid", provider: withKid, token: k2, expErr: "unable to verify token: unexpected kid"},
 		{name: "plain provider, no kid", provider: plain, token: noKid},
 		{name: "plain provider, kid", provider: plain, token: k1, expErr: "unable to verify token: unexpected kid"},
+		{name: "kid provider, hand-signed kid", provider: withKid, token: signHMAC(t, "HS256", key, map[string]any{"kid": "k1"})},
+	}
+	// a present kid that is empty or not a string never selects the key of a
+	// provider without a kid (PR #543)
+	for _, kid := range []any{"", nil, true, false, 0, 42, 1.5} {
+		tcs = append(tcs, struct {
+			name     string
+			provider jwt.Provider
+			token    string
+			expErr   string
+		}{
+			name:     fmt.Sprintf("plain provider, kid %#v", kid),
+			provider: plain,
+			token:    signHMAC(t, "HS256", key, map[string]any{"kid": kid}),
+			expErr:   "unable to verify token: unexpected kid",
+		}, struct {
+			name     string
+			provider jwt.Provider
+			token    string
+			expErr   string
+		}{
+			name:     fmt.Sprintf("kid provider, kid %#v", kid),
+			provider: withKid,
+			token:    signHMAC(t, "HS256", key, map[string]any{"kid": kid}),
+			expErr:   "unable to verify token: unexpected kid",
+		})
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {

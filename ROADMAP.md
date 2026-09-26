@@ -54,8 +54,11 @@ version.
 
 ## certutil bundler concurrency
 
-`certutil.Bundler` mutates its pools during `Bundle` (XPKI-035). Either
-document it as single-goroutine or copy pools per call. Add encrypted PKCS#8
+CU2 (2026-09-25) made `certutil.Bundler` safe for concurrent use with
+copy-on-write pools (XPKI-035). Remaining: coalescing concurrent AIA fetches of
+the same URL across calls (each call still fetches once), and replacing the
+exported mutable `RootPool`/`IntermediatePool`/`KnownIssuers` fields with
+accessors in the next major version. Add encrypted PKCS#8
 key support (XPKI-043) and drop legacy RFC 1423 PEM decryption
 (`x509.DecryptPEMBlock`) once callers have migrated.
 

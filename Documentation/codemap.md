@@ -511,8 +511,20 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   body is never logged. Each URL is requested at most once per `Bundle` call,
   including failures; the next call retries. A done context stops the
   traversal and the returned error matches `ctx.Err()`.
-- `Bundler` is not goroutine-safe (XPKI-035). `Bundle` of an empty list returns
-  `(nil, nil)` (XPKI-036). Only RSA/ECDSA leaf keys accepted.
+- Concurrency (XPKI-035): a `Bundler` is safe for concurrent `Bundle`,
+  `ChainFromPEM` and `VerifyOptions` calls. `mu` (RWMutex) guards `RootPool`,
+  `IntermediatePool` and `KnownIssuers` once in use. Each call reads a
+  `snapshot` and verifies without the lock. `verifyChain` adds intermediates it
+  verified to a private clone and publishes them once with `learn`, which
+  copies the map and installs the clone, or merges into a copy of the current
+  pool when another call published first. A pool or map once read is never
+  modified, so `VerifyOptions` returns a snapshot. The exported fields are
+  set-up state: set them before first use, then read the pools through
+  `VerifyOptions`. Learning costs one pool clone per newly learned
+  intermediate (O(pool)); warm calls take only the read lock. Concurrent
+  misses on one issuer each fetch its URL, at most once per call, with no
+  cross-call coalescing. `Bundle` of an empty list returns `(nil, nil)`
+  (XPKI-036). Only RSA/ECDSA leaf keys accepted.
 - Process-global: `IntermediateStash` (fetched intermediates written `0644`),
   `RandReader`. `HTTPClient` is deprecated and never read (XPKI-044); use
   `WithHTTPClient`. Default AIA client timeout 3s.
@@ -525,7 +537,12 @@ HTTP servers for AIA fetching, caching, validation, and expiry behavior; it
 restores `IntermediateStash` and runs serially. `bundler_aia_test.go` uses a
 per-path counting AIA server for response limits, stalls, cancellation,
 per-traversal request counts (`BenchmarkBundlerAIAFailingURL`) and log
-content; `export_test.go` exposes the body limit. `bundler_roots_test.go`
+content; `export_test.go` exposes the body limit and `learn` (`Learn`).
+`bundler_concurrency_test.go` shares one Bundler across goroutines released
+together (warm hits plus two AIA chains, run with `-race`), covers `learn`
+merging with a stale snapshot and nil set-up fields, and holds
+`BenchmarkBundle` (warm serial/parallel and learning cost at pool sizes
+0/100/1000). Its tests leave `IntermediateStash` empty and run in parallel. `bundler_roots_test.go`
 covers flavor/root resolution and re-runs itself in a subprocess with
 `SSL_CERT_FILE`/`SSL_CERT_DIR` set to a generated root to test system trust
 (skipped on darwin/windows). `bundler_ranking_test.go` tests
@@ -558,8 +575,10 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 - `provider.ParseToken` requires `kid` for HS tokens, except for
   `NewProviderWithSymmetricKey` (XPKI-066): it signs without a `kid` unless
   `WithHeaders` sets a nonempty string one, and verifies with its single key
-  tokens with no `kid` or that `kid` (`allowNoKid`); any other `kid` is
-  `unexpected kid`. `parser.ParseToken` refuses HS. `alg: none` is rejected.
+  only HS256 tokens (`ValidMethods`) with no `kid` or that `kid`
+  (`allowNoKid`); any other `kid`, including an empty or non-string one, is
+  `unexpected kid`. The `NewProvider` key ring still accepts HS384/HS512
+  (XPKI-112). `parser.ParseToken` refuses HS. `alg: none` is rejected.
   Numeric `kid` headers are stringified.
 - Headers (XPKI-104): every constructor creates `headers` before applying
   options, and `validateHeaders` runs after them. An `alg` header other than
