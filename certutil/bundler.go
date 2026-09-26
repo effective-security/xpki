@@ -11,11 +11,13 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -63,11 +65,23 @@ const (
 // A Bundler contains the certificate pools for producing certificate
 // bundles. It contains any intermediates and root certificates that
 // should be used.
+//
+// A Bundler is safe for concurrent use. Intermediates learned over AIA are
+// shared by later calls: they are published by replacing IntermediatePool
+// and KnownIssuers with updated copies, so a pool or map once read is never
+// modified (XPKI-035).
+//
+// The exported fields are set-up state. Set or replace them only before the
+// first Bundle, ChainFromPEM or VerifyOptions call, and do not modify the
+// pools or the map in place. After that, read the pools through
+// VerifyOptions; reading the fields directly races with learning.
 type Bundler struct {
 	RootPool         *x509.CertPool
 	IntermediatePool *x509.CertPool
 	KnownIssuers     map[string]bool
 	opts             options
+	// mu guards the three exported fields once the Bundler is in use
+	mu sync.RWMutex
 }
 
 type options struct {
@@ -243,16 +257,66 @@ func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundl
 // VerifyOptions returns the x509.VerifyOptions used by Optimal bundling.
 // Roots is never nil: without a RootPool it is an empty pool, so the options
 // never fall back to the system roots.
+// It is a snapshot: intermediates learned later are not added to it.
 func (b *Bundler) VerifyOptions() x509.VerifyOptions {
-	roots := b.RootPool
+	roots, intermediates, _ := b.snapshot()
+	return b.verifyOptions(roots, intermediates)
+}
+
+// snapshot returns the current pools and known issuers. They are never
+// modified afterwards; learn replaces them instead.
+func (b *Bundler) snapshot() (roots, intermediates *x509.CertPool, known map[string]bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.RootPool, b.IntermediatePool, b.KnownIssuers
+}
+
+func (b *Bundler) verifyOptions(roots, intermediates *x509.CertPool) x509.VerifyOptions {
 	if roots == nil {
 		roots = x509.NewCertPool()
 	}
 	return x509.VerifyOptions{
 		Roots:         roots,
-		Intermediates: b.IntermediatePool,
+		Intermediates: intermediates,
 		KeyUsages:     b.opts.keyUsages,
 	}
+}
+
+// learn publishes verified intermediates for later calls. pool is a private
+// pool built from base that already holds certs; it is installed as is when
+// IntermediatePool is still base, and otherwise certs are added to a copy of
+// the current pool. Certificates already known are skipped.
+func (b *Bundler) learn(base, pool *x509.CertPool, certs []*x509.Certificate) {
+	if len(certs) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	known := make(map[string]bool, len(b.KnownIssuers)+len(certs))
+	maps.Copy(known, b.KnownIssuers)
+	current := b.IntermediatePool
+	if current != base {
+		pool = cloneCertPool(current)
+		for _, c := range certs {
+			if !known[string(c.Signature)] {
+				pool.AddCert(c)
+			}
+		}
+	}
+	for _, c := range certs {
+		known[string(c.Signature)] = true
+	}
+	b.IntermediatePool = pool
+	b.KnownIssuers = known
+}
+
+// cloneCertPool returns a copy of pool, or an empty pool when it is nil.
+func cloneCertPool(pool *x509.CertPool) *x509.CertPool {
+	if pool == nil {
+		return x509.NewCertPool()
+	}
+	return pool.Clone()
 }
 
 // ChainFromFile takes a set of files containing the PEM-encoded leaf certificate
@@ -409,17 +473,31 @@ func isChainRootNode(cert *x509.Certificate) bool {
 	return isSelfSigned(cert)
 }
 
+// verifyChain verifies the (partial) chain against the trust roots and
+// publishes each verified intermediate with learn, including those verified
+// before a later certificate fails. Each certificate is verified with the
+// intermediates verified before it in this walk, which are kept in a private
+// pool until learn publishes them.
 func (b *Bundler) verifyChain(chain []*fetchedIntermediate) bool {
+	roots, base, known := b.snapshot()
+	pool := base
+	var learned []*x509.Certificate
+	learnedSigs := map[string]bool{}
+	defer func() {
+		b.learn(base, pool, learned)
+	}()
+
 	// This process will verify if the root of the (partial) chain is in our root pool,
 	// and will fail otherwise.
 	for vchain := chain[:]; len(vchain) > 0; vchain = vchain[1:] {
 		cert := vchain[0]
+		sig := string(cert.Cert.Signature)
 		// If this is a certificate in one of the pools, skip it.
-		if b.KnownIssuers[string(cert.Cert.Signature)] {
+		if known[sig] || learnedSigs[sig] {
 			continue
 		}
 
-		_, err := cert.Cert.Verify(b.VerifyOptions())
+		_, err := cert.Cert.Verify(b.verifyOptions(roots, pool))
 		if err != nil {
 			logger.KV(xlog.DEBUG, "status", "certificate failed verification", "err", err.Error())
 			return false
@@ -433,8 +511,13 @@ func (b *Bundler) verifyChain(chain []*fetchedIntermediate) bool {
 			continue
 		}
 
-		b.IntermediatePool.AddCert(cert.Cert)
-		b.KnownIssuers[string(cert.Cert.Signature)] = true
+		if len(learned) == 0 {
+			// the snapshot pool is shared; add to a private copy
+			pool = cloneCertPool(base)
+		}
+		pool.AddCert(cert.Cert)
+		learned = append(learned, cert.Cert)
+		learnedSigs[sig] = true
 
 		if IntermediateStash != "" {
 			fileName := filepath.Join(IntermediateStash, cert.Name)
@@ -685,8 +768,9 @@ func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, 
 		}
 		bundle.Chain = certs
 	} else {
+		roots, intermediates, _ := b.snapshot()
 		// XPKI-041: x509.Verify with nil Roots would use the system roots.
-		if b.RootPool == nil {
+		if roots == nil {
 			return nil, errors.New("no trust roots configured")
 		}
 		// disallow self-signed cert
@@ -694,7 +778,7 @@ func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, 
 			return nil, errors.New("self-signed certificate")
 		}
 
-		chains, err := cert.Verify(b.VerifyOptions())
+		chains, err := cert.Verify(b.verifyOptions(roots, intermediates))
 		if err != nil {
 			logger.KV(xlog.DEBUG, "reason", "verification failed", "err", err.Error())
 			// If the error was an unknown authority, try to fetch

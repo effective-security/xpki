@@ -121,7 +121,8 @@ type provider struct {
 	parser      TokenParser
 	revocation  Revocation
 	// allowNoKid accepts HS tokens without a kid header, verified with the
-	// key of kid; set only by NewProviderWithSymmetricKey (XPKI-066).
+	// key of kid, and rejects every present kid when kid is empty; set only
+	// by NewProviderWithSymmetricKey (XPKI-066).
 	allowNoKid bool
 }
 
@@ -278,8 +279,9 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 // with key and verifies its own tokens.
 //
 // Tokens carry no kid header unless WithHeaders sets one, which must be a
-// nonempty string. ParseToken accepts HS256 tokens signed with key that
-// have no kid or that kid; any other kid is rejected (XPKI-066, XPKI-104).
+// nonempty string. ParseToken accepts only HS256 tokens signed with key that
+// have no kid or that kid; any other kid, including an empty or non-string
+// one, is rejected (XPKI-066, XPKI-104).
 func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error) {
 	if len(key) == 0 {
 		return nil, errors.New("symmetric key is empty")
@@ -291,6 +293,7 @@ func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error) {
 		allowNoKid: true,
 		parser: TokenParser{
 			UseJSONNumber: true,
+			ValidMethods:  []string{algHS256},
 		},
 	}
 	signer, err := newSymmetricSigner(algHS256, key)
@@ -393,10 +396,19 @@ func (p *provider) ParseToken(ctx context.Context, authorization string, cfg *Ve
 			"headers", token.Header,
 			"claims", token.Claims,
 		)
+		// XPKI-112: a NewProvider key ring also accepts HS384/HS512 here;
+		// NewProviderWithSymmetricKey is pinned to HS256 by ValidMethods.
 		if strings.HasPrefix(token.SigningMethod, "HS") {
 			kid, ok := token.Header[kidHeader]
-			if !ok && p.allowNoKid {
-				return p.keys[p.kid], nil
+			if p.allowNoKid {
+				if !ok {
+					return p.keys[p.kid], nil
+				}
+				// without its own kid, the key is stored under ""; a present
+				// kid that converts to "" must not select it
+				if p.kid == "" {
+					return nil, errors.Errorf("unexpected kid")
+				}
 			}
 			if ok {
 				var id string

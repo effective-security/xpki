@@ -53,7 +53,7 @@ drift; the symbol name is the stable reference.
 | XPKI-032 | cryptoprov/awskmscrypto               | `awskmsprov.go` `EnumKeys`                                     | Lists every key in the account then one `DescribeKey` per key (N+1); `prefix` ignored                                                              | performance | Open           |
 | XPKI-033 | cryptoprov/awskmscrypto               | `awskmsprov.go` `EnumKeys`                                     | `DescribeKey` errors logged and skipped; throttled keys vanish from listings                                                                       | correctness | Open           |
 | XPKI-034 | cryptoprov/awskmscrypto               | `awskmsprov.go` `Init`                                         | Env credentials forced into a static provider; redundant with SDK chain, non-refreshable                                                           | correctness | Open           |
-| XPKI-035 | certutil                              | `bundler.go` `verifyChain`/`fetchIntermediates`                | `Bundler` mutates `KnownIssuers` and `IntermediatePool` per call; concurrent `Bundle` panics                                                       | race        | Open           |
+| XPKI-035 | certutil                              | `bundler.go` `verifyChain`/`fetchIntermediates`                | `Bundler` mutates `KnownIssuers` and `IntermediatePool` per call; concurrent `Bundle` panics                                                       | race        | **Fixed** ([details](#xpki-035--cu2)) |
 | XPKI-036 | certutil                              | `bundler.go` `Bundler.Bundle`                                  | Empty cert list returns `(nil, nil)`                                                                                                               | bug         | Needs Approval |
 | XPKI-037 | certutil                              | `bundler.go` `fetchRemoteCertificate`                          | AIA fetch: no status check, unbounded `io.ReadAll`, no context, body logged in full                                                                | security    | **Fixed** ([details](#xpki-037--cu1)) |
 | XPKI-038 | certutil                              | `bundle.go` `SortBundlesByExpiration`                          | Sorts the caller's slice in place with unstable `sort.Slice`                                                                                       | correctness | Needs Approval |
@@ -108,8 +108,62 @@ drift; the symbol name is the stable reference.
 | XPKI-108 | jwt/dpop                              | `verify.go` `VerifyClaimsContext`                              | `htm` is compared with `strings.EqualFold`, although HTTP methods are case-sensitive (RFC 9110 §9.1), so a proof for `get` is accepted for `GET` | correctness | Open           |
 | XPKI-109 | jwt                                   | `claims.go` `MapClaims.Time`; `jwt.go` `Sign`                  | A `time.Time` `iat`/`nbf`/`exp` passed to `Sign` marshals to an RFC 3339 string that `Time` cannot parse, so `Valid` silently skips that check (a `nbf` tomorrow is accepted now) | correctness | Needs Approval |
 | XPKI-110 | crypto11                              | `sessions.go` `withSession`; `config.go` `Init`                | After a device/token error the pooled sessions are reopened, but the login session is not, so a reinserted token stays logged out (`CKR_USER_NOT_LOGGED_IN`) until a new `Init` | correctness | Open           |
+| XPKI-111 | authority                             | `ocsp_responder_test.go` `TestDelegatedOCSPSlowFailureAfterExpiry` | Timing-dependent: the 100ms signer gate is armed before the attempt starts, so under load the attempt can see less than 100ms and fail the `retryAt` bound (seen once in `make test RACE=true` during CU2) | bug         | Open           |
+| XPKI-112 | jwt                                   | `jwt.go` `provider.ParseToken`                                     | The `NewProvider` HS256 key ring also verifies HS384/HS512 tokens signed with a ring key; only `NewProviderWithSymmetricKey` is pinned to HS256 (found in the PR #543 review)                              | correctness | Open           |
 
 ## Fixed items
+
+### XPKI-035 — CU2
+
+**Fixed on 2026-09-25.** Approved design: copy-on-write under an RWMutex,
+with the exported fields kept, and no merging of AIA fetches across calls.
+`verifyChain` added learned intermediates to `IntermediatePool` and
+`KnownIssuers` in place while other `Bundle` calls read them inside
+`x509.Verify`. The Go runtime could abort with `concurrent map read and map
+write`. Now `Bundler.mu` guards the three fields once the Bundler is in use,
+and each call verifies a `snapshot` without holding the lock. `verifyChain`
+adds the intermediates it verifies to a private clone (each later certificate
+in the walk still sees them) and publishes them once, on success or failure,
+with `learn`. `learn` installs the clone when the shared pool is unchanged,
+and otherwise adds the certificates to a copy of the current pool. It copies
+`KnownIssuers` too. A published pool or map is never modified, so
+`VerifyOptions` returns a snapshot.
+Compatibility: the exported fields are documented as set-up state, to be set
+before first use and then read through `VerifyOptions`. Nothing outside
+certutil uses them. Chain output, ranking, root selection, AIA bounds and
+cancellation are unchanged.
+
+Validation:
+
+- Before the fix, `TestBundlerConcurrentBundle` (8 workers each for a
+  warm-cache chain and two AIA chains, released together) produced 60 race
+  reports and `fatal error: concurrent map read and map write` under
+  `-race`. The races were `CertPool.addCertFunc` in `verifyChain` against
+  `findPotentialParents` inside `Verify`, and `KnownIssuers`.
+- After the fix it passes `-race -count=20`, and `go test ./certutil -race
+  -count=3 -cpu 1,4,8` passes. It checks the exact chain and root for every
+  worker, at most one fetch per worker for each AIA URL, no request after
+  learning, every learned issuer in `KnownIssuers`, and that `VerifyOptions`
+  taken before learning still fails to verify.
+- `TestBundlerLearnMerge` (via `export_test.go` `Learn`) covers an
+  up-to-date private pool installed as is, a stale snapshot merged into a new
+  pool that verifies both leaves, the first published pool left unmodified,
+  and an empty learn making no new pool. `TestBundlerLearnNilPool` learns
+  over AIA after set-up code cleared `IntermediatePool` and `KnownIssuers`.
+- Benchmark (`BenchmarkBundle`, `-count 6 -cpu 1,4`, benchstat, before =
+  unchanged code): warm Bundle shows no significant change except +0.9% on
+  one serial case (pool 100); 124.7–128.5 µs serial, 32.7–33.4 µs parallel
+  on 4 CPUs, 2.73 KiB / 51 allocs unchanged at pool sizes 0/100/1000.
+  Learning one intermediate: pool 0 unchanged; pool 100 +2.6% (572 → 587
+  µs), 20.6 → 46.6 KiB; pool 1000 +23–25% (707 → 884 µs), 20.6 → 346 KiB,
+  335 → 1,361 allocs, the cost of the pool clone. A before/after concurrent
+  learning comparison is not possible, because the old code races.
+- `make lint` (0 issues), `make build docs` and `make covtest` (total
+  **91.6%**; certutil 93.2% → 93.5%) passed. `make test RACE=true` passed on
+  the second run. The first run failed once in `authority`
+  (`TestDelegatedOCSPSlowFailureAfterExpiry`), a timing-dependent test that
+  does not use the Bundler, recorded as XPKI-111. That test passed 30× alone
+  and 40× under concurrent CPU load, both with `-race`.
 
 ### XPKI-066 — JW2
 
@@ -141,6 +195,24 @@ Validation:
 - `TestStandaloneSymmetricProviderKeyID`: a provider with `kid` k1 accepts
   its k1 tokens and kid-less tokens, and rejects k2 as `unexpected kid`. A
   provider without a `kid` accepts kid-less tokens and rejects k1.
+
+PR #543 review follow-ups (2026-09-26), each shown failing before its fix:
+
+- The provider accepted HS384 and HS512 tokens signed with its key, because
+  `ParseToken` returns the key for any `HS*` alg. Its parser is now pinned
+  to HS256 (`ValidMethods`), so other algs fail with `unsupported signing
+  method` before key lookup, and an ES256 token gets the same error.
+  `TestStandaloneSymmetricProvider` signs HS384/HS512/HS256 tokens by hand
+  (`signHMAC`, independent of the provider). The same behavior of the
+  `NewProvider` key ring is recorded as XPKI-112.
+- A provider without a `kid` stores its key under `""`. A present `kid` of
+  `""`, `null`, `true`/`false` or a number converted to `""` and was
+  accepted: 7 cases failed. A present `kid` is now rejected when the provider
+  has none (`unexpected kid`). `TestStandaloneSymmetricProviderKeyID` covers
+  those values for providers with and without a `kid`, plus a hand-signed
+  `kid` k1.
+- Validation: `go test ./jwt/...`, `make lint`, `make build docs` and `make
+  covtest` passed.
 
 ### XPKI-104 — JW2
 
@@ -1553,7 +1625,10 @@ Validation passed:
   config with neither, and requires both when both are set).
 - **XPKI-066 / XPKI-104** were approved and fixed by JW2 on 2026-09-25 (the
   standalone symmetric provider signs without a `kid` by default and accepts
-  kid-less tokens and its own `kid`; every constructor rejects `alg`
+  only HS256 tokens, kid-less or with its own `kid`; every constructor rejects `alg`
   overrides, and HS providers reject a `kid` that is not the signing key's).
+- **XPKI-035** was approved and fixed by CU2 on 2026-09-25 (copy-on-write pools
+  under an RWMutex; the exported fields are set-up state; no cross-call AIA
+  coalescing).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.

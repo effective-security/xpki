@@ -5,7 +5,10 @@ Reviewed against the working tree at `70307a9` on **2026-09-20**. Covers all
 **XPKI-106**, discovered during the test review, and **XPKI-107**, discovered
 and fixed during TC1, **XPKI-108**, discovered during DP1, and **XPKI-109**,
 discovered during the AT1 review. All four are recorded in [FINDINGS.md](FINDINGS.md) as
-required by AGENTS.md: **77 findings total**.
+required by AGENTS.md: **77 findings total**. Later remediation added
+**XPKI-110** (PK1 review, batch PK3), **XPKI-111** (a timing-dependent
+`authority` test seen during CU2, batch AU5) and **XPKI-112** (PR #543 review,
+batch JW4).
 Pending assessments retain the original planning evidence. Fixed entries
 record the implementation and validation; completed batches are retained
 below and excluded from the pending queue.
@@ -28,6 +31,7 @@ below and excluded from the pending queue.
 | PK1 | [XPKI-001](FINDINGS.md#xpki-001--pk1), [XPKI-002](FINDINGS.md#xpki-002--pk1), [XPKI-003](FINDINGS.md#xpki-003--pk1), [XPKI-005](FINDINGS.md#xpki-005--pk1), [XPKI-007](FINDINGS.md#xpki-007--pk1), [XPKI-100-crypto11](FINDINGS.md#xpki-100-crypto11--pk1) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 | PK2 | [XPKI-011](FINDINGS.md#xpki-011--pk2), [XPKI-006](FINDINGS.md#xpki-006--pk2) | **Fixed** | 2026-09-25 |
 | JW2 | [XPKI-066](FINDINGS.md#xpki-066--jw2), [XPKI-104](FINDINGS.md#xpki-104--jw2), [XPKI-100-jwt](FINDINGS.md#xpki-100-jwt--jw2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
+| CU2 | [XPKI-035](FINDINGS.md#xpki-035--cu2) | **Fixed** | 2026-09-25 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -513,6 +517,20 @@ lint`, `make covtest` (**91.5%**; `jwt` 92.6% → 93.0%) and `make build docs`
 passed. No benchmark was needed. No race run was needed either, because no
 shared state changed.
 
+**CU2 / XPKI-035 (2026-09-25):** decisions: copy-on-write pools under
+`Bundler.mu` (RWMutex). The exported fields are kept as set-up state, and
+there is no cross-call AIA coalescing (recorded in ROADMAP). `verifyChain`
+learns into a private clone and publishes it once with `learn`, merging when
+another call published first. Pre-fix: `TestBundlerConcurrentBundle` gave 60
+race reports and a fatal concurrent map access. After: it passes `-race
+-count=20`, and certutil passes with `-race -cpu 1,4,8`. Benchmarks (benchstat,
+`-count 6 -cpu 1,4`): warm Bundle unchanged (51 allocs) at pool sizes
+0/100/1000. Learning one intermediate costs one pool clone: +2.6% at pool 100
+and +23–25% at pool 1000 (707 → 884 µs, 20.6 → 346 KiB). `make lint`, `make
+covtest` (**91.6%**) and `make build docs` passed. `make test RACE=true`
+passed on its second run; the first hit the unrelated `authority` timing
+flake recorded as XPKI-111 (AU5).
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -556,7 +574,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| CU2 | `certutil` | 035 | P1 / 34 | High: cache ownership and lock contention | Exported mutable fields |
 | CP1 | `cryptoprov` | 016, 026; 099-cryptoprov, 100-cryptoprov | P1 / 34 | Medium: duplicate registrations and nil constructors | Duplicate/replacement policy |
 | GC1 | `cryptoprov/gcpkmscrypto` | 018, 023, 025-gcpkmscrypto | P1 / 34 | Medium: close/sign lifecycle and checksum validation | Nil signer-options contract |
 | AU3 | `authority` | 055 | P1 / 34 | High: live maps and pointer ownership | Snapshot/mutation contract |
@@ -584,6 +601,8 @@ the test prerequisites below can move a small preparatory change earlier.
 | AW3 | `cryptoprov/awskmscrypto` | 034 (revalidate) | P3 / 13 | Medium: credential-provider precedence | Demonstrate refresh failure first |
 | JW3 | `jwt` | 073 | P3 / 13 | Medium: consumers of custom JOSE headers | Header removal/migration policy |
 | TC2 | `testca` | 063 | P3 / 13 | Medium: PEM versus DER and OpenSSL compatibility | Preserve test-only panic contract |
+| AU5 | `authority` (tests) | 111 | P3 / 15 | Low: test-only timing | None |
+| JW4 | `jwt` | 112 | P3 / 13 | Medium: configured HS384/HS512 consumers | Pin the key ring to HS256 or configure algs |
 
 Execution dependencies:
 
@@ -592,9 +611,10 @@ Execution dependencies:
   rules in `Issuer.Sign` must hold for AU3; do not take a registry mutex
   around `Sign` or responder renewal.
 - CU1 is **Fixed (2026-09-24)**: trust/client options are specified
-  (`WithSystemRoots`, `BundleContext`, per-traversal URL set). CU2 must keep
-  them when it changes cache ownership. Keep CU2 independently reviewable;
-  avoid holding a global mutex during AIA I/O.
+  (`WithSystemRoots`, `BundleContext`, per-traversal URL set). CU2 is
+  **Fixed (2026-09-25)** and kept them; no lock is held during AIA I/O or
+  `x509.Verify`. CU3/CU4 must keep the copy-on-write rule: never modify a
+  published `IntermediatePool`/`KnownIssuers` in place.
 - CU4 precedes XC1's nil-issuer assertion update. The CLI portion must verify
   propagation even though the nil check belongs in `certutil`.
 - GC2 must keep generation, lookup, export, signing, and destruction on the
@@ -642,7 +662,7 @@ policy, lifecycle, or concurrency completeness.
 | `cryptoprov/testprov` | 73.9% | Serial key operations only |
 | `cryptoprov/awskmscrypto` | 89.9% | Listing contents/prefix and credential refresh are not established |
 | `cryptoprov/gcpkmscrypto` | 95.6% | Generation and Close 100%; permissive mocks and no concurrent close |
-| `certutil` | 94.5% | `ExpiresInHours` 0%; sorting 100% without ownership/tie assertions |
+| `certutil` | 94.5% | `ExpiresInHours` 0%; sorting 100% without ownership/tie assertions (after CU2: 93.5%, concurrent Bundle covered) |
 | `authority` | 91.0% | Fresh delegated responder creation bypassed; constructor only 37.2% |
 | `csr` | 94.3% | SAN 92.9% without the full nil/empty/duplicate/validation matrix |
 | `jwt` | 91.8% | Known symmetric-provider defects explicitly asserted (after JW2: 93.0%, replaced by round-trip and header tests) |
@@ -696,7 +716,7 @@ performance benchmark. Fixture scope 100-authority was completed by AU2.
 | XPKI-041 — HIGH / security / 36 — **Fixed (CU1, 2026-09-24)** | [NewBundler](certutil/bundler.go) resolves the flavor after all options, rejects Optimal without trust roots and unknown flavors, and trusts system roots only with `WithSystemRoots`; `VerifyOptions().Roots` is never nil and an Optimal `Bundle` with a nil `RootPool` fails. | **Covered:** `TestNewBundlerTrustRoots` (nil/empty/explicit roots × default/Force/Optimal/both orders, unknown root, unknown flavor, cleared `RootPool`), subprocess `TestBundlerSystemRoots` with `SSL_CERT_FILE`/`SSL_CERT_DIR`, and CLI `validate_empty_roots`. |
 | XPKI-039 — MEDIUM / performance / 22 — **Fixed (CU1, 2026-09-24)** | `fetchIntermediates` marks each URL seen before fetching; failing and duplicate URLs are requested once per call and retried on the next call. | **Covered:** `TestBundlerAIARequestsPerTraversal` (exact per-path counts at depth 1/2/4, warm call makes none), `TestBundlerAIARetriesOnNextCall`, and `BenchmarkBundlerAIAFailingURL`. |
 | XPKI-044 — LOW / docs / 11 — **Fixed (CU1, 2026-09-24)** | `HTTPClient` is marked `Deprecated` and documented as never read; `WithHTTPClient` documents the request rules. The global was not activated. | **Covered:** `TestBundlerAIAUsesInjectedClient` asserts the injected transport carries the request. |
-| XPKI-035 — HIGH / race / 34 | `verifyChain` and `fetchIntermediates` mutate KnownIssuers and IntermediatePool. Make simultaneous Bundle calls safe through coordinated snapshots/cache updates; address exported fields' mutation contract. | **Partial:** [bundler_coverage_test.go](certutil/bundler_coverage_test.go) checks real chains/cache contents but is serial and restores the global stash. Add shared-bundler concurrent cache-hit and AIA-miss calls with immutable fixtures prepared before the goroutines, then run `-race`. Include unchanged chain ranking and bounded duplicate fetches. |
+| XPKI-035 — HIGH / race / 34 — **Fixed (CU2, 2026-09-25)** | [Bundler](certutil/bundler.go) guards its fields with `mu` once in use. Calls verify a `snapshot` without the lock, and `verifyChain` learns into a private clone that `learn` publishes (merging after a concurrent publish). Pools and maps once read are never modified. The exported fields are set-up state. | **Verified:** `TestBundlerConcurrentBundle` (warm plus two AIA chains, 8 workers each, released together, fixtures built first) failed with 60 races and a fatal map access before the fix and passes `-race -count=20` after. It checks exact chains and roots, per-worker fetch bounds and no request after learning. `TestBundlerLearnMerge` and `TestBundlerLearnNilPool` cover the merge and nil set-up paths. The benchmark is in the performance table. |
 | XPKI-036 — MEDIUM / bug / 25 | `Bundle` returns `(nil, nil)` for empty input. After the existing decision, return a clear input error for nil and empty certificate slices. | **Characterization:** `TestBundlerChainBehavior` explicitly requires nil chain and no error. Replace this expectation with exact error behavior and test downstream callers; do not merely add a new test elsewhere. |
 | XPKI-042 — MEDIUM / bug / 25 | [BuildBundle](certutil/bundle.go) dereferences the input chain, its certificate, and status. Validate required members and return an error, or initialize an optional status according to the contract. | **Partial:** bundle-loading tests cover fully populated chains. Add nil chain/certificate/status separately, plus legitimate rootless Force output so validation does not reject a supported chain shape. |
 | XPKI-038 — LOW / correctness / 13 | `SortBundlesByExpiration` aliases the input backing array and uses unstable sorting. After the existing decision, return a copied, stably ordered slice without reordering the caller's slice. | **Partial:** `Test_SortBundlesByExpiration` checks only descending output for distinct expiries. Add input preservation, shared backing-array independence, equal-expiry ordering, and nil/empty slices. Copying certificates themselves is not implied. |
@@ -708,9 +728,9 @@ CU1 is Fixed; its compatibility notes are recorded under Completed batches.
 CU2 can regress trust and cache behavior; test chain output, root selection,
 timeouts, and successful AIA recovery together. CU3 has medium contract risk,
 CU4 low input-validation risk, and CU5 medium encoding/dependency risk.
-**Benchmarks:** CU1's 039 comparison is recorded in the performance table;
-still required before CU2's cache/locking change
-(warm/cold Bundle, serial/parallel, clone cost versus cache size). CU4 fixture
+**Benchmarks:** CU1's 039 and CU2's 035 comparisons are recorded in the
+performance table (CU2: warm/learn Bundle, serial/parallel, clone cost versus
+pool size). CU4 fixture
 changes and the other helpers need no benchmark. See 099/100 scopes below.
 
 ### jwt — JW1 (Fixed), JW2 (Fixed), JW3
@@ -732,8 +752,11 @@ is in the performance table. JW2 must keep the `AlgorithmKeySet` selection
 rules; any kid policy it chooses for the symmetric provider does not go
 through `KeySet`. JW2/JW3 need no benchmark. JW2 also owns the jwt portion of fixture finding 100.
 JW2 is **Fixed (2026-09-25)**; see [completed batches](#completed-batches).
-The standalone kid policy does not go through `KeySet`. JW3 (XPKI-073, the
-header `jti`) remains and must keep the `validateHeaders` rules.
+The standalone kid policy does not go through `KeySet`. PR #543 follow-ups
+(2026-09-26): the standalone provider is pinned to HS256, and a present `kid`
+is rejected when it has none. The `NewProvider` ring's HS384/HS512 acceptance
+is recorded as XPKI-112 (JW4). JW3 (XPKI-073, the header `jti`) remains and
+must keep the `validateHeaders` rules.
 
 ### jwt/dpop — DP1
 
@@ -1034,7 +1057,7 @@ Other baselines below still need to be created where marked required.
 | 018 (GC1) | **Not required** for close-only synchronization; conditional if all RPCs are serialized | if needed, sign/client-acquisition contention with a controlled client |
 | 024 (GC3) | **Required**, using deterministic timing | retry count, readiness/cancellation latency, allocations; distinguish wall time from CPU work |
 | 032 (AW2) | **Required** | ListKeys/DescribeKey counts, size/page/selectivity scaling, throttling, peak concurrency |
-| 035 (CU2) | **Required** for pool-copy/locking choice | serial/parallel Bundle, cache size, AIA misses, allocations and contention |
+| 035 (CU2) — **Fixed** | **Recorded before/after comparison** (`BenchmarkBundle`, `-count 6 -cpu 1,4`, benchstat, before = unchanged code) | warm Bundle serial/parallel at pool 0/100/1000 unchanged (124.7–128.5 µs serial, 32.7–33.4 µs on 4 CPUs, 51 allocs; one +0.9% serial case); learning one intermediate: pool 0 unchanged, pool 100 +2.6%, pool 1000 +23–25% (707 → 884 µs, 20.6 → 346 KiB, 335 → 1,361 allocs) from the pool clone; concurrent learning has no pre-fix baseline (racy) and is proven by the race test |
 | 039 (CU1) — **Fixed** | **Recorded before/after comparison** (`BenchmarkBundlerAIAFailingURL`, `-count=5 -cpu=1,4`, benchstat p=0.008) | depth 1/2/4/8: failed requests 3/5/9/17 → 1, total requests 4/7/13/25 → 2/3/5/9; wall time −10–18% on loopback, B/op −39–45%, allocs/op −25–30%; subsequent-call recovery covered by `TestBundlerAIARetriesOnNextCall` |
 | 052 (AU2) — **Fixed** | **Recorded before/after comparison** (`BenchmarkSignOCSP`, `-count=6 -cpu=1,4`, benchstat, HEAD worktree baseline) | delegated warm lookup 264 → 37 ns serial, 258 → 9.7 ns on 4 CPUs, 152 B / 4 allocs → 0; delegated sign 885.6 → 875.0 µs (−1.2%, p=0.004), 4-CPU not significant; CA path unchanged; issuance (`BenchmarkDelegatedOCSPCreate`) 318 µs / 660 allocs with no pre-fix baseline (deadlock); concurrent cold start/renewal proven by tests (exactly one issuance), not timed |
 | 055 (AU3) | **Recommended**; conditional on lock/copy design | lookup and profile snapshot costs as registry size/readers grow |
