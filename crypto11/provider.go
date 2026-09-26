@@ -102,11 +102,16 @@ func (lib *PKCS11Lib) enumKeysOnSession(sh pkcs11.SessionHandle, prefix string) 
 		if prefix != "" && !strings.HasPrefix(keyLabel, prefix) {
 			continue
 		}
+		keyID := string(attributes[0].Value)
+		keyType, class, err := keyTypeAndClass(attributes[2], attributes[3])
+		if err != nil {
+			return nil, errors.WithMessagef(err, "key %q", keyID)
+		}
 		res = append(res, cryptoprov.KeyInfo{
-			ID:    string(attributes[0].Value),
+			ID:    keyID,
 			Label: keyLabel,
-			Type:  KeyTypeNames[BytesToUlong(attributes[2].Value)],
-			Class: ObjectClassNames[BytesToUlong(attributes[3].Value)],
+			Type:  keyType,
+			Class: class,
 		})
 	}
 
@@ -145,6 +150,10 @@ func (lib *PKCS11Lib) keyInfoOnSession(session pkcs11.SessionHandle, slotID uint
 
 	keyLabel := string(attributes[1].Value)
 	keyID = string(attributes[0].Value)
+	keyType, class, err := keyTypeAndClass(attributes[2], attributes[3])
+	if err != nil {
+		return nil, errors.WithMessagef(err, "key %q", keyID)
+	}
 
 	pubKey := ""
 	if includePublic {
@@ -157,8 +166,8 @@ func (lib *PKCS11Lib) keyInfoOnSession(session pkcs11.SessionHandle, slotID uint
 	return &cryptoprov.KeyInfo{
 		ID:        keyID,
 		Label:     keyLabel,
-		Type:      KeyTypeNames[BytesToUlong(attributes[2].Value)],
-		Class:     ObjectClassNames[BytesToUlong(attributes[3].Value)],
+		Type:      keyType,
+		Class:     class,
 		PublicKey: pubKey,
 	}, nil
 }

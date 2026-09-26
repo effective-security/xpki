@@ -2,6 +2,7 @@ package crypto11
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -67,4 +68,108 @@ func Test_dsaSignature_unmarshalBytes(t *testing.T) {
 			assert.Equal(t, int64(2), sig.S.Int64())
 		})
 	}
+}
+
+// miekgUlong encodes n the way miekg/pkcs11 builds CK_ULONG attributes, as a
+// reference independent of UlongToBytes.
+func miekgUlong(n uint) []byte {
+	return pkcs11.NewAttribute(pkcs11.CKA_CLASS, n).Value
+}
+
+func Test_bytesToUlong_Malformed(t *testing.T) {
+	t.Parallel()
+	// distinct bytes past each input, so an out-of-bounds read would decode
+	// them instead of failing
+	buf := make([]byte, 2*ulongSize+1)
+	for i := range buf {
+		buf[i] = byte(i + 1)
+	}
+	tcs := []struct {
+		name string
+		in   []byte
+	}{
+		{name: "nil", in: nil},
+		{name: "empty", in: []byte{}},
+		{name: "one byte", in: buf[:1]},
+		{name: "one short", in: buf[:ulongSize-1]},
+		{name: "one long", in: buf[:ulongSize+1]},
+		{name: "two values", in: buf[:2*ulongSize]},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			n, err := bytesToUlong(tc.in)
+			require.ErrorIs(t, err, errMalformedUlong)
+			assert.EqualError(t, err, fmt.Sprintf("length %d, expected %d: crypto11: malformed CK_ULONG attribute value", len(tc.in), ulongSize))
+			assert.Zero(t, n)
+
+			assert.NotPanics(t, func() {
+				n = BytesToUlong(tc.in)
+			})
+			assert.Equal(t, unavailableInformation, n)
+		})
+	}
+}
+
+func Test_bytesToUlong_RoundTrip(t *testing.T) {
+	t.Parallel()
+	assert.Len(t, miekgUlong(0), ulongSize, "CK_ULONG width differs from miekg/pkcs11")
+
+	// the largest CK_ULONG, 32 bits where C unsigned long is 32 bits
+	maxUlong := ^uint(0) >> (strconv.IntSize - 8*ulongSize)
+	values := []uint{
+		pkcs11.CKK_RSA,
+		pkcs11.CKK_EC,
+		pkcs11.CKO_PRIVATE_KEY,
+		pkcs11.CKK_VENDOR_DEFINED,
+		0x01020304,
+		maxUlong,
+	}
+	for _, v := range values {
+		t.Run(fmt.Sprintf("%#x", v), func(t *testing.T) {
+			t.Parallel()
+			ref := miekgUlong(v)
+			assert.Equal(t, ref, UlongToBytes(v))
+
+			n, err := bytesToUlong(ref)
+			require.NoError(t, err)
+			assert.Equal(t, v, n)
+			assert.Equal(t, v, BytesToUlong(ref))
+		})
+	}
+}
+
+func Test_keyTypeAndClass(t *testing.T) {
+	t.Parallel()
+	attr := func(typ, v uint) *pkcs11.Attribute {
+		return pkcs11.NewAttribute(typ, v)
+	}
+	malformed := &pkcs11.Attribute{
+		Type:  pkcs11.CKA_CLASS,
+		Value: []byte{1},
+	}
+
+	keyType, class, err := keyTypeAndClass(attr(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_EC), attr(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY))
+	require.NoError(t, err)
+	assert.Equal(t, "ECDSA", keyType)
+	assert.Equal(t, "Private key", class)
+
+	// CKK_RSA and CKO_DATA are zero, so a zero default must not be mistaken for them
+	keyType, class, err = keyTypeAndClass(attr(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_RSA), attr(pkcs11.CKA_CLASS, pkcs11.CKO_DATA))
+	require.NoError(t, err)
+	assert.Equal(t, "RSA", keyType)
+	assert.Equal(t, "Data", class)
+
+	keyType, class, err = keyTypeAndClass(attr(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_VENDOR_DEFINED), attr(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY))
+	require.NoError(t, err)
+	assert.Empty(t, keyType)
+	assert.Equal(t, "Public key", class)
+
+	_, _, err = keyTypeAndClass(&pkcs11.Attribute{Type: pkcs11.CKA_KEY_TYPE}, attr(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY))
+	require.ErrorIs(t, err, errMalformedUlong)
+	assert.EqualError(t, err, fmt.Sprintf("CKA_KEY_TYPE: length 0, expected %d: crypto11: malformed CK_ULONG attribute value", ulongSize))
+
+	_, _, err = keyTypeAndClass(attr(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_EC), malformed)
+	require.ErrorIs(t, err, errMalformedUlong)
+	assert.EqualError(t, err, fmt.Sprintf("CKA_CLASS: length 1, expected %d: crypto11: malformed CK_ULONG attribute value", ulongSize))
 }

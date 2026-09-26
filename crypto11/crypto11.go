@@ -14,6 +14,14 @@ var errTokenNotFound = errors.New("crypto11: could not find PKCS#11 token")
 // errKeyNotFound represents the failure to find the requested PKCS#11 key
 var errKeyNotFound = errors.New("crypto11: could not find PKCS#11 key")
 
+// errNoTokenSelector is returned by Init when the configuration names
+// neither a token serial nor a token label.
+var errNoTokenSelector = errors.New("crypto11: token serial or token label is required")
+
+// errMalformedUlong is returned when a CK_ULONG attribute value does not
+// have the native CK_ULONG width.
+var errMalformedUlong = errors.New("crypto11: malformed CK_ULONG attribute value")
+
 // errCannotOpenPKCS11 is returned when the PKCS#11 library cannot be opened
 var errCannotOpenPKCS11 = errors.New("crypto11: could not open PKCS#11")
 

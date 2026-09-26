@@ -47,8 +47,10 @@ per-slot pools created on demand, a per-path module refcount whose last
 `Close() error` finalizes, and `Init` unwinding. Remaining: a
 `context.Context`-aware borrow (today a borrower at the session limit waits
 without a deadline, since `crypto.Signer` has no context), recovery of the
-login session after a device error (XPKI-110), and dropping the remaining cgo `unsafe`
-helpers in `common.go` in favor of `encoding/binary` (XPKI-011, PK2).
+login session after a device error (XPKI-110). PK2 (2026-09-25) replaced the
+`unsafe` CK_ULONG helpers with checked `encoding/binary` decoding (XPKI-011);
+the deprecated exported `BytesToUlong` can be removed in the next major
+version.
 
 ## certutil bundler concurrency
 

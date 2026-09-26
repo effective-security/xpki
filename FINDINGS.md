@@ -34,9 +34,9 @@ drift; the symbol name is the stable reference.
 | XPKI-002 | crypto11                              | `sessions.go` `withSession`                                    | `sessionPools` map read without `sessionPoolMutex` while `setupSessions` writes                                                                    | race        | **Fixed** ([details](#xpki-002--pk1)) |
 | XPKI-003 | crypto11                              | `sessions.go` `withSession`                                    | Slot without a pool blocks forever on the nil channel (doc says "panic")                                                                           | bug         | **Fixed** ([details](#xpki-003--pk1)) |
 | XPKI-005 | crypto11                              | `sessions.go` `withSession`                                    | Unbounded session opening; sessions never closed; return blocks once pool (1024) is full                                                           | performance | **Fixed** ([details](#xpki-005--pk1)) |
-| XPKI-006 | crypto11                              | `config.go` `Init` token match                                 | Empty configured `TokenSerial`/`TokenLabel` matches any token with the empty field                                                                 | correctness | Open           |
+| XPKI-006 | crypto11                              | `config.go` `Init` token match                                 | Empty configured `TokenSerial`/`TokenLabel` matches any token with the empty field                                                                 | correctness | **Fixed** ([details](#xpki-006--pk2)) |
 | XPKI-007 | crypto11                              | `config.go` `Init`                                             | Loaded module (`pkcs11.New`) leaks on every error path after load                                                                                  | bug         | **Fixed** ([details](#xpki-007--pk1)) |
-| XPKI-011 | crypto11                              | `common.go` `BytesToUlong`                                     | Panics on empty input and reads out of bounds on short attribute values                                                                            | bug         | Open           |
+| XPKI-011 | crypto11                              | `common.go` `BytesToUlong`                                     | Panics on empty input and reads out of bounds on short attribute values                                                                            | bug         | **Fixed** ([details](#xpki-011--pk2)) |
 | XPKI-016 | cryptoprov                            | `provider.go` `Crypto.Add`/`ByManufacturer`                    | No synchronization; duplicate check in `Add` is unreachable (key already includes model)                                                           | race        | Open           |
 | XPKI-017 | cryptoprov/inmemcrypto, testprov      | `provider.go` `keyIDToPvk`                                     | Key map written by `Generate*` and read by `GetKey` without a lock (used by `authority/ocsp.go`)                                                   | race        | **Fixed** ([details](#xpki-017--im1)) |
 | XPKI-018 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Close`                                        | Sets embedded `KmsClient` to nil unsynchronized; later `Sign` panics                                                                               | race        | Open           |
@@ -110,6 +110,91 @@ drift; the symbol name is the stable reference.
 | XPKI-110 | crypto11                              | `sessions.go` `withSession`; `config.go` `Init`                | After a device/token error the pooled sessions are reopened, but the login session is not, so a reinserted token stays logged out (`CKR_USER_NOT_LOGGED_IN`) until a new `Init` | correctness | Open           |
 
 ## Fixed items
+
+### XPKI-011 — PK2
+
+**Fixed on 2026-09-25.** Approved contract: internal readers get a checked
+decoder, and the exported helper stays but can no longer panic.
+`BytesToUlong` dereferenced `&bs[0]` as a native `uint`. A nil value (which
+miekg returns for an attribute the token cannot provide) panicked with index
+out of range, and a short value read past the slice. `common.go` no longer
+uses `unsafe`. The unexported `bytesToUlong` accepts exactly `ulongSize`
+bytes (`C.sizeof_ulong`, the CK_ULONG width: 8 on LP64 unix, 4 on Windows
+and 32-bit) in host byte order via `encoding/binary.NativeEndian`. Any other
+length returns `errMalformedUlong` with both lengths. `EnumKeys` and
+`KeyInfo` (through `keyTypeAndClass`) and `FindKeyPair`/`FindKeyPairOnSession`
+return that error, naming the key and the attribute. Before, the error was a
+panic or a garbage type (CKK_RSA and CKO_DATA are 0). The exported
+`BytesToUlong` keeps its signature, returns CK_UNAVAILABLE_INFORMATION
+(`^uint(0)`) for malformed input and is `Deprecated`. `UlongToBytes` writes
+the same native encoding; where CK_ULONG is 32 bits it keeps the low 32 bits,
+as before.
+Compatibility: one key with a malformed CKA_KEY_TYPE or CKA_CLASS now fails
+the whole `EnumKeys` call instead of being listed with an empty type or class.
+
+Validation:
+
+- Before the fix, in a HEAD worktree: `BytesToUlong(buf[:1])` over
+  `1,2,…,9` returned `0x807060504030201` (seven bytes past the slice), and
+  `BytesToUlong(nil)` panicked.
+- `Test_bytesToUlong_Malformed` covers nil, empty, 1, width−1, width+1 and
+  2×width inputs, with distinct bytes past each input: the exact
+  `errMalformedUlong` message, and `BytesToUlong` not panicking and
+  returning `^uint(0)`. `Test_bytesToUlong_RoundTrip` checks the width and
+  that `UlongToBytes` equals miekg's own `NewAttribute` encoding, which is
+  independent of this package. It decodes CKK_RSA, CKK_EC, CKO_PRIVATE_KEY,
+  CKK_VENDOR_DEFINED, `0x01020304` and the largest CK_ULONG.
+  `Test_keyTypeAndClass` covers known, zero-valued and unknown values, and
+  errors for a malformed type or class.
+- `Test_KeyTypeAndClass` (SoftHSM) generates RSA and ECDSA keys. `EnumKeys`
+  and `KeyInfo` report `RSA`/`ECDSA` and `Private key`, and `FindKeyPair`
+  returns the matching wrapper type. Before, no test asserted these values.
+- Limitation: only the 8-byte LP64 width runs here. A `GOARCH=386` cgo build
+  could not run because this machine has no 32-bit C headers
+  (`bits/wordsize.h`), so the 4-byte branch is untested.
+
+### XPKI-006 — PK2
+
+**Fixed on 2026-09-25.** Approved contract: match every configured
+selector, reject a config with none, and AND when both are set. `Init`
+selected the first slot where `slot.serial == TokenSerial() || slot.label ==
+TokenLabel()`, so an unset field matched any token with that field empty,
+and conflicting selectors silently picked whichever slot came first. The new
+`selectToken` returns the first token matching every nonempty selector. It
+returns `errTokenNotFound` when none matches, and `errNoTokenSelector`
+(`crypto11: token serial or token label is required`) when both are empty.
+`Init` checks for no selector before it loads the module. The
+`crypto11.TokenConfig` and `cryptoprov.TokenConfig` docs now describe the
+rule (the latter is what `LoadProvider` passes to `Init`).
+Compatibility: a config that sets both serial and label now needs a token
+matching both. A config with neither now fails instead of matching a token
+with an empty field. The shipped samples (README, `scripts/config-softhsm.sh`)
+set only the label.
+
+Validation:
+
+- Before the fix, in a HEAD worktree against SoftHSM: `label=xpki_unittest`
+  with `serial=no-such-serial`, and the real serial with
+  `label=no-such-label`, both opened the unit-test token.
+  `Test_selectToken`, run against HEAD's predicate copied verbatim, failed 6
+  of its 10 cases (serial-only chose the token without a label, conflicting
+  and unknown selectors matched, no-selector matched).
+- `Test_selectToken` (fixture-free) covers serial only, label only, the
+  first of duplicate labels, both matching, conflicting selectors, unknown
+  serial or label next to tokens with empty fields, no tokens and no
+  selector, asserting the exact slot or error.
+- `TestInit_NoTokenSelector` (fixture-free) gets `errNoTokenSelector` from
+  `Init` with an unloadable path and no module reference, and from
+  `ConfigureFromFile` with the wrapped message. `TestInit_TokenSelection`
+  (SoftHSM) opens the token by serial, by label and by both. It gets
+  `errTokenNotFound` for label plus a wrong serial and for serial plus a wrong
+  label, with module refs unchanged. `TestInit_FailureReleases` now gives its
+  unloadable-path config a label, so it still reaches the module load.
+
+PK2 validation (both findings): `go test -race -count=1 ./crypto11`, `make
+lint` (0 issues), `make build docs` and `make covtest` passed, with total
+coverage **91.5%** and `crypto11` at 81.0% (79.1% after PK1). The race run
+was a regression check; PK2 changes no shared state.
 
 ### XPKI-001 — PK1
 
@@ -1367,5 +1452,9 @@ Validation passed:
   2026-09-25 (per-path module refcount with last-Close finalize,
   `Close() error`, block at a per-slot cap of 1024 with `WithMaxSessions`,
   Close rejects new work and waits for in-flight operations).
+- **XPKI-011 / XPKI-006** were approved and fixed by PK2 on 2026-09-25
+  (checked internal CK_ULONG decoder with a deprecated, non-panicking
+  `BytesToUlong`; token selection matches every configured field, rejects a
+  config with neither, and requires both when both are set).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.

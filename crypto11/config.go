@@ -36,8 +36,10 @@ func WithMaxSessions(n int) Option {
 
 // TokenConfig holds PKCS#11 configuration information.
 //
-// A token may be identified either by serial number or label.  If
-// both are specified then the first match wins.
+// Init selects the token by the configured serial number and label:
+// empty fields are ignored, so a token must match every nonempty one, and
+// at least one of them is required. If several tokens match, the first
+// slot wins.
 //
 // Supply this to Init, or alternatively use ConfigureFromFile.
 type TokenConfig interface {
@@ -50,10 +52,10 @@ type TokenConfig interface {
 	// Full path to PKCS#11 library
 	Path() string
 
-	// Token serial number
+	// Token serial number; empty matches any serial
 	TokenSerial() string
 
-	// Token label
+	// Token label; empty matches any label
 	TokenLabel() string
 
 	// Pin is a secret to access the token.
@@ -129,6 +131,10 @@ func Init(config TokenConfig, opts ...Option) (_ *PKCS11Lib, err error) {
 	if o.maxSessions < 1 {
 		return nil, errors.Errorf("crypto11: invalid max sessions: %d", o.maxSessions)
 	}
+	serial, label := config.TokenSerial(), config.TokenLabel()
+	if serial == "" && label == "" {
+		return nil, errors.WithStack(errNoTokenSelector)
+	}
 
 	mod, err := openModule(config.Path())
 	if err != nil {
@@ -149,31 +155,37 @@ func Init(config TokenConfig, opts ...Option) (_ *PKCS11Lib, err error) {
 		return nil, errors.WithMessage(err, "TokensInfo failed")
 	}
 
-	var flags uint
-	for _, slot := range slots {
-		logger.KV(xlog.TRACE, "state", "search", "slot", slot.id, "serial", slot.serial, "label", slot.label)
-		if slot.serial == config.TokenSerial() || slot.label == config.TokenLabel() {
-			lib.Slot = slot
-			flags = slot.flags
-			logger.KV(xlog.TRACE, "state", "found", "slot", slot.id, "serial", slot.serial, "label", slot.label)
-			break
-		}
-	}
-
-	if lib.Slot == nil {
-		return nil, errors.WithStack(errTokenNotFound)
+	if lib.Slot, err = selectToken(slots, serial, label); err != nil {
+		return nil, err
 	}
 
 	if lib.Session, err = lib.NewSession(lib.Slot.id); err != nil {
 		return nil, errors.WithMessage(err, "open PKCS#11 session")
 	}
-	if flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
+	if lib.Slot.flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
 		err = lib.Ctx.Login(lib.Session, pkcs11.CKU_USER, config.Pin())
 		if err != nil && !errors.Is(err, pkcs11.Error(pkcs11.CKR_USER_ALREADY_LOGGED_IN)) {
 			return nil, errors.WithMessage(err, "login into PKCS#11 token")
 		}
 	}
 	return lib, nil
+}
+
+// selectToken returns the first token that matches every nonempty selector
+// (XPKI-006). It returns errNoTokenSelector when both are empty and
+// errTokenNotFound when no token matches.
+func selectToken(slots []*SlotTokenInfo, serial, label string) (*SlotTokenInfo, error) {
+	if serial == "" && label == "" {
+		return nil, errors.WithStack(errNoTokenSelector)
+	}
+	for _, slot := range slots {
+		logger.KV(xlog.TRACE, "state", "search", "slot", slot.id, "serial", slot.serial, "label", slot.label)
+		if (serial == "" || slot.serial == serial) && (label == "" || slot.label == label) {
+			logger.KV(xlog.TRACE, "state", "found", "slot", slot.id, "serial", slot.serial, "label", slot.label)
+			return slot, nil
+		}
+	}
+	return nil, errors.WithStack(errTokenNotFound)
 }
 
 func newPKCS11Lib(config TokenConfig, ctx *pkcs11.Ctx, maxSessions int, ops sessionOps) *PKCS11Lib {

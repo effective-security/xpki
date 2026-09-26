@@ -45,7 +45,7 @@ This package is based on github.com/ThalesIgnite/crypto11 with modifications for
 
 - [Constants](<#constants>)
 - [Variables](<#variables>)
-- [func BytesToUlong\(bs \[\]byte\) \(n uint\)](<#BytesToUlong>)
+- [func BytesToUlong\(bs \[\]byte\) uint](<#BytesToUlong>)
 - [func ConvertToPublic\(priv crypto.PrivateKey\) \(crypto.PublicKey, error\)](<#ConvertToPublic>)
 - [func LoadProvider\(cfg cryptoprov.TokenConfig\) \(cryptoprov.Provider, error\)](<#LoadProvider>)
 - [func UlongToBytes\(n uint\) \[\]byte](<#UlongToBytes>)
@@ -155,16 +155,18 @@ var ObjectClassNames = map[uint]string{
 ```
 
 <a name="BytesToUlong"></a>
-## func [BytesToUlong](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L47>)
+## func [BytesToUlong](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L70>)
 
 ```go
-func BytesToUlong(bs []byte) (n uint)
+func BytesToUlong(bs []byte) uint
 ```
 
-BytesToUlong converts \[\]byte to Ulong
+BytesToUlong decodes a native CK\_ULONG attribute value, such as CKA\_KEY\_TYPE or CKA\_CLASS. It returns CK\_UNAVAILABLE\_INFORMATION \(^uint\(0\)\) when bs is not exactly one CK\_ULONG long, including a nil value for an attribute the token could not return.
+
+Deprecated: BytesToUlong cannot report malformed input; check the length and decode the value with encoding/binary.NativeEndian instead.
 
 <a name="ConvertToPublic"></a>
-## func [ConvertToPublic](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L236>)
+## func [ConvertToPublic](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L239>)
 
 ```go
 func ConvertToPublic(priv crypto.PrivateKey) (crypto.PublicKey, error)
@@ -182,16 +184,16 @@ func LoadProvider(cfg cryptoprov.TokenConfig) (cryptoprov.Provider, error)
 LoadProvider provides loader for crypto11 provider
 
 <a name="UlongToBytes"></a>
-## func [UlongToBytes](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L42>)
+## func [UlongToBytes](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L53>)
 
 ```go
 func UlongToBytes(n uint) []byte
 ```
 
-UlongToBytes converts Ulong to \[\]byte
+UlongToBytes encodes n as a native CK\_ULONG attribute value \(host byte order, ulongSize bytes\). Where CK\_ULONG is 32 bits, only the low 32 bits of n are kept.
 
 <a name="KeyIdentifier"></a>
-## type [KeyIdentifier](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L301-L304>)
+## type [KeyIdentifier](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L304-L307>)
 
 KeyIdentifier interface provides key ID and label
 
@@ -243,7 +245,7 @@ func WithMaxSessions(n int) Option
 WithMaxSessions limits the pooled sessions that one PKCS11Lib keeps open on each slot \(default DefaultMaxSessions\). When all of them are in use, an operation waits until one is returned. The login session opened by Init is not counted. n must be positive.
 
 <a name="PKCS11Lib"></a>
-## type [PKCS11Lib](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L113-L140>)
+## type [PKCS11Lib](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L121-L148>)
 
 PKCS11Lib contains a reference to an open PKCS\#11 slot and configuration.
 
@@ -264,7 +266,7 @@ type PKCS11Lib struct {
 ```
 
 <a name="ConfigureFromFile"></a>
-### func [ConfigureFromFile](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L193>)
+### func [ConfigureFromFile](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L205>)
 
 ```go
 func ConfigureFromFile(configLocation string, opts ...Option) (*PKCS11Lib, error)
@@ -273,7 +275,7 @@ func ConfigureFromFile(configLocation string, opts ...Option) (*PKCS11Lib, error
 ConfigureFromFile loads a token configuration with LoadTokenConfig and opens it with Init; opts and the returned PKCS11Lib are as for Init.
 
 <a name="Init"></a>
-### func [Init](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L119>)
+### func [Init](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L121>)
 
 ```go
 func Init(config TokenConfig, opts ...Option) (_ *PKCS11Lib, err error)
@@ -284,7 +286,7 @@ Init configures PKCS\#11 from a TokenConfig, opens the token slot and logs in wh
 The library at config.Path\(\) is loaded and initialized by the first PKCS11Lib that uses it and shared by later ones. On error Init releases everything it acquired. Call Close to release the returned PKCS11Lib.
 
 <a name="PKCS11Lib.Close"></a>
-### func \(\*PKCS11Lib\) [Close](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L193>)
+### func \(\*PKCS11Lib\) [Close](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L201>)
 
 ```go
 func (lib *PKCS11Lib) Close() error
@@ -333,7 +335,7 @@ func (lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, 
 EnumTokens enumerates tokens
 
 <a name="PKCS11Lib.ExportKey"></a>
-### func \(\*PKCS11Lib\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L269>)
+### func \(\*PKCS11Lib\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L272>)
 
 ```go
 func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error)
@@ -393,7 +395,7 @@ func (lib *PKCS11Lib) GenRandom(data []byte) (n int, err error)
 GenRandom fills data with random bytes generated via PKCS\#11 using the default slot.
 
 <a name="PKCS11Lib.GenerateECDSAKey"></a>
-### func \(\*PKCS11Lib\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L377>)
+### func \(\*PKCS11Lib\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L380>)
 
 ```go
 func (lib *PKCS11Lib) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
@@ -454,7 +456,7 @@ The key will have a random ID.
 Only a limited set of named elliptic curves are supported. The underlying PKCS\#11 implementation may impose further restrictions.
 
 <a name="PKCS11Lib.GenerateRSAKey"></a>
-### func \(\*PKCS11Lib\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L354>)
+### func \(\*PKCS11Lib\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L357>)
 
 ```go
 func (lib *PKCS11Lib) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
@@ -513,7 +515,7 @@ The key will have a random ID.
 RSA private keys are generated with both sign and decrypt permissions, and a public exponent of 65537.
 
 <a name="PKCS11Lib.GetKey"></a>
-### func \(\*PKCS11Lib\) [GetKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L254>)
+### func \(\*PKCS11Lib\) [GetKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L257>)
 
 ```go
 func (lib *PKCS11Lib) GetKey(keyID string) (crypto.PrivateKey, error)
@@ -533,7 +535,7 @@ Identify returns the ID and label for a PKCS\#11 object.
 Either of these values may be used to retrieve the key for later use.
 
 <a name="PKCS11Lib.IdentifyKey"></a>
-### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L398>)
+### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L401>)
 
 ```go
 func (lib *PKCS11Lib) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error)
@@ -542,7 +544,7 @@ func (lib *PKCS11Lib) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, 
 IdentifyKey returns the ID and label for a private key.
 
 <a name="PKCS11Lib.KeyInfo"></a>
-### func \(\*PKCS11Lib\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/provider.go#L117>)
+### func \(\*PKCS11Lib\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/provider.go#L122>)
 
 ```go
 func (lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error)
@@ -560,7 +562,7 @@ func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keyt
 ListKeys returns key objects on the slot matching the key class and type. session is owned by the caller; after Close it returns errClosed.
 
 <a name="PKCS11Lib.Manufacturer"></a>
-### func \(\*PKCS11Lib\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L172>)
+### func \(\*PKCS11Lib\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L180>)
 
 ```go
 func (lib *PKCS11Lib) Manufacturer() string
@@ -569,7 +571,7 @@ func (lib *PKCS11Lib) Manufacturer() string
 Manufacturer returns manufacturer for the calling library
 
 <a name="PKCS11Lib.Model"></a>
-### func \(\*PKCS11Lib\) [Model](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L177>)
+### func \(\*PKCS11Lib\) [Model](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L185>)
 
 ```go
 func (lib *PKCS11Lib) Model() string
@@ -596,7 +598,7 @@ func (lib *PKCS11Lib) TokensInfo() ([]*SlotTokenInfo, error)
 TokensInfo returns list of tokens
 
 <a name="PKCS11Object"></a>
-## type [PKCS11Object](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L143-L152>)
+## type [PKCS11Object](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L151-L160>)
 
 PKCS11Object contains a reference to a loaded PKCS\#11 object.
 
@@ -614,7 +616,7 @@ type PKCS11Object struct {
 ```
 
 <a name="PKCS11PrivateKey"></a>
-## type [PKCS11PrivateKey](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L155-L160>)
+## type [PKCS11PrivateKey](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L163-L168>)
 
 PKCS11PrivateKey contains a reference to a loaded PKCS\#11 private key object.
 
@@ -628,7 +630,7 @@ type PKCS11PrivateKey struct {
 ```
 
 <a name="PKCS11PrivateKey.Public"></a>
-### func \(PKCS11PrivateKey\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L167>)
+### func \(PKCS11PrivateKey\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L175>)
 
 ```go
 func (p PKCS11PrivateKey) Public() crypto.PublicKey
@@ -739,7 +741,7 @@ Validate checks an RSA key.
 Since the private key material is not normally available only very limited validation is possible. \(The underlying PKCS\#11 implementation may perform stricter checking.\)
 
 <a name="SlotInfo"></a>
-## type [SlotInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L61>)
+## type [SlotInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L69>)
 
 SlotInfo provides information about a slot.
 
@@ -748,7 +750,7 @@ type SlotInfo pkcs11.SlotInfo
 ```
 
 <a name="SlotTokenInfo"></a>
-## type [SlotTokenInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L67-L75>)
+## type [SlotTokenInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L75-L83>)
 
 SlotTokenInfo provides info about Token on slot
 
@@ -759,7 +761,7 @@ type SlotTokenInfo struct {
 ```
 
 <a name="SlotTokenInfo.Description"></a>
-### func \(\*SlotTokenInfo\) [Description](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L83>)
+### func \(\*SlotTokenInfo\) [Description](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L91>)
 
 ```go
 func (s *SlotTokenInfo) Description() string
@@ -768,7 +770,7 @@ func (s *SlotTokenInfo) Description() string
 Description of the slot
 
 <a name="SlotTokenInfo.Label"></a>
-### func \(\*SlotTokenInfo\) [Label](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L88>)
+### func \(\*SlotTokenInfo\) [Label](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L96>)
 
 ```go
 func (s *SlotTokenInfo) Label() string
@@ -777,7 +779,7 @@ func (s *SlotTokenInfo) Label() string
 Label of the token
 
 <a name="SlotTokenInfo.Manufacturer"></a>
-### func \(\*SlotTokenInfo\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L93>)
+### func \(\*SlotTokenInfo\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L101>)
 
 ```go
 func (s *SlotTokenInfo) Manufacturer() string
@@ -786,7 +788,7 @@ func (s *SlotTokenInfo) Manufacturer() string
 Manufacturer of the token
 
 <a name="SlotTokenInfo.Model"></a>
-### func \(\*SlotTokenInfo\) [Model](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L98>)
+### func \(\*SlotTokenInfo\) [Model](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L106>)
 
 ```go
 func (s *SlotTokenInfo) Model() string
@@ -795,7 +797,7 @@ func (s *SlotTokenInfo) Model() string
 Model of the token
 
 <a name="SlotTokenInfo.SerialNumber"></a>
-### func \(\*SlotTokenInfo\) [SerialNumber](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L103>)
+### func \(\*SlotTokenInfo\) [SerialNumber](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L111>)
 
 ```go
 func (s *SlotTokenInfo) SerialNumber() string
@@ -804,7 +806,7 @@ func (s *SlotTokenInfo) SerialNumber() string
 SerialNumber of the token
 
 <a name="SlotTokenInfo.SlotID"></a>
-### func \(\*SlotTokenInfo\) [SlotID](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L78>)
+### func \(\*SlotTokenInfo\) [SlotID](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L86>)
 
 ```go
 func (s *SlotTokenInfo) SlotID() uint
@@ -813,11 +815,11 @@ func (s *SlotTokenInfo) SlotID() uint
 SlotID is ID of the slot
 
 <a name="TokenConfig"></a>
-## type [TokenConfig](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L43-L65>)
+## type [TokenConfig](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L45-L67>)
 
 TokenConfig holds PKCS\#11 configuration information.
 
-A token may be identified either by serial number or label. If both are specified then the first match wins.
+Init selects the token by the configured serial number and label: empty fields are ignored, so a token must match every nonempty one, and at least one of them is required. If several tokens match, the first slot wins.
 
 Supply this to Init, or alternatively use ConfigureFromFile.
 
@@ -832,10 +834,10 @@ type TokenConfig interface {
     // Full path to PKCS#11 library
     Path() string
 
-    // Token serial number
+    // Token serial number; empty matches any serial
     TokenSerial() string
 
-    // Token label
+    // Token label; empty matches any label
     TokenLabel() string
 
     // Pin is a secret to access the token.
@@ -848,7 +850,7 @@ type TokenConfig interface {
 ```
 
 <a name="LoadTokenConfig"></a>
-### func [LoadTokenConfig](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L206>)
+### func [LoadTokenConfig](<https://github.com/effective-security/xpki/blob/main/crypto11/config.go#L218>)
 
 ```go
 func LoadTokenConfig(filename string) (TokenConfig, error)
@@ -857,7 +859,7 @@ func LoadTokenConfig(filename string) (TokenConfig, error)
 LoadTokenConfig loads PKCS\#11 token configuration
 
 <a name="TokenInfo"></a>
-## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L64>)
+## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/crypto11/crypto11.go#L72>)
 
 TokenInfo provides information about a token.
 

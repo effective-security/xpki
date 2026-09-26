@@ -204,7 +204,7 @@ func TestInit_FailureReleases(t *testing.T) {
 	refs := moduleRefs(cfg.Path())
 
 	const missing = "/nonexistent/libpkcs11.so"
-	lib, err := Init(&config{Dir: missing})
+	lib, err := Init(&config{Dir: missing, Label: cfg.TokenLabel()})
 	require.ErrorIs(t, err, errCannotOpenPKCS11)
 	assert.Equal(t, "/nonexistent/libpkcs11.so: crypto11: could not open PKCS#11", err.Error())
 	assert.Nil(t, lib)

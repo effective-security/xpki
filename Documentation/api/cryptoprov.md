@@ -370,11 +370,11 @@ func Unregister(manufacturer string) (ProviderLoader, error)
 Unregister provider loader by manufacturer
 
 <a name="TokenConfig"></a>
-## type [TokenConfig](<https://github.com/effective-security/xpki/blob/main/cryptoprov/config.go#L20-L42>)
+## type [TokenConfig](<https://github.com/effective-security/xpki/blob/main/cryptoprov/config.go#L21-L43>)
 
 TokenConfig holds PKCS\#11 configuration information.
 
-A token may be identified either by serial number or label. If both are specified then the first match wins.
+A token may be identified by serial number, label, or both; how they are used is provider specific. The PKCS\#11 provider \(crypto11\) requires at least one of them and selects the first token matching every nonempty one.
 
 Supply this to Configure\(\), or alternatively use ConfigureFromFile\(\).
 
@@ -405,7 +405,7 @@ type TokenConfig interface {
 ```
 
 <a name="LoadTokenConfig"></a>
-### func [LoadTokenConfig](<https://github.com/effective-security/xpki/blob/main/cryptoprov/config.go#L91>)
+### func [LoadTokenConfig](<https://github.com/effective-security/xpki/blob/main/cryptoprov/config.go#L92>)
 
 ```go
 func LoadTokenConfig(filename string) (TokenConfig, error)

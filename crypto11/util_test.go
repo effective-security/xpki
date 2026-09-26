@@ -137,3 +137,50 @@ func Test_ConvertToPublic(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errUnsupportedKeyType), "got %v", err)
 }
+
+// Test_KeyTypeAndClass checks that CK_ULONG attributes read from a real
+// token decode to the expected key type and class (XPKI-011).
+func Test_KeyTypeAndClass(t *testing.T) {
+	requireP11(t)
+	const prefix = "Test_KeyTypeAndClass"
+	slotID := p11lib.CurrentSlotID()
+
+	_, err := p11lib.GenerateRSAKeyPairWithLabel(prefix+"_rsa", 1024, Signing)
+	require.NoError(t, err)
+	_, err = p11lib.GenerateECDSAKeyPairWithLabel(prefix+"_ec", elliptic.P256())
+	require.NoError(t, err)
+
+	list, err := p11lib.EnumKeys(slotID, prefix)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for _, key := range list {
+			assert.NoError(t, p11lib.DestroyKeyPairOnSlot(slotID, key.ID))
+		}
+	})
+
+	expTypes := map[string]string{
+		prefix + "_rsa": "RSA",
+		prefix + "_ec":  "ECDSA",
+	}
+	require.Len(t, list, len(expTypes))
+	for _, key := range list {
+		exp, ok := expTypes[key.Label]
+		require.True(t, ok, "unexpected key %q", key.Label)
+		assert.Equal(t, exp, key.Type, key.Label)
+		assert.Equal(t, "Private key", key.Class, key.Label)
+
+		ki, err := p11lib.KeyInfo(slotID, key.ID, false)
+		require.NoError(t, err)
+		assert.Equal(t, exp, ki.Type, key.Label)
+		assert.Equal(t, "Private key", ki.Class, key.Label)
+
+		priv, err := p11lib.FindKeyPair(key.ID, "")
+		require.NoError(t, err)
+		switch exp {
+		case "RSA":
+			assert.IsType(t, &PKCS11PrivateKeyRSA{}, priv)
+		default:
+			assert.IsType(t, &PKCS11PrivateKeyECDSA{}, priv)
+		}
+	}
+}
