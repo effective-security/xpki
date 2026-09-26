@@ -15,11 +15,19 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/internal/testenv"
 	"github.com/effective-security/xpki/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+)
+
+// kmsConfig and localKMSAddr are the local-kms fixture (make start-local-kms)
+// used by Test_SignPrivateKMS; the endpoint is the one in kmsConfig.
+const (
+	kmsConfig    = "../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json"
+	localKMSAddr = "localhost:14555"
 )
 
 func Test_Config(t *testing.T) {
@@ -215,8 +223,9 @@ func Test_SignPrivateEC(t *testing.T) {
 }
 
 func Test_SignPrivateKMS(t *testing.T) {
+	testenv.RequireTCP(t, "local-kms", localKMSAddr)
 	ctx := context.Background()
-	cryptoProv, err := cryptoprov.Load("../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json", nil)
+	cryptoProv, err := cryptoprov.Load(kmsConfig, nil)
 	require.NoError(t, err)
 
 	prov := cryptoProv.Default()
@@ -350,4 +359,65 @@ func Test_ParseToken_FractionalExp(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, parsed.Time("exp"))
 	})
+}
+
+// TestProviderHeaderValidation checks that no constructor accepts headers
+// that would make a token disagree with how it is signed (XPKI-104).
+func TestProviderHeaderValidation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cfg, err := jwt.LoadProviderConfig("testdata/jwtprov.json")
+	require.NoError(t, err)
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	newConfig := func(ops ...jwt.Option) (jwt.Provider, error) {
+		return jwt.NewProvider(cfg, nil, ops...)
+	}
+	newSigner := func(ops ...jwt.Option) (jwt.Provider, error) {
+		return jwt.NewProviderFromCryptoSigner(ecKey, ops...)
+	}
+
+	tcs := []struct {
+		name    string
+		create  func(...jwt.Option) (jwt.Provider, error)
+		headers map[string]any
+		expKid  any
+		expErr  string
+	}{
+		{name: "config: signing kid", create: newConfig, headers: map[string]any{"kid": "1"}, expKid: "1"},
+		{name: "config: typ", create: newConfig, headers: map[string]any{"typ": "at+jwt"}, expKid: "1"},
+		{name: "config: other ring kid", create: newConfig, headers: map[string]any{"kid": "0"}, expErr: `kid header 0 does not match the signing key "1"`},
+		{name: "config: unknown kid", create: newConfig, headers: map[string]any{"kid": "9"}, expErr: `kid header 9 does not match the signing key "1"`},
+		{name: "config: numeric kid", create: newConfig, headers: map[string]any{"kid": 1}, expErr: `kid header 1 does not match the signing key "1"`},
+		{name: "config: nil kid", create: newConfig, headers: map[string]any{"kid": nil}, expErr: `kid header <nil> does not match the signing key "1"`},
+		{name: "config: alg", create: newConfig, headers: map[string]any{"alg": "RS256"}, expErr: "alg header RS256 does not match the signing algorithm HS256"},
+		{name: "signer: kid", create: newSigner, headers: map[string]any{"kid": "any"}, expKid: "any"},
+		{name: "signer: same alg", create: newSigner, headers: map[string]any{"alg": "ES256"}},
+		{name: "signer: alg", create: newSigner, headers: map[string]any{"alg": "HS256"}, expErr: "alg header HS256 does not match the signing algorithm ES256"},
+		{name: "signer: numeric alg", create: newSigner, headers: map[string]any{"alg": 1}, expErr: "alg header 1 does not match the signing algorithm ES256"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, err := tc.create(jwt.WithHeaders(tc.headers))
+			if tc.expErr != "" {
+				require.EqualError(t, err, tc.expErr)
+				assert.Nil(t, p)
+				return
+			}
+			require.NoError(t, err)
+			token, err := p.Sign(ctx, jwt.MapClaims{"sub": "subject"})
+			require.NoError(t, err)
+			header := tokenHeader(t, token)
+			assert.Equal(t, tc.expKid, header["kid"])
+			for k, v := range tc.headers {
+				assert.Equal(t, v, header[k], k)
+			}
+
+			claims, err := p.ParseToken(ctx, token, nil)
+			require.NoError(t, err)
+			assert.Equal(t, "subject", claims.String("sub"))
+		})
+	}
 }

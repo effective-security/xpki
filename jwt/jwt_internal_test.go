@@ -97,3 +97,14 @@ func TestSigningMethodHS256(t *testing.T) {
 	err = gojwt.SigningMethodHS256.Verify("test", signature, key)
 	require.NoError(t, err)
 }
+
+// TestWithHeadersNilMap checks that WithHeaders does not depend on the
+// constructor having created the headers map (XPKI-104).
+func TestWithHeadersNilMap(t *testing.T) {
+	t.Parallel()
+	p := &provider{}
+	require.NotPanics(t, func() {
+		WithHeaders(map[string]any{"typ": "custom"}).applyOption(p)
+	})
+	assert.Equal(t, map[string]any{"typ": "custom"}, p.headers)
+}

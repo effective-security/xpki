@@ -76,7 +76,7 @@ drift; the symbol name is the stable reference.
 | XPKI-059 | csr                                   | `csr.go` `SetSAN`, `csrprov.go` `SignRequest`                  | No SAN dedupe or DNS validation; `nil` keeps CSR SANs but empty slice clears them (undocumented)                                                   | correctness | Open           |
 | XPKI-062 | testca                                | `configuration.go` `cnCounter`, `entity.go` `NextSN`           | Global common-name and per-issuer serial counters incremented without synchronization                                                               | race        | **Fixed** ([details](#xpki-062--tc1)) |
 | XPKI-063 | testca                                | `utils.go` `ToPFX`/`ToPKCS8`                                   | Shell out to `openssl` and panic; stdlib `x509.MarshalPKCS8PrivateKey` covers PKCS#8                                                               | correctness | Open           |
-| XPKI-066 | jwt                                   | `jwt.go` `NewProviderWithSymmetricKey`                         | Provider signs without `kid` and has empty `keys`, so it cannot verify its own tokens                                                              | bug         | Open           |
+| XPKI-066 | jwt                                   | `jwt.go` `NewProviderWithSymmetricKey`                         | Provider signs without `kid` and has empty `keys`, so it cannot verify its own tokens                                                              | bug         | **Fixed** ([details](#xpki-066--jw2)) |
 | XPKI-070 | jwt                                   | `jwks.go` `RemoteKeySet.updateKeys`/`GetKey`                   | `http.DefaultClient` without timeout, unbounded body, refresh on every unknown `kid`; a stalled JWKS endpoint blocks all cache misses              | security    | **Fixed** ([details](#xpki-070--jw1)) |
 | XPKI-071 | jwt                                   | `jwks.go` `StaticKeySet.GetKey`/`RemoteKeySet.GetKey`          | Empty `kid` returns the first JWK regardless of `kty`/`use`                                                                                        | correctness | **Fixed** ([details](#xpki-071--jw1)) |
 | XPKI-072 | jwt                                   | `jwks.go` `StaticKeySet.PublicKeys`                            | Field documented but never read                                                                                                                    | bug         | **Fixed** ([details](#xpki-072--jw1)) |
@@ -97,11 +97,11 @@ drift; the symbol name is the stable reference.
 | XPKI-097 | build                                 | `internal/version/current.go`, `Makefile` `version`            | Tracked generated file is stale (`v0.2.76`); `make version` not wired into `build`/`all`/CI                                                        | bug         | Open           |
 | XPKI-098 | build                                 | `docker-compose.yml`                                           | Obsolete `version:`; fixed subnet is a public range; `local-kms` image untagged                                                                    | correctness | Open           |
 | XPKI-099 | tests                                 | `cryptoprov/provider_test.go` `Test_Aws`/`Test_Gcp`            | Empty stubs; `certutil.TestKeyInfoKMS` needs live KMS                                                                                              | docs        | Open           |
-| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority](#xpki-100-authority--au2), [crypto11](#xpki-100-crypto11--pk1) portions) |
+| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority](#xpki-100-authority--au2), [crypto11](#xpki-100-crypto11--pk1), [jwt](#xpki-100-jwt--jw2) portions) |
 | XPKI-101 | tests                                 | `cmd/hsm-tool/cli/hsm_cli_test.go`                             | Shared kong parser across `Parse` calls masks the `--cfg` required check                                                                           | docs        | Open           |
 | XPKI-102 | cmd/xpki-tool/cli                     | `ocsp.go` `OCSPFetchCmd.Run`                                   | All OCSP endpoint failures are printed but the command returns success                                                                             | correctness | Open           |
 | XPKI-103 | certutil, cmd/xpki-tool/cli           | `ocsp.go` `CreateOCSPRequest`, `certs.go` `OCSPValidation`     | Nil issuer certificate panics instead of returning an input error                                                                                  | bug         | Open           |
-| XPKI-104 | jwt                                   | `jwt.go` `NewProviderWithSymmetricKey`                         | Applying nonempty `WithHeaders` panics because the constructor leaves `headers` nil                                                                | bug         | Open           |
+| XPKI-104 | jwt                                   | `jwt.go` `NewProviderWithSymmetricKey`                         | Applying nonempty `WithHeaders` panics because the constructor leaves `headers` nil                                                                | bug         | **Fixed** ([details](#xpki-104--jw2)) |
 | XPKI-105 | tests                                 | `cmd/xpki-tool/cli/suite_test.go` `SetupSuite`               | Fixed temporary directory is removed by concurrent coverage/race runs, causing missing fixture files                                               | bug         | **Fixed** ([details](#xpki-105--xc2)) |
 | XPKI-106 | dataprotection                        | `symmetric_test.go` `TestNewSymmetric`                         | Tamper test copies one random nonce byte over another; equal bytes leave the ciphertext unchanged and make the authentication-failure assertion flaky | bug         | Open           |
 | XPKI-107 | testca                                | `entity.go` `Issue`                                           | Appending the issuer overwrites caller option-slice storage when capacity remains and races when the slice is reused concurrently                      | race        | **Fixed** ([details](#xpki-107--tc1)) |
@@ -110,6 +110,99 @@ drift; the symbol name is the stable reference.
 | XPKI-110 | crypto11                              | `sessions.go` `withSession`; `config.go` `Init`                | After a device/token error the pooled sessions are reopened, but the login session is not, so a reinserted token stays logged out (`CKR_USER_NOT_LOGGED_IN`) until a new `Init` | correctness | Open           |
 
 ## Fixed items
+
+### XPKI-066 — JW2
+
+**Fixed on 2026-09-25.** Approved key-ID policy: no `kid` by default, and the
+provider accepts its own tokens. `NewProviderWithSymmetricKey` signed HS256
+tokens without a `kid` and kept no verification key, so its own `ParseToken`
+failed with `missing kid`. The provider now holds its key in its key ring
+under its `kid`, which is empty unless `WithHeaders` sets one. With the new
+`allowNoKid` flag, `ParseToken` verifies HS tokens that have no `kid` or that
+`kid`; any other `kid` is `unexpected kid`. Tokens are unchanged for external
+verifiers: no `kid` header by default. The config-based `NewProvider` still
+requires a `kid`. The constructor also rejects an empty key (`symmetric key
+is empty`) and copies the key, so later changes to the caller's slice do not
+affect it.
+Compatibility: the known consumer (`averlon/secdi`
+`server/service/auth/tenant.go`) only calls `Sign` for ReadMe, with a
+nonempty secret, and gets the same header as before.
+
+Validation:
+
+- Before the fix: the characterization test asserted `missing kid`, and the
+  new `TestStandaloneSymmetricProvider`, run against HEAD's `jwt.go`, failed
+  with `unable to verify token`.
+- `TestStandaloneSymmetricProvider` checks the header (HS256, JWT, no
+  `kid`), the provider's own round trip, an independent raw-key parse, the
+  rejection of disallowed methods, and `invalid signature` for another key
+  and for tampered claims. It also checks that an ES256 token is refused and
+  that changing the caller's key slice does not matter.
+- `TestStandaloneSymmetricProviderKeyID`: a provider with `kid` k1 accepts
+  its k1 tokens and kid-less tokens, and rejects k2 as `unexpected kid`. A
+  provider without a `kid` accepts kid-less tokens and rejects k1.
+
+### XPKI-104 — JW2
+
+**Fixed on 2026-09-25.** Approved scope: one check for all constructors.
+`NewProviderWithSymmetricKey` left `headers` nil, so any nonempty
+`WithHeaders` panicked. It now creates the map, and `WithHeaders` also
+creates one when it is missing (`maps.Copy`). A new `validateHeaders` runs
+after the options in every constructor. It rejects an `alg` header other
+than the signing algorithm (`alg header … does not match the signing
+algorithm …`). With HS keys it also rejects a `kid` header other than the
+signing key's ID (`kid header … does not match the signing key "…"`), which
+before produced tokens the provider could not verify. The standalone
+constructor needs a nonempty string `kid` (`kid header must be a nonempty
+string: …`). Asymmetric providers still accept any `kid`, and `typ`, `jwk`
+and other headers stay overridable (dpop's `typ` is unaffected).
+
+Validation:
+
+- Before the fix, at HEAD: a custom `kid` panicked with `assignment to entry
+  in nil map`. `TestProviderHeaderValidation` failed 7 of its 11 cases
+  (`alg` and `kid` overrides accepted). `NewProvider` on
+  `testdata/jwtprov.json` with `WithHeaders({"kid":"0"})` signed a token that
+  its own `ParseToken` rejected with `invalid signature`.
+- `TestStandaloneSymmetricProviderOptions` covers nil and empty maps, custom
+  `typ`/`x5t`, option order (last wins), a matching `alg`, `HS512` and `none`
+  rejected, empty/numeric/nil `kid` rejected, and nil or empty key. It checks
+  every decoded header exactly (except the random `jti`) and a successful
+  `ParseToken`. `TestProviderHeaderValidation` covers the config constructor
+  (signing `kid`, `typ`, another ring `kid`, unknown, numeric and nil `kid`,
+  `alg`) and the crypto-signer constructor (any `kid`, same `alg`, other or
+  numeric `alg`), with round trips on success. `TestWithHeadersNilMap`
+  covers the nil-map guard.
+
+### XPKI-100-jwt — JW2
+
+**jwt portion Fixed on 2026-09-25; XPKI-100 stays In Progress.**
+`Test_SignPrivateKMS` was the only jwt test that needed local-kms, and it
+failed instead of skipping when the emulator was down. It now starts with
+`testenv.RequireTCP(t, "local-kms", localKMSAddr)`, using `localhost:14555`
+from `kmsConfig` (`aws-dev-kms.json`). All other jwt tests are fixture-free,
+including `Test_Load` with `jwtprov-kms.yaml`, which never connects.
+
+Validation, with the `xpki-kms-kms1-1` container stopped and then restarted:
+
+- Reachable: the test passed with `XPKI_INTEGRATION=required`.
+- Stopped, variable unset: the test was skipped (`local-kms is not reachable
+  at localhost:14555`) and the jwt package passed.
+- Stopped, `XPKI_INTEGRATION=required`: the test failed (`local-kms is
+  required … but not reachable`).
+- A plain TCP listener on `:14555` (reachable but broken) made the test fail
+  instead of skipping.
+- After the containers were recreated with `make start-local-kms`, the test
+  passed again.
+
+Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
+(csr), CU4 (certutil) and HC1 (cmd/hsm-tool/cli).
+
+JW2 validation (all three items): `make lint` (0 issues), `make covtest` (all
+packages passed, total coverage **91.5%**; `jwt` 92.6% at HEAD → 93.0%) and
+`make build docs`. No benchmark was needed. The race detector was not run,
+because JW2 changes no shared state (the provider is configured only at
+construction).
 
 ### XPKI-011 — PK2
 
@@ -478,7 +571,8 @@ PR #540 second-round follow-ups (2026-09-25):
   corrected.
 
 Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
-(csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli).
+(csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The jwt portion
+was fixed later by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)).
 
 ### XPKI-051 — AU2
 
@@ -680,7 +774,8 @@ Validation, with the `kms2` container (`:14556`) stopped and then restarted:
 
 Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
 (csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The crypto11
-portion was fixed later by PK1 ([XPKI-100-crypto11](#xpki-100-crypto11--pk1)).
+portion was fixed later by PK1 ([XPKI-100-crypto11](#xpki-100-crypto11--pk1)),
+and the jwt portion by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)).
 Use `internal/testenv`.
 
 ### XPKI-078 — AT1
@@ -1456,5 +1551,9 @@ Validation passed:
   (checked internal CK_ULONG decoder with a deprecated, non-panicking
   `BytesToUlong`; token selection matches every configured field, rejects a
   config with neither, and requires both when both are set).
+- **XPKI-066 / XPKI-104** were approved and fixed by JW2 on 2026-09-25 (the
+  standalone symmetric provider signs without a `kid` by default and accepts
+  kid-less tokens and its own `kid`; every constructor rejects `alg`
+  overrides, and HS providers reject a `kid` that is not the signing key's).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.

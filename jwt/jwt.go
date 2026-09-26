@@ -1,8 +1,10 @@
 package jwt
 
 import (
+	"bytes"
 	"context"
 	"crypto"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +23,12 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "jwt")
 const (
 	// DefaultNotBefore offset for NotBefore
 	DefaultNotBefore = -2 * time.Minute
+)
+
+// JOSE header names checked by the provider
+const (
+	algHeader = "alg"
+	kidHeader = "kid"
 )
 
 // Signer specifies JWT signer interface
@@ -86,12 +94,18 @@ type ProviderConfig struct {
 	TokenExpiry csr.Duration `json:"token_expiry" yaml:"token_expiry"`
 }
 
-// WithHeaders allows to specify extra headers or override defaults
+// WithHeaders adds JOSE headers to signed tokens or overrides the defaults,
+// such as typ. The constructor rejects an alg header that differs from the
+// signing algorithm, and a kid header that would stop the provider from
+// verifying its own tokens: with configured HS256 keys it must be the
+// signing key's ID, and for NewProviderWithSymmetricKey it must be a
+// nonempty string.
 func WithHeaders(headers map[string]any) Option {
 	return optionFunc(func(c *provider) {
-		for k, v := range headers {
-			c.headers[k] = v
+		if c.headers == nil {
+			c.headers = map[string]any{}
 		}
+		maps.Copy(c.headers, headers)
 	})
 }
 
@@ -106,6 +120,9 @@ type provider struct {
 	headers     map[string]any
 	parser      TokenParser
 	revocation  Revocation
+	// allowNoKid accepts HS tokens without a kid header, verified with the
+	// key of kid; set only by NewProviderWithSymmetricKey (XPKI-066).
+	allowNoKid bool
 }
 
 // LoadProviderConfig returns provider configuration loaded from a file
@@ -208,10 +225,10 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 			return nil, errors.Errorf("key not found: kid=%q", p.kid)
 		}
 		p.headers = map[string]any{
-			"kid": kid,
+			kidHeader: kid,
 		}
 
-		si, err := newSymmetricSigner("HS256", key)
+		si, err := newSymmetricSigner(algHS256, key)
 		if err != nil {
 			return nil, err
 		}
@@ -223,6 +240,9 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 
 	for _, opt := range ops {
 		opt.applyOption(p)
+	}
+	if err := p.validateHeaders(); err != nil {
+		return nil, err
 	}
 	return p, nil
 }
@@ -248,17 +268,32 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 	for _, opt := range ops {
 		opt.applyOption(p)
 	}
+	if err := p.validateHeaders(); err != nil {
+		return nil, err
+	}
 	return p, nil
 }
 
-// NewProviderWithSymmetricKey returns new from Signer
+// NewProviderWithSymmetricKey returns a provider that signs HS256 tokens
+// with key and verifies its own tokens.
+//
+// Tokens carry no kid header unless WithHeaders sets one, which must be a
+// nonempty string. ParseToken accepts HS256 tokens signed with key that
+// have no kid or that kid; any other kid is rejected (XPKI-066, XPKI-104).
 func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error) {
+	if len(key) == 0 {
+		return nil, errors.New("symmetric key is empty")
+	}
+	key = bytes.Clone(key)
 	p := &provider{
+		keys:       map[string][]byte{},
+		headers:    map[string]any{},
+		allowNoKid: true,
 		parser: TokenParser{
 			UseJSONNumber: true,
 		},
 	}
-	signer, err := newSymmetricSigner("HS256", key)
+	signer, err := newSymmetricSigner(algHS256, key)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +304,42 @@ func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error) {
 	for _, opt := range ops {
 		opt.applyOption(p)
 	}
+	if v, ok := p.headers[kidHeader]; ok {
+		kid, _ := v.(string)
+		if kid == "" {
+			return nil, errors.Errorf("kid header must be a nonempty string: %v", v)
+		}
+		p.kid = kid
+	}
+	p.keys[p.kid] = key
+	if err := p.validateHeaders(); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// validateHeaders rejects headers set by options that would make a token
+// disagree with how it is signed (XPKI-104): an alg other than the signing
+// algorithm and, for HS keys, a kid other than the signing key's ID.
+func (p *provider) validateHeaders() error {
+	algo := p.signerInfo.algo
+	if v, ok := p.headers[algHeader]; ok {
+		if alg, _ := v.(string); alg != algo {
+			return errors.Errorf("alg header %v does not match the signing algorithm %s", v, algo)
+		}
+	}
+	if len(p.keys) == 0 {
+		// asymmetric tokens are verified with the public key whatever the kid
+		return nil
+	}
+	v, ok := p.headers[kidHeader]
+	if !ok && p.allowNoKid {
+		return nil
+	}
+	if kid, _ := v.(string); !ok || kid != p.kid {
+		return errors.Errorf("kid header %v does not match the signing key %q", v, p.kid)
+	}
+	return nil
 }
 
 func (p *provider) SetRevocation(r Revocation) {
@@ -324,7 +394,11 @@ func (p *provider) ParseToken(ctx context.Context, authorization string, cfg *Ve
 			"claims", token.Claims,
 		)
 		if strings.HasPrefix(token.SigningMethod, "HS") {
-			if kid, ok := token.Header["kid"]; ok {
+			kid, ok := token.Header[kidHeader]
+			if !ok && p.allowNoKid {
+				return p.keys[p.kid], nil
+			}
+			if ok {
 				var id string
 				switch t := kid.(type) {
 				case string:
@@ -341,7 +415,7 @@ func (p *provider) ParseToken(ctx context.Context, authorization string, cfg *Ve
 			return nil, errors.Errorf("missing kid")
 		}
 		if p.signerInfo == nil {
-			return nil, errors.Errorf("unexpected signing method: %v", token.Header["alg"])
+			return nil, errors.Errorf("unexpected signing method: %v", token.Header[algHeader])
 		}
 		return p.verifyKey, nil
 	})

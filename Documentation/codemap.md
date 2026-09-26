@@ -555,8 +555,19 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 - Default expiry 60m, `DefaultNotBefore` −2m, `DefaultTimeSkew` 5m on
   `iat`/`nbf` only. `ExpectedAudience` means all listed values present.
   Issuer/subject compared case-insensitively.
-- `provider.ParseToken` requires `kid` for HS tokens; `parser.ParseToken`
-  refuses HS. `alg: none` is rejected. Numeric `kid` headers are stringified.
+- `provider.ParseToken` requires `kid` for HS tokens, except for
+  `NewProviderWithSymmetricKey` (XPKI-066): it signs without a `kid` unless
+  `WithHeaders` sets a nonempty string one, and verifies with its single key
+  tokens with no `kid` or that `kid` (`allowNoKid`); any other `kid` is
+  `unexpected kid`. `parser.ParseToken` refuses HS. `alg: none` is rejected.
+  Numeric `kid` headers are stringified.
+- Headers (XPKI-104): every constructor creates `headers` before applying
+  options, and `validateHeaders` runs after them. An `alg` header other than
+  the signing algorithm is a constructor error. With HS keys (`NewProvider`
+  key ring, `NewProviderWithSymmetricKey`) a `kid` header must be the signing
+  key's ID. Asymmetric providers accept any `kid`, and `typ`, `jwk` and other
+  headers stay overridable (dpop sets `typ`). `NewProviderWithSymmetricKey`
+  rejects an empty key and copies it.
 - Key selection (XPKI-071/072, `selectKey`): a key is eligible when its JWK
   `use` is empty or `sig` and, when the alg is known, its type/curve and JWK
   `alg` fit it (RS* → RSA, ES256/384/512 → P-256/384/521; other algs have no
@@ -591,10 +602,14 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 - go-jose v4 is used only for `JSONWebKey`/`JSONWebKeySet` types.
 
 Tests: `testdata/jwtprov*`, `oidc_parser*` (Google/Cognito JWKS snapshots),
-embedded real ID tokens; `Test_SignPrivateKMS` needs local-kms on `:14555`.
-`parser_coverage_test.go` covers configuration files, malformed tokens, real
-symmetric/asymmetric signing, key-ID types, and claim conversions. It
-characterizes XPKI-066 and the `WithHeaders` panic in XPKI-104.
+embedded real ID tokens; `Test_SignPrivateKMS` needs local-kms on `:14555`
+(`kmsConfig`, `localKMSAddr`) and is gated by `testenv.RequireTCP`; every
+other jwt test is fixture-free. `parser_coverage_test.go` covers
+configuration files, malformed tokens, real symmetric/asymmetric signing, the
+standalone symmetric provider (round trip, wrong key, tampering, kid policy,
+header options), key-ID types, and claim conversions.
+`TestProviderHeaderValidation` (`jwt_test.go`) covers the header checks of the
+config and crypto-signer constructors.
 `jwks_test.go` has table tests for key selection, parser round trips with
 kid-less tokens and `PublicKeys`, and `RemoteKeySet` behavior against a
 local `httptest` JWKS server (`jwksServer`: mutable body/status and a request
@@ -725,7 +740,7 @@ conflicts/overrides; it makes no network requests.
 | Fixture                                                                                          | Provided by                                    | Needed by                                                                                             |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov`, `csr`                                                                       |
-| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority` (`TestNewRoot` only), `jwt`, `certutil` (`TestKeyInfoKMS`), `cmd/hsm-tool/cli` (`csr_test.go`) |
+| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS`), `cmd/hsm-tool/cli` (`csr_test.go`) |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
 

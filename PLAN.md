@@ -27,6 +27,7 @@ below and excluded from the pending queue.
 | AU2 | [XPKI-051](FINDINGS.md#xpki-051--au2), [XPKI-052](FINDINGS.md#xpki-052--au2), [XPKI-053](FINDINGS.md#xpki-053--au2), [XPKI-100-authority](FINDINGS.md#xpki-100-authority--au2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 | PK1 | [XPKI-001](FINDINGS.md#xpki-001--pk1), [XPKI-002](FINDINGS.md#xpki-002--pk1), [XPKI-003](FINDINGS.md#xpki-003--pk1), [XPKI-005](FINDINGS.md#xpki-005--pk1), [XPKI-007](FINDINGS.md#xpki-007--pk1), [XPKI-100-crypto11](FINDINGS.md#xpki-100-crypto11--pk1) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 | PK2 | [XPKI-011](FINDINGS.md#xpki-011--pk2), [XPKI-006](FINDINGS.md#xpki-006--pk2) | **Fixed** | 2026-09-25 |
+| JW2 | [XPKI-066](FINDINGS.md#xpki-066--jw2), [XPKI-104](FINDINGS.md#xpki-104--jw2), [XPKI-100-jwt](FINDINGS.md#xpki-100-jwt--jw2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -494,6 +495,24 @@ docs` and `make covtest` (**91.5%**; `crypto11` 81.0%) passed. Limitation: the
 4-byte CK_ULONG branch is untested because no 32-bit C toolchain is
 installed. No benchmark was run; the plan asked for boundary tests only.
 
+**JW2 / XPKI-066, XPKI-104, XPKI-100-jwt (2026-09-25):** decisions: the
+standalone symmetric provider signs without a `kid` by default, so the header
+seen by the secdi/ReadMe consumer is unchanged. It verifies kid-less tokens
+and its own `kid` (a nonempty string from `WithHeaders`), and any other `kid`
+is `unexpected kid`. One `validateHeaders` check after the options, in every
+constructor, rejects an `alg` override. With HS keys it also rejects a `kid`
+other than the signing key's; asymmetric `kid`, `typ` and `jwk` stay
+overridable. The constructor rejects an empty key and copies the key.
+`Test_SignPrivateKMS` is gated with `testenv.RequireTCP` on `localhost:14555`.
+Pre-fix evidence came from HEAD's `jwt.go`: self-verification failed, a
+custom `kid` panicked, 7 of 11 header cases were accepted, and a config
+provider with `kid` "0" could not verify its own token. Fixture modes were
+checked with `kms1` stopped: skip when optional, fail when required, fail on
+a fake listener, and pass after `make start-local-kms`. Validation: `make
+lint`, `make covtest` (**91.5%**; `jwt` 92.6% → 93.0%) and `make build docs`
+passed. No benchmark was needed. No race run was needed either, because no
+shared state changed.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -537,7 +556,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| JW2 | `jwt` | 066, 104; 100-jwt | P1 / 35 | Medium: kid compatibility and custom headers | Standalone key-ID policy |
 | CU2 | `certutil` | 035 | P1 / 34 | High: cache ownership and lock contention | Exported mutable fields |
 | CP1 | `cryptoprov` | 016, 026; 099-cryptoprov, 100-cryptoprov | P1 / 34 | Medium: duplicate registrations and nil constructors | Duplicate/replacement policy |
 | GC1 | `cryptoprov/gcpkmscrypto` | 018, 023, 025-gcpkmscrypto | P1 / 34 | Medium: close/sign lifecycle and checksum validation | Nil signer-options contract |
@@ -627,7 +645,7 @@ policy, lifecycle, or concurrency completeness.
 | `certutil` | 94.5% | `ExpiresInHours` 0%; sorting 100% without ownership/tie assertions |
 | `authority` | 91.0% | Fresh delegated responder creation bypassed; constructor only 37.2% |
 | `csr` | 94.3% | SAN 92.9% without the full nil/empty/duplicate/validation matrix |
-| `jwt` | 91.8% | Known symmetric-provider defects explicitly asserted |
+| `jwt` | 91.8% | Known symmetric-provider defects explicitly asserted (after JW2: 93.0%, replaced by round-trip and header tests) |
 | `jwt/dpop` | 90.8% | Request matching 100% without case-sensitive path and replay checks |
 | `jwt/accesstoken` | 86.4% | `PublicKey` 0%; expiration tested only when supplied by the caller |
 | `jwt/oauth2client` | 97.3% | RegisterClient 100% without concurrent operations |
@@ -695,15 +713,15 @@ still required before CU2's cache/locking change
 (warm/cold Bundle, serial/parallel, clone cost versus cache size). CU4 fixture
 changes and the other helpers need no benchmark. See 099/100 scopes below.
 
-### jwt — JW1 (Fixed), JW2, JW3
+### jwt — JW1 (Fixed), JW2 (Fixed), JW3
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
 | XPKI-070 — HIGH / security / 36 — **Fixed (JW1, 2026-09-24)** | [RemoteKeySet](jwt/jwks.go) used unbounded `http.DefaultClient` reads and refetched on every unknown kid. It now takes options for an injected client, a per-fetch deadline (10s), a body limit (1 MiB) and a refresh cooldown (10s, measured from the end of the last fetch). Inflight coalescing is kept, the shared fetch ignores waiter cancellation, and the cache is published before waiters wake. | **Verified:** `TestRemoteKeySetRefresh` covers a 50-kid flood costing 1 fetch, rotation with cooldown 0, a stalled endpoint timing out and recovering (no stuck inflight), 8 waiters sharing 1 fetch past a cancelled waiter, exact and over-limit sizes, the default limit, a 500 response that is neither echoed nor retried, invalid JSON, an injected client and the parser. `TestRemoteKeySetRotationCooldown` (controlled clock) shows rotation refused inside the cooldown and served after it. `TestRemoteKeySetConcurrentRotation` runs under the race detector. PR #534 review: `TestRemoteKeySetStaleSnapshotSharesFetch` (stale snapshot shares a fetch or its failure; fails with the check disabled) and a `math.MaxInt64` size limit case (failed before the fix). |
 | XPKI-071 — MEDIUM / correctness / 23 — **Fixed (JW1, 2026-09-24)** | Selection now requires exactly one eligible key: `use` empty or `sig`, and when the alg is known, a matching JWK `alg`, key type and curve. The alg arrives through the optional `AlgorithmKeySet.GetKeyForAlgorithm`, which the parser uses. `GetKey` is unchanged in signature and checks only `use`. Ambiguous and ineligible results return wrapped `ErrAmbiguousKey`/`ErrKeyNotFound`. | **Verified:** `TestStaticKeySetSelection` (32 cases: enc-only, multiple signing keys, reordered sets, incompatible alg/curve/JWK alg, duplicate kids, unsupported alg) and `TestParserKeySelection` (real kid-less RS256/ES256 tokens through `NewParser` in two key orders, plus the ambiguous rejection). |
 | XPKI-072 — MEDIUM / bug / 25 — **Fixed (JW1, 2026-09-24)** | `StaticKeySet.PublicKeys` is now used. Entries are kid-less RSA/ECDSA keys that take part in empty-kid selection together with `KeySet`, and match a kid by RFC 7638 SHA-256 thumbprint only when no `KeySet` entry has that kid. Unsupported or nil entries fail every lookup. | **Verified:** RSA-only and EC-only, ambiguity across both lists, a single eligible key across both lists, `KeySet` precedence, thumbprint fallback, and rejected ed25519/nil entries. `TestParserKeySelection/public_keys_only` verifies real RS256, ES256 and thumbprint-kid tokens and rejects a different key. |
-| XPKI-066 — HIGH / bug / 35 | [NewProviderWithSymmetricKey](jwt/jwt.go) creates a signer without the verification ring/kid required by its own ParseToken. A new provider must verify its own signed tokens without exposing key material. | **Characterization:** `TestStandaloneSymmetricProvider` verifies with a raw-key parser, then explicitly expects provider verification to fail with missing kid. Convert to round-trip success and retain independent cryptographic verification; add wrong key, tampering, and agreed legacy missing-kid behavior. |
-| XPKI-104 — MEDIUM / bug / 25 | The same constructor leaves `headers` nil before applying nonempty WithHeaders. Initialize constructor state consistently, preserving caller-specified safe headers and the chosen key-ID behavior. | **Characterization:** the same test explicitly asserts a panic. Replace it with constructor success and decoded-header assertions; cover empty/nonempty options, option ordering, and successful verification with custom kid. |
+| XPKI-066 — HIGH / bug / 35 — **Fixed (JW2, 2026-09-25)** | [NewProviderWithSymmetricKey](jwt/jwt.go) keeps its key in the ring under its `kid` (empty unless `WithHeaders` sets one), and `allowNoKid` makes `ParseToken` verify kid-less tokens and that `kid`. Other kids are rejected, and the default header is unchanged (no `kid`). Empty keys are rejected and the key is copied. | **Verified:** the characterization test became `TestStandaloneSymmetricProvider` (round trip, raw-key verification, wrong key, tampering, ES256 token refused, caller slice mutation) and `TestStandaloneSymmetricProviderKeyID` (own kid, kid-less, other kid, kid on a kid-less provider). It failed against HEAD's `jwt.go`. |
+| XPKI-104 — MEDIUM / bug / 25 — **Fixed (JW2, 2026-09-25)** | The constructor creates `headers`, `WithHeaders` creates a missing map, and `validateHeaders` runs in every constructor. It rejects an `alg` override, a `kid` other than the signing key's for HS keys, and a non-string or empty standalone `kid`. | **Verified:** the assert-panic became `TestStandaloneSymmetricProviderOptions` (nil/empty/custom headers, option order, alg and kid rejects, empty key, exact decoded headers) and `TestProviderHeaderValidation` (config and crypto-signer constructors), plus `TestWithHeadersNilMap`. At HEAD there was a panic and 7/11 cases were accepted. |
 | XPKI-073 — LOW / correctness / 13 | [signJWT](jwt/sign.go) generates jti in the protected header. Stop presenting that header as the token identifier; preserve caller-provided payload jti and define whether absent payload jti is generated. This is not by itself proof that an otherwise valid signed token is invalid. | **Partial:** signing/claims tests verify signatures and claims, but not absence of header jti or preservation of a payload identifier. Add decoded header/payload assertions and compatibility coverage for consumers of the old custom header. |
 
 JW1 is **Fixed (2026-09-24)**. The cooldown does not block rotation
@@ -713,6 +731,9 @@ per-kid memory, only the last fetch time and error. The benchmark comparison
 is in the performance table. JW2 must keep the `AlgorithmKeySet` selection
 rules; any kid policy it chooses for the symmetric provider does not go
 through `KeySet`. JW2/JW3 need no benchmark. JW2 also owns the jwt portion of fixture finding 100.
+JW2 is **Fixed (2026-09-25)**; see [completed batches](#completed-batches).
+The standalone kid policy does not go through `KeySet`. JW3 (XPKI-073, the
+header `jti`) remains and must keep the `validateHeaders` rules.
 
 ### jwt/dpop — DP1
 
@@ -986,7 +1007,7 @@ classification; a high-priority batch can contain lower-priority test cleanup.
 | XPKI-100 — MEDIUM / docs / 21 | AW1 — `cryptoprov/awskmscrypto` | [awskmsprov_test.go](cryptoprov/awskmscrypto/awskmsprov_test.go) requires local-kms. Separate deterministic client-seam tests from emulator cases, and test both emulator-absent optional mode and required CI mode. |
 | XPKI-100 — MEDIUM / docs / 21 — **authority portion Fixed (AU2, 2026-09-25)** | AU2 — `authority` | The suite loads (without connecting) the local-kms provider; only `TestNewRoot` needs local-kms and is gated by `internal/testenv.RequireTCP`; `TestShakenRoot`/`TestIssuerSign` moved to `inmemcrypto`; SoftHSM is not used. Verified skip (optional), fail (`XPKI_INTEGRATION=required`) and a reachable-but-broken endpoint (fails) with `kms2` stopped. |
 | XPKI-100 — MEDIUM / docs / 21 | CS1 — `csr` | [csrprov_test.go](csr/csrprov_test.go) includes HSM-backed paths, while current `TestCSR` uses inmemcrypto. Scope fixture handling to actual external cases; the codemap's claim that TestCSR needs SoftHSM is stale. Assert unit SAN/parsing tests still run without it. |
-| XPKI-100 — MEDIUM / docs / 21 | JW2 — `jwt` | [Test_SignPrivateKMS](jwt/jwt_test.go) requires local-kms; jwt TestMain only configures logging. Gate the KMS case, preserving all pure JWT/JWKS/parser tests. Verify unavailable-required mode fails rather than skipping the whole package. |
+| XPKI-100 — MEDIUM / docs / 21 — **jwt portion Fixed (JW2, 2026-09-25)** | JW2 — `jwt` | [Test_SignPrivateKMS](jwt/jwt_test.go) is gated by `testenv.RequireTCP` on `localhost:14555` (`kmsConfig`/`localKMSAddr`); all other jwt tests are fixture-free. **Verified** with `kms1` stopped: optional → skip and the package passes; required → fail; fake listener → fail; restarted → pass. |
 | XPKI-100 — MEDIUM / docs / 21 | CU4 — `certutil` | TestKeyInfoKMS is the fixture-dependent case; the bundler/PEM tests use local/generated data. Coordinate 099-certutil; test no-infrastructure execution and the remaining required integration if retained. |
 | XPKI-100 — MEDIUM / docs / 21 | HC1 — `cmd/hsm-tool/cli` | [csr_test.go](cmd/hsm-tool/cli/csr_test.go) depends on KMS/config fixtures. Keep parser/provider-error tests independent; guard only fixture-dependent command cases and verify they run in provisioned CI. |
 
