@@ -7,6 +7,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,9 +17,20 @@ const projFolder = "../.."
 // SoftHSMConfig provides location for PKCS11 config
 const SoftHSMConfig = "/tmp/xpki/softhsm_unittest.json"
 
-func Test_LoadConfig(t *testing.T) {
+// requireSoftHSM gates t on the SoftHSM token config (make hsmconfig).
+func requireSoftHSM(t testing.TB) {
+	t.Helper()
+	testenv.RequireFile(t, "SoftHSM config", SoftHSMConfig)
+}
+
+func Test_LoadConfig_Missing(t *testing.T) {
+	t.Parallel()
 	_, err := cryptoprov.LoadTokenConfig("missing.json")
 	assert.True(t, os.IsNotExist(errors.Cause(err)), "LoadConfig with missing file should return a file doesn't exist error")
+}
+
+func Test_LoadConfig(t *testing.T) {
+	requireSoftHSM(t)
 
 	wd, err := os.Getwd() // package dir
 	require.NoError(t, err, "unable to determine current directory")

@@ -32,7 +32,7 @@ Configuration is a small JSON or YAML token config whose Manufacturer field sele
 - [func Register\(manufacturer string, loader ProviderLoader\) error](<#Register>)
 - [func Registered\(\) \[\]string](<#Registered>)
 - [type Crypto](<#Crypto>)
-  - [func Load\(defaultConfig string, providersConfigs \[\]string\) \(\*Crypto, error\)](<#Load>)
+  - [func Load\(defaultConfig string, providersConfigs \[\]string\) \(c \*Crypto, err error\)](<#Load>)
   - [func New\(defaultProvider Provider, providers \[\]Provider\) \(\*Crypto, error\)](<#New>)
   - [func \(c \*Crypto\) Add\(p Provider\) error](<#Crypto.Add>)
   - [func \(c \*Crypto\) ByManufacturer\(manufacturer, model string\) \(Provider, error\)](<#Crypto.ByManufacturer>)
@@ -59,6 +59,12 @@ Configuration is a small JSON or YAML token config whose Manufacturer field sele
 
 ## Variables
 
+<a name="ErrDuplicateProvider"></a>ErrDuplicateProvider is returned by Crypto.Add, New and Load when a different provider is already registered for the same manufacturer and model.
+
+```go
+var ErrDuplicateProvider = errors.New("duplicate provider")
+```
+
 <a name="ErrInvalidPrivateKeyURI"></a>ErrInvalidPrivateKeyURI is returned if the PKCS \#11 URI is invalid for the private key object
 
 ```go
@@ -69,6 +75,12 @@ var ErrInvalidPrivateKeyURI = errors.New("invalid URI for private key object")
 
 ```go
 var ErrInvalidURI = errors.New("invalid URI")
+```
+
+<a name="ErrNilProvider"></a>ErrNilProvider is returned by New and Crypto.Add for a nil provider, including a typed nil such as a nil \*crypto11.PKCS11Lib.
+
+```go
+var ErrNilProvider = errors.New("nil provider")
 ```
 
 <a name="GcmDecrypt"></a>
@@ -126,7 +138,7 @@ func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.
 ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, or a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\); encrypted PKCS\#8 \(ENCRYPTED PRIVATE KEY\) is not supported. The key may be RSA or ECDSA.
 
 <a name="Register"></a>
-## func [Register](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L18>)
+## func [Register](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L19>)
 
 ```go
 func Register(manufacturer string, loader ProviderLoader) error
@@ -135,7 +147,7 @@ func Register(manufacturer string, loader ProviderLoader) error
 Register provider loader by manufacturer
 
 <a name="Registered"></a>
-## func [Registered](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L45>)
+## func [Registered](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L46>)
 
 ```go
 func Registered() []string
@@ -144,9 +156,9 @@ func Registered() []string
 Registered returns registered providers
 
 <a name="Crypto"></a>
-## type [Crypto](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L70-L73>)
+## type [Crypto](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L85-L93>)
 
-Crypto exposes instances of Provider
+Crypto exposes instances of Provider, found by manufacturer and model. It is safe for concurrent use: Add may run while other goroutines call ByManufacturer or LoadPrivateKey.
 
 ```go
 type Crypto struct {
@@ -155,43 +167,43 @@ type Crypto struct {
 ```
 
 <a name="Load"></a>
-### func [Load](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L80>)
+### func [Load](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L84>)
 
 ```go
-func Load(defaultConfig string, providersConfigs []string) (*Crypto, error)
+func Load(defaultConfig string, providersConfigs []string) (c *Crypto, err error)
 ```
 
-Load returns Crypto with loaded providers from the given config locations
+Load returns Crypto with loaded providers from the given config locations. Each config must name a different manufacturer and model than the others \(ErrDuplicateProvider\). On error, Load closes the providers it already loaded that implement Close\(\) error.
 
 <a name="New"></a>
-### func [New](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L76>)
+### func [New](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L111>)
 
 ```go
 func New(defaultProvider Provider, providers []Provider) (*Crypto, error)
 ```
 
-New creates an instance of Crypto providers
+New creates an instance of Crypto providers. defaultProvider is required; providers are added with Add, so a nil entry or a conflicting duplicate fails New.
 
 <a name="Crypto.Add"></a>
-### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L101>)
+### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L144>)
 
 ```go
 func (c *Crypto) Add(p Provider) error
 ```
 
-Add will add new provider
+Add registers p for lookup by its manufacturer and model. Adding the same provider instance again, including the default one, is a no\-op. A different provider with the manufacturer and model of a registered or the default provider returns ErrDuplicateProvider \(XPKI\-016\), and a nil provider, including a typed nil, returns ErrNilProvider.
 
 <a name="Crypto.ByManufacturer"></a>
-### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L120>)
+### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L178>)
 
 ```go
 func (c *Crypto) ByManufacturer(manufacturer, model string) (Provider, error)
 ```
 
-ByManufacturer returns a provider by manufacturer
+ByManufacturer returns the default provider or the registered provider for manufacturer and model. It does not lock and may run concurrently with Add.
 
 <a name="Crypto.Default"></a>
-### func \(\*Crypto\) [Default](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L96>)
+### func \(\*Crypto\) [Default](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L135>)
 
 ```go
 func (c *Crypto) Default() Provider
@@ -245,7 +257,7 @@ func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate,
 TLSKeyPair parses a public/private key pair from PEM encoded data. The key may be a PEM private key or a pkcs11: URI resolved through the registered providers. On successful return, Certificate.Leaf holds the parsed leaf certificate. An error is returned when the private key does not match the leaf certificate's public key.
 
 <a name="KeyGenerator"></a>
-## type [KeyGenerator](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L53-L60>)
+## type [KeyGenerator](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L66-L73>)
 
 KeyGenerator defines interface for key generation operations
 
@@ -261,7 +273,7 @@ type KeyGenerator interface {
 ```
 
 <a name="KeyInfo"></a>
-## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L31-L40>)
+## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L44-L53>)
 
 KeyInfo provides key information
 
@@ -279,7 +291,7 @@ type KeyInfo struct {
 ```
 
 <a name="KeyManager"></a>
-## type [KeyManager](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L43-L50>)
+## type [KeyManager](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L56-L63>)
 
 KeyManager defines interface for key management operations
 
@@ -330,7 +342,7 @@ func ParsePrivateKeyURI(uri string) (PrivateKeyURI, error)
 ParsePrivateKeyURI parses a PKCS \#11 URI into a key configuration
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L63-L67>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L76-L80>)
 
 Provider defines an interface to work with crypto providers: HSM, SoftHSM, KMS, crypto
 
@@ -343,7 +355,7 @@ type Provider interface {
 ```
 
 <a name="LoadProvider"></a>
-### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L57>)
+### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L58>)
 
 ```go
 func LoadProvider(configLocation string) (Provider, error)
@@ -352,7 +364,7 @@ func LoadProvider(configLocation string) (Provider, error)
 LoadProvider load a single provider
 
 <a name="ProviderLoader"></a>
-## type [ProviderLoader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L10>)
+## type [ProviderLoader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L11>)
 
 ProviderLoader is interface for loading provider by manufacturer
 
@@ -361,7 +373,7 @@ type ProviderLoader func(cfg TokenConfig) (Provider, error)
 ```
 
 <a name="Unregister"></a>
-### func [Unregister](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L32>)
+### func [Unregister](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L33>)
 
 ```go
 func Unregister(manufacturer string) (ProviderLoader, error)
@@ -423,7 +435,7 @@ func ParseTokenURI(uri string) (TokenConfig, error)
 ParseTokenURI parses a PKCS \#11 URI into a PKCS \#11 configuration. Note that the module path will override the module name if present.
 
 <a name="TokenInfo"></a>
-## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L21-L28>)
+## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L34-L41>)
 
 TokenInfo provides PKCS \#11 token info
 

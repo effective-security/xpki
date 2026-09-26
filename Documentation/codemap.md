@@ -48,7 +48,7 @@ consumers. Nothing in the library imports `cmd/`.
 | ------------------------------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Provider interfaces                        | `cryptoprov/provider.go`                                                     | `Provider`, `KeyGenerator`, `KeyManager`, `KeyInfo`, `TokenInfo`                                                              |
 | Provider registry / loading                | `cryptoprov/loader.go`                                                       | `Register`, `LoadProvider`, `Load`, `Registered`                                                                              |
-| Multi-provider registry                    | `cryptoprov/provider.go`                                                     | `Crypto`, `New`, `Add`, `ByManufacturer`, `Default`                                                                           |
+| Multi-provider registry                    | `cryptoprov/provider.go`, `crypto_concurrency_test.go`                       | `Crypto`, `New`, `Add`, `ByManufacturer`, `Default`, `ErrNilProvider`, `ErrDuplicateProvider`                                 |
 | Token config file (JSON/YAML, `file:` PIN) | `cryptoprov/config.go`, `crypto11/config.go`                                 | `LoadTokenConfig`, `TokenConfig`                                                                                              |
 | PKCS#11 key URI                            | `cryptoprov/uri.go`                                                          | `ParseTokenURI`, `ParsePrivateKeyURI`, `PrivateKeyURI`                                                                        |
 | Load key from PEM or URI                   | `cryptoprov/utils.go`, `cryptoprov/signer.go`                                | `Crypto.LoadPrivateKey`, `NewSignerFromPEM`, `NewSignerFromFromFile`, `LoadTLSKeyPair`                                        |
@@ -110,7 +110,7 @@ consumers. Nothing in the library imports `cmd/`.
 
 Provider-agnostic key abstraction: `Provider` (generate/lookup/export keys +
 `Manufacturer`/`Model`), `KeyManager` (enumerate tokens and keys, key info,
-destroy), the `Crypto` registry keyed by `manufacturer@model`, the process-global
+destroy), the `Crypto` registry keyed by manufacturer and model, the process-global
 loader registry, token config loading, PKCS#11 URI parsing, PEM/DER key
 parsing, TLS key-pair loading and AES-GCM helpers.
 
@@ -118,8 +118,8 @@ parsing, TLS key-pair loading and AES-GCM helpers.
 
 | File          | Role                                                                                                                        |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `provider.go` | Interfaces, `KeyInfo`/`TokenInfo`, `Crypto` (`New`, `Add`, `ByManufacturer`)                                                |
-| `loader.go`   | `loaders` map + `lockLoaders`; `Register`, `Unregister`, `Registered`, `LoadProvider`, `Load`                               |
+| `provider.go` | Interfaces, `KeyInfo`/`TokenInfo`, `Crypto` (`New`, `Add`, `ByManufacturer`), `ErrNilProvider`, `ErrDuplicateProvider`      |
+| `loader.go`   | `loaders` map + `lockLoaders`; `Register`, `Unregister`, `Registered`, `LoadProvider`, `Load` (closes loaded providers on error) |
 | `config.go`   | `TokenConfig` interface, JSON/YAML struct, `LoadTokenConfig` with `file:` PIN resolution (absolute, cwd, config dir)        |
 | `uri.go`      | `ParseTokenURI`, `ParsePrivateKeyURI`                                                                                       |
 | `utils.go`    | `Crypto.LoadPrivateKey` (PEM or `pkcs11:` URI), `ParsePrivateKeyPEM*`, `ParsePrivateKeyDER`, `LoadTLSKeyPair`, `TLSKeyPair` |
@@ -138,8 +138,21 @@ TokenLabel, Pin, Attributes`; YAML keys are snake_case.
 - Key URI: `pkcs11:manufacturer=M;model=X;id=ID;serial=S;type=private`;
   `ParsePrivateKeyURI` requires `type=private`, `serial`, `id`. Query-form
   attributes are not parsed (XPKI-027).
-- `Crypto` has no locking; `Add` after construction is not goroutine-safe and
-  silently overwrites (XPKI-016). `New(nil, …)` panics (XPKI-026).
+- `Crypto` is safe for concurrent use (XPKI-016): `Add` is serialized by a
+  mutex and publishes a new copy of the `providerKey{manufacturer, model}`
+  map through an `atomic.Pointer`; `ByManufacturer` does not lock. The
+  default provider's key is memoized in `New` and checked first. The zero
+  value works (no default).
+- Duplicates: re-adding the same instance (compared with `reflect`, never
+  panicking on non-comparable types), including the default, is a no-op;
+  a different instance with a registered or the default key returns wrapped
+  `ErrDuplicateProvider`, so `Load` fails when two configs share
+  manufacturer and model. `New(nil, …)`, a nil entry in `New`'s list and
+  `Add(nil)` return wrapped `ErrNilProvider`; typed nils (nil pointer, map,
+  func, …) count as nil (XPKI-026). Sentinels are wrapped with
+  `errors.Wrap(f)`, so stdlib and cockroachdb `errors.Is` both match.
+- `Load` closes the providers it already loaded (those with `Close() error`)
+  when it returns an error.
 - `file:` PIN content has trailing `\r`/`\n` stripped; other whitespace is part of the PIN.
 - `ParsePrivateKeyDER` accepts PKCS#8 (RSA, ECDSA, Ed25519), PKCS#1 and SEC1;
   the parse error from each attempt is preserved (`errors.Join`) under
@@ -150,11 +163,19 @@ TokenLabel, Pin, Attributes`; YAML keys are snake_case.
 
 ### Test layout
 
-`config_test.go`, `loader_test.go`, `provider_test.go` need SoftHSM at
-`/tmp/xpki/softhsm_unittest.json` (`make hsmconfig`) and fail without it.
-`loader_test.go` unregisters/re-registers `SoftHSM`. `testdata/` holds
-`inmem_testprov.{json,yaml}`, `inmem_pin.txt`, `test-{cert,key}.pem`.
-`Test_Aws`/`Test_Gcp` are empty (XPKI-099).
+Only `Test_LoadConfig`, `Test_Load`, `Test_P11` and `Test_LoadSigner_P11`
+need SoftHSM at `/tmp/xpki/softhsm_unittest.json` (`make hsmconfig`); they
+call `requireSoftHSM` (`testenv.RequireFile`, XPKI-100), and
+`loadP11Provider` closes the library at cleanup. Everything else is
+fixture-free with `inmemcrypto`/`testprov`. `crypto_test.go` covers the
+`Crypto` nil/duplicate contract, and registers a throwaway loader
+(`cryptoprov-test-closer`, unregistered at cleanup) for `LoadProvider` and
+`Load` close-on-error tests; no test unregisters a built-in loader.
+`TestLoad_KMSProviders` loads the self-registered AWS (lazy client) and GCP
+(stubbed `KmsClientFactory`, restored at cleanup) loaders without KMS
+(XPKI-099). `crypto_concurrency_test.go` has the Add/lookup race test and
+`BenchmarkByManufacturer`/`BenchmarkByManufacturerWithAdd`. `testdata/`
+holds `inmem_testprov.{json,yaml}`, `inmem_pin.txt`, `test-{cert,key}.pem`.
 
 ## Package crypto11
 
@@ -758,7 +779,7 @@ conflicts/overrides; it makes no network requests.
 
 | Fixture                                                                                          | Provided by                                    | Needed by                                                                                             |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov`, `csr`                                                                       |
+| `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr`                                                    |
 | `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS`), `cmd/hsm-tool/cli` (`csr_test.go`) |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
@@ -767,9 +788,9 @@ conflicts/overrides; it makes no network requests.
 fixture skips it unless `XPKI_INTEGRATION=required`, which the Makefile
 exports (so `make test`/`covtest` and CI fail); a reachable fixture always
 runs it. `internal/testenv.RequireFile` does the same for a fixture file
-(`crypto11` gates on the SoftHSM config). `authority` and `crypto11` use them
-so far; the other packages still fail hard when a fixture is missing
-(XPKI-100, remaining portions).
+(`crypto11` and `cryptoprov` gate on the SoftHSM config). `authority`,
+`crypto11`, `jwt` and `cryptoprov` use them so far; the other packages still
+fail hard when a fixture is missing (XPKI-100, remaining portions).
 
 `cmd/xpki-tool/cli/coverage_test.go` uses generated certificates and local HTTP
 servers to cover certificate filters, trust validation, concurrent revocation

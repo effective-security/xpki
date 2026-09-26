@@ -4,18 +4,19 @@ import (
 	"testing"
 
 	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/cryptoprov/testprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewSigner(t *testing.T) {
-	p11 := loadP11Provider(t)
+	t.Parallel()
 
 	inm, err := testprov.Init()
 	require.NoError(t, err)
 
-	cp, err := cryptoprov.New(p11, []cryptoprov.Provider{inm})
+	cp, err := cryptoprov.New(inmemcrypto.NewProvider(), []cryptoprov.Provider{inm})
 	require.NoError(t, err)
 
 	_, err = cp.NewSignerFromFromFile("not_found")

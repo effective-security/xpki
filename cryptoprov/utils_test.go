@@ -14,64 +14,112 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/cryptoprov/testprov"
 	"github.com/effective-security/xpki/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_LoadSigner(t *testing.T) {
-	prov := loadP11Provider(t)
-	cp, err := cryptoprov.New(prov, nil)
+	t.Parallel()
+
+	tp, err := testprov.Init()
+	require.NoError(t, err)
+	cp, err := cryptoprov.New(inmemcrypto.NewProvider(), []cryptoprov.Provider{tp})
 	require.NoError(t, err)
 
 	t.Run("PEM key", func(t *testing.T) {
 		pem, err := testca.GenerateRSAKeyInPEM(nil, 1024)
 		require.NoError(t, err)
-		_, pvk, err := cp.LoadPrivateKey(pem)
+		prov, pvk, err := cp.LoadPrivateKey(pem)
 		require.NoError(t, err)
-		signer := pvk.(crypto.Signer)
-
-		digest := certutil.SHA1([]byte(prov.Manufacturer()))
-		_, err = signer.Sign(rand.Reader, digest, crypto.SHA1)
-		require.NoError(t, err)
+		assert.Nil(t, prov)
+		signSHA1(t, pvk)
 	})
 
 	t.Run("pkcs11URI", func(t *testing.T) {
-		pvk, err := prov.GenerateRSAKey("", 1024, 1)
+		pvk, err := tp.GenerateRSAKey("", 1024, 1)
 		require.NoError(t, err)
 
-		keyID, _, err := prov.IdentifyKey(pvk)
+		keyID, _, err := tp.IdentifyKey(pvk)
 		require.NoError(t, err)
 
-		uri, _, err := prov.ExportKey(keyID)
+		uri, _, err := tp.ExportKey(keyID)
 		require.NoError(t, err)
 
-		_, pvk, err = cp.LoadPrivateKey([]byte(uri))
+		prov, loaded, err := cp.LoadPrivateKey([]byte(uri))
 		require.NoError(t, err)
-		signer := pvk.(crypto.Signer)
-
-		digest := certutil.SHA1([]byte(prov.Manufacturer()))
-		_, err = signer.Sign(rand.Reader, digest, crypto.SHA1)
-		require.NoError(t, err)
+		assert.Same(t, tp, prov)
+		assert.Same(t, pvk, loaded)
+		signSHA1(t, loaded)
 	})
 
 	t.Run("fail", func(t *testing.T) {
-		_, _, err = cp.LoadPrivateKey([]byte(""))
-		assert.Error(t, err)
-		_, _, err = cp.LoadPrivateKey([]byte("pkcs11"))
-		assert.Error(t, err)
-		_, _, err = cp.LoadPrivateKey([]byte("pkcs11:manufacturer=test"))
-		assert.Error(t, err)
-		_, _, err = cp.LoadPrivateKey([]byte("pkcs11:manufacturer=testprov;id=123;type=private;serial=123"))
-		assert.Error(t, err)
-		_, _, err = cp.LoadPrivateKey([]byte("pkcs11:manufacturer=SoftHSM;id=123;type=private;serial=123"))
-		assert.Error(t, err)
+		for _, tc := range []struct {
+			key string
+			err string
+		}{
+			{key: "", err: "failed to parse key: "},
+			{key: "pkcs11", err: "failed to parse key: "},
+			{key: "pkcs11:manufacturer=test", err: "failed to parse key: "},
+			{
+				key: "pkcs11:manufacturer=testprov;id=123;type=private;serial=123",
+				err: `provider not found: testprov model: : provider for "testprov" and model "" not found`,
+			},
+			{
+				key: "pkcs11:manufacturer=SoftHSM;id=123;type=private;serial=123",
+				err: `provider not found: SoftHSM model: : provider for "SoftHSM" and model "" not found`,
+			},
+			{
+				key: "pkcs11:manufacturer=testprov;model=inmem;id=123;type=private;serial=123",
+				err: "unable to get key: 123: GetKey(123): ",
+			},
+		} {
+			_, _, err := cp.LoadPrivateKey([]byte(tc.key))
+			require.Error(t, err, tc.key)
+			assert.True(t, strings.HasPrefix(err.Error(), tc.err), "%s: %s", tc.key, err.Error())
+		}
 	})
 }
 
-func Test_LoadTLSKeyPair(t *testing.T) {
+func Test_LoadSigner_P11(t *testing.T) {
 	prov := loadP11Provider(t)
 	cp, err := cryptoprov.New(prov, nil)
+	require.NoError(t, err)
+
+	pvk, err := prov.GenerateRSAKey("", 1024, 1)
+	require.NoError(t, err)
+
+	keyID, _, err := prov.IdentifyKey(pvk)
+	require.NoError(t, err)
+
+	uri, _, err := prov.ExportKey(keyID)
+	require.NoError(t, err)
+
+	loadedProv, loaded, err := cp.LoadPrivateKey([]byte(uri))
+	require.NoError(t, err)
+	assert.Same(t, prov, loadedProv)
+	signSHA1(t, loaded)
+
+	_, _, err = cp.LoadPrivateKey([]byte("pkcs11:manufacturer=SoftHSM;model=" + prov.Model() + ";id=123;type=private;serial=123"))
+	require.Error(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "unable to get key: 123"), err.Error())
+}
+
+// signSHA1 checks that pvk is a crypto.Signer that signs.
+func signSHA1(t *testing.T, pvk crypto.PrivateKey) {
+	t.Helper()
+	signer, ok := pvk.(crypto.Signer)
+	require.True(t, ok, "crypto.Signer not supported: %T", pvk)
+	digest := certutil.SHA1([]byte("To Be Signed"))
+	_, err := signer.Sign(rand.Reader, digest, crypto.SHA1)
+	require.NoError(t, err)
+}
+
+func Test_LoadTLSKeyPair(t *testing.T) {
+	t.Parallel()
+
+	cp, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 	require.NoError(t, err)
 
 	tls, err := cp.LoadTLSKeyPair("testdata/test-cert.pem", "testdata/test-key.pem")

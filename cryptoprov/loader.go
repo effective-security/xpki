@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xlog"
 )
 
 // ProviderLoader is interface for loading provider by manufacturer
@@ -76,30 +77,63 @@ func LoadProvider(configLocation string) (Provider, error) {
 	return prov, nil
 }
 
-// Load returns Crypto with loaded providers from the given config locations
-func Load(defaultConfig string, providersConfigs []string) (*Crypto, error) {
+// Load returns Crypto with loaded providers from the given config locations.
+// Each config must name a different manufacturer and model than the others
+// (ErrDuplicateProvider). On error, Load closes the providers it already
+// loaded that implement Close() error.
+func Load(defaultConfig string, providersConfigs []string) (c *Crypto, err error) {
+	var loaded []Provider
+	defer func() {
+		if err != nil {
+			closeProviders(loaded)
+		}
+	}()
+
 	p, err := LoadProvider(defaultConfig)
 	if err != nil {
 		return nil, err
 	}
+	loaded = append(loaded, p)
 
-	c, err := New(p, nil)
+	c, err = New(p, nil)
 	if err != nil {
 		return nil, err
 	}
+	// the default provider is also listed by manufacturer and model
 	err = c.Add(p)
 	if err != nil {
 		return nil, err
 	}
 	for _, configLocation := range providersConfigs {
-		p, err := LoadProvider(configLocation)
+		p, err = LoadProvider(configLocation)
 		if err != nil {
 			return nil, err
 		}
-		err = c.Add(p)
-		if err != nil {
-			return nil, err
+		loaded = append(loaded, p)
+		if err = c.Add(p); err != nil {
+			return nil, errors.WithMessagef(err, "unable to add provider from %s", configLocation)
 		}
 	}
 	return c, nil
+}
+
+// closeProviders closes the providers that implement Close() error, such
+// as crypto11.PKCS11Lib, and logs the errors, since the caller is already
+// returning one.
+func closeProviders(providers []Provider) {
+	for _, p := range providers {
+		if isNilProvider(p) {
+			continue
+		}
+		if closer, ok := p.(interface{ Close() error }); ok {
+			if cerr := closer.Close(); cerr != nil {
+				logger.KV(xlog.ERROR,
+					"reason", "close",
+					"manufacturer", p.Manufacturer(),
+					"model", p.Model(),
+					"err", cerr.Error(),
+				)
+			}
+		}
+	}
 }

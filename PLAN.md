@@ -32,6 +32,7 @@ below and excluded from the pending queue.
 | PK2 | [XPKI-011](FINDINGS.md#xpki-011--pk2), [XPKI-006](FINDINGS.md#xpki-006--pk2) | **Fixed** | 2026-09-25 |
 | JW2 | [XPKI-066](FINDINGS.md#xpki-066--jw2), [XPKI-104](FINDINGS.md#xpki-104--jw2), [XPKI-100-jwt](FINDINGS.md#xpki-100-jwt--jw2) | **Fixed** (XPKI-100 stays In Progress) | 2026-09-25 |
 | CU2 | [XPKI-035](FINDINGS.md#xpki-035--cu2) | **Fixed** | 2026-09-25 |
+| CP1 | [XPKI-016](FINDINGS.md#xpki-016--cp1), [XPKI-026](FINDINGS.md#xpki-026--cp1), [XPKI-099-cryptoprov](FINDINGS.md#xpki-099-cryptoprov--cp1), [XPKI-100-cryptoprov](FINDINGS.md#xpki-100-cryptoprov--cp1) | **Fixed** (XPKI-099 and XPKI-100 stay In Progress) | 2026-09-26 |
 
 **SC1 / XPKI-093:** hardened SoftHSM setup argument handling, tool/module
 discovery, failure propagation, configuration selection, JSON encoding, and
@@ -531,6 +532,31 @@ covtest` (**91.6%**) and `make build docs` passed. `make test RACE=true`
 passed on its second run; the first hit the unrelated `authority` timing
 flake recorded as XPKI-111 (AU5).
 
+**CP1 / XPKI-016, XPKI-026, XPKI-099-cryptoprov, XPKI-100-cryptoprov
+(2026-09-26):** decisions: re-adding the same provider instance (compared with
+`reflect`, including the default) is a no-op. A different instance with a
+registered or the default manufacturer and model returns a wrapped
+`ErrDuplicateProvider`, so `Load` rejects two configs with the same key.
+Nil and typed-nil providers return a wrapped `ErrNilProvider` from `New` and
+`Add`. `Crypto` keys a `providerKey` struct map published copy-on-write
+through an `atomic.Pointer`: `Add` holds a mutex, and lookups do not lock.
+`Load` closes the providers it already loaded when it fails. Pre-fix:
+`TestCryptoConcurrentAddLookup` gave 17 race reports, and `concurrent map
+writes` without `-race`. A HEAD worktree showed panics for nil and typed-nil
+providers, silent replacement, a shadowed default-key provider, and a
+duplicate `inmem` `Load` that succeeded. After: `-race -count=20 -cpu 1,4,8`
+passes. Benchmarks (benchstat, `-count 6 -cpu 1,4`): lookup hits −15–31%
+serial and −19–25% on 4 CPUs, 0 allocs; misses unchanged except one +7.6%
+case. An RWMutex variant was rejected (46–71 ns parallel hits against 5.7–5.9
+ns). With one `Add` in 1024: 29.9 / 7.3 ns (serial / 4 CPUs). Tests: only four
+SoftHSM tests remain, gated by `requireSoftHSM`. HEAD failed 7 tests without
+the config. Now optional → 4 skips and a pass, required → fail, broken →
+fail. Built-in loaders are no longer unregistered, `Test_Load` no longer
+needs a checkout named `xpki`, and the empty `Test_Aws`/`Test_Gcp` became
+`TestLoad_KMSProviders` (no KMS contacted). Validation: `make lint` (0
+issues), `make test RACE=true TEST_FLAGS=-count=1`, `make build docs` and
+`make covtest` (**91.8%**; `cryptoprov` 81.6% → 84.9%) passed.
+
 ## Classification and priority
 
 The findings index still calls its classification column `Severity`, but its
@@ -574,7 +600,6 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| CP1 | `cryptoprov` | 016, 026; 099-cryptoprov, 100-cryptoprov | P1 / 34 | Medium: duplicate registrations and nil constructors | Duplicate/replacement policy |
 | GC1 | `cryptoprov/gcpkmscrypto` | 018, 023, 025-gcpkmscrypto | P1 / 34 | Medium: close/sign lifecycle and checksum validation | Nil signer-options contract |
 | AU3 | `authority` | 055 | P1 / 34 | High: live maps and pointer ownership | Snapshot/mutation contract |
 | OA1 | `jwt/oauth2client` | 081, 080 | P1 / 34 | High: registry consistency and mutable config pointers | Scope of unused verification settings |
@@ -815,17 +840,17 @@ PK2 needed boundary tests, not a speed benchmark, and added them.
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-016 — HIGH / race / 34 | [Crypto.Add / ByManufacturer](cryptoprov/provider.go) share an unlocked map; the duplicate branch compares metadata already embedded in the map key. Synchronize access and define idempotent re-add versus replacement/conflict behavior. | **Partial/compatibility constraint:** [Test_P11](cryptoprov/provider_test.go) explicitly expects adding the same provider twice to succeed. Preserve that case or migrate it intentionally; add different instances with the same key and overlapping Add/lookup tests using in-memory providers. |
-| XPKI-026 — MEDIUM / bug / 25 | New logs methods on a nil defaultProvider before validation. Reject nil with a wrapped input error and define whether typed-nil implementations are supported. | **Absent:** existing constructor paths use real providers. Add nil default, valid default/no extra providers, and nil entries in supplied provider lists if they are included in the input contract. |
+| XPKI-016 — HIGH / race / 34 — **Fixed (CP1, 2026-09-26)** | [Crypto](cryptoprov/provider.go) publishes a `providerKey` map copy-on-write (`atomic.Pointer`, `Add` under a mutex, lock-free lookups). Same-instance re-add is a no-op; a different instance with a registered or the default key is `ErrDuplicateProvider`; `Load` closes loaded providers on error. | **Verified:** [crypto_concurrency_test.go](cryptoprov/crypto_concurrency_test.go) reproduced 17 races and a fatal map write, then passed `-race -count=20 -cpu 1,4,8`; [crypto_test.go](cryptoprov/crypto_test.go) covers duplicates (registered, default, non-comparable values, key concatenation), the zero value and `Load` close-on-error; `Test_P11`'s double `Add` still passes. Benchmarked; see [completed batches](#completed-batches). |
+| XPKI-026 — MEDIUM / bug / 25 — **Fixed (CP1, 2026-09-26)** | `New` and `Add` return a wrapped `ErrNilProvider` for nil and typed-nil providers (checked with `reflect`); `New` names the bad list index. | **Verified:** HEAD panicked on `New(nil, nil)` and a typed-nil `Add`; `TestNew_Nil`, `TestNew_DefaultOnly` and the nil `Add` cases assert exact messages and both `errors.Is`. |
 | XPKI-027 — MEDIUM / correctness / 23 | [URI parsers](cryptoprov/uri.go) parse only `u.Opaque`, never RawQuery. Parse supported query attributes separately and preserve key identity; define duplicate/conflicting values and propagation of credentials/module selection. | **Partial:** [uri_test.go](cryptoprov/uri_test.go) covers only simple path-form attributes. Add query pin-value/module-path, encoded delimiters, invalid escaping, conflicting pin-source/pin-value, and legacy path compatibility. PrivateKeyURI exposes no credential fields, so parsing alone is not end-to-end propagation. |
 
 URI query syntax and the conflicting-PIN case are described in
 [RFC 7512 §2.3–2.4](https://www.rfc-editor.org/rfc/rfc7512.html#section-2.3).
-CP1/CP2 have medium compatibility risk. Keep PINs out of diagnostics while
-adding credential parsing. **Benchmark recommended for 016:** read-heavy
-lookup with occasional registration, comparing lock/snapshot overhead; not
-required to add a simple lock. CP2 needs no benchmark. CP1 also owns its
-099/100 test portions.
+**CP1 is Fixed (2026-09-26)**, including its 099/100 test portions; the 016
+benchmark compared lock and snapshot overhead and chose the copy-on-write
+snapshot (see [completed batches](#completed-batches)). CP2 has medium
+compatibility risk. Keep PINs out of diagnostics while adding credential
+parsing. CP2 needs no benchmark.
 
 ### cryptoprov/inmemcrypto — IM1; cryptoprov/testprov — TP1
 
@@ -1023,10 +1048,10 @@ classification; a high-priority batch can contain lower-priority test cleanup.
 
 | Finding / importance | Batch and owner | Evidence; expected outcome and completeness check |
 | --- | --- | --- |
-| XPKI-099 — LOW / docs / 11 | CP1 — `cryptoprov` | [Test_Aws/Test_Gcp](cryptoprov/provider_test.go) are empty; they prove nothing. Replace them with meaningful provider registration/loading contract tests or remove misleading stubs with accurate documentation. Backend tests already exist; GCP pagination is now covered in its own package, so do not duplicate an obsolete “no GCP EnumKeys test” claim. |
+| XPKI-099 — LOW / docs / 11 — **cryptoprov portion Fixed (CP1, 2026-09-26)** | CP1 — `cryptoprov` | The empty stubs are replaced by [TestLoad_KMSProviders](cryptoprov/provider_test.go): `Load` dispatches to the self-registered AWS (lazy client) and GCP (stubbed `KmsClientFactory`, restored) loaders without KMS, checks types, lookup and a duplicate AWS config; `TestRegistered` also checks `SoftHSM`. |
 | XPKI-099 — LOW / docs / 11 | CU4 — `certutil` | [TestKeyInfoKMS](certutil/keyinfo_test.go) connects to configured KMS and may create a key. Exercise pure KeyInfo with generated/local signer data and classify any retained KMS case as an explicit integration. Assert type, size, and public-key identity; no real cloud account should be needed for unit tests. |
 | XPKI-100 — MEDIUM / docs / 21 — **crypto11 portion Fixed (PK1, 2026-09-25)** | PK1 — `crypto11` | [TestMain](crypto11/crypto11_test.go) loads SoftHSM only when its config exists and closes it explicitly (a close error fails the run); SoftHSM tests call `requireP11` (`internal/testenv.RequireFile`), and pool/config/DSA tests are fixture-free. **Verified:** config absent → 21 skips and a pass; absent with `XPKI_INTEGRATION=required` → fail; present but broken → fail. |
-| XPKI-100 — MEDIUM / docs / 21 | CP1 — `cryptoprov` | [provider_test.go](cryptoprov/provider_test.go), [loader_test.go](cryptoprov/loader_test.go), [config_test.go](cryptoprov/config_test.go) require SoftHSM in fixture-dependent cases. Keep registry/URI/config unit tests runnable without it; guard only the real fixture-dependent cases and restore registry mutations. |
+| XPKI-100 — MEDIUM / docs / 21 — **cryptoprov portion Fixed (CP1, 2026-09-26)** | CP1 — `cryptoprov` | Only `Test_LoadConfig`, `Test_Load`, `Test_P11` and `Test_LoadSigner_P11` need SoftHSM and call `requireSoftHSM` (`testenv.RequireFile`); the rest use inmemcrypto/testprov; no test unregisters a built-in loader. **Verified:** HEAD failed 7 tests without the config; now optional → 4 skips and a pass, required → fail, broken config → fail. |
 | XPKI-100 — MEDIUM / docs / 21 | AW1 — `cryptoprov/awskmscrypto` | [awskmsprov_test.go](cryptoprov/awskmscrypto/awskmsprov_test.go) requires local-kms. Separate deterministic client-seam tests from emulator cases, and test both emulator-absent optional mode and required CI mode. |
 | XPKI-100 — MEDIUM / docs / 21 — **authority portion Fixed (AU2, 2026-09-25)** | AU2 — `authority` | The suite loads (without connecting) the local-kms provider; only `TestNewRoot` needs local-kms and is gated by `internal/testenv.RequireTCP`; `TestShakenRoot`/`TestIssuerSign` moved to `inmemcrypto`; SoftHSM is not used. Verified skip (optional), fail (`XPKI_INTEGRATION=required`) and a reachable-but-broken endpoint (fails) with `kms2` stopped. |
 | XPKI-100 — MEDIUM / docs / 21 | CS1 — `csr` | [csrprov_test.go](csr/csrprov_test.go) includes HSM-backed paths, while current `TestCSR` uses inmemcrypto. Scope fixture handling to actual external cases; the codemap's claim that TestCSR needs SoftHSM is stale. Assert unit SAN/parsing tests still run without it. |
@@ -1051,7 +1076,7 @@ Other baselines below still need to be created where marked required.
 | Finding(s) | Before-fix benchmark decision | What to record |
 | --- | --- | --- |
 | 002, 005 (PK1) — **Fixed** | **Recorded before/after comparison** (`sessions_bench_test.go`, `-cpu 1,4,16 -count 6`, benchstat, HEAD worktree; saturation `-benchtime=1x`, 10s bound) | GenRandom/ECDSA sign: no significant change except +2.1% one-CPU parallel GenRandom, allocs unchanged; Init/Close 81.5/113.2/143.0 → 57.1/56.4/55.1 µs, 12.3 → 5.6 KiB, live sessions after run 8.5k–15k → 0; saturation peak 1,100 → 1,024, stuck 76 → 0 |
-| 016 (CP1) | **Recommended**; minimal race fix need not wait | lookup latency/allocations and mixed registration throughput |
+| 016 (CP1) — **Fixed** | **Recorded before/after comparison** (`BenchmarkByManufacturer`, `BenchmarkByManufacturerWithAdd`, `-count 6 -cpu 1,4`, benchstat, before = unchanged code) | hits 0 allocs before/after: default 6.2–6.4 → 5.2–5.3 ns, registered 26.1–30.1 → 20.5–21.3 ns serial, 7.1–7.9 → 5.7–5.9 ns on 4 CPUs; misses 416 B / 7 allocs, not significant except +7.6% in one case; rejected RWMutex variant 46–71 ns parallel hits; mixed (1 Add in 1024) 29.9 / 7.3 ns vs RWMutex 27.8 / 53.1 ns, no pre-fix baseline (crash) |
 | 017-inmemcrypto (IM1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.25 → 17.15 ns/op, 0 allocations; misses 1902 → 1983 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |
 | 017-testprov (TP1) — **Fixed** | **Recorded serial hit/miss comparison** | median hits 12.79 → 17.97 ns/op, 0 allocations; misses 1842 → 1935 ns/op, 512 B / 9 allocations; generation excluded, mixed throughput not measured |
 | 018 (GC1) | **Not required** for close-only synchronization; conditional if all RPCs are serialized | if needed, sign/client-acquisition contention with a controlled client |

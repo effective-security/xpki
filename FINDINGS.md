@@ -37,7 +37,7 @@ drift; the symbol name is the stable reference.
 | XPKI-006 | crypto11                              | `config.go` `Init` token match                                 | Empty configured `TokenSerial`/`TokenLabel` matches any token with the empty field                                                                 | correctness | **Fixed** ([details](#xpki-006--pk2)) |
 | XPKI-007 | crypto11                              | `config.go` `Init`                                             | Loaded module (`pkcs11.New`) leaks on every error path after load                                                                                  | bug         | **Fixed** ([details](#xpki-007--pk1)) |
 | XPKI-011 | crypto11                              | `common.go` `BytesToUlong`                                     | Panics on empty input and reads out of bounds on short attribute values                                                                            | bug         | **Fixed** ([details](#xpki-011--pk2)) |
-| XPKI-016 | cryptoprov                            | `provider.go` `Crypto.Add`/`ByManufacturer`                    | No synchronization; duplicate check in `Add` is unreachable (key already includes model)                                                           | race        | Open           |
+| XPKI-016 | cryptoprov                            | `provider.go` `Crypto.Add`/`ByManufacturer`                    | No synchronization; duplicate check in `Add` is unreachable (key already includes model)                                                           | race        | Fixed |
 | XPKI-017 | cryptoprov/inmemcrypto, testprov      | `provider.go` `keyIDToPvk`                                     | Key map written by `Generate*` and read by `GetKey` without a lock (used by `authority/ocsp.go`)                                                   | race        | **Fixed** ([details](#xpki-017--im1)) |
 | XPKI-018 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `Close`                                        | Sets embedded `KmsClient` to nil unsynchronized; later `Sign` panics                                                                               | race        | Open           |
 | XPKI-019 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `GenerateRSAKey`                               | `purpose==2` sets ASYMMETRIC_DECRYPT with a SIGN algorithm; 4096-bit forces SHA512 while `Sign` picks digest from opts                             | correctness | Open           |
@@ -47,7 +47,7 @@ drift; the symbol name is the stable reference.
 | XPKI-023 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `keyInfo`, `signer.go` `Sign`                  | Direct proto field access (`VersionTemplate`, `SignatureCrc32C`) may nil-deref                                                                     | bug         | Open           |
 | XPKI-024 | cryptoprov/gcpkmscrypto               | `gcpkmsprov.go` `genKey`                                       | Up to 60 s blocking `time.Sleep` poll ignoring ctx; matches error by substring                                                                     | performance | Open           |
 | XPKI-025 | cryptoprov/awskmscrypto, gcpkmscrypto | `signer.go` `Sign`                                             | `opts == nil` → nil interface method call panic (`inmemcrypto` defaults to SHA256)                                                                 | bug         | Open           |
-| XPKI-026 | cryptoprov                            | `provider.go` `New`                                            | `New(nil, ...)` panics on `defaultProvider.Manufacturer()`                                                                                         | bug         | Open           |
+| XPKI-026 | cryptoprov                            | `provider.go` `New`                                            | `New(nil, ...)` panics on `defaultProvider.Manufacturer()`                                                                                         | bug         | Fixed |
 | XPKI-027 | cryptoprov                            | `uri.go` `ParseTokenURI`/`ParsePrivateKeyURI`                  | RFC 7512 `?pin-value=`/`?module-path=` query attributes are dropped                                                                                | correctness | Open           |
 | XPKI-031 | cryptoprov/awskmscrypto               | `awskmsprov.go` `GenerateRSAKey`                               | `purpose==2` creates ENCRYPT_DECRYPT key but returns a `Signer`; no `crypto.Decrypter`                                                             | correctness | Open           |
 | XPKI-032 | cryptoprov/awskmscrypto               | `awskmsprov.go` `EnumKeys`                                     | Lists every key in the account then one `DescribeKey` per key (N+1); `prefix` ignored                                                              | performance | Open           |
@@ -96,8 +96,8 @@ drift; the symbol name is the stable reference.
 | XPKI-096 | build                                 | `Makefile` `tools`                                             | Tools installed `@latest`; a golangci-lint major bump can break `.golangci.yaml`                                                                   | correctness | Open           |
 | XPKI-097 | build                                 | `internal/version/current.go`, `Makefile` `version`            | Tracked generated file is stale (`v0.2.76`); `make version` not wired into `build`/`all`/CI                                                        | bug         | Open           |
 | XPKI-098 | build                                 | `docker-compose.yml`                                           | Obsolete `version:`; fixed subnet is a public range; `local-kms` image untagged                                                                    | correctness | Open           |
-| XPKI-099 | tests                                 | `cryptoprov/provider_test.go` `Test_Aws`/`Test_Gcp`            | Empty stubs; `certutil.TestKeyInfoKMS` needs live KMS                                                                                              | docs        | Open           |
-| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority](#xpki-100-authority--au2), [crypto11](#xpki-100-crypto11--pk1), [jwt](#xpki-100-jwt--jw2) portions) |
+| XPKI-099 | tests                                 | `cryptoprov/provider_test.go` `Test_Aws`/`Test_Gcp`            | Empty stubs; `certutil.TestKeyInfoKMS` needs live KMS                                                                                              | docs        | In Progress ([cryptoprov](#xpki-099-cryptoprov--cp1) portion; certutil in CU4) |
+| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress ([authority](#xpki-100-authority--au2), [crypto11](#xpki-100-crypto11--pk1), [jwt](#xpki-100-jwt--jw2), [cryptoprov](#xpki-100-cryptoprov--cp1) portions) |
 | XPKI-101 | tests                                 | `cmd/hsm-tool/cli/hsm_cli_test.go`                             | Shared kong parser across `Parse` calls masks the `--cfg` required check                                                                           | docs        | Open           |
 | XPKI-102 | cmd/xpki-tool/cli                     | `ocsp.go` `OCSPFetchCmd.Run`                                   | All OCSP endpoint failures are printed but the command returns success                                                                             | correctness | Open           |
 | XPKI-103 | certutil, cmd/xpki-tool/cli           | `ocsp.go` `CreateOCSPRequest`, `certs.go` `OCSPValidation`     | Nil issuer certificate panics instead of returning an input error                                                                                  | bug         | Open           |
@@ -112,6 +112,135 @@ drift; the symbol name is the stable reference.
 | XPKI-112 | jwt                                   | `jwt.go` `provider.ParseToken`                                     | The `NewProvider` HS256 key ring also verifies HS384/HS512 tokens signed with a ring key; only `NewProviderWithSymmetricKey` is pinned to HS256 (found in the PR #543 review)                              | correctness | Open           |
 
 ## Fixed items
+
+### XPKI-016 — CP1
+
+**Fixed on 2026-09-26.** Approved policy: adding the same provider instance
+again is a no-op, and a different instance with the same manufacturer and
+model is an error. `Crypto.Add` and `ByManufacturer` shared an unlocked map,
+so an `Add` running while lookups ran could abort the process. The duplicate
+check in `Add` could never fire, because the map key already contained the
+manufacturer and model, so a second provider silently replaced the first. A
+provider added with the default's key was stored but never returned, since
+`ByManufacturer` checks the default first.
+Now `Crypto` keys a `providerKey{manufacturer, model}` map (a joined string
+key made `"x@y"+"z"` and `"x"+"y@z"` equal), and publishes it copy-on-write
+through an `atomic.Pointer`. A mutex serializes `Add`, and lookups do not
+lock. The default provider's key is computed once in `New`. `Add` of the same
+instance, including the default, returns nil. A different instance with a
+registered or the default key returns a wrapped `ErrDuplicateProvider`
+(`manufacturer "M" and model "X": duplicate provider`); the original stays.
+Instances are compared with `reflect`, so a non-comparable provider value is
+never "the same" and never panics. The zero `Crypto` works without a default.
+Compatibility: `Load` now fails when two token configs share manufacturer
+and model; before, the later one was silently kept, or shadowed by the
+default. Because of that new error path, `Load` now closes the providers it
+has already loaded (those with `Close() error`, such as a PKCS#11 library)
+whenever it returns an error. `Test_P11`'s repeated `Add(prov)` still passes.
+`ByManufacturer`'s not-found message is unchanged.
+
+Validation:
+
+- Before the fix, `TestCryptoConcurrentAddLookup` (8 workers adding 32
+  shared providers, re-adding one and looking up three keys) gave 17 race
+  reports under `-race` (`provider.go` `Add` against `ByManufacturer`), and
+  `fatal error: concurrent map writes` without `-race` in 200 runs. A HEAD
+  worktree also showed a different instance replacing a registered one with
+  no error, a different default-key instance stored but never returned, and
+  `Load("", ["testdata/inmem_testprov.json"])` succeeding with two `inmem`
+  providers.
+- After: the test passes `-race -count=20 -cpu 1,4,8` and 500 runs without
+  `-race`; it checks that every lookup returns the exact instance.
+  `TestCryptoAdd_Duplicates`, `TestCryptoAdd_ValueProviders`,
+  `TestCrypto_ZeroValue`, `TestLoad_ClosesOnError` (duplicate: all 3 loaded
+  providers closed; missing extra config: the default closed; success: none
+  closed), `TestLoad_InmemDuplicate` and the duplicate AWS config in
+  `TestLoad_KMSProviders` check exact errors, `errors.Is` from both stdlib and
+  cockroachdb, and that the original provider is kept.
+- Benchmarks (benchstat, `-count 6 -cpu 1,4`, before = unchanged code): all
+  lookup hits are faster, with 0 allocations before and after. Default
+  6.2–6.4 → 5.2–5.3 ns serial (−15–19%); registered 26.1–30.1 → 20.5–21.3
+  ns serial (−20–31%); registered on 4 parallel CPUs 7.1–7.9 → 5.7–5.9 ns
+  (−19–25%). Misses (1.4–1.9 µs, 416 B / 7 allocs, spent formatting the error)
+  show no significant change except +7.6% in one serial-4 case at 16
+  providers. An RWMutex version was measured first and rejected: parallel
+  registered hits rose to 46–71 ns on 4 CPUs. `BenchmarkByManufacturerWithAdd`
+  (lookups with one `Add` in 1024, 64 real inserts, then re-adds): 29.9 ns
+  serial and 7.3 ns on 4 CPUs, against 27.8 / 53.1 ns for the RWMutex version.
+  The old code has no baseline here because it crashes. Each insert copies
+  the map, which is fine for the few providers a process registers.
+
+### XPKI-026 — CP1
+
+**Fixed on 2026-09-26.** Approved policy: reject typed nils too. `New(nil,
+…)` called `Manufacturer()` on the nil default and panicked; so did
+`Add(nil)` and a nil entry in `New`'s list. Now `New` returns a wrapped
+`ErrNilProvider` (`default provider is required: nil provider`) for a nil
+default, and `Add` returns one (`unable to add provider: nil provider`) for a
+nil provider. `New` reports a bad list entry by index (`unable to add
+provider at index 1: …`). A typed nil (a nil pointer, map, slice, func,
+channel or interface held by the `Provider` interface) counts as nil, so no
+provider method is ever called on it.
+
+Validation: a HEAD worktree check recovered `nil pointer dereference`
+panics from `New(nil, nil)` and from `Add` of a typed nil. `TestNew_Nil`
+(untyped and typed nil defaults, nil list entry) and the `nil` case of
+`TestCryptoAdd_Duplicates` assert the exact messages, a nil `*Crypto`, and
+`errors.Is` from both stdlib and cockroachdb. `TestNew_DefaultOnly` covers a
+valid default with no extra providers.
+
+### XPKI-099-cryptoprov — CP1
+
+**cryptoprov portion Fixed on 2026-09-26; XPKI-099 stays In Progress (certutil
+portion in CU4).** The empty `Test_Aws`/`Test_Gcp` are replaced by
+`TestLoad_KMSProviders`. It loads `awskmscrypto/testdata/aws-dev-kms.json`
+and a GCP token config through `cryptoprov.Load`, by the loaders the
+packages register in `init()`. The AWS client is created lazily, and
+`gcpkmscrypto.KmsClientFactory` is swapped for a stub and restored at
+cleanup, so the test contacts no KMS. It checks the provider types, lookup by
+manufacturer and model, that the stub client reached the GCP provider, and
+that a second AWS config with the same manufacturer and model is rejected.
+`TestRegistered` now also checks `SoftHSM`. `TestLoadProvider_Registry`
+replaces the SoftHSM `Test_LoadProvider` with a throwaway loader. Backend
+behavior stays covered in the backend packages.
+
+### XPKI-100-cryptoprov — CP1
+
+**cryptoprov portion Fixed on 2026-09-26; XPKI-100 stays In Progress.** Only
+four tests need SoftHSM: `Test_LoadConfig`, `Test_Load`, `Test_P11` and the
+new `Test_LoadSigner_P11`. They start with `requireSoftHSM`
+(`testenv.RequireFile` on `SoftHSMConfig`), and `loadP11Provider` closes the
+library at cleanup. `Test_LoadSigner` (the PEM, `pkcs11:` URI via `testprov`
+and failure cases), `Test_LoadTLSKeyPair`, `TestNewSigner` and the
+missing-config check now use `inmemcrypto`/`testprov`. The registry changes
+are undone: `Test_LoadProvider` and `Test_Load` used to unregister the
+`SoftHSM` loader that `crypto11` registers in `init()` and leave it
+unregistered. No test unregisters a built-in loader now; the throwaway
+`cryptoprov-test-closer` loader is unregistered at cleanup. `Test_Load` used
+`../../xpki/cryptoprov/testdata`, which failed in a checkout not named
+`xpki`; it now uses `testdata/`.
+
+Validation, with `/tmp/xpki/softhsm_unittest.json` moved aside and restored
+(verified byte-identical afterwards):
+
+- HEAD with the config missing: 7 tests failed (`Test_Load`,
+  `Test_LoadConfig`, `Test_LoadProvider`, `Test_LoadSigner`,
+  `Test_LoadTLSKeyPair`, `TestNewSigner`, `Test_P11`).
+- Missing, variable unset: the four SoftHSM tests were skipped (`SoftHSM
+  config is not found …`) and the package passed.
+- Missing, `XPKI_INTEGRATION=required`: the four tests failed.
+- Present but broken (invalid JSON): the four tests failed instead of
+  skipping.
+- Restored: the package passed with `XPKI_INTEGRATION=required`.
+
+Remaining XPKI-100 portions: AW1 (awskmscrypto), CS1 (csr), CU4 (certutil)
+and HC1 (cmd/hsm-tool/cli).
+
+CP1 validation (all four items): `go test ./cryptoprov -cover` 81.6% at HEAD
+→ 84.9%. `make lint` (0 issues) and `make test RACE=true
+TEST_FLAGS=-count=1` passed, uncached, with SoftHSM and local-kms.
+`make build docs` and `make covtest` (all packages passed, total **91.8%**)
+passed.
 
 ### XPKI-035 — CU2
 
@@ -268,7 +397,8 @@ Validation, with the `xpki-kms-kms1-1` container stopped and then restarted:
   passed again.
 
 Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
-(csr), CU4 (certutil) and HC1 (cmd/hsm-tool/cli).
+(csr), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The cryptoprov portion was fixed later by CP1
+([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)).
 
 JW2 validation (all three items): `make lint` (0 issues), `make covtest` (all
 packages passed, total coverage **91.5%**; `jwt` 92.6% at HEAD → 93.0%) and
@@ -644,7 +774,8 @@ PR #540 second-round follow-ups (2026-09-25):
 
 Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
 (csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The jwt portion
-was fixed later by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)).
+was fixed later by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)). The cryptoprov portion was fixed later by CP1
+([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)).
 
 ### XPKI-051 — AU2
 
@@ -847,7 +978,8 @@ Validation, with the `kms2` container (`:14556`) stopped and then restarted:
 Remaining XPKI-100 portions: CP1 (cryptoprov), AW1 (awskmscrypto), CS1
 (csr), JW2 (jwt), CU4 (certutil) and HC1 (cmd/hsm-tool/cli). The crypto11
 portion was fixed later by PK1 ([XPKI-100-crypto11](#xpki-100-crypto11--pk1)),
-and the jwt portion by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)).
+and the jwt portion by JW2 ([XPKI-100-jwt](#xpki-100-jwt--jw2)). The cryptoprov portion was fixed later by CP1
+([XPKI-100-cryptoprov](#xpki-100-cryptoprov--cp1)).
 Use `internal/testenv`.
 
 ### XPKI-078 — AT1
@@ -1630,5 +1762,9 @@ Validation passed:
 - **XPKI-035** was approved and fixed by CU2 on 2026-09-25 (copy-on-write pools
   under an RWMutex; the exported fields are set-up state; no cross-call AIA
   coalescing).
+- **XPKI-016 / XPKI-026** were approved and fixed by CP1 on 2026-09-26 (re-adding
+  the same provider instance is a no-op, a different instance with the same
+  manufacturer and model is `ErrDuplicateProvider`, and nil and typed-nil
+  providers are `ErrNilProvider`).
 - **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
   until the remaining `gosec`/`gocritic` style findings are triaged.
