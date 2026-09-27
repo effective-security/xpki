@@ -89,10 +89,11 @@ Do not start by grepping the tree.
 - Use `package foo_test` for black-box tests and `package foo` only when a
   test needs unexported seams.
 - External fixtures: PKCS#11 tests need the SoftHSM token described by
-  `/tmp/xpki/softhsm_unittest.json` (`make hsmconfig`); AWS KMS tests need
-  the `local-kms` containers on `:14555` and `:14556`
-  (`make start-local-kms`) and the dummy `AWS_*` variables exported by the
-  Makefile; GCP KMS tests use an in-process fake KMS client.
+  `/tmp/xpki/softhsm_unittest.json` (`make hsmconfig`); the AWS KMS
+  integration tests need the `local-kms` containers on `:14555` and
+  `:14556` (`make start-local-kms`) and the dummy `AWS_*` variables exported
+  by the Makefile; the AWS and GCP KMS unit tests use in-process fake KMS
+  clients.
   Do not hard-code other paths; reuse the constants the packages define.
 - Gate only the tests that need a fixture, with
   `internal/testenv` (for example `testenv.RequireTCP(t, "local-kms",
@@ -148,14 +149,13 @@ run `make lint` or the race detector; run both locally.
 
 #### Track bugs and issues status
 
-- In the same change as each verified fix, mark its `FINDINGS.md` index row
-  **Fixed** and retain it. Add the finding ID, batch, completion date, concise
-  change summary, and actual validation commands/results under **Fixed items**.
-  Do not delete completed findings or reuse their IDs.
-- Update `PLAN.md` when present, even if it is ignored by Git: explicitly mark
-  the finding and batch **Fixed**, record the same date and validation, and
-  move completed batches out of the pending queue. Update their assessment
-  rows so they do not still describe missing implementation or tests.
+- `FINDINGS.md`, `PLAN.md` and `ROADMAP.md` hold open work only. In the same
+  change as each verified fix, remove the finding from `FINDINGS.md` and its
+  batch and assessment rows from `PLAN.md` (when present, even if it is
+  ignored by Git), and summarize it in the release notes of the next version,
+  `Documentation/RELEASE_NOTES_<version>.md`:
+  the fix, new behavior, and what clients must change. Record the actual
+  validation in the commit or PR. Never reuse finding IDs.
 - A finding spanning multiple packages is Fixed only after every linked
   portion is implemented and verified. Record partial progress and remaining
   work without closing the whole finding or batch. Record validation limits;
@@ -190,7 +190,7 @@ Start here instead of grepping the tree.
   dependencies, test layout, build and CI.
 - **[`README.md`](README.md)** — high-level overview, package table,
   configuration samples and quick-start code.
-- **[`FINDINGS.md`](FINDINGS.md)** — known defects and verified fixes, referenced by ID from
+- **[`FINDINGS.md`](FINDINGS.md)** — open defects, referenced by ID from
   code comments. Read it before "fixing" surprising behavior: it may
   already be recorded, with the compatibility decision still open.
 - **[`PLAN.md`](PLAN.md)**, when present — remediation batches, pending work,

@@ -59,7 +59,7 @@ consumers. Nothing in the library imports `cmd/`.
 | PKCS#11 key generation / lookup            | `crypto11/keys.go`, `rsa.go`, `ecdsa.go`                                     | `GenerateRSAKey`, `GenerateECDSAKey`, `FindKeyPair*`, `GetKey`, `ExportKey`                                                   |
 | PKCS#11 signing / decryption               | `crypto11/rsa.go`, `crypto11/ecdsa.go`                                       | `PKCS11PrivateKeyRSA.Sign/Decrypt`, `PKCS11PrivateKeyECDSA.Sign`                                                              |
 | PKCS#11 token / key enumeration            | `crypto11/provider.go`, `crypto11/util.go`                                   | `EnumTokens`, `EnumKeys`, `KeyInfo`, `DestroyKeyPairOnSlot`                                                                   |
-| AWS KMS                                    | `cryptoprov/awskmscrypto/awskmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `Signer`                                                                             |
+| AWS KMS                                    | `cryptoprov/awskmscrypto/awskmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `KmsClient`, `NewSigner`, `Signer.SigningAlgorithms`, `Provider.EnumKeys`           |
 | GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory` (takes the endpoint), `KmsClient`, `KeyLabelAndID`, `NewSigner`, `Signer.Algorithm`, `Crc32c`, `Provider.Close`, `ErrClosed` |
 | In-memory keys                             | `cryptoprov/inmemcrypto/provider.go`, `concurrency_test.go`                   | `NewProvider`, `Loader`, `ProviderName`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                   |
 | Test-provider key registry                 | `cryptoprov/testprov/provider.go`, `concurrency_test.go`                     | `Init`, `Loader`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                                        |
@@ -314,9 +314,41 @@ token unless the test destroys them.
 
 Invariants: KMS providers call the SDKs with `context.Background()` (ROADMAP);
 `KmsClientFactory` package vars are the test seams (the GCP one takes the
-`Endpoint` attribute, applied with `option.WithEndpoint`, XPKI-021); AWS
-`EnumKeys` is a full account scan with one `DescribeKey` per key (XPKI-032);
-GCP `Close` must be called to release gRPC.
+`Endpoint` attribute, applied with `option.WithEndpoint`, XPKI-021); GCP
+`Close` must be called to release gRPC.
+AWS credentials, the default region and retries come from the SDK default
+chain (`config.LoadDefaultConfig`), which reads `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` before the shared config;
+`Init` no longer copies them into a static provider (XPKI-034: it was
+redundant, and static environment credentials are not refreshable either
+way). The `Region` attribute overrides the SDK region; `Endpoint` sets
+`BaseEndpoint`. AWS keys are signing keys only: `GenerateRSAKey` rejects
+purpose 2 and a key size other than 2048/3072/4096 before any RPC, and
+`GetKey` returns an error for a key whose usage is not `SIGN_VERIFY` or
+that is `PendingDeletion` (XPKI-031; a `Disabled` key gets a signer, since
+it can be enabled again); a label becomes the key description and,
+sanitized to `[a-zA-Z0-9:/_-]` with `aws/` stripped, its alias (an alias
+failure is logged, not returned). A created key whose public key can not
+be fetched or parsed is scheduled for deletion (`discardKey`, best effort,
+logged) before the error is returned. `NewSigner` needs the algorithms
+KMS reports for the key; with none, every `Sign` fails. AWS `Signer.Sign` (XPKI-025) requires non-nil opts:
+the hash selects the KMS algorithm (`RSASSA_PKCS1_V1_5_*`, `RSASSA_PSS_*`
+with `*rsa.PSSOptions`, `ECDSA_*`), which must be in the `SigningAlgorithms`
+KMS reported for the key (an ECDSA key has only its curve's), the digest
+must have the hash length, PSS options are rejected for an ECDSA key and
+the PSS salt must be `PSSSaltLengthEqualsHash` or the hash size (KMS signs
+with the hash-length salt; local-kms uses a maximal salt); all checked
+before any RPC, and a nil or empty response is an `empty response` error.
+AWS `EnumKeys` (XPKI-032, XPKI-033) lists `SIGN_VERIFY` keys that are not
+`PendingDeletion` whose label (the description, also `KeyInfo.Label`)
+starts with `prefix`, in `ListKeys` order: KMS lists ids only, so every key
+of the account is described (pages of 1000, `DescribeKey` at most 8 at a
+time, the unexported `describeConcurrency`), which needs `kms:DescribeKey`
+on every key. A key the caller may not describe (`AccessDeniedException`)
+is left out and logged at WARNING; any other `ListKeys` or `DescribeKey`
+failure cancels the calls in flight and is returned wrapped (`errors.As`
+finds the `smithy.APIError`), and a truncated page without a marker is
+also an error; there is no partial result.
 GCP key identity (XPKI-020): a key ID is `K` or `K/cryptoKeyVersions/N`;
 `GetKey`, `KeyInfo` and `DestroyKeyPairOnSlot` use the named version. A bare
 `K` is resolved at each call from `ListCryptoKeyVersions`: `GetKey` signs
@@ -363,8 +395,7 @@ responses are `empty response` errors; missing optional metadata
 (`VersionTemplate`, `CreateTime`) is omitted from `KeyInfo` (no
 `protection`/`algo` Meta, nil `CreationTime`), the selected version supplies
 `CurrentVersionID`, `state` and, when set, `algo`/`protection`, and GCP key
-labels are sorted by name. AWS `Signer.Sign` with nil opts still panics
-(XPKI-025-awskmscrypto, AW1); `inmemcrypto.NewProvider()` is
+labels are sorted by name. `inmemcrypto.NewProvider()` is
 used at runtime by `authority/ocsp.go` for delegated responder keys. Both
 `inmemcrypto` and `testprov` registries use an RWMutex for map publication
 and lookup (XPKI-017, Fixed by IM1 and TP1). Key generation, signing,
@@ -374,8 +405,24 @@ Lookups retain signer identity. `inmemcrypto` exports caller-owned PKCS#1
 PKCS#11 URI with nil key bytes. Token configuration passed to `Loader` must
 remain unchanged during use. Metrics: `metricskey.PerfCryptoOperation`.
 
-Tests: `awskmsprov_test.go` needs `local-kms` on `:14556`
-(`make start-local-kms`, dummy `AWS_*` env). GCP tests need no fixture and no
+Tests: AWS `awskmsprov_test.go` (`Test_KmsProvider`) needs `local-kms` on
+`:14556` (`make start-local-kms`, dummy `AWS_*` env) and is gated with
+`testenv.RequireTCP` (XPKI-100); it verifies every signature locally and
+lists the keys of its run by a unique prefix. The other AWS tests use
+`fake_test.go`'s `fakeKMS`, an in-memory `KmsClient` with real local key
+pairs (one cached per spec), KMS-shaped errors (`types.*Exception`,
+`smithy.GenericAPIError`), paging, call counts, per-method overrides and
+`DescribeKey` latency/failure hooks with peak-concurrency tracking;
+`export_test.go` has `NewTestProvider` and `SetDescribeConcurrency`.
+`signer_test.go` covers local option rejection without RPC and signature
+verification per algorithm; `generate_test.go` purpose/size rejection,
+aliases, `GetKey` usage and empty responses; `enum_test.go` prefix
+contents, paging, failures at every position with no partial result and
+kept error identity, and bounded concurrency; `enum_bench_test.go`
+`BenchmarkEnumKeys` (calls, listed keys and peak concurrency per listing);
+`init_test.go` the SDK credential chain, region/endpoint attributes and
+`Init` errors (it swaps the global factory and the environment, so it is not
+parallel). GCP tests need no fixture and no
 testify mock. `gcpkmscrypto/kmsserver_test.go` is an in-process gRPC KMS
 (`fakeKMSServer`: keys and versions with real local keys, id/label/state/digest
 checks, paged version listing, injectable pending polls and creation errors)
@@ -875,7 +922,7 @@ conflicts/overrides; it makes no network requests.
 | Fixture                                                                                          | Provided by                                    | Needed by                                                                                             |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr`                                                    |
-| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto`, `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS` only, gated), `cmd/hsm-tool/cli` (`csr_test.go`) |
+| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto` (`Test_KmsProvider` only, gated), `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS` only, gated), `cmd/hsm-tool/cli` (`csr_test.go`) |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
 
