@@ -2,7 +2,7 @@
 
 Pending remediation batches for the open items in [FINDINGS.md](FINDINGS.md).
 Every batch of the 2026-09-20 audit is complete and summarized in
-[`Documentation/RELEASE_NOTES_0.29.md`](Documentation/RELEASE_NOTES_0.29.md);
+[`Documentation/RELEASE_NOTES_1.0.md`](Documentation/RELEASE_NOTES_1.0.md);
 their plans, validation and benchmarks are in git history. When a batch is
 fixed, remove it and its assessment rows from this file, remove its findings
 from FINDINGS.md, and summarize the change in the next release notes.
@@ -14,12 +14,12 @@ values are **types**. This plan preserves those types and assigns **proposed
 severity** independently. Severity estimates assume the affected feature is
 used; deployment exposure can change the estimate. They are not CVSS scores.
 
-| Severity | Meaning for this library | Priority |
-| --- | --- | --- |
-| CRITICAL | Untrusted input can bypass certificate issuance policy at a trust boundary | P0: address first |
-| HIGH | Authentication/trust protection fails, a normal feature hangs/crashes, or concurrent use can stop a process | P1: next remediation cycle |
-| MEDIUM | A supported operation fails under particular inputs/configuration, or reliability/performance is materially impaired | P2: scheduled remediation |
-| LOW | Limited interoperability, metadata, documentation, or tooling impact | P3: follow-up |
+| Severity | Meaning for this library                                                                                             | Priority                   |
+| -------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| CRITICAL | Untrusted input can bypass certificate issuance policy at a trust boundary                                           | P0: address first          |
+| HIGH     | Authentication/trust protection fails, a normal feature hangs/crashes, or concurrent use can stop a process          | P1: next remediation cycle |
+| MEDIUM   | A supported operation fails under particular inputs/configuration, or reliability/performance is materially impaired | P2: scheduled remediation  |
+| LOW      | Limited interoperability, metadata, documentation, or tooling impact                                                 | P3: follow-up              |
 
 **Importance = severity first, then type.** For a sortable score, assign
 severity CRITICAL=4, HIGH=3, MEDIUM=2, LOW=1 and type security=6, bug=5,
@@ -49,7 +49,7 @@ No open batches. New findings get a batch here with the columns below when
 they are recorded in FINDINGS.md:
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
-| --- | --- | --- | --- | --- | --- |
+| ----- | ----- | -------------------------------------- | ---------------- | --------------- | -------- |
 
 Conventions that carry over to the next batches:
 
@@ -106,7 +106,7 @@ For each batch:
    benchmark comparison and concurrency validation for that batch.
 4. Run required integration checks using the established SoftHSM and local-kms
    fixtures. Use `make lint`; shared-state changes also require `make test
-   RACE=true`.
+RACE=true`.
    Overlapping CLI coverage and race runs need separate output files.
    Preserve the actual CI coverage gate and exclusions; adding skips must not
    hide integration execution in CI.

@@ -19,7 +19,7 @@ with `context.Background()` and a `Sign` can hang on a network stall. Add
 
 `awskmscrypto` and `gcpkmscrypto` reject `GenerateRSAKey` purpose 2 and
 return no key for an `ENCRYPT_DECRYPT` key, since neither implements
-`crypto.Decrypter` (v0.29). A KMS-backed decrypter (AWS `RSAES_OAEP_SHA_256`,
+`crypto.Decrypter` (v1.0). A KMS-backed decrypter (AWS `RSAES_OAEP_SHA_256`,
 GCP `RSA_DECRYPT_OAEP_*`) needs `KeyManager` listing and `GetKey` to return
 a decrypter for such keys, and `crypto11`-compatible `*rsa.OAEPOptions`
 handling; add it when a caller needs KMS-held encryption keys.
@@ -27,7 +27,7 @@ handling; add it when a caller needs KMS-held encryption keys.
 ## DPoP: replay protection and access-token binding
 
 `dpop.VerifyConfig` has an opt-in `ReplayCache` (in-memory only), `ath` and
-`cnf.jkt` binding, and a trusted `ExternalURL` (v0.29). Remaining:
+`cnf.jkt` binding, and a trusted `ExternalURL` (v1.0). Remaining:
 
 - a shared `ReplayCache` implementation (for example Redis `SET NX` with an
   expiry) for servers with several instances;
@@ -38,22 +38,22 @@ handling; add it when a caller needs KMS-held encryption keys.
 ## JWKS client hardening
 
 `jwt.RemoteKeySet` has an injected client, a timeout, a body limit and a
-refresh cooldown (v0.29). Remaining: TTL-based background refresh (honouring
+refresh cooldown (v1.0). Remaining: TTL-based background refresh (honouring
 `Cache-Control`), so removed keys expire and new keys are picked up before the
 first miss, and `ParserConfig` fields for the `RemoteKeySet` options, which
 `NewParser` currently leaves at the defaults.
 
 ## PKCS#11 session management
 
-Remaining after v0.29: a `context.Context`-aware borrow (today a borrower at
+Remaining after v1.0: a `context.Context`-aware borrow (today a borrower at
 the session limit waits without a deadline, since `crypto.Signer` has no
 context). The deprecated exported `BytesToUlong` can be removed in the next
-major version, and `PKCS11Object.Handle` (stale after a logout since v0.29
+major version, and `PKCS11Object.Handle` (stale after a logout since v1.0
 refreshes handles internally) can become an accessor.
 
 ## certutil bundler concurrency
 
-Remaining after v0.29: coalescing concurrent AIA fetches of
+Remaining after v1.0: coalescing concurrent AIA fetches of
 the same URL across calls (each call still fetches once), and replacing the
 exported mutable `RootPool`/`IntermediatePool`/`KnownIssuers` fields with
 accessors in the next major version. Encrypted PKCS#8 supports PBES2 with
@@ -71,7 +71,7 @@ needs them. Drop legacy RFC 1423 PEM decryption
 
 `NewSymmetric` blobs are `nonce || ciphertext || tag` with no version or key
 id, so callers track which secret protected a blob and re-protect on read
-(v0.29 documents the limits: key material of 32 bytes or more, at most 2^32
+(v1.0 documents the limits: key material of 32 bytes or more, at most 2^32
 messages per secret). Add a versioned format (`version || key-id || nonce ||
 ciphertext || tag`), a multi-key provider that decrypts with retired secrets
 and encrypts with the current one, and a per-secret `Protect` counter or

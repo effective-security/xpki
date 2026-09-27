@@ -8,7 +8,7 @@ import (
 // build is the build version, "[v]major.minor.commit[-dirty]", set by the
 // linker:
 //
-//	go build -ldflags "-X github.com/effective-security/xpki/internal/version.build=v0.29.123"
+//	go build -ldflags "-X github.com/effective-security/xpki/internal/version.build=v1.0.123"
 //
 // make build passes GIT_VERSION (.VERSION, the commit count and a dirty
 // suffix). Without it, the version comes from the module build information

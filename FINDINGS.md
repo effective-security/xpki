@@ -9,8 +9,8 @@ fixed, remove it from this file and `PLAN.md`, and summarize it in the
 release notes of the next version (`Documentation/RELEASE_NOTES_<version>.md`).
 A finding spanning several packages stays here until every portion is fixed.
 IDs are never reused; gaps are fixed or removed findings. The next free ID is
-**XPKI-126**. Findings fixed in v0.29 are listed in
-[`Documentation/RELEASE_NOTES_0.29.md`](Documentation/RELEASE_NOTES_0.29.md);
+**XPKI-126**. Findings fixed in v1.0 are listed in
+[`Documentation/RELEASE_NOTES_1.0.md`](Documentation/RELEASE_NOTES_1.0.md);
 their full records are in git history.
 
 ## Status
@@ -30,18 +30,18 @@ symbol name is the stable reference.
 
 ## Index
 
-| ID | Package | Location | Title | Severity | Status |
-| -- | ------- | -------- | ----- | -------- | ------ |
+| ID  | Package | Location | Title | Severity | Status |
+| --- | ------- | -------- | ----- | -------- | ------ |
 
 No open findings. Every finding of the 2026-09-20 audit (XPKI-001..125) is
 fixed and summarized in
-[`Documentation/RELEASE_NOTES_0.29.md`](Documentation/RELEASE_NOTES_0.29.md).
+[`Documentation/RELEASE_NOTES_1.0.md`](Documentation/RELEASE_NOTES_1.0.md).
 Larger follow-up work is in [ROADMAP.md](ROADMAP.md).
 
 ## Notes on items needing approval
 
 None. Decisions taken while closing the last batch without a prior approval
-are called out in the v0.29 release notes ("Breaking changes") and should be
+are called out in the v1.0 release notes ("Breaking changes") and should be
 reviewed: SHA-256 for 3072-bit RSA keys (XPKI-114), rejection of invalid SANs
 by `csr.Provider.SignRequest` and `authority.Issuer.Sign` (XPKI-059), the
 `code-cov-skipped` status for documentation-only pull requests (XPKI-094),

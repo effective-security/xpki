@@ -27,9 +27,9 @@ func TestBuildVersion(t *testing.T) {
 		ok    bool
 		exp   string
 	}{
-		{"linker", "v0.29.123-host", vcs("0123456789abcdef", true), true, "v0.29.123-host"},
+		{"linker", "v1.0.123-host", vcs("0123456789abcdef", true), true, "v1.0.123-host"},
 		{"no build info", "", nil, false, "devel"},
-		{"module version", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.29.5"}}, true, "v0.29.5"},
+		{"module version", "", &debug.BuildInfo{Main: debug.Module{Version: "v1.0.5"}}, true, "v1.0.5"},
 		{"pseudo version", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.28.1-0.20260927101010-0123456789ab+dirty"}}, true, "v0.28.1-0.20260927101010-0123456789ab+dirty"},
 		{"vcs", "", vcs("0123456789abcdef0123", false), true, "devel-0123456789ab"},
 		{"vcs dirty", "", vcs("0123456789abcdef0123", true), true, "devel-0123456789ab-dirty"},
