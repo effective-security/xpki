@@ -6,7 +6,7 @@
 import "github.com/effective-security/xpki/internal/version"
 ```
 
-Package version exposes the build version of the binaries. current.go is regenerated from current.template by "make version" using the git tag and commit count; PopulateFromBuild parses "\[v\]major.minor.commit\[\-dirty\]".
+Package version exposes the build version of the binaries. The version is set by the linker \(\-X ...internal/version.build=\<version\>, as make build does with GIT\_VERSION\) and otherwise read from the module build information, so a plain go build or go install reports its module version or VCS revision. PopulateFromBuild parses "\[v\]major.minor.commit\[\-dirty\]".
 
 ## Index
 
@@ -35,7 +35,7 @@ type Info struct {
 ```
 
 <a name="Current"></a>
-### func [Current](<https://github.com/effective-security/xpki/blob/main/internal/version/current.go#L22>)
+### func [Current](<https://github.com/effective-security/xpki/blob/main/internal/version/current.go#L29>)
 
 ```go
 func Current() Info
@@ -44,7 +44,7 @@ func Current() Info
 Current returns the current version \[set by the build\]
 
 <a name="Info.Float"></a>
-### func \(Info\) [Float](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L54>)
+### func \(Info\) [Float](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L50>)
 
 ```go
 func (v Info) Float() float32
@@ -53,7 +53,7 @@ func (v Info) Float() float32
 Float returns the version Major/Minor as a float Major.Minor e.g. given Major:3 Minor:52001, it'll return 3.52001 this is only valid if PopulateFromBuild has been called.
 
 <a name="Info.GreaterOrEqual"></a>
-### func \(Info\) [GreaterOrEqual](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L41>)
+### func \(Info\) [GreaterOrEqual](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L37>)
 
 ```go
 func (v Info) GreaterOrEqual(than Info) bool
@@ -62,22 +62,16 @@ func (v Info) GreaterOrEqual(than Info) bool
 GreaterOrEqual returns true if the version 'v' is the same or new that the supplied parameter 'other' This only examines the Major & Minor field \(as the SHA in Build provides no ordering indication\)
 
 <a name="Info.PopulateFromBuild"></a>
-### func \(\*Info\) [PopulateFromBuild](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L27>)
+### func \(\*Info\) [PopulateFromBuild](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L23>)
 
 ```go
 func (v *Info) PopulateFromBuild()
 ```
 
-PopulateFromBuild will parse the major/minor values from the build string the build string is expected to be in the format \[v\]major.minor.commit\[\-dirty\] and can be populated from git using
-
-```
-GIT_VERSION := $(shell git describe --dirty --always --tags --long)
-```
-
-and then using gofmt to substitute it into a template
+PopulateFromBuild parses the major, minor and commit values from Build, which is expected in the format \[v\]major.minor.commit\[\-dirty\]; make build links it in from GIT\_VERSION \(see current.go\). Values that do not match stay zero.
 
 <a name="Info.String"></a>
-### func \(Info\) [String](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L35>)
+### func \(Info\) [String](<https://github.com/effective-security/xpki/blob/main/internal/version/versioninfo.go#L31>)
 
 ```go
 func (v Info) String() string

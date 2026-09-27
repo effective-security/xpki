@@ -32,6 +32,7 @@ LoadConfig reads issuers and certificate profiles from YAML or JSON, NewAuthorit
   - [func \(s \*Authority\) GetIssuerByNameHash\(alg crypto.Hash, val \[\]byte\) \(\*Issuer, error\)](<#Authority.GetIssuerByNameHash>)
   - [func \(s \*Authority\) GetIssuerByProfile\(profile string\) \(\*Issuer, error\)](<#Authority.GetIssuerByProfile>)
   - [func \(s \*Authority\) Issuers\(\) \[\]\*Issuer](<#Authority.Issuers>)
+  - [func \(s \*Authority\) Profile\(label string\) \*CertProfile](<#Authority.Profile>)
   - [func \(s \*Authority\) Profiles\(\) map\[string\]\*CertProfile](<#Authority.Profiles>)
 - [type CAConfig](<#CAConfig>)
 - [type CAConstraint](<#CAConstraint>)
@@ -224,9 +225,11 @@ func (c *AIAConfig) GetOCSPExpiry() time.Duration
 GetOCSPExpiry specifies value in 8h format for duration of OCSP next update time
 
 <a name="Authority"></a>
-## type [Authority](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L16-L29>)
+## type [Authority](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L29-L40>)
 
-Authority defines the CA
+Authority defines the CA: a registry of issuers and of the profiles that are not served by one issuer \(wildcard profiles\).
+
+An Authority is safe for concurrent use. Lookups read an immutable snapshot of the registry; AddIssuer and AddProfile publish a new snapshot \(XPKI\-055\). Profiles and Issuers return copies that the caller owns. The \*CertProfile values are the registered profiles themselves, shared with every reader: a profile belongs to the registry once it is added and must not be modified afterwards; register a Copy to change one.
 
 ```go
 type Authority struct {
@@ -237,7 +240,7 @@ type Authority struct {
 ```
 
 <a name="NewAuthority"></a>
-### func [NewAuthority](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L32>)
+### func [NewAuthority](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L72>)
 
 ```go
 func NewAuthority(cfg *Config, crypto *cryptoprov.Crypto) (*Authority, error)
@@ -246,25 +249,25 @@ func NewAuthority(cfg *Config, crypto *cryptoprov.Crypto) (*Authority, error)
 NewAuthority returns new instance of Authority
 
 <a name="Authority.AddIssuer"></a>
-### func \(\*Authority\) [AddIssuer](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L96>)
+### func \(\*Authority\) [AddIssuer](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L152>)
 
 ```go
 func (s *Authority) AddIssuer(issuer *Issuer) error
 ```
 
-AddIssuer add issuer to the Authority
+AddIssuer adds issuer to the Authority and registers its profiles, except the wildcard ones. It is an error, and nothing is added, when an issuer with the same label is registered, when one of the profiles is already registered by an issuer \(the error names the profile and that issuer\), or when one of the profiles is nil. An issuer with the same subject key id as a registered one replaces it in the key id lookup only.
 
 <a name="Authority.AddProfile"></a>
-### func \(\*Authority\) [AddProfile](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L86>)
+### func \(\*Authority\) [AddProfile](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L125>)
 
 ```go
 func (s *Authority) AddProfile(label string, p *CertProfile)
 ```
 
-AddProfile adds CertProfile
+AddProfile adds or replaces the CertProfile named label. The profile must not be modified after this call.
 
 <a name="Authority.Crypto"></a>
-### func \(\*Authority\) [Crypto](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L81>)
+### func \(\*Authority\) [Crypto](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L119>)
 
 ```go
 func (s *Authority) Crypto() *cryptoprov.Crypto
@@ -273,7 +276,7 @@ func (s *Authority) Crypto() *cryptoprov.Crypto
 Crypto returns the provider
 
 <a name="Authority.GetIssuerByKeyHash"></a>
-### func \(\*Authority\) [GetIssuerByKeyHash](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L142>)
+### func \(\*Authority\) [GetIssuerByKeyHash](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L220>)
 
 ```go
 func (s *Authority) GetIssuerByKeyHash(alg crypto.Hash, val []byte) (*Issuer, error)
@@ -282,7 +285,7 @@ func (s *Authority) GetIssuerByKeyHash(alg crypto.Hash, val []byte) (*Issuer, er
 GetIssuerByKeyHash returns matching Issuer by key hash
 
 <a name="Authority.GetIssuerByKeyID"></a>
-### func \(\*Authority\) [GetIssuerByKeyID](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L115>)
+### func \(\*Authority\) [GetIssuerByKeyID](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L196>)
 
 ```go
 func (s *Authority) GetIssuerByKeyID(ikid string) (*Issuer, error)
@@ -291,7 +294,7 @@ func (s *Authority) GetIssuerByKeyID(ikid string) (*Issuer, error)
 GetIssuerByKeyID by IKID
 
 <a name="Authority.GetIssuerByLabel"></a>
-### func \(\*Authority\) [GetIssuerByLabel](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L124>)
+### func \(\*Authority\) [GetIssuerByLabel](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L204>)
 
 ```go
 func (s *Authority) GetIssuerByLabel(label string) (*Issuer, error)
@@ -300,7 +303,7 @@ func (s *Authority) GetIssuerByLabel(label string) (*Issuer, error)
 GetIssuerByLabel by label
 
 <a name="Authority.GetIssuerByNameHash"></a>
-### func \(\*Authority\) [GetIssuerByNameHash](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L153>)
+### func \(\*Authority\) [GetIssuerByNameHash](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L231>)
 
 ```go
 func (s *Authority) GetIssuerByNameHash(alg crypto.Hash, val []byte) (*Issuer, error)
@@ -309,7 +312,7 @@ func (s *Authority) GetIssuerByNameHash(alg crypto.Hash, val []byte) (*Issuer, e
 GetIssuerByNameHash returns matching Issuer by name hash
 
 <a name="Authority.GetIssuerByProfile"></a>
-### func \(\*Authority\) [GetIssuerByProfile](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L133>)
+### func \(\*Authority\) [GetIssuerByProfile](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L212>)
 
 ```go
 func (s *Authority) GetIssuerByProfile(profile string) (*Issuer, error)
@@ -318,22 +321,31 @@ func (s *Authority) GetIssuerByProfile(profile string) (*Issuer, error)
 GetIssuerByProfile by profile
 
 <a name="Authority.Issuers"></a>
-### func \(\*Authority\) [Issuers](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L164>)
+### func \(\*Authority\) [Issuers](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L242>)
 
 ```go
 func (s *Authority) Issuers() []*Issuer
 ```
 
-Issuers returns a list of issuers
+Issuers returns the issuers sorted by label.
+
+<a name="Authority.Profile"></a>
+### func \(\*Authority\) [Profile](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L136>)
+
+```go
+func (s *Authority) Profile(label string) *CertProfile
+```
+
+Profile returns the CertProfile named label, or nil.
 
 <a name="Authority.Profiles"></a>
-### func \(\*Authority\) [Profiles](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L91>)
+### func \(\*Authority\) [Profiles](<https://github.com/effective-security/xpki/blob/main/authority/authority.go#L142>)
 
 ```go
 func (s *Authority) Profiles() map[string]*CertProfile
 ```
 
-Profiles returns profiles map
+Profiles returns a copy of the profiles map. The caller owns the map; the profiles are shared and must not be modified.
 
 <a name="CAConfig"></a>
 ## type [CAConfig](<https://github.com/effective-security/xpki/blob/main/authority/config.go#L41-L50>)
@@ -563,7 +575,7 @@ type Issuer struct {
 ```
 
 <a name="CreateIssuer"></a>
-### func [CreateIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L257>)
+### func [CreateIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L263>)
 
 ```go
 func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, signer crypto.Signer) (*Issuer, error)
@@ -572,7 +584,7 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 CreateIssuer returns Issuer created directly from crypto.Signer, this method is mostly used for testing
 
 <a name="NewIssuer"></a>
-### func [NewIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L208>)
+### func [NewIssuer](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L214>)
 
 ```go
 func NewIssuer(cfg *IssuerConfig, prov *cryptoprov.Crypto) (*Issuer, error)
@@ -581,7 +593,7 @@ func NewIssuer(cfg *IssuerConfig, prov *cryptoprov.Crypto) (*Issuer, error)
 NewIssuer creates Issuer from provided configuration
 
 <a name="NewIssuerWithBundles"></a>
-### func [NewIssuerWithBundles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L213>)
+### func [NewIssuerWithBundles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L219>)
 
 ```go
 func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, rootPem []byte) (*Issuer, error)
@@ -590,13 +602,13 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 NewIssuerWithBundles creates Issuer from provided configuration
 
 <a name="Issuer.AddProfile"></a>
-### func \(\*Issuer\) [AddProfile](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L201>)
+### func \(\*Issuer\) [AddProfile](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L204>)
 
 ```go
 func (ca *Issuer) AddProfile(label string, p *CertProfile)
 ```
 
-AddProfile adds or replaces the CertProfile named label. Replacing the delegated\_ocsp\_profile takes effect at the next responder renewal, which fails if the new profile is not valid for delegation.
+AddProfile adds or replaces the CertProfile named label. The profile must not be modified after this call. Replacing the delegated\_ocsp\_profile takes effect at the next responder renewal, which fails if the new profile is not valid for delegation.
 
 <a name="Issuer.AiaURL"></a>
 ### func \(\*Issuer\) [AiaURL](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L140>)
@@ -725,16 +737,16 @@ func (ca *Issuer) Profile(name string) *CertProfile
 Profile returns CertProfile
 
 <a name="Issuer.Profiles"></a>
-### func \(\*Issuer\) [Profiles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L192>)
+### func \(\*Issuer\) [Profiles](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L194>)
 
 ```go
 func (ca *Issuer) Profiles() map[string]*CertProfile
 ```
 
-Profiles returns CertProfiles
+Profiles returns a copy of the CertProfiles map. The caller owns the map; the profiles are shared with the issuer and must not be modified \(XPKI\-055\).
 
 <a name="Issuer.Sign"></a>
-### func \(\*Issuer\) [Sign](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L410>)
+### func \(\*Issuer\) [Sign](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L416>)
 
 ```go
 func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
@@ -752,7 +764,7 @@ func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error)
 SignOCSP return an OCSP response.
 
 <a name="Issuer.SignProof"></a>
-### func \(\*Issuer\) [SignProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L367>)
+### func \(\*Issuer\) [SignProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L373>)
 
 ```go
 func (ca *Issuer) SignProof(data []byte) (string, error)
@@ -779,7 +791,7 @@ func (ca *Issuer) SubjectKID() string
 SubjectKID returns Subject Key ID
 
 <a name="Issuer.VerifyProof"></a>
-### func \(\*Issuer\) [VerifyProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L383>)
+### func \(\*Issuer\) [VerifyProof](<https://github.com/effective-security/xpki/blob/main/authority/issuer.go#L389>)
 
 ```go
 func (ca *Issuer) VerifyProof(data []byte, proof string) error
@@ -801,7 +813,7 @@ type IssuerConfig struct {
     Label string `json:"label,omitempty" yaml:"label,omitempty"`
 
     // Type specifies type: tls|codesign|timestamp|ocsp|spiffe|trusty
-    Type string
+    Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
     // CertFile specifies location of the cert
     CertFile string `json:"cert,omitempty" yaml:"cert,omitempty"`

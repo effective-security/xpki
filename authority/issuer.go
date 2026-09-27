@@ -188,19 +188,25 @@ func (ca *Issuer) Profile(name string) *CertProfile {
 	return ca.cfg.Profiles[name]
 }
 
-// Profiles returns CertProfiles
+// Profiles returns a copy of the CertProfiles map. The caller owns the map;
+// the profiles are shared with the issuer and must not be modified
+// (XPKI-055).
 func (ca *Issuer) Profiles() map[string]*CertProfile {
 	ca.lock.RLock()
 	defer ca.lock.RUnlock()
-	return ca.cfg.Profiles
+	return cloneMap(ca.cfg.Profiles)
 }
 
-// AddProfile adds or replaces the CertProfile named label. Replacing the
-// delegated_ocsp_profile takes effect at the next responder renewal, which
-// fails if the new profile is not valid for delegation.
+// AddProfile adds or replaces the CertProfile named label. The profile must
+// not be modified after this call. Replacing the delegated_ocsp_profile takes
+// effect at the next responder renewal, which fails if the new profile is not
+// valid for delegation.
 func (ca *Issuer) AddProfile(label string, p *CertProfile) {
 	ca.lock.Lock()
 	defer ca.lock.Unlock()
+	if ca.cfg.Profiles == nil {
+		ca.cfg.Profiles = make(map[string]*CertProfile)
+	}
 	ca.cfg.Profiles[label] = p
 }
 

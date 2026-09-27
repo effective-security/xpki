@@ -40,16 +40,22 @@ const (
 var errSignerUnavailable = errors.New("signer unavailable")
 
 // countingSigner counts CA signatures and fails them on demand. With gate
-// set, each signature waits until the gate is closed.
+// set, each signature waits until the gate is closed. With entered set, it
+// is closed when the first signature starts.
 type countingSigner struct {
 	crypto.Signer
-	fail  atomic.Bool
-	calls atomic.Int32
-	gate  chan struct{}
+	fail      atomic.Bool
+	calls     atomic.Int32
+	gate      chan struct{}
+	entered   chan struct{}
+	enterOnce sync.Once
 }
 
 func (s *countingSigner) Sign(r io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	s.calls.Add(1)
+	if s.entered != nil {
+		s.enterOnce.Do(func() { close(s.entered) })
+	}
 	if s.gate != nil {
 		<-s.gate
 	}
@@ -605,10 +611,17 @@ func TestDelegatedOCSPSlowFailureAfterExpiry(t *testing.T) {
 	old := preload(issuer, entity, time.Now().Add(delegatedOCSPTTL/2))
 	signer.fail.Store(true)
 	signer.gate = make(chan struct{})
+	signer.entered = make(chan struct{})
 	const signDelay = 100 * time.Millisecond
-	// XPKI-111: the gate is armed before the attempt starts, so on a loaded
-	// machine the attempt can wait less than signDelay and fail the bounds below.
-	time.AfterFunc(signDelay, func() { close(signer.gate) })
+	// The attempt measures its duration from before the signature, so a gate
+	// released signDelay after the signature started makes the attempt last
+	// at least signDelay under any load (XPKI-111: a timer armed before the
+	// attempt started could fire earlier than that).
+	go func() {
+		<-signer.entered
+		time.Sleep(signDelay)
+		close(signer.gate)
+	}()
 
 	// valid when the attempt starts, expired when the slow failure returns
 	now := old.Cert.NotAfter.Add(-signDelay / 2)

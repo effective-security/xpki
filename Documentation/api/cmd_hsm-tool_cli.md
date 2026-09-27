@@ -13,7 +13,7 @@ Package cli implements the hsm\-tool command tree: hsm list/info/generate/ remov
 - [type Cli](<#Cli>)
   - [func \(c \*Cli\) AfterApply\(app \*kong.Kong, vars kong.Vars\) error](<#Cli.AfterApply>)
   - [func \(c \*Cli\) Context\(\) context.Context](<#Cli.Context>)
-  - [func \(c \*Cli\) CryptoProv\(\) \(\*cryptoprov.Crypto, cryptoprov.Provider\)](<#Cli.CryptoProv>)
+  - [func \(c \*Cli\) CryptoProv\(\) \(\*cryptoprov.Crypto, cryptoprov.Provider, error\)](<#Cli.CryptoProv>)
   - [func \(c \*Cli\) ErrWriter\(\) io.Writer](<#Cli.ErrWriter>)
   - [func \(c \*Cli\) ReadFile\(filename string\) \(\[\]byte, error\)](<#Cli.ReadFile>)
   - [func \(c \*Cli\) Reader\(\) io.Reader](<#Cli.Reader>)
@@ -41,7 +41,7 @@ Package cli implements the hsm\-tool command tree: hsm list/info/generate/ remov
 
 
 <a name="Cli"></a>
-## type [Cli](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L26-L45>)
+## type [Cli](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L24-L43>)
 
 Cli provides CLI context to run commands
 
@@ -58,7 +58,7 @@ type Cli struct {
 ```
 
 <a name="Cli.AfterApply"></a>
-### func \(\*Cli\) [AfterApply](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L98>)
+### func \(\*Cli\) [AfterApply](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L96>)
 
 ```go
 func (c *Cli) AfterApply(app *kong.Kong, vars kong.Vars) error
@@ -67,7 +67,7 @@ func (c *Cli) AfterApply(app *kong.Kong, vars kong.Vars) error
 AfterApply hook loads config
 
 <a name="Cli.Context"></a>
-### func \(\*Cli\) [Context](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L48>)
+### func \(\*Cli\) [Context](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L46>)
 
 ```go
 func (c *Cli) Context() context.Context
@@ -76,16 +76,16 @@ func (c *Cli) Context() context.Context
 Context for requests
 
 <a name="Cli.CryptoProv"></a>
-### func \(\*Cli\) [CryptoProv](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L120>)
+### func \(\*Cli\) [CryptoProv](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L123>)
 
 ```go
-func (c *Cli) CryptoProv() (*cryptoprov.Crypto, cryptoprov.Provider)
+func (c *Cli) CryptoProv() (*cryptoprov.Crypto, cryptoprov.Provider, error)
 ```
 
-CryptoProv loads Crypto provider
+CryptoProv loads the crypto providers from \-\-cfg and \-\-crypto on the first call, and returns them with the default provider: an in\-memory provider with \-\-plain\-key, otherwise the provider of \-\-cfg \("inmem" and "plain" name the in\-memory provider\). It returns an error, for the command to fail with, when \-\-cfg is empty or a provider cannot be initialized \(XPKI\-084\).
 
 <a name="Cli.ErrWriter"></a>
-### func \(\*Cli\) [ErrWriter](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L84>)
+### func \(\*Cli\) [ErrWriter](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L82>)
 
 ```go
 func (c *Cli) ErrWriter() io.Writer
@@ -94,7 +94,7 @@ func (c *Cli) ErrWriter() io.Writer
 ErrWriter returns a writer for control output
 
 <a name="Cli.ReadFile"></a>
-### func \(\*Cli\) [ReadFile](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L149>)
+### func \(\*Cli\) [ReadFile](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L156>)
 
 ```go
 func (c *Cli) ReadFile(filename string) ([]byte, error)
@@ -103,7 +103,7 @@ func (c *Cli) ReadFile(filename string) ([]byte, error)
 ReadFile reads from stdin if the file is "\-"
 
 <a name="Cli.Reader"></a>
-### func \(\*Cli\) [Reader](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L56>)
+### func \(\*Cli\) [Reader](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L54>)
 
 ```go
 func (c *Cli) Reader() io.Reader
@@ -112,7 +112,7 @@ func (c *Cli) Reader() io.Reader
 Reader is the source to read from, typically set to os.Stdin
 
 <a name="Cli.WithErrWriter"></a>
-### func \(\*Cli\) [WithErrWriter](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L92>)
+### func \(\*Cli\) [WithErrWriter](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L90>)
 
 ```go
 func (c *Cli) WithErrWriter(out io.Writer) *Cli
@@ -121,7 +121,7 @@ func (c *Cli) WithErrWriter(out io.Writer) *Cli
 WithErrWriter allows to specify a custom error writer
 
 <a name="Cli.WithReader"></a>
-### func \(\*Cli\) [WithReader](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L64>)
+### func \(\*Cli\) [WithReader](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L62>)
 
 ```go
 func (c *Cli) WithReader(reader io.Reader) *Cli
@@ -130,7 +130,7 @@ func (c *Cli) WithReader(reader io.Reader) *Cli
 WithReader allows to specify a custom reader
 
 <a name="Cli.WithWriter"></a>
-### func \(\*Cli\) [WithWriter](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L78>)
+### func \(\*Cli\) [WithWriter](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L76>)
 
 ```go
 func (c *Cli) WithWriter(out io.Writer) *Cli
@@ -139,7 +139,7 @@ func (c *Cli) WithWriter(out io.Writer) *Cli
 WithWriter allows to specify a custom writer
 
 <a name="Cli.WriteJSON"></a>
-### func \(\*Cli\) [WriteJSON](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L115>)
+### func \(\*Cli\) [WriteJSON](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L113>)
 
 ```go
 func (c *Cli) WriteJSON(value any)
@@ -148,7 +148,7 @@ func (c *Cli) WriteJSON(value any)
 WriteJSON prints response to out
 
 <a name="Cli.Writer"></a>
-### func \(\*Cli\) [Writer](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L70>)
+### func \(\*Cli\) [Writer](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/cli.go#L68>)
 
 ```go
 func (c *Cli) Writer() io.Writer
@@ -268,7 +268,7 @@ type HsmCmd struct {
 ```
 
 <a name="HsmGenKeyCmd"></a>
-## type [HsmGenKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L192-L199>)
+## type [HsmGenKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L198-L205>)
 
 HsmGenKeyCmd generates key
 
@@ -284,7 +284,7 @@ type HsmGenKeyCmd struct {
 ```
 
 <a name="HsmGenKeyCmd.Run"></a>
-### func \(\*HsmGenKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L202>)
+### func \(\*HsmGenKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L208>)
 
 ```go
 func (a *HsmGenKeyCmd) Run(ctx *Cli) error
@@ -293,7 +293,7 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error
 Run the command
 
 <a name="HsmKeyInfoCmd"></a>
-## type [HsmKeyInfoCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L125-L130>)
+## type [HsmKeyInfoCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L128-L133>)
 
 HsmKeyInfoCmd prints the key info
 
@@ -307,7 +307,7 @@ type HsmKeyInfoCmd struct {
 ```
 
 <a name="HsmKeyInfoCmd.Run"></a>
-### func \(\*HsmKeyInfoCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L133>)
+### func \(\*HsmKeyInfoCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L136>)
 
 ```go
 func (a *HsmKeyInfoCmd) Run(ctx *Cli) error
@@ -338,7 +338,7 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error
 Run the command
 
 <a name="HsmRmKeyCmd"></a>
-## type [HsmRmKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L253-L257>)
+## type [HsmRmKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L262-L266>)
 
 HsmRmKeyCmd deletes key
 
@@ -351,7 +351,7 @@ type HsmRmKeyCmd struct {
 ```
 
 <a name="HsmRmKeyCmd.Run"></a>
-### func \(\*HsmRmKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L260>)
+### func \(\*HsmRmKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L269>)
 
 ```go
 func (a *HsmRmKeyCmd) Run(ctx *Cli) error

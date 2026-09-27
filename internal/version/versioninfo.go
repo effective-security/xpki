@@ -16,14 +16,10 @@ type Info struct {
 	flt     float32
 }
 
-// PopulateFromBuild will parse the major/minor values from the build string
-// the build string is expected to be in the format
-// [v]major.minor.commit[-dirty]
-// and can be populated from git using
-//
-//	GIT_VERSION := $(shell git describe --dirty --always --tags --long)
-//
-// and then using gofmt to substitute it into a template
+// PopulateFromBuild parses the major, minor and commit values from Build,
+// which is expected in the format [v]major.minor.commit[-dirty]; make build
+// links it in from GIT_VERSION (see current.go). Values that do not match
+// stay zero.
 func (v *Info) PopulateFromBuild() {
 	build := strings.TrimPrefix(v.Build, "v")
 	_, _ = fmt.Sscanf(build, "%d.%d.%d", &v.Major, &v.Minor, &v.Commit)

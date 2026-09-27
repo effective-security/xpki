@@ -769,3 +769,41 @@ func TestStringsMap(t *testing.T) {
 	assert.Nil(t, mc.StringsMap("orgs"))
 	assert.Nil(t, mc.StringsMap("orgs2"))
 }
+
+// TestValid_UnparsableTimeClaims covers XPKI-125: a present exp, iat or nbf
+// that is not a time fails verification instead of being skipped as absent.
+func TestValid_UnparsableTimeClaims(t *testing.T) {
+	now := time.Now()
+	for name, v := range map[string]any{
+		"word":         "tomorrow",
+		"slashed date": "2099/01/01",
+		"bool":         true,
+		"object":       map[string]any{"unix": 1},
+		"uint64 max":   uint64(math.MaxUint64),
+		"float nan":    math.NaN(),
+		"json.Number":  json.Number("1e400"),
+	} {
+		for _, k := range []string{"exp", "iat", "nbf"} {
+			t.Run(k+" "+name, func(t *testing.T) {
+				c := MapClaims{k: v}
+				assert.Nil(t, c.Time(k))
+				err := c.Valid(nil)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid "+k+" claim")
+				// the other time claims are absent and still optional
+				assert.NoError(t, MapClaims{"other": v}.Valid(nil))
+			})
+		}
+	}
+
+	// absent claims are still optional, and a nil *NumericDate or *time.Time
+	// (Go values, not JSON) is absent
+	for name, v := range map[string]any{"nil NumericDate": (*NumericDate)(nil), "nil time": (*time.Time)(nil)} {
+		t.Run(name, func(t *testing.T) {
+			c := MapClaims{"sub": "s", "exp": v}
+			require.NoError(t, c.Valid(nil))
+			assert.NoError(t, c.VerifyExpiresAt(now, false))
+			assert.EqualError(t, c.VerifyExpiresAt(now, true), "exp claim not found")
+		})
+	}
+}

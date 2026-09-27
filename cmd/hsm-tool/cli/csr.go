@@ -29,9 +29,9 @@ type CsrCreateCmd struct {
 
 // Run the command
 func (a *CsrCreateCmd) Run(ctx *Cli) error {
-	cryptoprov, defaultCrypto := ctx.CryptoProv()
-	if cryptoprov == nil {
-		return errors.Errorf("unsupported command for this crypto provider")
+	_, defaultCrypto, err := ctx.CryptoProv()
+	if err != nil {
+		return err
 	}
 
 	prov := csr.NewProvider(defaultCrypto)
@@ -89,9 +89,9 @@ type GenCertCmd struct {
 
 // Run the command
 func (a *GenCertCmd) Run(ctx *Cli) error {
-	cryptoprov, defaultCrypto := ctx.CryptoProv()
-	if cryptoprov == nil {
-		return errors.Errorf("unsupported command for this crypto provider")
+	cryptoprov, defaultCrypto, err := ctx.CryptoProv()
+	if err != nil {
+		return err
 	}
 
 	isscfg := &authority.IssuerConfig{}
@@ -222,9 +222,9 @@ type CsrSignCmd struct {
 
 // Run the command
 func (a *CsrSignCmd) Run(ctx *Cli) error {
-	cryptoprov, _ := ctx.CryptoProv()
-	if cryptoprov == nil {
-		return errors.Errorf("unsupported command for this crypto provider")
+	cryptoprov, _, err := ctx.CryptoProv()
+	if err != nil {
+		return err
 	}
 
 	// Load CSR
