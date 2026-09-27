@@ -17,6 +17,7 @@ Package oauth2client holds the configuration model and registry for OAuth2 and O
   - [func \(p \*Client\) Config\(\) \*ClientConfig](<#Client.Config>)
   - [func \(p \*Client\) CreateTokenRequest\(v url.Values, authStyle oauth2.AuthStyle\) \(\*http.Request, error\)](<#Client.CreateTokenRequest>)
   - [func \(p \*Client\) CreateTokenRequestWithContext\(ctx context.Context, v url.Values, authStyle oauth2.AuthStyle\) \(\*http.Request, error\)](<#Client.CreateTokenRequestWithContext>)
+  - [func \(p \*Client\) PublicKey\(\) \*rsa.PublicKey](<#Client.PublicKey>)
   - [func \(p \*Client\) SetClientSecret\(s string\) \*Client](<#Client.SetClientSecret>)
   - [func \(p \*Client\) SetPubKey\(newPubKey \*rsa.PublicKey\)](<#Client.SetPubKey>)
 - [type ClientConfig](<#ClientConfig>)
@@ -37,9 +38,11 @@ Package oauth2client holds the configuration model and registry for OAuth2 and O
 
 
 <a name="Client"></a>
-## type [Client](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L19-L22>)
+## type [Client](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L25-L31>)
 
-Client of OAuth2
+Client of OAuth2.
+
+A Client owns a copy of the ClientConfig given to New: later changes to the caller's struct are not seen, and Config returns a copy. After New only the client secret \(SetClientSecret\) and the issuer public key \(SetPubKey\) change. A Client is safe for concurrent use.
 
 ```go
 type Client struct {
@@ -48,7 +51,7 @@ type Client struct {
 ```
 
 <a name="Load"></a>
-### func [Load](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L77>)
+### func [Load](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L100>)
 
 ```go
 func Load(cfgfile string) ([]*Client, error)
@@ -57,7 +60,7 @@ func Load(cfgfile string) ([]*Client, error)
 Load returns new Provider
 
 <a name="LoadClient"></a>
-### func [LoadClient](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L99>)
+### func [LoadClient](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L122>)
 
 ```go
 func LoadClient(file string) (*Client, error)
@@ -66,25 +69,25 @@ func LoadClient(file string) (*Client, error)
 LoadClient returns a single \`Client\` loaded from config
 
 <a name="New"></a>
-### func [New](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L25>)
+### func [New](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L35>)
 
 ```go
 func New(cfg *ClientConfig) (*Client, error)
 ```
 
-New returns new Provider
+New returns a Client for a copy of cfg. A PubKey that is not a PEM\-encoded RSA public key is an error.
 
 <a name="Client.Config"></a>
-### func \(\*Client\) [Config](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L71>)
+### func \(\*Client\) [Config](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L60>)
 
 ```go
 func (p *Client) Config() *ClientConfig
 ```
 
-Config returns OAuth2 configuration
+Config returns a copy of the OAuth2 configuration, with the current client secret. Changing the copy does not change the Client.
 
 <a name="Client.CreateTokenRequest"></a>
-### func \(\*Client\) [CreateTokenRequest](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L90>)
+### func \(\*Client\) [CreateTokenRequest](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L94>)
 
 ```go
 func (p *Client) CreateTokenRequest(v url.Values, authStyle oauth2.AuthStyle) (*http.Request, error)
@@ -93,7 +96,7 @@ func (p *Client) CreateTokenRequest(v url.Values, authStyle oauth2.AuthStyle) (*
 CreateTokenRequest returns a new \*http.Request to retrieve a new token from tokenURL using the provided clientID, clientSecret, and POST body parameters.
 
 <a name="Client.CreateTokenRequestWithContext"></a>
-### func \(\*Client\) [CreateTokenRequestWithContext](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L96>)
+### func \(\*Client\) [CreateTokenRequestWithContext](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L100>)
 
 ```go
 func (p *Client) CreateTokenRequestWithContext(ctx context.Context, v url.Values, authStyle oauth2.AuthStyle) (*http.Request, error)
@@ -101,14 +104,23 @@ func (p *Client) CreateTokenRequestWithContext(ctx context.Context, v url.Values
 
 CreateTokenRequestWithContext is like CreateTokenRequest but binds the request to ctx so the caller can cancel or time out the token exchange.
 
+<a name="Client.PublicKey"></a>
+### func \(\*Client\) [PublicKey](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L69>)
+
+```go
+func (p *Client) PublicKey() *rsa.PublicKey
+```
+
+PublicKey returns the JWT issuer public key parsed from the PubKey setting or given to SetPubKey, or nil. This package does not verify tokens with it; pass it to a verifier, for example in jwt.StaticKeySet.PublicKeys.
+
 <a name="Client.SetClientSecret"></a>
-### func \(\*Client\) [SetClientSecret](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L82>)
+### func \(\*Client\) [SetClientSecret](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L84>)
 
 ```go
 func (p *Client) SetClientSecret(s string) *Client
 ```
 
-SetClientSecret sets Client Secret
+SetClientSecret sets the client secret used by later token requests
 
 <a name="Client.SetPubKey"></a>
 ### func \(\*Client\) [SetPubKey](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L77>)
@@ -117,10 +129,10 @@ SetClientSecret sets Client Secret
 func (p *Client) SetPubKey(newPubKey *rsa.PublicKey)
 ```
 
-SetPubKey replaces the OAuth public signing key loaded from configuration During normal operation, identity provider's public key is read from config on start\-up.
+SetPubKey replaces the JWT issuer public key returned by PublicKey. During normal operation, identity provider's public key is read from config on start\-up.
 
 <a name="ClientConfig"></a>
-## type [ClientConfig](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L14-L53>)
+## type [ClientConfig](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L16-L59>)
 
 ClientConfig provides OAuth2 configuration
 
@@ -138,7 +150,9 @@ type ClientConfig struct {
     Scopes []string `json:"scopes" yaml:"scopes"`
     // ResponseType specifies the response type, default is "code"
     ResponseType string `json:"response_type" yaml:"response_type"`
-    // JwksURL specifies JWKS URL
+    // JwksURL specifies the JWKS URL of the JWT issuer. This package does
+    // not fetch it; it is kept for callers that verify the issuer's tokens,
+    // for example with jwt.NewParser and ParserConfig.JWKSURI
     JwksURL string `json:"jwks_url" yaml:"jwks_url"`
     // AuthURL specifies auth URL
     AuthURL string `json:"auth_url" yaml:"auth_url"`
@@ -150,7 +164,9 @@ type ClientConfig struct {
     WellknownURL string `json:"wellknown"  yaml:"wellknown"`
     // RedirectURL specifies redirect URL
     RedirectURL string `json:"redirect_url"  yaml:"redirect_url"`
-    // PubKey specifies PEM encoded Public Key of the JWT issuer
+    // PubKey specifies PEM encoded RSA Public Key of the JWT issuer. New
+    // parses it and Client.PublicKey returns it; this package does not
+    // verify tokens with it
     PubKey string `json:"pubkey" yaml:"pubkey"`
     // Prompt parameter, such as `consent`
     Prompt string `json:"prompt" yaml:"prompt"`
@@ -168,7 +184,7 @@ type ClientConfig struct {
 ```
 
 <a name="Config"></a>
-## type [Config](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L8-L11>)
+## type [Config](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L10-L13>)
 
 Config provides OAuth2 configuration for supported clients
 
@@ -180,7 +196,7 @@ type Config struct {
 ```
 
 <a name="LoadConfig"></a>
-### func [LoadConfig](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L64>)
+### func [LoadConfig](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L87>)
 
 ```go
 func LoadConfig(file string) (*Config, error)
@@ -189,7 +205,7 @@ func LoadConfig(file string) (*Config, error)
 LoadConfig returns configuration loaded from a file
 
 <a name="IDPParam"></a>
-## type [IDPParam](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L56-L61>)
+## type [IDPParam](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L62-L67>)
 
 IDPParam is a struct for IDP parameter
 
@@ -203,9 +219,9 @@ type IDPParam struct {
 ```
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L10-L14>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L42-L45>)
 
-Provider of OAuth2 clients
+Provider is a registry of OAuth2 clients looked up by provider id, domain or email. It is safe for concurrent use: a registration is published to every index at once, and a rejected one leaves the registry unchanged. The zero value is an empty registry.
 
 ```go
 type Provider struct {
@@ -214,7 +230,7 @@ type Provider struct {
 ```
 
 <a name="LoadProvider"></a>
-### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L17>)
+### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L48>)
 
 ```go
 func LoadProvider(location string) (*Provider, error)
@@ -223,7 +239,7 @@ func LoadProvider(location string) (*Provider, error)
 LoadProvider returns Provider
 
 <a name="NewProvider"></a>
-### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L26>)
+### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L57>)
 
 ```go
 func NewProvider(cfg *Config) (*Provider, error)
@@ -232,7 +248,7 @@ func NewProvider(cfg *Config) (*Provider, error)
 NewProvider returns Provider
 
 <a name="Provider.Client"></a>
-### func \(\*Provider\) [Client](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L72>)
+### func \(\*Provider\) [Client](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L130>)
 
 ```go
 func (p *Provider) Client(provider string) *Client
@@ -241,7 +257,7 @@ func (p *Provider) Client(provider string) *Client
 Client returns Client by provider
 
 <a name="Provider.ClientForDomain"></a>
-### func \(\*Provider\) [ClientForDomain](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L86>)
+### func \(\*Provider\) [ClientForDomain](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L144>)
 
 ```go
 func (p *Provider) ClientForDomain(domain string) *Client
@@ -250,7 +266,7 @@ func (p *Provider) ClientForDomain(domain string) *Client
 ClientForDomain returns Client by domain
 
 <a name="Provider.ClientForEmail"></a>
-### func \(\*Provider\) [ClientForEmail](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L93>)
+### func \(\*Provider\) [ClientForEmail](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L151>)
 
 ```go
 func (p *Provider) ClientForEmail(email string) *Client
@@ -259,7 +275,7 @@ func (p *Provider) ClientForEmail(email string) *Client
 ClientForEmail returns Client by email, falling back to the client configured for the email's domain. It returns nil for a value that is not an address of the form local@domain.
 
 <a name="Provider.ClientForProvider"></a>
-### func \(\*Provider\) [ClientForProvider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L81>)
+### func \(\*Provider\) [ClientForProvider](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L139>)
 
 ```go
 func (p *Provider) ClientForProvider(provider string) *Client
@@ -268,7 +284,7 @@ func (p *Provider) ClientForProvider(provider string) *Client
 ClientForProvider returns Client by provider
 
 <a name="Provider.ClientNames"></a>
-### func \(\*Provider\) [ClientNames](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L105>)
+### func \(\*Provider\) [ClientNames](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L164>)
 
 ```go
 func (p *Provider) ClientNames() []string
@@ -277,7 +293,7 @@ func (p *Provider) ClientNames() []string
 ClientNames returns list of supported clients
 
 <a name="Provider.Domains"></a>
-### func \(\*Provider\) [Domains](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L117>)
+### func \(\*Provider\) [Domains](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L177>)
 
 ```go
 func (p *Provider) Domains() []string
@@ -286,7 +302,7 @@ func (p *Provider) Domains() []string
 Domains returns list of supported domains
 
 <a name="Provider.Emails"></a>
-### func \(\*Provider\) [Emails](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L127>)
+### func \(\*Provider\) [Emails](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L188>)
 
 ```go
 func (p *Provider) Emails() []string
@@ -295,12 +311,12 @@ func (p *Provider) Emails() []string
 Emails returns list of configured emails
 
 <a name="Provider.RegisterClient"></a>
-### func \(\*Provider\) [RegisterClient](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L47>)
+### func \(\*Provider\) [RegisterClient](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/provider.go#L85>)
 
 ```go
 func (p *Provider) RegisterClient(c *ClientConfig, override bool) error
 ```
 
-RegisterClient registers new client
+RegisterClient registers a new client under its provider id, domains and emails. Without override, a provider id, domain or email that is already registered is an error and nothing is registered. With override, the previous client of the same provider id is removed from every index, and a domain or email registered by another client is taken over.
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

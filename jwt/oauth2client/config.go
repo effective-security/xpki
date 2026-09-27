@@ -1,6 +1,8 @@
 package oauth2client
 
 import (
+	"slices"
+
 	"github.com/effective-security/x/configloader"
 )
 
@@ -24,7 +26,9 @@ type ClientConfig struct {
 	Scopes []string `json:"scopes" yaml:"scopes"`
 	// ResponseType specifies the response type, default is "code"
 	ResponseType string `json:"response_type" yaml:"response_type"`
-	// JwksURL specifies JWKS URL
+	// JwksURL specifies the JWKS URL of the JWT issuer. This package does
+	// not fetch it; it is kept for callers that verify the issuer's tokens,
+	// for example with jwt.NewParser and ParserConfig.JWKSURI
 	JwksURL string `json:"jwks_url" yaml:"jwks_url"`
 	// AuthURL specifies auth URL
 	AuthURL string `json:"auth_url" yaml:"auth_url"`
@@ -36,7 +40,9 @@ type ClientConfig struct {
 	WellknownURL string `json:"wellknown"  yaml:"wellknown"`
 	// RedirectURL specifies redirect URL
 	RedirectURL string `json:"redirect_url"  yaml:"redirect_url"`
-	// PubKey specifies PEM encoded Public Key of the JWT issuer
+	// PubKey specifies PEM encoded RSA Public Key of the JWT issuer. New
+	// parses it and Client.PublicKey returns it; this package does not
+	// verify tokens with it
 	PubKey string `json:"pubkey" yaml:"pubkey"`
 	// Prompt parameter, such as `consent`
 	Prompt string `json:"prompt" yaml:"prompt"`
@@ -58,6 +64,23 @@ type IDPParam struct {
 	Name string `json:"name" yaml:"name"`
 	// Value specifies the value the IDP parameter: email|domain|{value}
 	Value string `json:"value" yaml:"value"`
+}
+
+// clone returns a deep copy of the configuration, so that a Client and its
+// callers never share slices or the IDPParam with each other.
+func (c *ClientConfig) clone() *ClientConfig {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.Scopes = slices.Clone(c.Scopes)
+	cp.Domains = slices.Clone(c.Domains)
+	cp.Emails = slices.Clone(c.Emails)
+	if c.IDPParam != nil {
+		idp := *c.IDPParam
+		cp.IDPParam = &idp
+	}
+	return &cp
 }
 
 // LoadConfig returns configuration loaded from a file

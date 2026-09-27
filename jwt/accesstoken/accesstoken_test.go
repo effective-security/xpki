@@ -244,14 +244,15 @@ func TestSign_CallerClaims(t *testing.T) {
 
 	for _, k := range []string{"exp", "iat", "nbf"} {
 		for name, v := range map[string]any{
-			"nil":     nil,
-			"text":    "tomorrow",
-			"bool":    true,
-			"NaN str": "NaN",
+			"nil":       nil,
+			"text":      "tomorrow",
+			"bool":      true,
+			"NaN str":   "NaN",
+			"zero time": time.Time{},
 		} {
 			t.Run("invalid "+k+" "+name, func(t *testing.T) {
 				at, err := p.Sign(ctx, jwt.MapClaims{"sub": "s", k: v})
-				assert.EqualError(t, err, "invalid "+k+" claim")
+				assert.ErrorContains(t, err, "invalid "+k+" claim: ")
 				assert.Empty(t, at)
 			})
 		}
@@ -310,13 +311,20 @@ func TestParse_LegacyNoExpiry(t *testing.T) {
 	_, err = p.ParseToken(ctx, legacy, nil)
 	assert.EqualError(t, err, "invalid token: revoked")
 
-	// a present but unusable exp is never treated as absent, including a
-	// time.Time exp that the old Sign marshaled to an RFC 3339 string
-	for _, exp := range []any{nil, "tomorrow", true, time.Now().Add(time.Hour)} {
+	// a present but unusable exp is never treated as absent
+	for _, exp := range []any{nil, "tomorrow", true} {
 		bad := legacyToken(t, dp, jwt.MapClaims{"sub": "s", "exp": exp})
 		_, err = p.ParseToken(ctx, bad, nil)
 		assert.EqualError(t, err, "invalid exp claim", "exp=%v", exp)
 	}
+	// a time.Time exp that the old Sign marshaled to an RFC 3339 string is
+	// parsed and checked (XPKI-109)
+	future := legacyToken(t, dp, jwt.MapClaims{"sub": "s", "exp": time.Now().Add(time.Hour)})
+	_, err = p.ParseToken(ctx, future, nil)
+	require.NoError(t, err)
+	past := legacyToken(t, dp, jwt.MapClaims{"sub": "s", "exp": time.Now().Add(-time.Hour)})
+	_, err = p.ParseToken(ctx, past, nil)
+	require.ErrorContains(t, err, "token expired at:")
 }
 
 type validator struct {

@@ -68,8 +68,14 @@ func TestTokenRequestAuthStyles(t *testing.T) {
 	request, err := client.CreateTokenRequest(nil, oauth2.AuthStyleInParams)
 	require.NoError(t, err)
 	require.NoError(t, request.Body.Close())
+	// Config is a copy (XPKI-080): changing it does not change the client
 	client.Config().TokenURL = "://invalid"
-	_, err = client.CreateTokenRequest(nil, oauth2.AuthStyleInParams)
+	request, err = client.CreateTokenRequest(nil, oauth2.AuthStyleInParams)
+	require.NoError(t, err)
+	require.NoError(t, request.Body.Close())
+	invalid, err := oauth2client.New(&oauth2client.ClientConfig{TokenURL: "://invalid"})
+	require.NoError(t, err)
+	_, err = invalid.CreateTokenRequest(nil, oauth2.AuthStyleInParams)
 	require.Error(t, err)
 }
 
@@ -115,9 +121,9 @@ func TestProviderRegistrationConflicts(t *testing.T) {
 		ClientID:   "replacement",
 	}
 	require.NoError(t, provider.RegisterClient(replacement, true))
-	assert.Same(t, replacement, provider.ClientForProvider(providerID).Config())
-	assert.Same(t, replacement, provider.ClientForDomain("example.test").Config())
-	assert.Same(t, replacement, provider.ClientForEmail("user@other.test").Config())
+	assert.Equal(t, replacement, provider.ClientForProvider(providerID).Config())
+	assert.Equal(t, replacement, provider.ClientForDomain("example.test").Config())
+	assert.Equal(t, replacement, provider.ClientForEmail("user@other.test").Config())
 	_, err = oauth2client.NewProvider(&oauth2client.Config{Clients: []*oauth2client.ClientConfig{initial, initial}})
 	require.Error(t, err)
 	_, err = oauth2client.LoadProvider(filepath.Join(t.TempDir(), "missing"))
