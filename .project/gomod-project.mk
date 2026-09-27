@@ -192,10 +192,17 @@ fmt:
 	echo "Running Fmt"
 	gofmt -s -l -w -r 'interface{} -> any' .
 
+# fmt-check fails, without modifying any file, when a source file is not
+# formatted as `make fmt` would format it (XPKI-095).
 fmt-check:
 	echo "Running Fmt check"
-	gofmt -d -l -r 'interface{} -> any' .
-	@test -z "$(shell gofmt -l -r 'interface{} -> any' . | tee /dev/stderr)"
+	files=$$(gofmt -s -l -r 'interface{} -> any' .) || { echo "gofmt failed" ; exit 1 ; } ; \
+	if [ -n "$$files" ] ; then \
+		echo "$$files" ; \
+		gofmt -s -d -r 'interface{} -> any' $$files ; \
+		echo "gofmt: files above need formatting, run 'make fmt'" ; \
+		exit 1 ; \
+	fi
 
 vet:
 	echo "Running vet"
@@ -205,7 +212,9 @@ vulns:
 	echo "Running vulns"
 	govulncheck ${PROJ_PACKAGE}/...
 
-lint: fmt vet vulns
+# lint, covtest and testint check formatting instead of running fmt, so a
+# CI run never modifies the checkout (XPKI-095); `make fmt` formats.
+lint: fmt-check vet vulns
 	echo "Running lint"
 	golangci-lint run --timeout 20m0s ./...
 
@@ -221,12 +230,12 @@ testshort:
 sometests:
 	go test ${TEST_FLAGS} ${TEST_RACEFLAG} ${GOPACKAGES_FOR_TEST} --test.short -run $(testname)
 
-covtest: fmt vet
+covtest: fmt-check vet
 	echo "Running covtest"
 	$(call go_test_cover,${PROJ_DIR},${BUILD_FLAGS},${TEST_RACEFLAG},${TEST_GORACEOPTIONS},.,${COVERAGE_EXCLUSIONS})
 
 # Runs integration tests as well
-testint: fmt vet lint
+testint: fmt-check vet lint
 	echo "Running testint"
 	go test ${TEST_RACEFLAG} -tags=${INTEGRATION_TAG} ${GOPACKAGES_FOR_TEST}
 
@@ -257,6 +266,7 @@ help:
 	echo "make generate - generate GO files"
 	echo "make bench - GO test with bench"
 	echo "make fmt - run go fmt on project files"
+	echo "make fmt-check - fail when project files are not gofmt-formatted (no changes)"
 	echo "make vet - run go vet on project files"
 	echo "make lint - run go lint on project files"
 	echo "make test - run test"

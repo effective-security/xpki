@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_skip: ${{ steps.noop.outputs.should_skip }}
+      reason: ${{ steps.noop.outputs.reason }}
+      skipped_by: ${{ steps.noop.outputs.skipped_by }}
       paths_result: ${{ steps.noop.outputs.paths_result }}
     steps:
       - name: Detect No-op Changes
@@ -45,15 +47,19 @@ jobs:
               paths:
                 - '.VERSION'
 
+  # A pull request whose changes all match paths_ignore above (documentation
+  # only) or that duplicates an already successful run skips the job, so the
+  # "code cov" status is reported by code-cov-skipped instead. Pushes,
+  # schedules and releases never skip (do_not_skip) (XPKI-094).
   UnitTest:
     needs:
       - detect-noop
-    #- GoCache
+    if: needs.detect-noop.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
 
     steps:
       - name: Create code coverage status for the current commit
-        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && needs.detect-noop.outputs.should_skip != 'true'
+        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
         run: |
           curl "https://${GIT_USER}:${GIT_TOKEN}@api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${COMMIT_SHA}" -d "{\"state\": \"pending\",\"target_url\": \"https://github.com/${GITHUB_REPOSITORY}/pull/${PULL_NUMBER}/checks?check_run_id=${RUN_ID}\",\"description\": \"in progress — This check has started... \",\"context\": \"code cov\"}"
         env:
@@ -75,6 +81,11 @@ jobs:
         run: |
           make tools
 
+      # gofmt check, go vet, govulncheck and golangci-lint; none of them
+      # modifies the checkout (XPKI-095).
+      - name: Lint
+        run: make lint
+
       - name: Install softhsm2
         run: sudo apt-get install softhsm2
 
@@ -89,8 +100,11 @@ jobs:
         run: |
           make covtest
 
+      - name: Checkout unchanged by the build
+        run: git diff --exit-code
+
       - name: Generate coverage Status
-        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && needs.detect-noop.outputs.should_skip != 'true'
+        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
         run: |
           set -x
           PROJECT_NAME=${PROJECT_NAME}
@@ -132,3 +146,31 @@ jobs:
                 ref: `refs/tags/${DIST_VERSION}`,
                 sha: context.sha
             })
+
+  # When UnitTest is skipped for a pull request, report the "code cov" status
+  # anyway so a required status check does not stay pending (XPKI-094).
+  code-cov-skipped:
+    needs:
+      - detect-noop
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && needs.detect-noop.outputs.should_skip == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report skipped code coverage status
+        # reason is paths_ignore (documentation-only change) or
+        # skip_after_successful_duplicate (an identical tree already passed;
+        # skipped_by names that run); the status says which.
+        run: |
+          case "${SKIP_REASON}" in
+            paths_ignore) DESCRIPTION="skipped: documentation-only change" ;;
+            skip_after_successful_duplicate) DESCRIPTION="skipped: duplicate of successful run $(echo "${SKIPPED_BY}" | jq -r '.id // .html_url // "unknown"')" ;;
+            *) DESCRIPTION="skipped: ${SKIP_REASON:-unknown reason}" ;;
+          esac
+          echo "code cov: ${DESCRIPTION}"
+          # --fail-with-body: an HTTP error must fail this job, since its only
+          # purpose is to create the status
+          curl --silent --show-error --fail-with-body "https://${GIT_USER}:${GIT_TOKEN}@api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${COMMIT_SHA}" -d "{\"state\": \"success\",\"target_url\": \"https://github.com/${GITHUB_REPOSITORY}/pull/${PULL_NUMBER}/checks?check_run_id=${RUN_ID}\",\"description\": \"${DESCRIPTION}\",\"context\": \"code cov\"}"
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_USER: ${{ github.actor }}
+          SKIP_REASON: ${{ needs.detect-noop.outputs.reason }}
+          SKIPPED_BY: ${{ needs.detect-noop.outputs.skipped_by }}

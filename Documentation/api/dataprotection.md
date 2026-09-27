@@ -6,15 +6,76 @@
 import "github.com/effective-security/xpki/dataprotection"
 ```
 
-Package dataprotection provides authenticated encryption of small payloads behind the Provider interface, plus helpers to protect and unprotect JSON objects as base64url strings. NewSymmetric derives an AES\-256\-GCM key from a caller supplied high\-entropy secret with HKDF\-SHA256; the protected blob is nonce || ciphertext || tag with no key identifier, so key rotation must be handled by the caller.
+Package dataprotection provides authenticated encryption of small payloads behind the Provider interface, plus helpers to protect and unprotect JSON objects as base64url strings.
+
+### Symmetric provider
+
+NewSymmetric derives one AES\-256\-GCM key from a caller supplied secret with HKDF\-SHA256 \(RFC 5869, no salt, no info\). Protect draws a fresh random 96\-bit nonce from crypto/rand for every call and returns
+
+```
+nonce (SymmetricNonceSize = 12 bytes) || ciphertext || tag (SymmetricTagSize = 16 bytes)
+```
+
+so a protected blob is SymmetricOverhead \(28\) bytes longer than the plaintext. No associated data is bound to the blob. Unprotect fails with an authentication error for a blob protected under another secret or modified in any byte \(nonce, ciphertext or tag\).
+
+### Secret material
+
+The secret is key material, not a password. HKDF only extracts and expands entropy that is already present \(RFC 5869 §3.1\): a low\-entropy secret such as a passphrase yields a key that is as guessable as the passphrase, and HKDF gives it no brute\-force resistance. Use at least SymmetricMinSecretSize \(32\) bytes from crypto/rand, or the output of a memory\-hard password KDF \(argon2id, scrypt\) when the secret must be derived from a password. The size is documented, not enforced, so existing callers keep working.
+
+### Usage limits
+
+The nonce is random, so NIST SP 800\-38D §8.3 applies: with a 96\-bit random IV the number of Protect calls under one secret must not exceed 2^32 \(SymmetricMaxMessagesPerKey\), which keeps the probability of a repeated nonce, and with it a loss of confidentiality and integrity, below 2^\-32. Each plaintext must be shorter than 2^36 \- 32 bytes \(SP 800\-38D §5.2.1.1, enforced by crypto/cipher, which panics beyond it\); the helpers here are meant for small payloads.
+
+### Rotation
+
+A blob carries no key identifier or format version, so the package cannot tell which secret protected it. The caller owns rotation:
+
+- record which secret protected each blob, for example with a key\-id prefix the caller manages, or by storing the blob next to a key id;
+- keep a provider for every retired secret for as long as blobs protected with it must be readable, and re\-Protect a blob with the current secret when it is read;
+- retire a secret before its Protect count approaches SymmetricMaxMessagesPerKey, and at once if it may have leaked.
+
+A versioned blob format with a key identifier is roadmap work; it would change the on\-the\-wire format and is not part of NewSymmetric \(XPKI\-083\).
+
+References: NIST SP 800\-38D \(https://doi.org/10.6028/NIST.SP.800-38D\), RFC 5869 \(https://www.rfc-editor.org/rfc/rfc5869\).
 
 ## Index
 
+- [Constants](<#constants>)
 - [func ProtectObject\(ctx context.Context, p Provider, v any\) \(string, error\)](<#ProtectObject>)
 - [func UnprotectObject\(ctx context.Context, p Provider, protected string, v any\) error](<#UnprotectObject>)
 - [type Provider](<#Provider>)
   - [func NewSymmetric\(secret \[\]byte\) \(Provider, error\)](<#NewSymmetric>)
 
+
+## Constants
+
+<a name="SymmetricNonceSize"></a>Parameters of the provider returned by NewSymmetric. They document the blob layout and the usage limits; see the package documentation \(XPKI\-083\).
+
+```go
+const (
+    // SymmetricNonceSize is the size in bytes of the random nonce that
+    // starts every protected blob (the standard 96-bit GCM nonce).
+    SymmetricNonceSize = 12
+    // SymmetricTagSize is the size in bytes of the GCM authentication tag
+    // that ends every protected blob.
+    SymmetricTagSize = 16
+    // SymmetricOverhead is the number of bytes a protected blob is longer
+    // than its plaintext.
+    SymmetricOverhead = SymmetricNonceSize + SymmetricTagSize
+    // SymmetricMinSecretSize is the recommended minimum size in bytes of the
+    // secret given to NewSymmetric: 256 bits of key material from
+    // crypto/rand, matching the AES-256 key HKDF derives from it. It is a
+    // recommendation, not enforced: NewSymmetric accepts any secret so that
+    // existing callers keep working.
+    SymmetricMinSecretSize = 32
+    // SymmetricMaxMessagesPerKey is the maximum number of Protect calls
+    // under one secret: with 96-bit random nonces, NIST SP 800-38D §8.3
+    // limits the invocations of the authenticated encryption function to
+    // 2^32 per key, so that the probability of a nonce collision stays
+    // below 2^-32.
+    SymmetricMaxMessagesPerKey uint64 = 1 << 32
+)
+```
 
 <a name="ProtectObject"></a>
 ## func [ProtectObject](<https://github.com/effective-security/xpki/blob/main/dataprotection/dp.go#L25>)
@@ -53,12 +114,77 @@ type Provider interface {
 ```
 
 <a name="NewSymmetric"></a>
-### func [NewSymmetric](<https://github.com/effective-security/xpki/blob/main/dataprotection/symmetric.go#L22>)
+### func [NewSymmetric](<https://github.com/effective-security/xpki/blob/main/dataprotection/symmetric.go#L57>)
 
 ```go
 func NewSymmetric(secret []byte) (Provider, error)
 ```
 
-NewSymmetric returns \`Provider\` based on AES256\-GCM encryption
+NewSymmetric returns a Provider based on AES\-256\-GCM with a key derived from secret by HKDF\-SHA256 \(no salt, no info\).
+
+secret must be high\-entropy key material, at least SymmetricMinSecretSize bytes from crypto/rand or the output of a memory\-hard password KDF; HKDF does not harden a passphrase. The same secret always derives the same key, so blobs protected under it are readable by every provider created from it. The size of secret is not checked. See the package documentation for the per\-secret usage limits and rotation guidance.
+
+<details><summary>Example</summary>
+<p>
+
+ExampleNewSymmetric protects a payload with a secret generated from crypto/rand. The secret is key material: generate it once, store it in a secret store, and give the same bytes to every process that must read the blobs. A passphrase is not a suitable secret.
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"fmt"
+
+	"github.com/effective-security/xpki/dataprotection"
+)
+
+func main() {
+	secret := make([]byte, dataprotection.SymmetricMinSecretSize)
+	if _, err := rand.Read(secret); err != nil {
+		panic(err)
+	}
+
+	p, err := dataprotection.NewSymmetric(secret)
+	if err != nil {
+		panic(err)
+	}
+
+	ctx := context.Background()
+	plaintext := []byte("session state")
+	protected, err := p.Protect(ctx, plaintext)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(len(protected) == len(plaintext)+dataprotection.SymmetricOverhead)
+
+	unprotected, err := p.Unprotect(ctx, protected)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(unprotected))
+
+	// another secret can not read the blob
+	other := make([]byte, dataprotection.SymmetricMinSecretSize)
+	if _, err := rand.Read(other); err != nil {
+		panic(err)
+	}
+	p2, _ := dataprotection.NewSymmetric(other)
+	_, err = p2.Unprotect(ctx, protected)
+	fmt.Println(err)
+}
+```
+
+#### Output
+
+```
+true
+session state
+failed to unprotect: cipher: message authentication failed
+```
+
+</p>
+</details>
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

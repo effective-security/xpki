@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rsa"
+	"crypto/x509"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -41,6 +42,21 @@ var signSchemes = map[kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm]signSchem
 	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512: {hash: crypto.SHA512},
 	kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256:        {hash: crypto.SHA256},
 	kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384:        {hash: crypto.SHA384},
+}
+
+// x509SignatureAlgorithms maps the supported KMS algorithms to the X.509
+// signature algorithm they produce.
+var x509SignatureAlgorithms = map[kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm]x509.SignatureAlgorithm{
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_2048_SHA256:   x509.SHA256WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_3072_SHA256:   x509.SHA256WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA256:   x509.SHA256WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA512:   x509.SHA512WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256: x509.SHA256WithRSA,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256: x509.SHA256WithRSA,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA256: x509.SHA256WithRSA,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512: x509.SHA512WithRSA,
+	kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256:        x509.ECDSAWithSHA256,
+	kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384:        x509.ECDSAWithSHA384,
 }
 
 // Signer implements crypto.Signer interface
@@ -93,6 +109,17 @@ func (s *Signer) Label() string {
 // Algorithm returns the KMS algorithm of the signer's key version.
 func (s *Signer) Algorithm() kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm {
 	return s.algorithm
+}
+
+// SignatureAlgorithm returns the X.509 signature algorithm the key
+// version's KMS algorithm produces, or x509.UnknownSignatureAlgorithm for
+// an algorithm Sign does not support. It implements
+// csr.SignatureAlgorithmer, so csr.DefaultSigAlgo signs CSRs and
+// certificates with the hash and padding KMS accepts for the key, for
+// example SHA-256 for a 3072-bit key and SHA-256 or SHA-512 for a 4096-bit
+// key as its algorithm says (XPKI-114).
+func (s *Signer) SignatureAlgorithm() x509.SignatureAlgorithm {
+	return x509SignatureAlgorithms[s.algorithm]
 }
 
 // Public returns public key for the signer

@@ -10,10 +10,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
-	"net"
-	"net/mail"
-	"net/url"
-	"strings"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
@@ -128,7 +124,10 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 	return
 }
 
-// SignRequest signs a certificate request
+// SignRequest signs a certificate request with priv. req.SAN is parsed by
+// ParseSAN, so an invalid name fails the request instead of being skipped
+// and duplicates are dropped (XPKI-059); the signature algorithm is
+// DefaultSigAlgo(priv).
 func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) (csrPEM []byte, err error) {
 	ext, err := pkixExtentions(req.Extensions)
 	if err != nil {
@@ -148,23 +147,11 @@ func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) 
 		ExtraExtensions:    ext,
 	}
 
-	for _, san := range req.SAN {
-		if strings.Contains(san, "://") {
-			u, err := url.Parse(san)
-			if err != nil {
-				// a nil *url.URL would panic inside x509 marshalling
-				logger.KV(xlog.ERROR, "reason", "skipped_invalid_uri", "uri", san, "err", err)
-				continue
-			}
-			template.URIs = append(template.URIs, u)
-		} else if ip := net.ParseIP(san); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else if email, err := mail.ParseAddress(san); err == nil && email != nil {
-			template.EmailAddresses = append(template.EmailAddresses, email.Address)
-		} else {
-			template.DNSNames = append(template.DNSNames, san)
-		}
+	san, err := ParseSAN(req.SAN)
+	if err != nil {
+		return nil, err
 	}
+	san.applyRequest(&template)
 	logger.KV(xlog.DEBUG,
 		"subject", template.Subject.String(),
 		"ext", pkixExtentionsIDs(ext),
@@ -210,9 +197,27 @@ func pkixExtentions(in []X509Extension) ([]pkix.Extension, error) {
 	return list, nil
 }
 
-// DefaultSigAlgo returns an appropriate X.509 signature algorithm given
-// the CA's private key.
+// SignatureAlgorithmer is implemented by a crypto.Signer whose key accepts
+// a single X.509 signature algorithm, such as a KMS key whose algorithm
+// fixes the hash and padding. DefaultSigAlgo returns that algorithm when it
+// is not x509.UnknownSignatureAlgorithm.
+type SignatureAlgorithmer interface {
+	SignatureAlgorithm() x509.SignatureAlgorithm
+}
+
+// DefaultSigAlgo returns the X.509 signature algorithm for priv: the one a
+// SignatureAlgorithmer advertises, else one chosen by key type and size.
+// RSA keys of 2048 and 3072 bits use SHA-256 and keys of 4096 bits or more
+// SHA-512 (NIST SP 800-57 rates 3072-bit RSA at 128 bits, matching SHA-256,
+// and GCP KMS signs 3072-bit keys only with SHA-256, XPKI-114); ECDSA
+// P-256, P-384 and P-521 use SHA-256, SHA-384 and SHA-512. SHA-1 is never
+// returned; other key types give x509.UnknownSignatureAlgorithm.
 func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm {
+	if a, ok := priv.(SignatureAlgorithmer); ok {
+		if algo := a.SignatureAlgorithm(); algo != x509.UnknownSignatureAlgorithm {
+			return algo
+		}
+	}
 	pub := priv.Public()
 	switch pub := pub.(type) {
 	case *rsa.PublicKey:
@@ -220,8 +225,6 @@ func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm {
 		switch {
 		case keySize >= 4096:
 			return x509.SHA512WithRSA
-		case keySize >= 3072:
-			return x509.SHA384WithRSA
 		case keySize >= 2048:
 			return x509.SHA256WithRSA
 		default:

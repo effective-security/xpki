@@ -3,6 +3,7 @@ package crypto11
 import (
 	"crypto"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cockroachdb/errors"
 	pkcs11 "github.com/miekg/pkcs11"
@@ -13,6 +14,10 @@ var errTokenNotFound = errors.New("crypto11: could not find PKCS#11 token")
 
 // errKeyNotFound represents the failure to find the requested PKCS#11 key
 var errKeyNotFound = errors.New("crypto11: could not find PKCS#11 key")
+
+// errAmbiguousObject is returned when a lookup by class and CKA_ID matches
+// more than one object, so a handle cannot be refreshed safely.
+var errAmbiguousObject = errors.New("crypto11: several PKCS#11 objects match the key id")
 
 // errNoTokenSelector is returned by Init when the configuration names
 // neither a token serial nor a token label.
@@ -124,13 +129,21 @@ type PKCS11Lib struct {
 	Config TokenConfig
 	// Session is the login session on Slot, opened by Init and closed by
 	// Close. It keeps the token logged in while pooled sessions are opened
-	// and closed; do not close it or use it concurrently.
+	// and closed. It is replaced when the token has to be logged in again
+	// after a logout or a reinsertion (XPKI-110), so do not cache, close or
+	// use it concurrently with operations of this PKCS11Lib.
 	Session pkcs11.SessionHandle
 	Slot    *SlotTokenInfo
 
 	module      *module
 	maxSessions int
 	ops         sessionOps
+
+	// loginMu serializes relogin; loginGen counts re-logins and loginErr
+	// keeps a PIN failure that stops further re-login attempts
+	loginMu  sync.Mutex
+	loginGen atomic.Uint64
+	loginErr error
 
 	// closeOnce runs close; closeErr is its result
 	closeOnce sync.Once
@@ -149,7 +162,11 @@ type PKCS11Lib struct {
 
 // PKCS11Object contains a reference to a loaded PKCS#11 object.
 type PKCS11Object struct {
-	// The PKCS#11 object handle.
+	// The PKCS#11 object handle at the time the object was found or
+	// generated. A logout, or a token removal, invalidates the handles of
+	// private objects; the keys this package returns remember their CKA_ID,
+	// look their object up again and keep working, while Handle keeps the
+	// original value (XPKI-110).
 	Handle pkcs11.ObjectHandle
 
 	// The PKCS#11 slot number.

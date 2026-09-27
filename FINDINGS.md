@@ -25,32 +25,24 @@ Type: **security** > **bug** > **race** > **correctness** > **performance** > **
 
 Severity: **CRITICAL** > **HIGH** > **MEDIUM** > **LOW**.
 
-Line numbers refer to the tree at the time of the audit (2026-09-20) and may
-drift; the symbol name is the stable reference.
+Line numbers refer to the tree at the time of the audit and may drift; the
+symbol name is the stable reference.
 
 ## Index
 
-| ID       | Package                               | Location                                                       | Title                                                                                                                                              | Severity    | Status         |
-| -------- | ------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | -------------- |
-| XPKI-027 | cryptoprov                            | `uri.go` `ParseTokenURI`/`ParsePrivateKeyURI`                  | RFC 7512 `?pin-value=`/`?module-path=` query attributes are dropped                                                                                | correctness | Open           |
-| XPKI-047 | armor                                 | `armor.go` `Decode`                                            | CRC24 trailer mandatory; RFC 9580 requires accepting armor without it                                                                              | correctness | Open           |
-| XPKI-059 | csr                                   | `csr.go` `SetSAN`, `csrprov.go` `SignRequest`                  | No SAN dedupe or DNS validation; `nil` keeps CSR SANs but empty slice clears them (undocumented)                                                   | correctness | Open           |
-| XPKI-063 | testca                                | `utils.go` `ToPFX`/`ToPKCS8`                                   | Shell out to `openssl` and panic; stdlib `x509.MarshalPKCS8PrivateKey` covers PKCS#8                                                               | correctness | Open           |
-| XPKI-083 | dataprotection                        | `symmetric.go` `NewSymmetric`/`Protect`                        | AES-GCM 96-bit random nonce with no rotation hook; HKDF over possibly low-entropy secret; limits undocumented                                      | docs        | Open           |
-| XPKI-094 | CI                                    | `.github/workflows/unittest.yml` `UnitTest`                    | Job not gated on `detect-noop` output; the skip step never skips anything                                                                          | bug         | Needs Approval |
-| XPKI-095 | CI                                    | `.github/workflows/unittest.yml`, `Makefile`                   | Lint and govulncheck installed but never run; `make fmt` mutates the checkout instead of `fmt-check`                                               | correctness | Needs Approval |
-| XPKI-096 | build                                 | `Makefile` `tools`                                             | Tools installed `@latest`; a golangci-lint major bump can break `.golangci.yaml`                                                                   | correctness | Open           |
-| XPKI-098 | build                                 | `docker-compose.yml`                                           | Obsolete `version:`; fixed subnet is a public range; `local-kms` image untagged                                                                    | correctness | Open           |
-| XPKI-100 | tests                                 | crypto11, cryptoprov, csr, authority, jwt, cmd suites          | Integration tests fail hard (some via `TestMain` panic) instead of skipping when SoftHSM or local-kms is absent                                    | docs        | In Progress (authority, crypto11, jwt, cryptoprov, certutil, awskmscrypto fixed in v0.29; csr, cmd/hsm-tool remain) |
-| XPKI-101 | tests                                 | `cmd/hsm-tool/cli/hsm_cli_test.go`                             | Shared kong parser across `Parse` calls masks the `--cfg` required check                                                                           | docs        | Open           |
-| XPKI-102 | cmd/xpki-tool/cli                     | `ocsp.go` `OCSPFetchCmd.Run`                                   | All OCSP endpoint failures are printed but the command returns success                                                                             | correctness | Open           |
-| XPKI-110 | crypto11                              | `sessions.go` `withSession`; `config.go` `Init`                | After a device/token error the pooled sessions are reopened, but the login session is not, so a reinserted token stays logged out (`CKR_USER_NOT_LOGGED_IN`) until a new `Init` | correctness | Open           |
-| XPKI-114 | csr, cryptoprov/gcpkmscrypto          | `csr/csrprov.go` `DefaultSigAlgo`; `csr/keyreq.go` `SigAlgo`   | 3072-bit RSA keys are signed with SHA-384, which no GCP KMS 3072-bit algorithm accepts (`RSA_SIGN_PKCS1_3072_SHA256` only), so a 3072-bit GCP key cannot sign a CSR or certificate with the csr defaults (found during GC2) | correctness | Open           |
+| ID | Package | Location | Title | Severity | Status |
+| -- | ------- | -------- | ----- | -------- | ------ |
+
+No open findings. Every finding of the 2026-09-20 audit (XPKI-001..125) is
+fixed and summarized in
+[`Documentation/RELEASE_NOTES_0.29.md`](Documentation/RELEASE_NOTES_0.29.md).
+Larger follow-up work is in [ROADMAP.md](ROADMAP.md).
 
 ## Notes on items needing approval
 
-- **XPKI-114** (3072-bit RSA keys signed with SHA-384 by `csr`) needs a
-  policy: SHA-256 for 3072-bit keys, or providers advertising their key's
-  hash.
-- **XPKI-094 / XPKI-095** change what CI runs; enabling lint in CI will fail
-  until the remaining `gosec`/`gocritic` style findings are triaged.
+None. Decisions taken while closing the last batch without a prior approval
+are called out in the v0.29 release notes ("Breaking changes") and should be
+reviewed: SHA-256 for 3072-bit RSA keys (XPKI-114), rejection of invalid SANs
+by `csr.Provider.SignRequest` and `authority.Issuer.Sign` (XPKI-059), the
+`code-cov-skipped` status for documentation-only pull requests (XPKI-094),
+and `make lint` in CI (XPKI-095).

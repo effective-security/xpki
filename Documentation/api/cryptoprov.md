@@ -307,7 +307,7 @@ type KeyManager interface {
 ```
 
 <a name="PrivateKeyURI"></a>
-## type [PrivateKeyURI](<https://github.com/effective-security/xpki/blob/main/cryptoprov/uri.go#L15-L30>)
+## type [PrivateKeyURI](<https://github.com/effective-security/xpki/blob/main/cryptoprov/uri.go#L19-L34>)
 
 PrivateKeyURI holds PKCS\#11 private key information.
 
@@ -333,13 +333,13 @@ type PrivateKeyURI interface {
 ```
 
 <a name="ParsePrivateKeyURI"></a>
-### func [ParsePrivateKeyURI](<https://github.com/effective-security/xpki/blob/main/cryptoprov/uri.go#L122>)
+### func [ParsePrivateKeyURI](<https://github.com/effective-security/xpki/blob/main/cryptoprov/uri.go#L339>)
 
 ```go
 func ParsePrivateKeyURI(uri string) (PrivateKeyURI, error)
 ```
 
-ParsePrivateKeyURI parses a PKCS \#11 URI into a key configuration
+ParsePrivateKeyURI parses a PKCS \#11 URI \(RFC 7512\) into a key configuration. The URI must have type=private, serial and id \(the id is percent\-decoded and may hold binary data\). Query attributes are validated like ParseTokenURI does but not returned.
 
 <a name="Provider"></a>
 ## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L76-L80>)
@@ -426,13 +426,13 @@ func LoadTokenConfig(filename string) (TokenConfig, error)
 LoadTokenConfig loads PKCS\#11 token configuration
 
 <a name="ParseTokenURI"></a>
-### func [ParseTokenURI](<https://github.com/effective-security/xpki/blob/main/cryptoprov/uri.go#L68>)
+### func [ParseTokenURI](<https://github.com/effective-security/xpki/blob/main/cryptoprov/uri.go#L286>)
 
 ```go
 func ParseTokenURI(uri string) (TokenConfig, error)
 ```
 
-ParseTokenURI parses a PKCS \#11 URI into a PKCS \#11 configuration. Note that the module path will override the module name if present.
+ParseTokenURI parses a PKCS \#11 URI \(RFC 7512\) into a token configuration. The path attributes manufacturer, model, token and serial select the token; the query attributes module\-name, module\-path, pin\-value and pin\-source \(a file: URI whose content, trimmed, is the PIN\) set the library and the PIN. module\-path overrides module\-name when both are present. The query attributes are also accepted in the path, as this package did before XPKI\-027, but not in both places, and a URI with both pin\-source and pin\-value is refused \(RFC 7512 §2.4\). Manufacturer and model are trimmed. Errors never contain a pin\-value.
 
 <a name="TokenInfo"></a>
 ## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L34-L41>)

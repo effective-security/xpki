@@ -163,7 +163,7 @@ func Init(config TokenConfig, opts ...Option) (_ *PKCS11Lib, err error) {
 		return nil, errors.WithMessage(err, "open PKCS#11 session")
 	}
 	if lib.Slot.flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
-		err = lib.Ctx.Login(lib.Session, pkcs11.CKU_USER, config.Pin())
+		err = lib.ops.login(lib.Session, config.Pin())
 		if err != nil && !errors.Is(err, pkcs11.Error(pkcs11.CKR_USER_ALREADY_LOGGED_IN)) {
 			return nil, errors.WithMessage(err, "login into PKCS#11 token")
 		}

@@ -1,29 +1,20 @@
-version: "3"
-
-networks:
-  private:
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 168.139.58.0/24
-
+# local-kms emulators for the tests that need AWS KMS (awskmscrypto,
+# authority, jwt, certutil, cmd/hsm-tool): `make start-local-kms`.
+#
+# The image tag is pinned (XPKI-098): update it deliberately and rerun those
+# suites. The services use the project's default network; only the published
+# ports below are part of the test contract. The emulator keeps its keys in
+# memory, so recreating the containers starts from an empty key store.
 services:
   kms1:
-    image: nsmithuk/local-kms
-    networks:
-      private:
-        ipv4_address: 168.139.58.10
+    image: nsmithuk/local-kms:3.11.7
     ports:
       - "14555:14555" # KMS
     environment:
       - PORT=14555
 
   kms2:
-    image: nsmithuk/local-kms
-    networks:
-      private:
-        ipv4_address: 168.139.58.11
+    image: nsmithuk/local-kms:3.11.7
     ports:
       - "14556:14556" # KMS
     environment:

@@ -460,18 +460,29 @@ func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, pro
 	if fields.Subject {
 		safeTemplate.Subject = requesterCsrTemplate.Subject
 	}
+	// The names copied from the CSR get the same validation and
+	// deduplication as a SignRequest SAN (XPKI-059): an invalid DNS name or
+	// URI in the CSR fails the request instead of being issued.
+	csrSAN := &csr.SAN{}
 	if fields.DNSNames {
-		safeTemplate.DNSNames = requesterCsrTemplate.DNSNames
+		csrSAN.DNSNames = requesterCsrTemplate.DNSNames
 	}
 	if fields.IPAddresses {
-		safeTemplate.IPAddresses = requesterCsrTemplate.IPAddresses
+		csrSAN.IPAddresses = requesterCsrTemplate.IPAddresses
 	}
 	if fields.URIs {
-		safeTemplate.URIs = requesterCsrTemplate.URIs
+		csrSAN.URIs = requesterCsrTemplate.URIs
 	}
 	if fields.EmailAddresses {
-		safeTemplate.EmailAddresses = requesterCsrTemplate.EmailAddresses
+		csrSAN.EmailAddresses = requesterCsrTemplate.EmailAddresses
 	}
+	if err := csrSAN.Validate(); err != nil {
+		return nil, nil, errors.WithMessage(err, "CSR")
+	}
+	safeTemplate.DNSNames = csrSAN.DNSNames
+	safeTemplate.IPAddresses = csrSAN.IPAddresses
+	safeTemplate.URIs = csrSAN.URIs
+	safeTemplate.EmailAddresses = csrSAN.EmailAddresses
 
 	/*
 		isSelfSign := ca.bundle == nil
@@ -632,7 +643,12 @@ func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, pro
 		}
 		csrExtensions = append(csrExtensions, ext)
 	}
-	csr.SetSAN(&safeTemplate, raReq.SAN)
+	// A nil SignRequest SAN keeps the CSR names validated above; a non-nil
+	// one replaces them, an invalid name fails the request and duplicates
+	// are dropped (XPKI-059).
+	if err := csr.ApplySAN(&safeTemplate, raReq.SAN); err != nil {
+		return nil, nil, errors.WithStack(err)
+	}
 
 	err = ca.fillTemplate(&safeTemplate, profile, raReq.NotBefore, raReq.NotAfter)
 	if err != nil {

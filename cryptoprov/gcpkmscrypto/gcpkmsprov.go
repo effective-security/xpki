@@ -265,8 +265,9 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 	case 2048:
 		algorithm = kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256
 	case 3072:
-		// XPKI-114: csr.DefaultSigAlgo signs 3072-bit keys with SHA-384, which
-		// no KMS 3072-bit algorithm accepts.
+		// KMS has no SHA-384 algorithm for 3072-bit keys; csr.DefaultSigAlgo
+		// follows Signer.SignatureAlgorithm, so CSRs and certificates are
+		// signed with SHA-256 (XPKI-114).
 		algorithm = kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256
 	case 4096:
 		algorithm = kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512

@@ -2,8 +2,10 @@ package authority_test
 
 import (
 	"crypto"
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -510,6 +512,29 @@ func (s *testSuite) TestIssuerSign() {
 		_, _, err = rootCA.Sign(sreq)
 		s.Require().Error(err)
 		s.Equal("unsupported profile: unknown", err.Error())
+	})
+
+	// A name copied from the CSR gets the ParseSAN rules too (XPKI-059):
+	// a CSR with a malformed DNS name is rejected, not issued as given.
+	s.Run("invalid_csr_san", func() {
+		key, err := kr.Generate()
+		s.Require().NoError(err)
+		der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+			Subject:  pkix.Name{CommonName: "trusty.com"},
+			DNSNames: []string{"trusty.com", "trailing.dot.", "a b.trusty.com"},
+		}, key)
+		s.Require().NoError(err)
+		csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+
+		_, _, err = rootCA.Sign(csr.SignRequest{Request: string(csrPEM)})
+		s.Require().Error(err)
+		s.Contains(err.Error(), `CSR: invalid SAN "trailing.dot.": DNS name has a trailing dot`)
+		s.Contains(err.Error(), `invalid SAN "a b.trusty.com": invalid character ' ' in DNS label "a b"`)
+
+		// the same names in the SignRequest are rejected as well
+		_, _, err = rootCA.Sign(csr.SignRequest{Request: string(csrPEM), SAN: []string{"trailing.dot."}})
+		s.Require().Error(err)
+		s.Contains(err.Error(), `invalid SAN "trailing.dot."`)
 	})
 
 	s.Run("ocsp", func() {
