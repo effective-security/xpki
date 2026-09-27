@@ -15,14 +15,19 @@ with `context.Background()` and a `Sign` can hang on a network stall. Add
 `ctx` to the interfaces (or context-aware variants), thread it through
 `csr.Provider`, `authority.Issuer.Sign` and `jwt`. Related: XPKI-024.
 
+## KMS encryption keys
+
+`awskmscrypto` and `gcpkmscrypto` reject `GenerateRSAKey` purpose 2 and
+return no key for an `ENCRYPT_DECRYPT` key, since neither implements
+`crypto.Decrypter` (v0.29). A KMS-backed decrypter (AWS `RSAES_OAEP_SHA_256`,
+GCP `RSA_DECRYPT_OAEP_*`) needs `KeyManager` listing and `GetKey` to return
+a decrypter for such keys, and `crypto11`-compatible `*rsa.OAEPOptions`
+handling; add it when a caller needs KMS-held encryption keys.
+
 ## DPoP: replay protection and access-token binding
 
-Done in DP1 (XPKI-074/075/076, 2026-09-24): `dpop.VerifyConfig` takes an
-opt-in `ReplayCache` (with a bounded, fail-closed `NewMemoryReplayCache`),
-`AccessToken` for `ath` and `ExpectedThumbprint` for `cnf.jkt`, plus a
-trusted `ExternalURL` for `htu`. go-jose verifies every allowed algorithm.
-`ath` lives in a dpop-local claims struct, and `jwt.Claims` is unchanged.
-Remaining:
+`dpop.VerifyConfig` has an opt-in `ReplayCache` (in-memory only), `ath` and
+`cnf.jkt` binding, and a trusted `ExternalURL` (v0.29). Remaining:
 
 - a shared `ReplayCache` implementation (for example Redis `SET NX` with an
   expiry) for servers with several instances;
@@ -33,34 +38,28 @@ Remaining:
 
 ## JWKS client hardening
 
-Done in JW1 (XPKI-070, 2026-09-24): `jwt.RemoteKeySet` accepts an injected
-`*http.Client`, applies a per-fetch timeout and body limit, and throttles
-refreshes with a cooldown. Remaining: TTL-based background refresh (honouring
+`jwt.RemoteKeySet` has an injected client, a timeout, a body limit and a
+refresh cooldown (v0.29). Remaining: TTL-based background refresh (honouring
 `Cache-Control`), so removed keys expire and new keys are picked up before the
 first miss, and `ParserConfig` fields for the `RemoteKeySet` options, which
 `NewParser` currently leaves at the defaults.
 
 ## PKCS#11 session management
 
-Done in PK1 (XPKI-001..003, XPKI-005, XPKI-007, 2026-09-25): bounded
-per-slot pools created on demand, a per-path module refcount whose last
-`Close() error` finalizes, and `Init` unwinding. Remaining: a
-`context.Context`-aware borrow (today a borrower at the session limit waits
-without a deadline, since `crypto.Signer` has no context), recovery of the
-login session after a device error (XPKI-110). PK2 (2026-09-25) replaced the
-`unsafe` CK_ULONG helpers with checked `encoding/binary` decoding (XPKI-011);
-the deprecated exported `BytesToUlong` can be removed in the next major
+Remaining after v0.29: a `context.Context`-aware borrow (today a borrower at
+the session limit waits without a deadline, since `crypto.Signer` has no
+context), and recovery of the login session after a device error (XPKI-110).
+The deprecated exported `BytesToUlong` can be removed in the next major
 version.
 
 ## certutil bundler concurrency
 
-CU2 (2026-09-25) made `certutil.Bundler` safe for concurrent use with
-copy-on-write pools (XPKI-035). Remaining: coalescing concurrent AIA fetches of
+Remaining after v0.29: coalescing concurrent AIA fetches of
 the same URL across calls (each call still fetches once), and replacing the
 exported mutable `RootPool`/`IntermediatePool`/`KnownIssuers` fields with
-accessors in the next major version. CU5 (2026-09-26) added encrypted PKCS#8
-decryption for PBES2 with PBKDF2 and AES-CBC (XPKI-043); scrypt and PBES1 are
-not planned unless a caller needs them. Drop legacy RFC 1423 PEM decryption
+accessors in the next major version. Encrypted PKCS#8 supports PBES2 with
+PBKDF2 and AES-CBC only; scrypt and PBES1 are not planned unless a caller
+needs them. Drop legacy RFC 1423 PEM decryption
 (`x509.DecryptPEMBlock`) once callers have migrated to PKCS#8.
 
 ## Dependency hygiene
@@ -75,9 +74,7 @@ not planned unless a caller needs them. Drop legacy RFC 1423 PEM decryption
 - Run `make lint` and `govulncheck` in CI, and gate the `UnitTest` job on
   `detect-noop` (XPKI-094, XPKI-095).
 - Make integration tests skip when SoftHSM or local-kms is unavailable
-  (XPKI-100) with `internal/testenv` (done for `authority`, `crypto11`, `jwt`
-  and `cryptoprov`; awskmscrypto, csr, certutil and hsm-tool remain), and gate
-  `certutil.TestKeyInfoKMS` (XPKI-099, certutil portion).
+  (XPKI-100) with `internal/testenv`; csr and hsm-tool remain.
 - Wire `make version` into `build` and stop tracking
   `internal/version/current.go` (XPKI-097).
 - Regenerate `cmd/*/README.md` from `--help` output and add per-command
