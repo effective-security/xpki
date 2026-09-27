@@ -64,6 +64,30 @@ this release.
   selector.
 - **cryptoprov** (XPKI-016, 026, 113): the provider registry is synchronized.
   Duplicate and nil providers are errors.
+- **authority** (XPKI-055): `Authority` is safe for concurrent use. Its
+  issuer and profile maps are an immutable snapshot that `AddIssuer` and
+  `AddProfile` replace, so lookups never race with registration (before,
+  a profile registered at runtime while another request listed the profiles
+  could crash the process with `concurrent map iteration and map write`).
+  `Authority.Profiles`, `Authority.Issuers` and `Issuer.Profiles` return
+  copies. `AddIssuer` checks before it publishes, so a rejected issuer
+  (a label already registered, a profile already registered by another
+  issuer, or a nil profile) leaves the registry unchanged instead of
+  half-registering the issuer. A registered `*CertProfile` is shared with
+  every reader and must not be modified after `AddProfile`; register a
+  `Copy` to change one.
+- **cmd/hsm-tool** (XPKI-084): an empty (`--cfg ""`), unreadable or invalid
+  `--cfg` fails the command with exit status 1 and `hsm-tool: error: use
+  --cfg flag ...` or `hsm-tool: error: unable to initialize crypto
+  providers: ...` instead of a panic with a stack trace (exit 2). An omitted
+  `--cfg` stays a usage error (exit 80).
+- **jwt** (XPKI-125, found by the review of this batch): `Valid`,
+  `VerifyExpiresAt`, `VerifyIssuedAt` and `VerifyNotBefore` reject a present
+  `exp`, `iat` or `nbf` that is not a time (`invalid exp claim: ...`). Before,
+  such a claim was treated as absent, so a verified token with `"exp":
+  "tomorrow"` or `"exp": true` never expired (RFC 7519 §7.2 requires
+  rejecting a claim with an unexpected value). `MapClaims.Time` still returns
+  nil for it.
 - **cryptoprov/inmemcrypto, testprov, testca** (XPKI-017, 062, 107): key maps
   and counters are synchronized.
 - **cryptoprov/awskmscrypto** (XPKI-025, 031..034): `Sign` checks its
@@ -118,6 +142,24 @@ this release.
   against an in-memory fake KMS client.
 - The SoftHSM setup script was hardened (XPKI-093). CLI test fixtures are
   isolated per run (XPKI-105).
+- `internal/version` (XPKI-097): the CLIs report the version the linker
+  sets (`make build` and `make hsmconfig` pass `-ldflags "-X
+  github.com/effective-security/xpki/internal/version.build=$(GIT_VERSION)"`).
+  Without it, a plain `go build` or `go install` reports the module version
+  recorded by the go command (a tag, or a pseudo-version with `+dirty`),
+  else `devel-<revision>[-dirty]`. `internal/version/current.go` is ordinary
+  source: it is no longer generated from `current.template` (removed), so a
+  checkout never carries a stale version (it embedded `v0.2.76`), and `make
+  version` now prints the version. A test builds both CLIs and checks their
+  `--version` output.
+- **authority** (XPKI-058): `IssuerConfig.Type` has `json`/`yaml` tags. YAML
+  already loaded `type:`; the JSON key is now `type` instead of `Type` and is
+  omitted when empty. Decoding accepts both spellings.
+- Flaky tests fixed: the `dataprotection` tamper test copied one random
+  nonce byte over another, which left the input unchanged about once in 256
+  runs (XPKI-106); the delegated OCSP slow-failure test released its signer
+  from a timer armed before the attempt started (XPKI-111). Both are now
+  deterministic.
 
 ## New features and behaviour
 
@@ -137,6 +179,8 @@ this release.
 - `jwt`: `MapClaims.NormalizeTimeClaims()`.
 - `jwt/oauth2client`: `Client.PublicKey()`.
 - `cryptoprov`: the `ErrNilProvider` and `ErrDuplicateProvider` errors.
+- `authority`: `Authority.Profile(label)`. `Authority.Issuers()` is sorted
+  by label.
 - `awskmscrypto`: `Signer.SigningAlgorithms`, and `KeyInfo.Label` is set to
   the key description by `EnumKeys` and `KeyInfo`.
 - `gcpkmscrypto`: key ids are `K` or `K/cryptoKeyVersions/N`. A bare id
@@ -162,6 +206,11 @@ this release.
 | `authority` | A CSR extension that is not in `allowed_extensions` is rejected, or dropped with `omit_disabled_extensions`. `otherName` SANs from a CSR are no longer issued | Add the needed OIDs to the profile's `allowed_extensions` |
 | `authority` | A `SignRequest` whose lifetime exceeds the profile expiry, for example `NotAfter = now + expiry` with the default backdate, is rejected | Send `NotAfter ≤ NotBefore + expiry` |
 | `authority` | A populated `allowed_profiles` also filters wildcard profiles and must include the `delegated_ocsp_profile` | List every profile the issuer needs |
+| `authority` | `Authority.Profiles()` and `Issuer.Profiles()` return copies: writing to the returned map no longer changes the registry. `Issuers()` is sorted by label. `AddIssuer` rejects an issuer whose label is already registered (before, the label and key id entries were silently replaced while the old issuer kept its profiles), a nil issuer, and an issuer with a nil profile; a rejected issuer registers nothing. A `*CertProfile` must not be modified after `AddProfile` | Register each issuer once; change profiles with `AddProfile` (or `Issuer.AddProfile`), passing a `Copy` when starting from a registered profile |
+| `authority` | `IssuerConfig` marshals `Type` as the JSON key `type` (was `Type`), omitted when empty | Readers of the JSON form use `type`; decoding accepts both |
+| `cmd/hsm-tool/cli` | `Cli.CryptoProv()` returns `(*cryptoprov.Crypto, cryptoprov.Provider, error)` and no longer panics | Return the error from the command |
+| build | `internal/version/current.template` is gone and `current.go` is ordinary source; the version is linked with `LDFLAGS` (`-X github.com/effective-security/xpki/internal/version.build=...`) | Build with `make build`, or pass the same `-ldflags` to `go build`; a plain build reports the module version |
+| `jwt` | A token whose `exp`, `iat` or `nbf` is present but not a time fails `Valid` with `invalid <claim> claim: ...` instead of skipping the check | Reissue such tokens with a NumericDate |
 | `certutil` | `NewBundler(nil, …, WithBundleFlavor(Optimal))` fails without roots | Pass `WithSystemRoots(true)` or explicit roots |
 | `certutil` | `Bundle` of an empty list returns `ErrNoCertificates` instead of `(nil, nil)`. `SortBundlesByExpiration` returns a sorted copy | Check the error, and use the return value |
 | `jwt` | The error `key not found: <kid>` is now `kid="<kid>": key not found`. A kid-less token against several eligible keys fails. A key published less than 10s after a fetch is refused until the cooldown ends | Match errors with `errors.Is`, not text; tune `WithRefreshCooldown` |
@@ -178,6 +227,6 @@ this release.
 ## Still open
 
 See [FINDINGS.md](../FINDINGS.md), [PLAN.md](../PLAN.md) and
-[ROADMAP.md](../ROADMAP.md). Among the open items: `authority` registry
-synchronization (XPKI-055), the 3072-bit RSA hash for GCP KMS
-(XPKI-114), and CI lint wiring (XPKI-094, 095).
+[ROADMAP.md](../ROADMAP.md). Among the open items: the 3072-bit RSA hash for
+GCP KMS (XPKI-114), `crypto11` re-login after a device error (XPKI-110), and
+the CI `detect-noop` gate and lint wiring (XPKI-094, 095).

@@ -2,6 +2,7 @@ package dataprotection
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,10 +24,19 @@ func TestNewSymmetric(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, unprotected)
 
-	// modify the data
-	// XPKI-106: equal random nonce bytes leave this input unchanged.
-	protected[0] = protected[1]
-	_, err = p.Unprotect(ctx, protected)
+	// modify the data: flip one bit of the authentication tag, then one bit
+	// of the nonce (XPKI-106: copying one random nonce byte over another
+	// left the input unchanged when the bytes were equal)
+	tampered := slices.Clone(protected)
+	tampered[len(tampered)-1] ^= 0x01
+	require.NotEqual(t, protected, tampered)
+	_, err = p.Unprotect(ctx, tampered)
+	assert.EqualError(t, err, "failed to unprotect: cipher: message authentication failed")
+
+	tampered = slices.Clone(protected)
+	tampered[0] ^= 0x80
+	require.NotEqual(t, protected, tampered)
+	_, err = p.Unprotect(ctx, tampered)
 	assert.EqualError(t, err, "failed to unprotect: cipher: message authentication failed")
 
 	_, err = p.Unprotect(ctx, nil)

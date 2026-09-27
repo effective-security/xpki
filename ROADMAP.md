@@ -74,7 +74,5 @@ needs them. Drop legacy RFC 1423 PEM decryption
   `detect-noop` (XPKI-094, XPKI-095).
 - Make integration tests skip when SoftHSM or local-kms is unavailable
   (XPKI-100) with `internal/testenv`; csr and hsm-tool remain.
-- Wire `make version` into `build` and stop tracking
-  `internal/version/current.go` (XPKI-097).
 - Regenerate `cmd/*/README.md` from `--help` output and add per-command
   examples.

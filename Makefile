@@ -1,12 +1,15 @@
 include .project/gomod-project.mk
 BUILD_FLAGS=
+# LDFLAGS sets the build version reported by the CLIs (internal/version).
+LDFLAGS=-ldflags "-X github.com/effective-security/xpki/internal/version.build=$(GIT_VERSION)"
+
 export COVERAGE_EXCLUSIONS="tests|testca|main\.go|clisuite|testsuite\.go|mocks\.go"
+export XPKI_INTEGRATION=required
 
 export AWS_ACCESS_KEY_ID=notusedbyemulator
 export AWS_SECRET_ACCESS_KEY=notusedbyemulator
 export AWS_DEFAULT_REGION=us-west-2
 # make test/covtest (and CI) fail when a test fixture is missing (internal/testenv)
-export XPKI_INTEGRATION=required
 
 .PHONY: *
 
@@ -32,8 +35,7 @@ tools:
 	go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
 
 version:
-	echo "*** building version"
-	gofmt -r '"GIT_VERSION" -> "$(GIT_VERSION)"' internal/version/current.template > internal/version/current.go
+	echo "$(GIT_VERSION)"
 
 change_log:
 	echo "Recent changes" > ./change_log.txt
@@ -47,10 +49,10 @@ hashbin:
 
 build: hashbin
 	echo "*** Building hsm-tool"
-	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/hsm-tool ./cmd/hsm-tool
+	go build ${BUILD_FLAGS} ${LDFLAGS} -o ${PROJ_ROOT}/bin/hsm-tool ./cmd/hsm-tool
 	md5sum ./bin/hsm-tool >> ./build_log.txt
 	echo "*** Building xpki-tool"
-	go build ${BUILD_FLAGS} -o ${PROJ_ROOT}/bin/xpki-tool ./cmd/xpki-tool
+	go build ${BUILD_FLAGS} ${LDFLAGS} -o ${PROJ_ROOT}/bin/xpki-tool ./cmd/xpki-tool
 	md5sum ./bin/xpki-tool >> ./build_log.txt
 
 .PHONY: test-scripts
@@ -59,7 +61,7 @@ test-scripts:
 
 hsmconfig: test-scripts
 	echo "*** Running hsmconfig"
-	go build ${BUILD_FLAGS} -o "${PROJ_ROOT}/bin/hsm-tool" ./cmd/hsm-tool
+	go build ${BUILD_FLAGS} ${LDFLAGS} -o "${PROJ_ROOT}/bin/hsm-tool" ./cmd/hsm-tool
 	mkdir -p ~/softhsm2 /tmp/xpki
 	./scripts/config-softhsm.sh \
 		--pin-file ~/softhsm2/xpki_pin_unittest.txt \

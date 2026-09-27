@@ -50,8 +50,7 @@ the test prerequisites below can move a small preparatory change earlier.
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
-| AU3 | `authority` | 055 | P1 / 34 | High: live maps and pointer ownership | Snapshot/mutation contract |
-| HC1 | `cmd/hsm-tool/cli` | 084, 101; 100-hsm-cli | P2 / 25 | Medium: CLI errors, exit status, parser state | None |
+| HC1 | `cmd/hsm-tool/cli` | 101; 100-hsm-cli | P2 / 21 | Low: test parser state and fixture gating | None |
 | XC1 | `cmd/xpki-tool/cli` | 102 | P2 / 23 | Medium: exit status used by scripts | Partial endpoint success policy |
 | CP2 | `cryptoprov` | 027 | P2 / 23 | Medium: URI parsing and credential precedence | Query/path conflict policy |
 | PK3 | `crypto11` | 110 | P2 / 23 | Medium: re-login on a live token after device errors | Re-login trigger and PIN retention |
@@ -60,22 +59,14 @@ the test prerequisites below can move a small preparatory change earlier.
 | BU1 | root build tooling | 096, 095-build | P2 / 23 | Low–medium: tool compatibility and formatter gate | Coordinate CI requirement |
 | BU2 | `docker-compose.yml` | 098 | P2 / 23 | Medium: emulator reachability and image behavior | None |
 | CI1 | `.github/workflows` | 095-CI, 094 | P2 / 23 | Medium: required checks and skipped-job semantics | 094, 095 |
-| DT1 | `dataprotection` | 083, 106 | P2 / 21 | Low for documentation/test correction; high if format changes | Rotation API is separate roadmap work |
-| AU4 | `authority` | 058 (revalidate) | P3 / 15 | Low: serialization casing | No YAML data-loss fix justified |
-| IV1 | `internal/version` | 097-version | P3 / 15 | Low–medium: fallback version reporting | Generated-file policy |
-| BU3 | root build tooling | 097-build | P3 / 15 | Low–medium: build/install paths | Coordinate IV1 |
+| DT1 | `dataprotection` | 083 | P2 / 21 | Low for documentation; high if format changes | Rotation API is separate roadmap work |
 | TC2 | `testca` | 063 | P3 / 13 | Medium: PEM versus DER and OpenSSL compatibility | Preserve test-only panic contract |
-| AU5 | `authority` (tests) | 111 | P3 / 15 | Low: test-only timing | None |
 
 Execution dependencies:
 
-- AU3 must keep the lock order `renewLock` → `Issuer.lock` and the extension
-  and validity rules in `Issuer.Sign`; do not take a registry mutex around
-  `Sign` or responder renewal.
 - CS1 owns XPKI-114 (`csr` picks SHA-384 for 3072-bit RSA, which GCP KMS
   cannot sign); `gcpkmscrypto` already rejects the mismatched hash locally.
-- BU1 precedes CI1. IV1 defines the runtime fallback before BU3 wires builds;
-  neither portion alone closes 097.
+- BU1 precedes CI1.
 - For 100, make each package's unit tests independent of optional
   infrastructure, while keeping a CI mode that **fails** when required
   integrations are missing. Gate with `internal/testenv` (`RequireTCP`, or
@@ -104,13 +95,11 @@ policy, lifecycle, or concurrency completeness.
 | --- | ---: | --- |
 | `crypto11` | 81.0% | Login-session recovery after a device error is not tested |
 | `cryptoprov` | 84.8% | URI query attributes are not tested |
-| `authority` | 91.0% | Fresh delegated responder creation bypassed; constructor only 37.2% |
 | `csr` | 94.3% | SAN 92.9% without the full nil/empty/duplicate/validation matrix |
 | `armor` | 90.6% | Legacy CRC acceptance rules embedded in corruption expectations |
 | `dataprotection` | 87.1% | Round trips do not validate documented usage limits |
 | `cmd/hsm-tool/cli` | 85.7% | Parser reuse masks a missing-required-flag scenario |
 | `cmd/xpki-tool/cli` | 96.2% | Success-on-error is a characterization test |
-| `internal/version` | 100% | No test that a built binary reports the current build version |
 | `testca`, scripts, build, workflow | Not in this Go coverage profile | Testca is excluded; scripts/build/CI need their own smoke checks |
 
 Current workflow evidence takes precedence over stale summaries: the actual
@@ -122,19 +111,6 @@ Therefore 095 is principally CI wiring and a non-mutating lint entry point,
 not creation of a nonexistent formatter check or vulnerability target.
 
 ## Package assessments
-
-### authority — AU3, AU4, AU5
-
-| Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
-| --- | --- | --- |
-| XPKI-055 — HIGH / race / 34 | [Authority](authority/authority.go) mutates registry maps without locks; [Issuer.Profiles](authority/issuer.go) returns a live map after releasing its read lock. Synchronize registries and define snapshot/ownership rules for maps and pointed-to profiles. | **Partial:** `TestNewAuthority` and extension tests validate serial lookup and live profile identity. Add concurrent registration/lookups/enumeration, iteration during writes, and caller mutation of returned snapshots. A shallow map copy alone does not make mutable `*CertProfile` values safe. |
-| XPKI-058 — LOW / bug / 15, **claim partly disproved** | `IssuerConfig.Type` lacks tags, but an actual `yaml.Unmarshal` into this type loaded `type: ocsp` as `"ocsp"` with no error. JSON marshaling emitted `"Type":"ocsp"`. Revalidate/replace the YAML-loss description; add explicit tags only for an agreed serialization format. | **Partial:** config tests do not assert Type. Add YAML/JSON decoding and round-trip key-casing assertions. Avoid treating this as an outage fix or changing accepted legacy JSON casing unintentionally. |
-
-The root bootstrap, delegated OCSP and SHAKEN delegate fixtures still issue.
-AU3 must keep the AU2 lock order and avoid callbacks or signing while holding a
-registry mutex. **Benchmarks:** AU3 should have a lookup/update benchmark if
-choosing snapshots versus locks; it is recommended, not a blocker for a minimal
-race fix. AU4 needs no benchmark.
 
 ### crypto11 — PK3
 
@@ -220,26 +196,14 @@ not an example of production entropy. Documentation examples should use
 generated key material. Regression risk is **low** for documentation; changing
 KDF/blob format would be high and outside this batch. No benchmark is required.
 
-**XPKI-106 — LOW / bug / 15 (new test finding).** The same test assigns
-`protected[0] = protected[1]`. With equal random nonce bytes, the input is
-unchanged and Unprotect correctly succeeds, contradicting the test's required
-authentication error. The current assertion is therefore **flaky**, not a
-reliable tamper check. Use a guaranteed mutation (for example, flip one bit),
-assert the input changed, and retain the actual authentication-error assertion.
-Regression risk is **low** and confined to test correctness. No benchmark is
-needed. The source comment references the new ID; the test behavior remains
-unchanged in this planning task.
-
 ### cmd/hsm-tool/cli — HC1
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
-| XPKI-084 — MEDIUM / bug / 25 | [CryptoProv](cmd/hsm-tool/cli/cli.go) uses Panicf on missing/bad config. Return errors through command Run paths, retaining useful diagnostics and the documented parse/run exit behavior. | **Partial:** command tests exercise valid providers and ordinary errors, not bad-config panic handling. Add missing config, nonexistent/invalid config, and provider-init failure; assert returned errors and no panic. Verify the real executable's exit status as an integration check without mixing its parent package into this implementation batch. |
 | XPKI-101 — MEDIUM / docs / 21 | [TestParse](cmd/hsm-tool/cli/hsm_cli_test.go) reuses one parser/config after setting --cfg and then expects a parse without --cfg to succeed. Recreate both parser and destination per independent test case. | **Existing assertion is misleading:** it tests retained state rather than a fresh invocation. Assert the actual missing-flag error with fresh state and retain a separate reuse test only if parser reuse is supported intentionally. |
 
-Regression risk is **medium** because CryptoProv's return signature affects
-commands throughout this package. Compile all callers and smoke-test `hsm`
-and `csr` command paths. No benchmark is required. Include 100-hsm-cli.
+Regression risk is **low**: test-only changes. No benchmark is required.
+Include 100-hsm-cli.
 
 ### testca — TC2
 
@@ -258,7 +222,7 @@ benchmark is required.
 
 XC1 has **medium** script compatibility risk. No benchmark is required.
 
-### Scripts, CI, build, and version — CI1, BU1–BU3, IV1
+### Scripts, CI and build — CI1, BU1, BU2
 
 | Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
 | --- | --- | --- |
@@ -266,8 +230,6 @@ XC1 has **medium** script compatibility risk. No benchmark is required.
 | XPKI-095-CI — MEDIUM / correctness / 23 | Workflow installs tools but runs covtest only. Invoke an agreed non-mutating lint/vulnerability gate after BU1 and retain coverage. | **Partial tooling exists:** local lint includes vet, vulns and golangci-lint; this says nothing about CI execution. Validate workflow syntax, a real representative CI run, clean checkout after formatting checks, and failure propagation. Existing approval decision applies. |
 | XPKI-095-build — MEDIUM / correctness / 23 | [.project/gomod-project.mk](.project/gomod-project.mk) has lint/covtest depending on fmt, which edits files; fmt-check already exists. Provide/wire the non-mutating path needed by CI without silently changing the developer fmt command. | **No target-level regression tests found.** Run checks on deliberately misformatted temporary source in an isolated checkout: nonzero result and unchanged bytes; verify clean source passes. Do not lower lint/coverage requirements to enable the gate. |
 | XPKI-096 — MEDIUM / correctness / 23 | [Makefile tools](Makefile) installs all tools at @latest. Pin tested versions compatible with Go 1.27 and .golangci.yaml, with a deliberate update procedure. | **No version-lock assertion found.** Verify clean installation and execute each pinned tool. Risk low–medium: incompatible pins can break the toolchain, and existing releases may already require newer Go. No speculative version numbers in this plan. |
-| XPKI-097-version — LOW / bug / 15 | [current.go](internal/version/current.go) is tracked despite its generated-file comment and embeds v0.2.76. Define a reliable runtime fallback for non-Make builds and a version-injection/generated-file contract. | **Partial:** [versioninfo_test.go](internal/version/versioninfo_test.go) tests parsing/comparison, not source freshness. Add tests for the selected fallback/injection mechanism. Keep the package buildable from a clean checkout/source archive. |
-| XPKI-097-build — LOW / bug / 15 | Makefile's version target is not a build dependency. Wire the agreed IV1 mechanism into release/build paths without requiring developers to have a previously generated untracked file. | **Absent:** no built-binary version assertion. Build both CLIs from a clean checkout and inspect their version output; also check supported plain go build/go install behavior. Coordinate IV1 before closing the ID. |
 | XPKI-098 — MEDIUM / correctness / 23 | [docker-compose.yml](docker-compose.yml) declares obsolete version metadata, public-range static addresses, and an untagged emulator image. Pin a tested image and use non-conflicting private/default networking while keeping expected ports. | **Partial:** integration tests depend on :14555/:14556 but do not validate configuration portability or image identity. Run compose config, then a clean startup/readiness check and both endpoint integration suites. Preserve service data intentionally; no blind deletion of volumes is part of this fix. |
 
 No performance benchmarks are needed for these batches. Use shell/workflow
@@ -293,9 +255,7 @@ No benchmark is needed.
 
 ## Benchmark and race-test protocol
 
-| Finding(s) | Before-fix benchmark decision | What to record |
-| --- | --- | --- |
-| 055 (AU3) | **Recommended**; conditional on lock/copy design | lookup and profile snapshot costs as registry size/readers grow |
+No open batch needs a before-fix benchmark.
 
 Performance fixes require an existing-behavior reproduction plus a baseline
 before optimization. Use generated fixtures and local/fake HTTP/KMS services;

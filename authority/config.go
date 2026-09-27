@@ -58,7 +58,7 @@ type IssuerConfig struct {
 	Label string `json:"label,omitempty" yaml:"label,omitempty"`
 
 	// Type specifies type: tls|codesign|timestamp|ocsp|spiffe|trusty
-	Type string
+	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
 	// CertFile specifies location of the cert
 	CertFile string `json:"cert,omitempty" yaml:"cert,omitempty"`

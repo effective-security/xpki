@@ -20,8 +20,6 @@ import (
 	_ "github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
 )
 
-var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "cli")
-
 // Cli provides CLI context to run commands
 type Cli struct {
 	Version  ctl.VersionFlag `name:"version" help:"Print version information and quit" hidden:""`
@@ -116,22 +114,31 @@ func (c *Cli) WriteJSON(value any) {
 	print.JSON(c.Writer(), value)
 }
 
-// CryptoProv loads Crypto provider
-func (c *Cli) CryptoProv() (*cryptoprov.Crypto, cryptoprov.Provider) {
+// CryptoProv loads the crypto providers from --cfg and --crypto on the
+// first call, and returns them with the default provider: an in-memory
+// provider with --plain-key, otherwise the provider of --cfg ("inmem" and
+// "plain" name the in-memory provider). It returns an error, for the
+// command to fail with, when --cfg is empty or a provider cannot be
+// initialized (XPKI-084).
+func (c *Cli) CryptoProv() (*cryptoprov.Crypto, cryptoprov.Provider, error) {
 	if c.crypto == nil {
 		if c.Cfg == "" {
-			logger.Panicf("use --cfg flag to specify PKCS11 config file")
+			return nil, nil, errors.New("use --cfg flag to specify PKCS11 config file")
 		}
-		var err error
+		var (
+			crypto *cryptoprov.Crypto
+			err    error
+		)
 		if c.Cfg == "inmem" || c.Cfg == "plain" {
-			c.crypto, err = cryptoprov.New(inmemcrypto.NewProvider(), nil)
+			crypto, err = cryptoprov.New(inmemcrypto.NewProvider(), nil)
 		} else {
-			c.crypto, err = cryptoprov.Load(c.Cfg, c.Crypto)
+			crypto, err = cryptoprov.Load(c.Cfg, c.Crypto)
 		}
 		if err != nil {
-			logger.Panicf("unable to initialize crypto providers: %s, %v: [%v]",
-				c.Cfg, c.Crypto, err)
+			return nil, nil, errors.WithMessagef(err, "unable to initialize crypto providers: %s, %v",
+				c.Cfg, c.Crypto)
 		}
+		c.crypto = crypto
 	}
 
 	if c.defaultCryptoProv == nil {
@@ -142,7 +149,7 @@ func (c *Cli) CryptoProv() (*cryptoprov.Crypto, cryptoprov.Provider) {
 		}
 	}
 
-	return c.crypto, c.defaultCryptoProv
+	return c.crypto, c.defaultCryptoProv, nil
 }
 
 // ReadFile reads from stdin if the file is "-"

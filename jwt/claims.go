@@ -413,77 +413,87 @@ func (c MapClaims) TimeVal(k string) time.Time {
 	return time.Time{}
 }
 
-// Time will return the named claim as Time pointer
+// Time will return the named claim as Time pointer. It is nil when the claim
+// is absent, and when it is present but not a time (logged at DEBUG); the
+// Verify methods and Valid reject the latter (XPKI-125).
 func (c MapClaims) Time(k string) *time.Time {
-	if c == nil {
+	t, err := c.timeClaim(k)
+	if err != nil {
+		logClaimParseError(k, c[k], err)
 		return nil
+	}
+	return t
+}
+
+// timeClaim returns the named claim as a time: nil when the claim is absent,
+// and an error when it is present but not a time (RFC 7519 §7.2 rejects a
+// JWT whose claim has an unexpected value). Errors name the claim and the
+// reason, never the value.
+func (c MapClaims) timeClaim(k string) (*time.Time, error) {
+	if c == nil {
+		return nil, nil
 	}
 	v := c[k]
 	if v == nil {
-		return nil
+		return nil, nil
 	}
 	switch tv := v.(type) {
 	case time.Time:
-		return &tv
+		return &tv, nil
 	case *time.Time:
-		return tv
+		return tv, nil
 	case NumericDate:
 		t := tv.Time()
-		return &t
+		return &t, nil
 	case *NumericDate:
 		if tv == nil {
-			return nil
+			return nil, nil
 		}
 		t := tv.Time()
-		return &t
+		return &t, nil
 	case int64:
 		t := time.Unix(tv, 0)
-		return &t
+		return &t, nil
 	case uint64:
 		// int64(tv) wraps negative above MaxInt64, which would turn a far
 		// future nbf into 1969 and pass Valid
 		if tv > math.MaxInt64 {
-			logClaimOutOfRange(k, tv)
-			return nil
+			return nil, errors.Errorf("invalid %s claim: out of range", k)
 		}
 		t := time.Unix(int64(tv), 0)
-		return &t
+		return &t, nil
 	case float64:
 		if math.IsNaN(tv) || math.IsInf(tv, 0) || tv < math.MinInt64 || tv >= math.MaxInt64 {
-			logClaimOutOfRange(k, tv)
-			return nil
+			return nil, errors.Errorf("invalid %s claim: out of range", k)
 		}
 		t := time.Unix(int64(tv), 0)
-		return &t
+		return &t, nil
 	case int:
 		t := time.Unix(int64(tv), 0)
-		return &t
+		return &t, nil
 	case json.Number:
 		unix, err := parseNumericDate(tv.String())
 		if err != nil {
-			logClaimParseError(k, tv, err)
-			return nil
+			return nil, errors.WithMessagef(err, "invalid %s claim", k)
 		}
 		t := time.Unix(unix, 0)
-		return &t
+		return &t, nil
 	case string:
 		// a NumericDate, else RFC 3339 (what a marshaled time.Time is, so it
 		// is validated rather than skipped, XPKI-109), else the legacy layout
 		unix, err := parseNumericDate(tv)
 		if err == nil {
 			t := time.Unix(unix, 0)
-			return &t
+			return &t, nil
 		}
 		for _, layout := range timeLayouts {
 			if t, err := time.Parse(layout, tv); err == nil {
-				return &t
+				return &t, nil
 			}
 		}
-		logClaimParseError(k, tv, errNotATime)
-		return nil
+		return nil, errors.WithMessagef(errNotATime, "invalid %s claim", k)
 	default:
-		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
-		return nil
+		return nil, errors.Errorf("invalid %s claim: unsupported type %T", k, tv)
 	}
 }
 
@@ -492,8 +502,8 @@ func (c MapClaims) Time(k string) *time.Time {
 // 3-digit fraction and a zone offset without a colon accepted since v0.1.
 var timeLayouts = []string{time.RFC3339, "2006-01-02T15:04:05.000-0700"}
 
-// errNotATime is logged when a string claim is neither a NumericDate nor a
-// time in one of timeLayouts
+// errNotATime is the error for a string claim that is neither a NumericDate
+// nor a time in one of timeLayouts
 var errNotATime = errors.New("not a NumericDate or RFC 3339 time")
 
 // timeClaims are the registered claims NormalizeTimeClaims writes as
@@ -767,9 +777,13 @@ func (c MapClaims) VerifyAudience(expected []string) error {
 	return nil
 }
 
-// VerifyExpiresAt returns true issued at is valid.
+// VerifyExpiresAt verifies the exp claim. A present exp that is not a time
+// is an error (XPKI-125), a missing one only with req.
 func (c MapClaims) VerifyExpiresAt(now time.Time, req bool) error {
-	exp := c.Time("exp")
+	exp, err := c.timeClaim("exp")
+	if err != nil {
+		return err
+	}
 	if exp == nil {
 		if req {
 			return errors.Errorf("exp claim not found")
@@ -783,9 +797,13 @@ func (c MapClaims) VerifyExpiresAt(now time.Time, req bool) error {
 	return nil
 }
 
-// VerifyIssuedAt verifies the iat claim.
+// VerifyIssuedAt verifies the iat claim. A present iat that is not a time
+// is an error (XPKI-125), a missing one only with req.
 func (c MapClaims) VerifyIssuedAt(now time.Time, req bool) error {
-	iat := c.Time("iat")
+	iat, err := c.timeClaim("iat")
+	if err != nil {
+		return err
+	}
 	if iat == nil {
 		if req {
 			return errors.Errorf("iat claim not found")
@@ -799,9 +817,13 @@ func (c MapClaims) VerifyIssuedAt(now time.Time, req bool) error {
 	return nil
 }
 
-// VerifyNotBefore verifies the nbf claim.
+// VerifyNotBefore verifies the nbf claim. A present nbf that is not a time
+// is an error (XPKI-125), a missing one only with req.
 func (c MapClaims) VerifyNotBefore(now time.Time, req bool) error {
-	nbf := c.Time("nbf")
+	nbf, err := c.timeClaim("nbf")
+	if err != nil {
+		return err
+	}
 	if nbf == nil {
 		if req {
 			return errors.Errorf("nbf claim not found")

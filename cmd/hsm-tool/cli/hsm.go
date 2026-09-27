@@ -65,7 +65,10 @@ func (f tokenFilter) errNotFound() error {
 
 // Run the command
 func (a *HsmLsKeyCmd) Run(ctx *Cli) error {
-	_, defprov := ctx.CryptoProv()
+	_, defprov, err := ctx.CryptoProv()
+	if err != nil {
+		return err
+	}
 	keyProv, ok := defprov.(cryptoprov.KeyManager)
 	if !ok {
 		return errors.Errorf("unsupported command for this crypto provider")
@@ -131,7 +134,10 @@ type HsmKeyInfoCmd struct {
 
 // Run the command
 func (a *HsmKeyInfoCmd) Run(ctx *Cli) error {
-	_, defprov := ctx.CryptoProv()
+	_, defprov, err := ctx.CryptoProv()
+	if err != nil {
+		return err
+	}
 	keyProv, ok := defprov.(cryptoprov.KeyManager)
 	if !ok {
 		return errors.Errorf("unsupported command for this crypto provider")
@@ -204,7 +210,10 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error {
 		return errors.Errorf("%q file exists, specify --force flag to override", a.Output)
 	}
 
-	_, crypto := ctx.CryptoProv()
+	_, crypto, err := ctx.CryptoProv()
+	if err != nil {
+		return err
+	}
 	prov := csr.NewProvider(crypto)
 
 	var purpose csr.KeyPurpose
@@ -258,7 +267,10 @@ type HsmRmKeyCmd struct {
 
 // Run the command
 func (a *HsmRmKeyCmd) Run(ctx *Cli) error {
-	_, defprov := ctx.CryptoProv()
+	_, defprov, err := ctx.CryptoProv()
+	if err != nil {
+		return err
+	}
 	keyProv, ok := defprov.(cryptoprov.KeyManager)
 	if !ok {
 		return errors.Errorf("unsupported command for this crypto provider")
