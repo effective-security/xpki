@@ -735,14 +735,35 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 - Default expiry 60m, `DefaultNotBefore` −2m, `DefaultTimeSkew` 5m on
   `iat`/`nbf` only. `ExpectedAudience` means all listed values present.
   Issuer/subject compared case-insensitively.
-- `provider.ParseToken` requires `kid` for HS tokens, except for
+- Every provider's `ParseToken` accepts only tokens whose `alg` is its own
+  signing algorithm (`ValidMethods`, XPKI-112): the HS256 key ring rejects
+  HS384/HS512 tokens signed with a ring key, and an RS256 provider rejects
+  RS384/RS512 tokens signed with its private key. `provider.ParseToken`
+  requires `kid` for HS tokens, except for
   `NewProviderWithSymmetricKey` (XPKI-066): it signs without a `kid` unless
   `WithHeaders` sets a nonempty string one, and verifies with its single key
-  only HS256 tokens (`ValidMethods`) with no `kid` or that `kid`
+  only tokens with no `kid` or that `kid`
   (`allowNoKid`); any other `kid`, including an empty or non-string one, is
-  `unexpected kid`. The `NewProvider` key ring still accepts HS384/HS512
-  (XPKI-112). `parser.ParseToken` refuses HS. `alg: none` is rejected.
+  `unexpected kid`. `parser.ParseToken` refuses HS. `alg: none` is rejected.
   Numeric `kid` headers are stringified.
+- The protected header is `typ`, `alg` and the `WithHeaders` entries (`kid`
+  for the key ring, `jwk` for asymmetric keys); no header `jti` is generated
+  (XPKI-073). A token identifier is the payload `jti` claim, set by the
+  caller (`CreateClaims` takes it); `Sign` never adds one, so identical
+  claims sign to identical HS/RS tokens.
+- `Sign` writes `exp`, `iat` and `nbf` as NumericDate whatever their Go
+  type (`time.Time`, `*time.Time`, `NumericDate`, RFC 3339 or numeric
+  strings, numbers) with `MapClaims.NormalizeTimeClaims` on a copy of the
+  claims (`accesstoken.Sign` uses the same method); a value `MapClaims.Time`
+  cannot parse, or a zero time, is a `Sign` error that leaves the map
+  unchanged. `MapClaims.Time` reads
+  NumericDate, `time.Time`, `*time.Time`, `NumericDate`/`*NumericDate`,
+  numeric strings, RFC 3339 strings (what `json.Marshal` writes for a
+  `time.Time`) and the legacy `2006-01-02T15:04:05.000-0700` layout, so a
+  string time claim is validated rather than skipped (XPKI-109). A `uint64`
+  above `MaxInt64`, a float outside int64, or a numeric string or
+  `json.Number` outside int64 is nil (DEBUG log), never a wrapped negative
+  time, so `NormalizeTimeClaims` rejects it too.
 - Headers (XPKI-104): every constructor creates `headers` before applying
   options, and `validateHeaders` runs after them. An `alg` header other than
   the signing algorithm is a constructor error. With HS keys (`NewProvider`
@@ -791,7 +812,11 @@ configuration files, malformed tokens, real symmetric/asymmetric signing, the
 standalone symmetric provider (round trip, wrong key, tampering, kid policy,
 header options), key-ID types, and claim conversions.
 `TestProviderHeaderValidation` (`jwt_test.go`) covers the header checks of the
-config and crypto-signer constructors.
+config and crypto-signer constructors. `sign_policy_test.go` covers the
+header without `jti`, the algorithm pin of every constructor (hand-signed
+HS384/HS512 and RS384/RS512 tokens with the provider's own key) and time
+claim normalization; `TestValid_RFC3339TimeClaims` (`claims_test.go`) covers
+string time claims in `Valid`.
 `jwks_test.go` has table tests for key selection, parser round trips with
 kid-less tokens and `PublicKeys`, and `RemoteKeySet` behavior against a
 local `httptest` JWKS server (`jwksServer`: mutable body/status and a request
@@ -833,9 +858,11 @@ and parallel unique-unknown kids.
   URL scheme/host, then `req.Host`, with https for an empty scheme; query and
   fragment dropped. `normalizeHTU` lowercases scheme and host, drops the
   default port, decodes unreserved escapes, uppercases other escapes, keeps
-  path case and dot segments (a router may dispatch `/admin/../x` elsewhere); `htm` is still compared with
-  `EqualFold` (XPKI-108). Binding to the access token: `ExpectedThumbprint`,
-  or compare `Result.Thumbprint` with the `cnf.jkt` claim.
+  path case and dot segments (a router may dispatch `/admin/../x` elsewhere);
+  `htm` must equal the request method exactly, since HTTP methods are
+  case-sensitive (RFC 9110 §9.1, XPKI-108). Binding to the access token:
+  `ExpectedThumbprint`, or compare `Result.Thumbprint` with the `cnf.jkt`
+  claim.
 - **accesstoken**: `pat.<base64url(AES-GCM(json claims))>`; non-`pat.` tokens
   delegate to the inner `jwt.Provider`. `Sign` copies the claims (the caller
   map is never modified), keeps caller `exp`/`iat`/`nbf` normalized to
@@ -844,17 +871,29 @@ and parallel unique-unknown kids.
   `TokenExpiry()` = `WithTokenExpiry` if non-zero (negative → 0), else the
   inner provider's, else 0; a non-positive value makes `Sign` fail.
   `ParseToken` requires `exp` unless `WithAllowNoExpiry` (legacy migration;
-  an unparsable `exp` is always rejected) (XPKI-078). `jwt.Provider.Sign`
-  does not normalize time claims, so a `time.Time` `nbf`/`exp` is silently
-  unchecked there (XPKI-109). A nil `dp` is allowed:
+  an unparsable `exp` is always rejected, and an RFC 3339 one from an old
+  `time.Time` is parsed and checked) (XPKI-078, 109). A nil `dp` is allowed:
   `PublicKey` returns nil and `pat.` `Sign`/`ParseToken` return an error
   (XPKI-079). `SetRevocation` is forwarded to the inner provider. Tests that
   pin `jwt.TimeNowFn` (`setClock`) must not call `t.Parallel`.
 - **oauth2client**: `config.go` `Config`/`ClientConfig` (`env://` values via
   `x/configloader`), `client.go` `Client`, `CreateTokenRequest[WithContext]`,
   `provider.go` registry lookups by provider id, email, domain
-  (`ClientForEmail` returns nil unless the value is `local@domain`). Registry
-  mutation is not goroutine-safe (XPKI-081).
+  (`ClientForEmail` returns nil unless the value is `local@domain`). A
+  `Client` owns a deep copy of its `ClientConfig` (`clone`): `Config()`
+  returns a copy, `SetClientSecret`/`SetPubKey` are the only mutations, under
+  the client's RWMutex, and `CreateTokenRequestWithContext` snapshots the id,
+  secret and URL under it; `PublicKey()` returns the key parsed from `PubKey`
+  (`JwksURL` and `PubKey` are configuration for a caller's verifier, this
+  package verifies nothing) (XPKI-080). The `Provider` registry is an
+  immutable `registry` snapshot in an `atomic.Pointer`, replaced under a
+  writer mutex by `RegisterClient`, so a registration is published to the
+  three indexes at once and a rejected one changes nothing; `override`
+  removes the previous client of that provider id from every index before
+  publishing (XPKI-081). Lookups are lock-free (one atomic load); `Config()`
+  costs one deep copy (an allocation for the struct and one per non-nil
+  slice and `IDPParam`). `provider_bench_test.go` has the lookup,
+  enumeration, token-request and `Config()` benchmarks.
 - **dataprotection**: `Provider` interface; `NewSymmetric(secret)` = HKDF-SHA256
   → AES-256-GCM, blob `nonce(12) || ciphertext || tag`, no key id (XPKI-083).
 

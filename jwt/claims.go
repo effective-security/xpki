@@ -427,10 +427,25 @@ func (c MapClaims) Time(k string) *time.Time {
 		return &tv
 	case *time.Time:
 		return tv
+	case NumericDate:
+		t := tv.Time()
+		return &t
+	case *NumericDate:
+		if tv == nil {
+			return nil
+		}
+		t := tv.Time()
+		return &t
 	case int64:
 		t := time.Unix(tv, 0)
 		return &t
 	case uint64:
+		// int64(tv) wraps negative above MaxInt64, which would turn a far
+		// future nbf into 1969 and pass Valid
+		if tv > math.MaxInt64 {
+			logClaimOutOfRange(k, tv)
+			return nil
+		}
 		t := time.Unix(int64(tv), 0)
 		return &t
 	case float64:
@@ -452,26 +467,61 @@ func (c MapClaims) Time(k string) *time.Time {
 		t := time.Unix(unix, 0)
 		return &t
 	case string:
-		// RFC 3339 strings from a marshaled time.Time usually do not match
-		// this layout and return nil, so Valid skips the check (XPKI-109)
-		if len(tv) > 20 {
-			t, err := time.Parse("2006-01-02T15:04:05.000-0700", tv)
-			if err != nil {
-				return nil
-			}
+		// a NumericDate, else RFC 3339 (what a marshaled time.Time is, so it
+		// is validated rather than skipped, XPKI-109), else the legacy layout
+		unix, err := parseNumericDate(tv)
+		if err == nil {
+			t := time.Unix(unix, 0)
 			return &t
 		}
-		unix, err := parseNumericDate(tv)
-		if err != nil {
-			logClaimParseError(k, tv, err)
-			return nil
+		for _, layout := range timeLayouts {
+			if t, err := time.Parse(layout, tv); err == nil {
+				return &t
+			}
 		}
-		t := time.Unix(unix, 0)
-		return &t
+		logClaimParseError(k, tv, errNotATime)
+		return nil
 	default:
 		logger.KV(xlog.DEBUG, "reason", "unsupported", "val", k, "type", fmt.Sprintf("%T", tv))
 		return nil
 	}
+}
+
+// timeLayouts are the string layouts Time accepts after NumericDate: RFC 3339
+// (time.Parse also takes fractional seconds with it), then the layout with a
+// 3-digit fraction and a zone offset without a colon accepted since v0.1.
+var timeLayouts = []string{time.RFC3339, "2006-01-02T15:04:05.000-0700"}
+
+// errNotATime is logged when a string claim is neither a NumericDate nor a
+// time in one of timeLayouts
+var errNotATime = errors.New("not a NumericDate or RFC 3339 time")
+
+// timeClaims are the registered claims NormalizeTimeClaims writes as
+// NumericDate
+var timeClaims = []string{"exp", "iat", "nbf"}
+
+// NormalizeTimeClaims replaces the exp, iat and nbf claims present in c by
+// their Unix seconds, so that a time.Time, a *NumericDate or an RFC 3339
+// string is serialized as the NumericDate that Valid checks (XPKI-109). A
+// value that Time cannot parse, or a zero time, is an error, and c is then
+// unchanged. Signers call it on a copy of the caller's claims.
+func (c MapClaims) NormalizeTimeClaims() error {
+	unix := make(map[string]int64, len(timeClaims))
+	for _, k := range timeClaims {
+		v, ok := c[k]
+		if !ok {
+			continue
+		}
+		t := c.Time(k)
+		if t == nil || t.IsZero() {
+			return errors.Errorf("invalid %s claim: %v", k, xlog.EscapedString(v))
+		}
+		unix[k] = t.Unix()
+	}
+	for k, u := range unix {
+		c[k] = u
+	}
+	return nil
 }
 
 // maxIntExclusive is the first float64 value above math.MaxInt. On 64-bit

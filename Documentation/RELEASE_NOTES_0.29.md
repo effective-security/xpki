@@ -31,9 +31,24 @@ this release.
 - **jwt** (XPKI-070, 071, 072): `RemoteKeySet` has a timeout, a body limit and
   a refresh cooldown. A token without a `kid` is accepted only when one key is
   eligible. `PublicKeys` in the parser config are used.
+- **jwt** (XPKI-112): a provider verifies only tokens with its own signing
+  algorithm. The HS256 key ring of `NewProvider` no longer accepts HS384 or
+  HS512 tokens signed with a ring key, and an RS256 provider no longer
+  accepts RS384/RS512 tokens signed with its private key.
+- **jwt** (XPKI-109): `Sign` writes `exp`, `iat` and `nbf` as NumericDate
+  whatever their Go type, with the new `MapClaims.NormalizeTimeClaims`,
+  which `jwt/accesstoken` uses too. Before, a `time.Time` was signed as an
+  RFC 3339 string that `ParseToken` could not read, so the check was skipped
+  and a token with `nbf` tomorrow was accepted today. `MapClaims.Time` now
+  also reads RFC 3339 strings and `NumericDate` values, so such a claim in
+  an existing token is validated instead of ignored, and rejects a `uint64`
+  above `MaxInt64` instead of wrapping it to a negative time.
 - **jwt/dpop** (XPKI-074, 075, 076): all advertised algorithms verify (with
   go-jose). There is an opt-in replay cache, `ath` and `cnf.jkt` binding, a
   trusted `ExternalURL`, and `htu` paths are compared case-sensitively.
+- **jwt/dpop** (XPKI-108): the `htm` claim must equal the request method
+  exactly, since HTTP methods are case-sensitive (RFC 9110 §9.1); a proof
+  for `get` no longer verifies a `GET` request.
 - **jwt/accesstoken** (XPKI-078): every new `pat.` token expires.
 
 ### Concurrency, deadlocks and panics
@@ -76,6 +91,21 @@ this release.
   password is reported as `x509.IncorrectPasswordError`.
 - **jwt** (XPKI-066, 104): `NewProviderWithSymmetricKey` verifies its own
   tokens, and `WithHeaders` no longer panics.
+- **jwt** (XPKI-073): the JOSE header no longer carries a random `jti`,
+  which RFC 7519 defines as a payload claim. `Sign` signs the caller's
+  `jti` claim as given and does not generate one.
+- **jwt/oauth2client** (XPKI-081): `Provider` is safe for concurrent use.
+  `RegisterClient` publishes a registration to the provider, domain and
+  email indexes at once, a rejected registration leaves the registry
+  unchanged (before, the entries written before the conflict stayed), and
+  an `override` removes the previous client of that provider id from every
+  index (before, its other domains and emails kept resolving to it).
+- **jwt/oauth2client** (XPKI-080): `Client` owns a deep copy of its
+  `ClientConfig`, `Config()` returns a copy, and `SetClientSecret`,
+  `SetPubKey` and `CreateTokenRequest` are synchronized. The key parsed from
+  `PubKey` is returned by the new `PublicKey()`; `PubKey` and `JwksURL` are
+  documented as settings for a caller's verifier, since this package verifies
+  no tokens. `New(nil)` returns an error instead of panicking.
 - **jwt/accesstoken** (XPKI-079): a nil data protection provider returns an
   error instead of panicking.
 
@@ -104,6 +134,8 @@ this release.
   `ExternalURL`.
 - `jwt/accesstoken`: `New(dp, provider, opts...)` with `WithTokenExpiry`,
   `WithAllowNoExpiry`, and the `TokenPrefix` constant.
+- `jwt`: `MapClaims.NormalizeTimeClaims()`.
+- `jwt/oauth2client`: `Client.PublicKey()`.
 - `cryptoprov`: the `ErrNilProvider` and `ErrDuplicateProvider` errors.
 - `awskmscrypto`: `Signer.SigningAlgorithms`, and `KeyInfo.Label` is set to
   the key description by `EnumKeys` and `KeyInfo`.
@@ -134,6 +166,12 @@ this release.
 | `certutil` | `Bundle` of an empty list returns `ErrNoCertificates` instead of `(nil, nil)`. `SortBundlesByExpiration` returns a sorted copy | Check the error, and use the return value |
 | `jwt` | The error `key not found: <kid>` is now `kid="<kid>": key not found`. A kid-less token against several eligible keys fails. A key published less than 10s after a fetch is refused until the cooldown ends | Match errors with `errors.Is`, not text; tune `WithRefreshCooldown` |
 | `jwt` | Constructors reject an `alg` header that differs from the signing algorithm, and HS providers reject a foreign `kid` | Remove conflicting headers |
+| `jwt` | `ParseToken` accepts only the provider's own `alg` (`unsupported signing method`). A token from a `NewProvider` ring or a private key that was signed with another hash of the same key fails | Sign every token with the provider, or verify foreign algorithms with `jwt.NewParser` |
+| `jwt` | The JOSE header has no `jti`; `Sign` fails on an `exp`, `iat` or `nbf` it cannot parse as a time, or that is a zero time, and signs a `time.Time` as NumericDate | Set the `jti` claim (`CreateClaims`) when a token id is needed; a reader of the header `jti` must read the claim instead |
+| `jwt` | A string `exp`/`nbf`/`iat` in RFC 3339 form is validated. An existing token with such an expired `exp` or future `nbf` is now rejected | Reissue such tokens |
+| `jwt/dpop` | `htm` must equal the request method exactly; a lowercase `htm` for a `GET` request is rejected | Sign proofs with the method as sent (Go's `http.Request.Method`) |
+| `jwt/oauth2client` | `Client.Config()` returns a copy; changing it no longer changes the client, and `New` copies its argument. `New(nil)` is an error. `RegisterClient(cfg, true)` drops the previous client's other domains and emails. `Client` and `Provider` hold locks and must not be copied by value | Use `SetClientSecret`/`SetPubKey`, or register a new client, to change one; keep the pointers `New`/`NewProvider` return |
+| `jwt/accesstoken` | `Sign` writes `exp`/`iat`/`nbf` as NumericDate and fails on a value it cannot parse or a zero time, with `invalid <claim> claim: <value>` (in v0.28 a `time.Time` was written as an RFC 3339 string that `ParseToken` did not check, so a zero `exp` never expired) | Pass parsable, non-zero times |
 | `jwt/accesstoken` | Signing claims without `exp` fails unless `WithTokenExpiry` is set. Old tokens without `exp` are rejected unless `WithAllowNoExpiry` is set | Set `WithTokenExpiry(d)`; use `WithAllowNoExpiry()` only during migration |
 | `jwt/dpop` | An `htu` path that differs only in case is rejected. A server that serves plain HTTP must set `ExternalURL`, since `https` stays the default scheme | Set `VerifyConfig.ExternalURL`; enable `ReplayCache` for replay safety |
 
@@ -141,6 +179,5 @@ this release.
 
 See [FINDINGS.md](../FINDINGS.md), [PLAN.md](../PLAN.md) and
 [ROADMAP.md](../ROADMAP.md). Among the open items: `authority` registry
-synchronization (XPKI-055),
-`oauth2client` races (XPKI-080, 081), the 3072-bit RSA hash for GCP KMS
+synchronization (XPKI-055), the 3072-bit RSA hash for GCP KMS
 (XPKI-114), and CI lint wiring (XPKI-094, 095).

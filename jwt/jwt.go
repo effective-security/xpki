@@ -33,7 +33,11 @@ const (
 
 // Signer specifies JWT signer interface
 type Signer interface {
-	// Sign returns a signed, compact-serialized JWT for the claims
+	// Sign returns a signed, compact-serialized JWT for the claims. The exp,
+	// iat and nbf claims are written as NumericDate whatever their Go type,
+	// time.Time included, see MapClaims.NormalizeTimeClaims; one that
+	// MapClaims.Time cannot parse is an error. The claims map is not
+	// modified.
 	Sign(ctx context.Context, claims MapClaims) (string, error)
 	// PublicKey is returned for asymmetric signer
 	PublicKey() crypto.PublicKey
@@ -238,6 +242,8 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 			return nil, err
 		}
 	}
+	// a provider verifies only tokens it could have signed (XPKI-112)
+	p.parser.ValidMethods = []string{p.signerInfo.algo}
 
 	for _, opt := range ops {
 		opt.applyOption(p)
@@ -260,6 +266,7 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 	if err != nil {
 		return nil, err
 	}
+	p.parser.ValidMethods = []string{p.signerInfo.algo}
 	p.verifyKey = signer.Public()
 	p.headers = map[string]any{
 		"jwk": &jose.JSONWebKey{
@@ -376,10 +383,16 @@ func (p *provider) currentKey() (string, []byte) {
 	return "", nil
 }
 
-// Sign returns signed JWT token
+// Sign returns signed JWT token, see Signer
 func (p *provider) Sign(ctx context.Context, claims MapClaims) (string, error) {
 	if p.signerInfo == nil {
 		return "", errors.Errorf("signer not configured")
+	}
+	// signed as NumericDate on a copy, so the caller's map is unchanged
+	// (XPKI-109)
+	claims = maps.Clone(claims)
+	if err := claims.NormalizeTimeClaims(); err != nil {
+		return "", err
 	}
 	tokenString, err := p.signerInfo.signJWT(claims, p.headers)
 	if err != nil {
@@ -396,8 +409,8 @@ func (p *provider) ParseToken(ctx context.Context, authorization string, cfg *Ve
 			"headers", token.Header,
 			"claims", token.Claims,
 		)
-		// XPKI-112: a NewProvider key ring also accepts HS384/HS512 here;
-		// NewProviderWithSymmetricKey is pinned to HS256 by ValidMethods.
+		// ValidMethods already limited the token to the signing algorithm,
+		// so an HS token here is HS256 and any other is the signer's alg
 		if strings.HasPrefix(token.SigningMethod, "HS") {
 			kid, ok := token.Header[kidHeader]
 			if p.allowNoKid {

@@ -33,8 +33,7 @@ handling; add it when a caller needs KMS-held encryption keys.
   expiry) for servers with several instances;
 - server-issued nonces (RFC 9449 §8/§9): generating and rotating
   `DPoP-Nonce` values and the `use_dpop_nonce` error. `ExpectedNonce`
-  compares only a caller-provided value today;
-- a decision on case-sensitive `htm` (XPKI-108).
+  compares only a caller-provided value today.
 
 ## JWKS client hardening
 

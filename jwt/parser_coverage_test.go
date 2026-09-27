@@ -300,10 +300,8 @@ func TestStandaloneSymmetricProviderOptions(t *testing.T) {
 			require.NoError(t, err)
 			token, err := p.Sign(ctx, jwt.MapClaims{"sub": "subject"})
 			require.NoError(t, err)
-			header := tokenHeader(t, token)
-			assert.NotEmpty(t, header["jti"])
-			delete(header, "jti")
-			assert.Equal(t, tc.expHeader, header)
+			// the header carries no token identifier (XPKI-073)
+			assert.Equal(t, tc.expHeader, tokenHeader(t, token))
 
 			_, err = p.ParseToken(ctx, token, nil)
 			require.NoError(t, err)

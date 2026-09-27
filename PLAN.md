@@ -51,7 +51,6 @@ the test prerequisites below can move a small preparatory change earlier.
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
 | --- | --- | --- | --- | --- | --- |
 | AU3 | `authority` | 055 | P1 / 34 | High: live maps and pointer ownership | Snapshot/mutation contract |
-| OA1 | `jwt/oauth2client` | 081, 080 | P1 / 34 | High: registry consistency and mutable config pointers | Scope of unused verification settings |
 | HC1 | `cmd/hsm-tool/cli` | 084, 101; 100-hsm-cli | P2 / 25 | Medium: CLI errors, exit status, parser state | None |
 | XC1 | `cmd/xpki-tool/cli` | 102 | P2 / 23 | Medium: exit status used by scripts | Partial endpoint success policy |
 | CP2 | `cryptoprov` | 027 | P2 / 23 | Medium: URI parsing and credential precedence | Query/path conflict policy |
@@ -65,10 +64,8 @@ the test prerequisites below can move a small preparatory change earlier.
 | AU4 | `authority` | 058 (revalidate) | P3 / 15 | Low: serialization casing | No YAML data-loss fix justified |
 | IV1 | `internal/version` | 097-version | P3 / 15 | Low–medium: fallback version reporting | Generated-file policy |
 | BU3 | root build tooling | 097-build | P3 / 15 | Low–medium: build/install paths | Coordinate IV1 |
-| JW3 | `jwt` | 073 | P3 / 13 | Medium: consumers of custom JOSE headers | Header removal/migration policy |
 | TC2 | `testca` | 063 | P3 / 13 | Medium: PEM versus DER and OpenSSL compatibility | Preserve test-only panic contract |
 | AU5 | `authority` (tests) | 111 | P3 / 15 | Low: test-only timing | None |
-| JW4 | `jwt` | 112 | P3 / 13 | Medium: configured HS384/HS512 consumers | Pin the key ring to HS256 or configure algs |
 
 Execution dependencies:
 
@@ -77,9 +74,6 @@ Execution dependencies:
   `Sign` or responder renewal.
 - CS1 owns XPKI-114 (`csr` picks SHA-384 for 3072-bit RSA, which GCP KMS
   cannot sign); `gcpkmscrypto` already rejects the mismatched hash locally.
-- JW3 and JW4 must keep the `validateHeaders` rules and the `AlgorithmKeySet`
-  selection rules. XPKI-108 (`htm` case) is open and unscheduled; a fix needs
-  a compatibility decision for lowercase-method clients.
 - BU1 precedes CI1. IV1 defines the runtime fallback before BU3 wires builds;
   neither portion alone closes 097.
 - For 100, make each package's unit tests independent of optional
@@ -112,9 +106,6 @@ policy, lifecycle, or concurrency completeness.
 | `cryptoprov` | 84.8% | URI query attributes are not tested |
 | `authority` | 91.0% | Fresh delegated responder creation bypassed; constructor only 37.2% |
 | `csr` | 94.3% | SAN 92.9% without the full nil/empty/duplicate/validation matrix |
-| `jwt` | 93.0% | Header `jti` and ring HS384/HS512 acceptance are not asserted |
-| `jwt/dpop` | 90.8% | `htm` case sensitivity is not asserted |
-| `jwt/oauth2client` | 97.3% | RegisterClient 100% without concurrent operations |
 | `armor` | 90.6% | Legacy CRC acceptance rules embedded in corruption expectations |
 | `dataprotection` | 87.1% | Round trips do not validate documented usage limits |
 | `cmd/hsm-tool/cli` | 85.7% | Parser reuse masks a missing-required-flag scenario |
@@ -145,23 +136,6 @@ registry mutex. **Benchmarks:** AU3 should have a lookup/update benchmark if
 choosing snapshots versus locks; it is recommended, not a blocker for a minimal
 race fix. AU4 needs no benchmark.
 
-### jwt — JW3, JW4
-
-| Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
-| --- | --- | --- |
-| XPKI-073 — LOW / correctness / 13 | [signJWT](jwt/sign.go) generates jti in the protected header. Stop presenting that header as the token identifier; preserve caller-provided payload jti and define whether absent payload jti is generated. This is not by itself proof that an otherwise valid signed token is invalid. | **Partial:** signing/claims tests verify signatures and claims, but not absence of header jti or preservation of a payload identifier. Add decoded header/payload assertions and compatibility coverage for consumers of the old custom header. |
-
-JW3 (XPKI-073, the header `jti`) must keep the `validateHeaders` rules. The
-`NewProvider` ring's HS384/HS512 acceptance is XPKI-112 (JW4). Neither needs a
-benchmark.
-
-### jwt/dpop — XPKI-108 (unscheduled)
-
-XPKI-108: `htm` is compared with `strings.EqualFold`, although HTTP methods are
-case-sensitive (RFC 9110 §9.1). A fix needs a compatibility decision for
-lowercase-method clients. Server-issued nonces and a shared replay store are in
-ROADMAP.
-
 ### crypto11 — PK3
 
 PK3 (XPKI-110): after a device or token error the pooled sessions are
@@ -179,20 +153,6 @@ URI query syntax and the conflicting-PIN case are described in
 [RFC 7512 §2.3–2.4](https://www.rfc-editor.org/rfc/rfc7512.html#section-2.3).
 CP2 has medium compatibility risk. Keep PINs out of diagnostics while adding
 credential parsing. CP2 needs no benchmark.
-
-### jwt/oauth2client — OA1
-
-| Finding / importance | Evidence and expected outcome | Existing tests: correctness, completeness, and additions |
-| --- | --- | --- |
-| XPKI-081 — HIGH / race / 34 | [RegisterClient](jwt/oauth2client/provider.go) writes three registry maps without locks while lookups iterate/read them. Publish coherent registrations and synchronize all readers/writers. | **Partial:** [TestProviderRegistrationConflicts](jwt/oauth2client/request_coverage_test.go) correctly checks serial errors and override identity. Add actual concurrent register/lookup/enumeration and snapshot consistency, plus unchanged maps after failed registration. Test complete multi-index behavior, not just absence of a race report. |
-| XPKI-080 — MEDIUM / correctness / 23 | [Client](jwt/oauth2client/client.go) stores but never reads verifyKey; JwksURL in [config.go](jwt/oauth2client/config.go) is unused. SetClientSecret mutates a config pointer read by token-request creation; Config exposes that pointer. Define ownership and synchronize mutable state. Clarify/deprecate unused verification settings or scope a real verification API separately. | **Partial:** `Test_Config`/`TestProvider` check configuration and setters; `TestTokenRequestAuthStyles` checks actual requests and caller-form preservation. None proves verification or concurrent secret updates. Add setter/request overlap, snapshot ownership, exact outgoing authentication, and tests for whichever verification contract is chosen. |
-
-Regression risk is high if Config changes from a live pointer to a snapshot or
-override semantics change. A mutex on the client cannot protect arbitrary
-external mutation of its original config pointer. **Benchmark recommended**
-for registry lookup/enumeration and request building under occasional updates,
-particularly if deep copies are introduced. Both issues need race tests even
-though 080's primary type remains correctness.
 
 ### csr — CS1
 
@@ -336,7 +296,6 @@ No benchmark is needed.
 | Finding(s) | Before-fix benchmark decision | What to record |
 | --- | --- | --- |
 | 055 (AU3) | **Recommended**; conditional on lock/copy design | lookup and profile snapshot costs as registry size/readers grow |
-| 081 and shared-state portion of 080 (OA1) | **Recommended** | registry and token-request latency/allocations with concurrent config updates |
 
 Performance fixes require an existing-behavior reproduction plus a baseline
 before optimization. Use generated fixtures and local/fake HTTP/KMS services;

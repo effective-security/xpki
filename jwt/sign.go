@@ -34,11 +34,11 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"io"
+	"maps"
 	"math/big"
 	"strings"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/certutil"
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
 )
@@ -220,15 +220,15 @@ func (si *SignerInfo) sign(signingString string) ([]byte, error) {
 	return nil, errors.Errorf("unsupported: %s", si.algo)
 }
 
+// signJWT returns the compact token for claims. The protected header holds
+// typ and alg plus headers; a token identifier is the jti claim of the
+// payload and is never generated here (XPKI-073).
 func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error) {
 	header := map[string]any{
-		"jti": certutil.RandomString(8),
 		"typ": "JWT",
 		"alg": si.algo,
 	}
-	for k, v := range headers {
-		header[k] = v
-	}
+	maps.Copy(header, headers)
 
 	jsonHeader, err := json.Marshal(header)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,9 +51,7 @@ func signProof(t testing.TB, alg jose.SignatureAlgorithm, key crypto.Signer, cla
 		"htu": testHTU,
 		"iat": time.Now().Unix(),
 	}
-	for k, v := range claims {
-		c[k] = v
-	}
+	maps.Copy(c, claims)
 	token, err := jwt.Signed(s).Claims(c).Serialize()
 	require.NoError(t, err)
 	return token
@@ -475,6 +474,42 @@ func TestVerifyRequestClaims_RequestURI(t *testing.T) {
 
 // TestVerifyClaims_MemberNameCase requires claim and header names to match
 // exactly, as go-jose (and GetTokenInfo) read them.
+// TestVerifyClaims_MethodCase covers XPKI-108: HTTP methods are
+// case-sensitive (RFC 9110 §9.1), so htm must equal the request method.
+func TestVerifyClaims_MethodCase(t *testing.T) {
+	t.Parallel()
+	key := newECKey(t)
+	for _, tc := range []struct {
+		htm, method string
+		expErr      string
+	}{
+		{"GET", "GET", ""},
+		{"get", "GET", `dpop: claim mismatch: http_method: "get", actual: "GET"`},
+		{"GET", "get", `dpop: claim mismatch: http_method: "GET", actual: "get"`},
+		{"Get", "GET", `dpop: claim mismatch: http_method: "Get", actual: "GET"`},
+		{"get", "get", ""},
+	} {
+		t.Run(tc.htm+" for "+tc.method, func(t *testing.T) {
+			t.Parallel()
+			proof := signProof(t, jose.ES256, key, map[string]any{"htm": tc.htm})
+			res, err := dpop.VerifyClaims(dpop.VerifyConfig{}, proof, tc.method, testHTU)
+			if tc.expErr != "" {
+				require.EqualError(t, err, tc.expErr)
+				assert.Nil(t, res)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.htm, res.Claims.HTTPMethod)
+
+			// the same through an HTTP request
+			req := httptest.NewRequest(tc.method, testHTU, nil)
+			req.Header.Set(dpop.HTTPHeader, proof)
+			_, err = dpop.VerifyRequestClaims(dpop.VerifyConfig{}, req)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestVerifyClaims_MemberNameCase(t *testing.T) {
 	t.Parallel()
 	key := newECKey(t)

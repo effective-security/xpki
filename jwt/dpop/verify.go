@@ -199,8 +199,8 @@ func VerifyClaimsContext(ctx context.Context, cfg VerifyConfig, phdr, httpMethod
 		return nil, errors.New("dpop: claim not found: iat")
 	}
 
-	// case-insensitive although HTTP methods are case-sensitive (XPKI-108)
-	if !strings.EqualFold(claims.HTTPMethod, httpMethod) {
+	// HTTP methods are case-sensitive (RFC 9110 §9.1), so "get" is not GET
+	if claims.HTTPMethod != httpMethod {
 		return nil, errors.Errorf("dpop: claim mismatch: http_method: %q, actual: %q",
 			claims.HTTPMethod, httpMethod)
 	}

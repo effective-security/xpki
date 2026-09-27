@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
@@ -15,40 +16,27 @@ import (
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki/jwt", "oauth2client")
 
-// Client of OAuth2
+// Client of OAuth2.
+//
+// A Client owns a copy of the ClientConfig given to New: later changes to the
+// caller's struct are not seen, and Config returns a copy. After New only the
+// client secret (SetClientSecret) and the issuer public key (SetPubKey)
+// change. A Client is safe for concurrent use.
 type Client struct {
+	mu sync.RWMutex
+	// cfg is the client's own copy. Only ClientSecret changes after New,
+	// under mu; Provider reads the other fields without it.
 	cfg       *ClientConfig
-	verifyKey *rsa.PublicKey // TODO: crypto.PublicKey
+	verifyKey *rsa.PublicKey
 }
 
-// New returns new Provider
+// New returns a Client for a copy of cfg. A PubKey that is not a PEM-encoded
+// RSA public key is an error.
 func New(cfg *ClientConfig) (*Client, error) {
-	// var err error
-	// cfg.ClientID, err = fileutil.LoadConfigWithSchema(cfg.ClientID)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// cfg.ClientSecret, err = fileutil.LoadConfigWithSchema(cfg.ClientSecret)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// cfg.AuthURL, err = fileutil.LoadConfigWithSchema(cfg.AuthURL)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// cfg.TokenURL, err = fileutil.LoadConfigWithSchema(cfg.TokenURL)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// cfg.UserinfoURL, err = fileutil.LoadConfigWithSchema(cfg.UserinfoURL)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// cfg.RedirectURL, err = fileutil.LoadConfigWithSchema(cfg.RedirectURL)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
+	if cfg == nil {
+		return nil, errors.New("client config is nil")
+	}
+	cfg = cfg.clone()
 	p := &Client{
 		cfg: cfg,
 	}
@@ -67,19 +55,35 @@ func New(cfg *ClientConfig) (*Client, error) {
 	return p, nil
 }
 
-// Config returns OAuth2 configuration
+// Config returns a copy of the OAuth2 configuration, with the current client
+// secret. Changing the copy does not change the Client.
 func (p *Client) Config() *ClientConfig {
-	return p.cfg
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cfg.clone()
 }
 
-// SetPubKey replaces the OAuth public signing key loaded from configuration
+// PublicKey returns the JWT issuer public key parsed from the PubKey setting
+// or given to SetPubKey, or nil. This package does not verify tokens with it;
+// pass it to a verifier, for example in jwt.StaticKeySet.PublicKeys.
+func (p *Client) PublicKey() *rsa.PublicKey {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.verifyKey
+}
+
+// SetPubKey replaces the JWT issuer public key returned by PublicKey.
 // During normal operation, identity provider's public key is read from config on start-up.
 func (p *Client) SetPubKey(newPubKey *rsa.PublicKey) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.verifyKey = newPubKey
 }
 
-// SetClientSecret sets Client Secret
+// SetClientSecret sets the client secret used by later token requests
 func (p *Client) SetClientSecret(s string) *Client {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.cfg.ClientSecret = s
 	return p
 }
@@ -94,19 +98,23 @@ func (p *Client) CreateTokenRequest(v url.Values, authStyle oauth2.AuthStyle) (*
 // CreateTokenRequestWithContext is like CreateTokenRequest but binds the
 // request to ctx so the caller can cancel or time out the token exchange.
 func (p *Client) CreateTokenRequestWithContext(ctx context.Context, v url.Values, authStyle oauth2.AuthStyle) (*http.Request, error) {
+	p.mu.RLock()
+	clientID, clientSecret, tokenURL := p.cfg.ClientID, p.cfg.ClientSecret, p.cfg.TokenURL
+	p.mu.RUnlock()
+
 	if authStyle == oauth2.AuthStyleInParams {
 		v = cloneURLValues(v)
-		v.Set("client_id", p.cfg.ClientID)
-		v.Set("client_secret", p.cfg.ClientSecret)
+		v.Set("client_id", clientID)
+		v.Set("client_secret", clientSecret)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.TokenURL, strings.NewReader(v.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(v.Encode()))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if authStyle == oauth2.AuthStyleInHeader {
-		req.SetBasicAuth(url.QueryEscape(p.cfg.ClientID), url.QueryEscape(p.cfg.ClientSecret))
+		req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
 	}
 
 	return req, nil

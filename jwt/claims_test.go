@@ -566,10 +566,40 @@ func TestClaims_Time(t *testing.T) {
 		"fbig":    float64(1e300),
 		"uint64":  uint64(1645187555),
 		"int64":   int64(1645187555),
+		// int64(uint64) wraps negative above MaxInt64
+		"uint64max":  uint64(math.MaxInt64),
+		"uint64wrap": uint64(math.MaxInt64) + 1,
+		"uint64all":  uint64(math.MaxUint64),
+		"jsonuint":   json.Number("18446744073709551615"),
+		"stringuint": "18446744073709551615",
+		"nd":         NumericDate(1645187555),
+		"ndp":        NewNumericDate(t3),
+		"ndnil":      (*NumericDate)(nil),
+		// what json.Marshal writes for a time.Time (XPKI-109)
+		"rfc3339":      t3.UTC().Format(time.RFC3339),
+		"rfc3339nano":  t3.Add(750 * time.Millisecond).UTC().Format(time.RFC3339Nano),
+		"rfc3339zone":  t3.In(time.FixedZone("x", -7*3600)).Format(time.RFC3339),
+		"rfc3339short": "2022-02-18T12:32:35Z",
+		"date":         "2022-02-18",
 	}
 	c(o, "t1", &t2)
 	c(o, "t2", &t2)
 	c(o, "t3", &t2)
+	tmax := time.Unix(math.MaxInt64, 0)
+	c(o, "uint64max", &tmax)
+	c(o, "uint64wrap", nil)
+	c(o, "uint64all", nil)
+	c(o, "jsonuint", nil)
+	c(o, "stringuint", nil)
+	c(o, "nd", &t3)
+	c(o, "ndp", &t3)
+	c(o, "ndnil", nil)
+	assert.Equal(t, t3.Unix(), o.TimeVal("rfc3339").Unix())
+	assert.Equal(t, t3.Unix(), o.TimeVal("rfc3339nano").Unix())
+	assert.Equal(t, 750*time.Millisecond, time.Duration(o.TimeVal("rfc3339nano").Nanosecond()))
+	assert.Equal(t, t3.Unix(), o.TimeVal("rfc3339zone").Unix())
+	assert.Equal(t, t3.Unix(), o.TimeVal("rfc3339short").Unix())
+	c(o, "date", nil)
 	c(o, "err", nil)
 	c(o, "tnil2", nil)
 	c(o, "struct", nil)
@@ -585,6 +615,34 @@ func TestClaims_Time(t *testing.T) {
 	c(o, "fnan", nil)
 	c(o, "finf", nil)
 	c(o, "fbig", nil)
+}
+
+// TestValid_RFC3339TimeClaims covers XPKI-109: a time claim written as an
+// RFC 3339 string, as json.Marshal does for a time.Time, is checked by Valid
+// instead of being skipped.
+func TestValid_RFC3339TimeClaims(t *testing.T) {
+	now := time.Now()
+	tomorrow := now.Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	yesterday := now.Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	for _, tc := range []struct {
+		name   string
+		claims MapClaims
+		expErr string
+	}{
+		{"nbf tomorrow", MapClaims{"nbf": tomorrow}, "token not valid yet"},
+		{"exp yesterday", MapClaims{"exp": yesterday}, "token expired at"},
+		{"iat tomorrow", MapClaims{"iat": tomorrow}, "after now"},
+		{"valid", MapClaims{"nbf": yesterday, "iat": yesterday, "exp": tomorrow}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.claims.Valid(nil)
+			if tc.expErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.expErr)
+		})
+	}
 }
 
 func TestExpired(t *testing.T) {

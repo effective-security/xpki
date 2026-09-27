@@ -52,7 +52,7 @@ const (
 ```
 
 <a name="New"></a>
-## func [New](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L64>)
+## func [New](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L61>)
 
 ```go
 func New(dp dataprotection.Provider, provider jwt.Provider, opts ...Option) jwt.Provider
@@ -107,7 +107,7 @@ user true
 </details>
 
 <a name="Option"></a>
-## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L41>)
+## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L38>)
 
 Option configures a Provider.
 
@@ -116,7 +116,7 @@ type Option func(*Provider)
 ```
 
 <a name="WithAllowNoExpiry"></a>
-### func [WithAllowNoExpiry](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L55>)
+### func [WithAllowNoExpiry](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L52>)
 
 ```go
 func WithAllowNoExpiry() Option
@@ -125,7 +125,7 @@ func WithAllowNoExpiry() Option
 WithAllowNoExpiry makes ParseToken accept pat. tokens without an exp claim, such as tokens issued before Sign added one \(XPKI\-078\). Use it only to migrate existing perpetual tokens; revocation is still checked.
 
 <a name="WithTokenExpiry"></a>
-### func [WithTokenExpiry](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L46>)
+### func [WithTokenExpiry](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L43>)
 
 ```go
 func WithTokenExpiry(d time.Duration) Option
@@ -134,7 +134,7 @@ func WithTokenExpiry(d time.Duration) Option
 WithTokenExpiry sets the lifetime Sign gives a token whose claims have no exp. It takes precedence over the inner provider's TokenExpiry. Zero keeps the inner provider's value; a negative value makes Sign fail.
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L31-L38>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L28-L35>)
 
 Provider of Access Token
 
@@ -146,7 +146,7 @@ type Provider struct {
 ```
 
 <a name="Provider.GetRevocation"></a>
-### func \(\*Provider\) [GetRevocation](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L86>)
+### func \(\*Provider\) [GetRevocation](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L83>)
 
 ```go
 func (p *Provider) GetRevocation() jwt.Revocation
@@ -155,7 +155,7 @@ func (p *Provider) GetRevocation() jwt.Revocation
 GetRevocation returns the revocation checker used for pat. tokens
 
 <a name="Provider.Issuer"></a>
-### func \(\*Provider\) [Issuer](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L211>)
+### func \(\*Provider\) [Issuer](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L202>)
 
 ```go
 func (p *Provider) Issuer() string
@@ -164,7 +164,7 @@ func (p *Provider) Issuer() string
 Issuer returns name of the issuer
 
 <a name="Provider.ParseToken"></a>
-### func \(\*Provider\) [ParseToken](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L147>)
+### func \(\*Provider\) [ParseToken](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L138>)
 
 ```go
 func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.VerifyConfig) (jwt.MapClaims, error)
@@ -173,7 +173,7 @@ func (p *Provider) ParseToken(ctx context.Context, token string, cfg *jwt.Verify
 ParseToken parses JWT Token with data protection. A pat. token must have an exp claim unless WithAllowNoExpiry is set; an unparsable exp is always rejected.
 
 <a name="Provider.PublicKey"></a>
-### func \(\*Provider\) [PublicKey](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L203>)
+### func \(\*Provider\) [PublicKey](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L194>)
 
 ```go
 func (p *Provider) PublicKey() crypto.PublicKey
@@ -182,7 +182,7 @@ func (p *Provider) PublicKey() crypto.PublicKey
 PublicKey returns the public key of an asymmetric data protection provider, or nil for a symmetric or nil one.
 
 <a name="Provider.SetRevocation"></a>
-### func \(\*Provider\) [SetRevocation](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L78>)
+### func \(\*Provider\) [SetRevocation](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L75>)
 
 ```go
 func (p *Provider) SetRevocation(r jwt.Revocation)
@@ -191,16 +191,16 @@ func (p *Provider) SetRevocation(r jwt.Revocation)
 SetRevocation installs the revocation checker used for pat. tokens, and forwards it to the wrapped jwt.Provider so that plain JWTs are checked against the same revocation list.
 
 <a name="Provider.Sign"></a>
-### func \(\*Provider\) [Sign](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L95>)
+### func \(\*Provider\) [Sign](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L93>)
 
 ```go
 func (p *Provider) Sign(ctx context.Context, claims jwt.MapClaims) (string, error)
 ```
 
-Sign returns an encrypted pat. token for the claims. Caller\-supplied exp, iat and nbf are kept and normalized to NumericDate; an unparsable one is an error. Without exp, the token expires after TokenExpiry, and iat and nbf are added when absent; Sign fails if TokenExpiry is not positive. The claims map is not modified.
+Sign returns an encrypted pat. token for the claims. Caller\-supplied exp, iat and nbf are kept and normalized to NumericDate; an unparsable one, or a zero time, is an error, see jwt.MapClaims.NormalizeTimeClaims. Without exp, the token expires after TokenExpiry, and iat and nbf are added when absent; Sign fails if TokenExpiry is not positive. The claims map is not modified.
 
 <a name="Provider.TokenExpiry"></a>
-### func \(\*Provider\) [TokenExpiry](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L222>)
+### func \(\*Provider\) [TokenExpiry](<https://github.com/effective-security/xpki/blob/main/jwt/accesstoken/accesstoken.go#L213>)
 
 ```go
 func (p *Provider) TokenExpiry() time.Duration

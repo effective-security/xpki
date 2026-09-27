@@ -24,9 +24,6 @@ const (
 	claimNbf = "nbf"
 )
 
-// timeClaims are the registered claims Sign normalizes to NumericDate
-var timeClaims = []string{claimExp, claimIat, claimNbf}
-
 // Provider of Access Token
 type Provider struct {
 	jwt.Provider
@@ -88,8 +85,9 @@ func (p *Provider) GetRevocation() jwt.Revocation {
 }
 
 // Sign returns an encrypted pat. token for the claims. Caller-supplied exp,
-// iat and nbf are kept and normalized to NumericDate; an unparsable one is an
-// error. Without exp, the token expires after TokenExpiry, and iat and nbf
+// iat and nbf are kept and normalized to NumericDate; an unparsable one, or a
+// zero time, is an error, see jwt.MapClaims.NormalizeTimeClaims. Without
+// exp, the token expires after TokenExpiry, and iat and nbf
 // are added when absent; Sign fails if TokenExpiry is not positive. The
 // claims map is not modified.
 func (p *Provider) Sign(ctx context.Context, claims jwt.MapClaims) (string, error) {
@@ -103,15 +101,8 @@ func (p *Provider) Sign(ctx context.Context, claims jwt.MapClaims) (string, erro
 	// time claims are stored as NumericDate: other encodings, such as
 	// time.Time, may not parse back and their checks would be skipped
 	// (XPKI-109)
-	for _, k := range timeClaims {
-		if _, ok := cl[k]; !ok {
-			continue
-		}
-		t := cl.Time(k)
-		if t == nil {
-			return "", errors.Errorf("invalid %s claim", k)
-		}
-		cl[k] = t.Unix()
+	if err := cl.NormalizeTimeClaims(); err != nil {
+		return "", err
 	}
 
 	if _, ok := cl[claimExp]; !ok {
