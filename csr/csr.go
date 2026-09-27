@@ -9,7 +9,6 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
-	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"slices"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/oid"
 )
 
@@ -415,45 +413,6 @@ func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pki
 func replaceSliceIfEmpty(replaced, newContents *[]string) {
 	if len(*replaced) == 0 {
 		*replaced = *newContents
-	}
-}
-
-// SetSAN fills template's IPAddresses, EmailAddresses, and DNSNames with the
-// content of SAN, if it is not nil.
-func SetSAN(template *x509.Certificate, SAN []string) {
-	if SAN != nil {
-		template.IPAddresses = []net.IP{}
-		template.EmailAddresses = []string{}
-		template.DNSNames = []string{}
-		template.URIs = []*url.URL{}
-
-		for i := range template.ExtraExtensions {
-			// remove SAN
-			if template.ExtraExtensions[i].Id.Equal(oid.ExtensionSubjectAltName) {
-				l := len(template.ExtraExtensions)
-				template.ExtraExtensions[i] = template.ExtraExtensions[l-1]
-				template.ExtraExtensions = template.ExtraExtensions[:l-1]
-				break
-			}
-		}
-	}
-
-	for _, san := range SAN {
-		if strings.Contains(san, "://") {
-			u, err := url.Parse(san)
-			if err != nil {
-				// a nil *url.URL would panic inside x509 marshalling
-				logger.KV(xlog.ERROR, "reason", "skipped_invalid_uri", "uri", san, "err", err)
-				continue
-			}
-			template.URIs = append(template.URIs, u)
-		} else if ip := net.ParseIP(san); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else if email, err := mail.ParseAddress(san); err == nil && email != nil {
-			template.EmailAddresses = append(template.EmailAddresses, email.Address)
-		} else {
-			template.DNSNames = append(template.DNSNames, san)
-		}
 	}
 }
 

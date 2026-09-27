@@ -23,7 +23,7 @@ func TestKeyRequest(t *testing.T) {
 		{"rsa", 512, x509.SHA256WithRSA, "validate RSA key: RSA key is too weak: 512"},
 		{"RSA", 1024, x509.SHA256WithRSA, "validate RSA key: RSA key is too weak: 1024"},
 		{"RSA", 2048, x509.SHA256WithRSA, ""},
-		{"RSA", 3072, x509.SHA384WithRSA, ""},
+		{"RSA", 3072, x509.SHA256WithRSA, ""},
 		{"rsa", 4096, x509.SHA512WithRSA, ""},
 		{"rsa", 8192, x509.SHA512WithRSA, "validate RSA key: RSA key size too large: 8192"},
 		{"rsa", 168192, x509.SHA512WithRSA, "validate RSA key: RSA key size too large: 168192"},

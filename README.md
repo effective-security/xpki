@@ -276,13 +276,13 @@ OpenSC (`pkcs11-tool`) is optional: it is needed only when invoking
 `scripts/config-softhsm.sh` directly with `--list-slots` or `--list-object`.
 
 ```sh
-make tools            # golangci-lint, cov-report, govulncheck
+make tools            # golangci-lint, cov-report, govulncheck, gomarkdoc (pinned versions)
 make hsmconfig        # create the SoftHSM token and /tmp/xpki/softhsm_unittest.json
 make start-local-kms  # start two local-kms containers on :14555 and :14556
 make test             # full test suite (needs the two steps above)
 make test RACE=true   # under the race detector
 make covtest coverage # coverage report
-make lint             # gofmt, go vet, golangci-lint
+make lint             # fmt-check, go vet, govulncheck, golangci-lint (read-only)
 make build            # builds bin/hsm-tool and bin/xpki-tool
 make docs             # regenerate Documentation/*.md (gomarkdoc) and CLI help dumps
 make all              # clean, tools, generate, hsmconfig, start-local-kms, covtest
@@ -296,9 +296,10 @@ export AWS_SECRET_ACCESS_KEY=notusedbyemulator
 export AWS_DEFAULT_REGION=us-west-2
 ```
 
-CI (`.github/workflows/unittest.yml`) runs `make covtest` with SoftHSM and
-local-kms and requires 80% total coverage. Merges to `main` are tagged from
-`.VERSION` plus the commit count.
+CI (`.github/workflows/unittest.yml`) runs `make lint` and `make covtest`
+with SoftHSM and local-kms and requires more than 90% total coverage;
+documentation-only pull requests skip the job. Merges to `main` are tagged
+from `.VERSION` plus the commit count.
 
 ## Contributing
 

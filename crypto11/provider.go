@@ -63,13 +63,17 @@ func (lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, 
 // EnumKeys returns lists of keys on the slot.
 //
 // It uses its own read-only session rather than a pooled RW one, so a
-// write-protected token can still be listed.
+// write-protected token can still be listed. Private keys are visible only
+// to a logged-in session, and a logged-out token lists none without an
+// error, so on the login slot the session state is checked first and the
+// token is logged in again when needed (XPKI-110).
 func (lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
 	if err := lib.enter(); err != nil {
 		return nil, err
 	}
 	defer lib.exit()
 
+	gen := lib.loginGen.Load()
 	sh, err := lib.Ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "OpenSession on slot %d", slotID)
@@ -77,6 +81,17 @@ func (lib *PKCS11Lib) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo
 	defer func() {
 		_ = lib.Ctx.CloseSession(sh)
 	}()
+	if lib.loginRequired() && slotID == lib.Slot.id {
+		state, err := lib.ops.state(sh)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "GetSessionInfo on slot %d", slotID)
+		}
+		if state == pkcs11.CKS_RO_PUBLIC_SESSION {
+			if err := lib.relogin(gen); err != nil {
+				return nil, errors.WithMessage(err, "re-login for a logged-out token")
+			}
+		}
+	}
 	return lib.enumKeysOnSession(sh, prefix)
 }
 

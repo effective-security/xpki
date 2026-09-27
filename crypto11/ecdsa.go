@@ -17,6 +17,9 @@ import (
 type PKCS11PrivateKeyECDSA struct {
 	key *PKCS11PrivateKey
 	lib *PKCS11Lib
+	// ref is the identity used to refresh the handle after a logout; nil
+	// for a key without CKA_ID (XPKI-110)
+	ref *objectRef
 }
 
 // Information about an Elliptic Curve
@@ -232,7 +235,7 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSlot(slot uint, id []byte, label []b
 		k, err = lib.generateECDSAKeyPairOnSession(session, slot, id, label, c)
 		return err
 	})
-	return k, err
+	return k, unwrapNoRetry(err)
 }
 
 // GenerateECDSAKeyPairOnSession creates an ECDSA private key using curve c, using a specified session.
@@ -247,7 +250,8 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 		return nil, err
 	}
 	defer lib.exit()
-	return lib.generateECDSAKeyPairOnSession(session, slot, id, label, c)
+	k, err := lib.generateECDSAKeyPairOnSession(session, slot, id, label, c)
+	return k, unwrapNoRetry(err)
 }
 
 func (lib *PKCS11Lib) generateECDSAKeyPairOnSession(session pkcs11.SessionHandle, slot uint, id []byte, label []byte, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
@@ -298,13 +302,23 @@ func (lib *PKCS11Lib) generateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 		logger.KV(xlog.ERROR, "reason", "GenerateKeyPair", "err", err)
 		return nil, errors.WithStack(err)
 	}
+	// The pair now exists on the token: a failure from here on must not
+	// make withSession run the generation again (noRetry), and the pair
+	// is destroyed so the attempt leaves no orphan.
 	if pub, err = lib.exportECDSAPublicKey(session, pubHandle); err != nil {
 		logger.KV(xlog.ERROR, "reason", "exportECDSAPublicKey", "err", err)
-		return nil, errors.WithStack(err)
+		lib.discardGeneratedPair(session, pubHandle, privHandle)
+		return nil, noRetry(errors.WithStack(err))
+	}
+	obj, ref, err := lib.newPrivateKeyObject(session, privHandle, slot, id)
+	if err != nil {
+		lib.discardGeneratedPair(session, pubHandle, privHandle)
+		return nil, noRetry(err)
 	}
 	priv := PKCS11PrivateKeyECDSA{
-		key: &PKCS11PrivateKey{PKCS11Object{privHandle, slot}, pub},
+		key: &PKCS11PrivateKey{obj, pub},
 		lib: lib,
+		ref: ref,
 	}
 	return &priv, nil
 }
@@ -317,7 +331,7 @@ func (lib *PKCS11Lib) generateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 //
 // The return value is a DER-encoded byteblock.
 func (priv *PKCS11PrivateKeyECDSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return priv.lib.dsaGeneric(priv.key.Slot, priv.key.Handle, pkcs11.CKM_ECDSA, digest)
+	return priv.lib.dsaGeneric(&priv.key.PKCS11Object, priv.ref, pkcs11.CKM_ECDSA, digest)
 }
 
 // Public returns the public half of a private key.

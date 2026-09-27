@@ -21,6 +21,7 @@ The package integrates with the cryptoprov package to support hardware\-backed p
 ## Index
 
 - [Constants](<#constants>)
+- [func ApplySAN\(template \*x509.Certificate, names \[\]string\) error](<#ApplySAN>)
 - [func DecodeCDP\(val \[\]byte\) \(\[\]string, error\)](<#DecodeCDP>)
 - [func DefaultSigAlgo\(priv crypto.Signer\) x509.SignatureAlgorithm](<#DefaultSigAlgo>)
 - [func EncodeCDP\(cdp \[\]string\) \(\*pkix.Extension, error\)](<#EncodeCDP>)
@@ -30,7 +31,7 @@ The package integrates with the cryptoprov package to support hardware\-backed p
 - [func ParseObjectIdentifier\(oidString string\) \(oid asn1.ObjectIdentifier, err error\)](<#ParseObjectIdentifier>)
 - [func ParsePEM\(csrPEM \[\]byte\) \(\*x509.Certificate, error\)](<#ParsePEM>)
 - [func PopulateName\(raSubject \*X509Subject, csrSubject pkix.Name\) pkix.Name](<#PopulateName>)
-- [func SetSAN\(template \*x509.Certificate, SAN \[\]string\)](<#SetSAN>)
+- [func SetSAN\(template \*x509.Certificate, names \[\]string\)](<#SetSAN>)
 - [func SigAlgo\(algo string, size int\) x509.SignatureAlgorithm](<#SigAlgo>)
 - [type AllowedFields](<#AllowedFields>)
 - [type BasicConstraints](<#BasicConstraints>)
@@ -74,9 +75,13 @@ The package integrates with the cryptoprov package to support hardware\-backed p
   - [func \(c \*Provider\) NewKeyRequest\(label, algo string, keySize int, purpose KeyPurpose\) \*KeyRequest](<#Provider.NewKeyRequest>)
   - [func \(c \*Provider\) NewSigningCertificateRequest\(keyLabel, algo string, keySize int, CN string, names \[\]X509Name, san \[\]string\) \*CertificateRequest](<#Provider.NewSigningCertificateRequest>)
   - [func \(c \*Provider\) SignRequest\(priv crypto.PrivateKey, req \*CertificateRequest\) \(csrPEM \[\]byte, err error\)](<#Provider.SignRequest>)
+- [type SAN](<#SAN>)
+  - [func ParseSAN\(names \[\]string\) \(\*SAN, error\)](<#ParseSAN>)
+  - [func \(s \*SAN\) Validate\(\) error](<#SAN.Validate>)
 - [type SignRequest](<#SignRequest>)
   - [func \(r \*SignRequest\) ExtensionsIDs\(\) \[\]string](<#SignRequest.ExtensionsIDs>)
   - [func \(r \*SignRequest\) SubjectCommonName\(\) string](<#SignRequest.SubjectCommonName>)
+- [type SignatureAlgorithmer](<#SignatureAlgorithmer>)
 - [type Signer](<#Signer>)
 - [type X509Extension](<#X509Extension>)
   - [func \(ext X509Extension\) GetValue\(\) \(\[\]byte, error\)](<#X509Extension.GetValue>)
@@ -116,8 +121,17 @@ const (
 )
 ```
 
+<a name="ApplySAN"></a>
+## func [ApplySAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L82>)
+
+```go
+func ApplySAN(template *x509.Certificate, names []string) error
+```
+
+ApplySAN replaces the subject alternative names of template with names parsed by ParseSAN: DNSNames, EmailAddresses, IPAddresses and URIs are replaced \(a type with no names becomes nil\), and every raw SAN extension is removed from ExtraExtensions, keeping the order of the others. A nil names leaves template unchanged, so the names of a parsed CSR survive; a non\-nil empty slice clears them. A nil template is an error. On error template is unchanged.
+
 <a name="DecodeCDP"></a>
-## func [DecodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L512>)
+## func [DecodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L471>)
 
 ```go
 func DecodeCDP(val []byte) ([]string, error)
@@ -132,10 +146,10 @@ DecodeCDP returns list of CDP
 func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm
 ```
 
-DefaultSigAlgo returns an appropriate X.509 signature algorithm given the CA's private key.
+DefaultSigAlgo returns the X.509 signature algorithm for priv: the one a SignatureAlgorithmer advertises, else one chosen by key type and size. RSA keys of 2048 and 3072 bits use SHA\-256 and keys of 4096 bits or more SHA\-512 \(NIST SP 800\-57 rates 3072\-bit RSA at 128 bits, matching SHA\-256, and GCP KMS signs 3072\-bit keys only with SHA\-256, XPKI\-114\); ECDSA P\-256, P\-384 and P\-521 use SHA\-256, SHA\-384 and SHA\-512. SHA\-1 is never returned; other key types give x509.UnknownSignatureAlgorithm.
 
 <a name="EncodeCDP"></a>
-## func [EncodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L461>)
+## func [EncodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L420>)
 
 ```go
 func EncodeCDP(cdp []string) (*pkix.Extension, error)
@@ -144,7 +158,7 @@ func EncodeCDP(cdp []string) (*pkix.Extension, error)
 EncodeCDP returns CRLDP
 
 <a name="EncodeCDPFull"></a>
-## func [EncodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L486>)
+## func [EncodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L445>)
 
 ```go
 func EncodeCDPFull(cdp []string, issuer asn1.RawValue) (*pkix.Extension, error)
@@ -153,7 +167,7 @@ func EncodeCDPFull(cdp []string, issuer asn1.RawValue) (*pkix.Extension, error)
 EncodeCDPFull returns CRLDP
 
 <a name="FindAttr"></a>
-## func [FindAttr](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L404>)
+## func [FindAttr](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L402>)
 
 ```go
 func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pkix.AttributeTypeAndValue
@@ -162,7 +176,7 @@ func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pki
 FindAttr returns attribute
 
 <a name="Parse"></a>
-## func [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L226>)
+## func [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L224>)
 
 ```go
 func Parse(csrBytes []byte) (*x509.Certificate, error)
@@ -180,7 +194,7 @@ func ParseObjectIdentifier(oidString string) (oid asn1.ObjectIdentifier, err err
 ParseObjectIdentifier parses a dotted\-decimal OID string. The whole string must be digits separated by single dots; anything else is an error.
 
 <a name="ParsePEM"></a>
-## func [ParsePEM](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L274>)
+## func [ParsePEM](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L272>)
 
 ```go
 func ParsePEM(csrPEM []byte) (*x509.Certificate, error)
@@ -189,7 +203,7 @@ func ParsePEM(csrPEM []byte) (*x509.Certificate, error)
 ParsePEM takes an incoming certificate request and builds a certificate template from it.
 
 <a name="PopulateName"></a>
-## func [PopulateName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L374>)
+## func [PopulateName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L372>)
 
 ```go
 func PopulateName(raSubject *X509Subject, csrSubject pkix.Name) pkix.Name
@@ -198,25 +212,27 @@ func PopulateName(raSubject *X509Subject, csrSubject pkix.Name) pkix.Name
 PopulateName has functionality similar to Name, except it fills the fields of the resulting pkix.Name with req's if the subject's corresponding fields are empty
 
 <a name="SetSAN"></a>
-## func [SetSAN](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L423>)
+## func [SetSAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L102>)
 
 ```go
-func SetSAN(template *x509.Certificate, SAN []string)
+func SetSAN(template *x509.Certificate, names []string)
 ```
 
-SetSAN fills template's IPAddresses, EmailAddresses, and DNSNames with the content of SAN, if it is not nil.
+SetSAN is ApplySAN without an error: a name ParseSAN rejects is skipped with an error log and the valid names are applied. A nil names leaves template unchanged; a non\-nil empty slice clears the names.
+
+Deprecated: use ApplySAN, which reports the invalid names.
 
 <a name="SigAlgo"></a>
-## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L168>)
+## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L171>)
 
 ```go
 func SigAlgo(algo string, size int) x509.SignatureAlgorithm
 ```
 
-SigAlgo returns signature algorithm for the given algorithm name and key size TODO: use oid pkg
+SigAlgo returns the signature algorithm for a key of algo \("RSA" or "ECDSA", case\-insensitive\) and size, as DefaultSigAlgo chooses it from a key: RSA 2048 and 3072 bits SHA\-256 \(XPKI\-114\), 4096 bits and above SHA\-512; ECDSA by curve size. Other algorithms give x509.UnknownSignatureAlgorithm.
 
 <a name="AllowedFields"></a>
-## type [AllowedFields](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L40-L46>)
+## type [AllowedFields](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L38-L44>)
 
 AllowedFields provides booleans for fields in the CSR. If a AllowedFields is not present in a CertProfile, all of these fields may be copied from the CSR into the signed certificate. If a AllowedFields \*is\* present in a CertProfile, only those fields with a \`true\` value in the AllowedFields may be copied from the CSR to the signed certificate. Note that some of these fields, like Subject, can be provided or partially provided through the API. Since API clients are expected to be trusted, but CSRs are not, fields provided through the API are not subject to validation through this mechanism.
 
@@ -243,7 +259,7 @@ type BasicConstraints struct {
 ```
 
 <a name="CertificatePolicy"></a>
-## type [CertificatePolicy](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L51-L54>)
+## type [CertificatePolicy](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L49-L52>)
 
 CertificatePolicy represents the ASN.1 PolicyInformation structure from https://tools.ietf.org/html/rfc3280.html#page-106. Valid values of Type are "id\-qt\-unotice" and "id\-qt\-cps"
 
@@ -255,7 +271,7 @@ type CertificatePolicy struct {
 ```
 
 <a name="CertificatePolicyQualifier"></a>
-## type [CertificatePolicyQualifier](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L58-L61>)
+## type [CertificatePolicyQualifier](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L56-L59>)
 
 CertificatePolicyQualifier represents a single qualifier from an ASN.1 PolicyInformation structure.
 
@@ -267,7 +283,7 @@ type CertificatePolicyQualifier struct {
 ```
 
 <a name="CertificateRequest"></a>
-## type [CertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L164-L177>)
+## type [CertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L162-L175>)
 
 A CertificateRequest encapsulates the API interface to the certificate request functionality.
 
@@ -289,7 +305,7 @@ type CertificateRequest struct {
 ```
 
 <a name="CertificateRequest.AddSAN"></a>
-### func \(\*CertificateRequest\) [AddSAN](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L201>)
+### func \(\*CertificateRequest\) [AddSAN](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L199>)
 
 ```go
 func (r *CertificateRequest) AddSAN(s string)
@@ -298,7 +314,7 @@ func (r *CertificateRequest) AddSAN(s string)
 AddSAN adds a SAN value to the request
 
 <a name="CertificateRequest.Name"></a>
-### func \(\*CertificateRequest\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L288>)
+### func \(\*CertificateRequest\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L286>)
 
 ```go
 func (r *CertificateRequest) Name() pkix.Name
@@ -307,7 +323,7 @@ func (r *CertificateRequest) Name() pkix.Name
 Name returns the PKIX name for the request.
 
 <a name="CertificateRequest.Validate"></a>
-### func \(\*CertificateRequest\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L182>)
+### func \(\*CertificateRequest\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L180>)
 
 ```go
 func (r *CertificateRequest) Validate() error
@@ -316,7 +332,7 @@ func (r *CertificateRequest) Validate() error
 Validate provides the default validation logic for certificate authority certificates. The only requirement here is that the certificate have a non\-empty subject field.
 
 <a name="DistributionPoint"></a>
-## type [DistributionPoint](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L556-L560>)
+## type [DistributionPoint](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L515-L519>)
 
 DistributionPoint defines CDP as per RFC 5280, 4.2.1.14
 
@@ -329,7 +345,7 @@ type DistributionPoint struct {
 ```
 
 <a name="DistributionPointName"></a>
-## type [DistributionPointName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L563-L566>)
+## type [DistributionPointName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L522-L525>)
 
 DistributionPointName is a part of DistributionPoint
 
@@ -395,7 +411,7 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error
 UnmarshalYAML handles decoding our custom json serialization for Durations
 
 <a name="GeneralName"></a>
-## type [GeneralName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L591-L598>)
+## type [GeneralName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L550-L557>)
 
 GeneralName represents a General Names sequence as defined in RFC 5820 section 4.2.1.6.
 
@@ -434,7 +450,7 @@ type GeneralName struct {
 ```
 
 <a name="DecodeCDPFull"></a>
-### func [DecodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L529>)
+### func [DecodeCDPFull](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L488>)
 
 ```go
 func DecodeCDPFull(val []byte) ([]string, []GeneralName, error)
@@ -443,7 +459,7 @@ func DecodeCDPFull(val []byte) ([]string, []GeneralName, error)
 DecodeCDPFull returns list of CDP
 
 <a name="GeneralName.Parse"></a>
-### func \(\*GeneralName\) [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L615>)
+### func \(\*GeneralName\) [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L574>)
 
 ```go
 func (e *GeneralName) Parse(raw asn1.RawValue) error
@@ -622,7 +638,7 @@ func (oid *OID) UnmarshalYAML(unmarshal func(any) error) error
 UnmarshalYAML unmarshals a YAML string into an OID.
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L27-L29>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L23-L25>)
 
 Provider extends cryptoprov.Crypto functionality to support CSP processing and certificate signing
 
@@ -633,7 +649,7 @@ type Provider struct {
 ```
 
 <a name="NewProvider"></a>
-### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L32>)
+### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L28>)
 
 ```go
 func NewProvider(provider cryptoprov.Provider) *Provider
@@ -642,7 +658,7 @@ func NewProvider(provider cryptoprov.Provider) *Provider
 NewProvider returns an instance of CSR provider
 
 <a name="Provider.CreateRequestAndExportKey"></a>
-### func \(\*Provider\) [CreateRequestAndExportKey](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L55>)
+### func \(\*Provider\) [CreateRequestAndExportKey](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L51>)
 
 ```go
 func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, key []byte, keyID string, pub crypto.PublicKey, err error)
@@ -651,7 +667,7 @@ func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, k
 CreateRequestAndExportKey takes a certificate request and generates a key and CSR from it.
 
 <a name="Provider.GenerateKeyAndRequest"></a>
-### func \(\*Provider\) [GenerateKeyAndRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L96>)
+### func \(\*Provider\) [GenerateKeyAndRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L92>)
 
 ```go
 func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte, priv crypto.PrivateKey, keyID string, err error)
@@ -669,7 +685,7 @@ func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPur
 NewKeyRequest returns KeyRequest from given parameters
 
 <a name="Provider.NewSigningCertificateRequest"></a>
-### func \(\*Provider\) [NewSigningCertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L39-L44>)
+### func \(\*Provider\) [NewSigningCertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L35-L40>)
 
 ```go
 func (c *Provider) NewSigningCertificateRequest(keyLabel, algo string, keySize int, CN string, names []X509Name, san []string) *CertificateRequest
@@ -678,16 +694,52 @@ func (c *Provider) NewSigningCertificateRequest(keyLabel, algo string, keySize i
 NewSigningCertificateRequest creates new request for signing certificate
 
 <a name="Provider.SignRequest"></a>
-### func \(\*Provider\) [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L132>)
+### func \(\*Provider\) [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L131>)
 
 ```go
 func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) (csrPEM []byte, err error)
 ```
 
-SignRequest signs a certificate request
+SignRequest signs a certificate request with priv. req.SAN is parsed by ParseSAN, so an invalid name fails the request instead of being skipped and duplicates are dropped \(XPKI\-059\); the signature algorithm is DefaultSigAlgo\(priv\).
+
+<a name="SAN"></a>
+## type [SAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L21-L26>)
+
+SAN holds subject alternative names classified by type, as ParseSAN returns them. Each list keeps the input order without duplicates; a type with no names is nil.
+
+```go
+type SAN struct {
+    DNSNames       []string
+    EmailAddresses []string
+    IPAddresses    []net.IP
+    URIs           []*url.URL
+}
+```
+
+<a name="ParseSAN"></a>
+### func [ParseSAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L61>)
+
+```go
+func ParseSAN(names []string) (*SAN, error)
+```
+
+ParseSAN classifies, validates and deduplicates subject alternative names \(XPKI\-059\). Each name is trimmed of surrounding whitespace and must not be empty. It is then, in this order: a URI when it contains "://" \(it must parse, have a scheme and be ASCII\); an IP address when net.ParseIP accepts it \(an IPv4 address is kept in its 4\-byte form\); an email address when mail.ParseAddress accepts it \(the address part is kept, and it must be ASCII\); otherwise a DNS name. A DNS name with non\-ASCII runes is converted to A\-labels first \(IDNA mapping, which also lowercases it\); an ASCII name keeps its case. The ASCII form must be at most 253 characters of labels separated by dots, each label 1 to 63 letters, digits, hyphens or underscores that neither starts nor ends with a hyphen; a wildcard is allowed only as the whole first label of a name with at least two labels; a trailing dot is invalid. A single label such as "localhost" is valid.
+
+Duplicates are dropped and the first occurrence is kept: DNS names and email addresses compare case\-insensitively, IP addresses by value \(so "::ffff:10.0.0.1" duplicates "10.0.0.1"\), URIs by their serialized form.
+
+Every invalid name is reported; the returned error joins them as \`invalid SAN "name": reason\`.
+
+<a name="SAN.Validate"></a>
+### func \(\*SAN\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L144>)
+
+```go
+func (s *SAN) Validate() error
+```
+
+Validate checks the names of s with the rules of ParseSAN and drops duplicates in place, so names that are already classified, such as the names of a parsed CSR, get the same validation as names given as strings \(XPKI\-059\). On error s is unchanged. The returned error joins every invalid name as \`invalid SAN "name": reason\`.
 
 <a name="SignRequest"></a>
-## type [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L121-L143>)
+## type [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L119-L141>)
 
 SignRequest stores a signature request, which contains the SAN, the PEM\-encoded CSR, optional subject information, and the signature profile.
 
@@ -717,7 +769,7 @@ type SignRequest struct {
 ```
 
 <a name="SignRequest.ExtensionsIDs"></a>
-### func \(\*SignRequest\) [ExtensionsIDs](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L154>)
+### func \(\*SignRequest\) [ExtensionsIDs](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L152>)
 
 ```go
 func (r *SignRequest) ExtensionsIDs() []string
@@ -726,7 +778,7 @@ func (r *SignRequest) ExtensionsIDs() []string
 ExtensionsIDs returns list of extension IDs in the request
 
 <a name="SignRequest.SubjectCommonName"></a>
-### func \(\*SignRequest\) [SubjectCommonName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L146>)
+### func \(\*SignRequest\) [SubjectCommonName](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L144>)
 
 ```go
 func (r *SignRequest) SubjectCommonName() string
@@ -734,8 +786,19 @@ func (r *SignRequest) SubjectCommonName() string
 
 SubjectCommonName returns CN in the request
 
+<a name="SignatureAlgorithmer"></a>
+## type [SignatureAlgorithmer](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L204-L206>)
+
+SignatureAlgorithmer is implemented by a crypto.Signer whose key accepts a single X.509 signature algorithm, such as a KMS key whose algorithm fixes the hash and padding. DefaultSigAlgo returns that algorithm when it is not x509.UnknownSignatureAlgorithm.
+
+```go
+type SignatureAlgorithmer interface {
+    SignatureAlgorithm() x509.SignatureAlgorithm
+}
+```
+
 <a name="Signer"></a>
-## type [Signer](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L25-L27>)
+## type [Signer](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L23-L25>)
 
 Signer interface to sign CSR
 
@@ -746,7 +809,7 @@ type Signer interface {
 ```
 
 <a name="X509Extension"></a>
-## type [X509Extension](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L84-L88>)
+## type [X509Extension](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L82-L86>)
 
 X509Extension represents a raw extension to be included in the certificate. The "value" field must be hex encoded.
 
@@ -759,7 +822,7 @@ type X509Extension struct {
 ```
 
 <a name="X509Extension.GetValue"></a>
-### func \(X509Extension\) [GetValue](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L93>)
+### func \(X509Extension\) [GetValue](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L91>)
 
 ```go
 func (ext X509Extension) GetValue() ([]byte, error)
@@ -768,7 +831,7 @@ func (ext X509Extension) GetValue() ([]byte, error)
 GetValue returns raw value. if prefix is hex or base64, then it's decoded, otherwise hex decoding is tried first then base64
 
 <a name="X509Name"></a>
-## type [X509Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L64-L72>)
+## type [X509Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L62-L70>)
 
 X509Name contains the SubjectInfo fields.
 
@@ -785,7 +848,7 @@ type X509Name struct {
 ```
 
 <a name="X509Subject"></a>
-## type [X509Subject](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L76-L80>)
+## type [X509Subject](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L74-L78>)
 
 X509Subject contains the information that should be used to override the subject information when signing a certificate.
 
@@ -798,7 +861,7 @@ type X509Subject struct {
 ```
 
 <a name="X509Subject.Name"></a>
-### func \(\*X509Subject\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L299>)
+### func \(\*X509Subject\) [Name](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L297>)
 
 ```go
 func (s *X509Subject) Name() pkix.Name

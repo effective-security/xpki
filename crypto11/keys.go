@@ -28,13 +28,21 @@ const (
 // Identify returns the ID and label for a PKCS#11 object.
 //
 // Either of these values may be used to retrieve the key for later use.
+// The object's Handle is used as given; IdentifyKey, given a private key of
+// this package, also recovers from a handle invalidated by a logout.
 func (lib *PKCS11Lib) Identify(object *PKCS11Object) (keyID, label string, err error) {
-	a := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_ID, nil),
-		pkcs11.NewAttribute(pkcs11.CKA_LABEL, nil),
-	}
-	if err = lib.withSession(object.Slot, func(session pkcs11.SessionHandle) error {
-		a, err = lib.Ctx.GetAttributeValue(session, object.Handle, a)
+	return lib.identify(object, nil)
+}
+
+// identify is Identify with the key's identity for handle refreshes.
+func (lib *PKCS11Lib) identify(object *PKCS11Object, ref *objectRef) (keyID, label string, err error) {
+	var a []*pkcs11.Attribute
+	if err = lib.withKey(object, ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+		// a fresh template per attempt: a failed call returns none
+		a, err = lib.Ctx.GetAttributeValue(session, handle, []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ID, nil),
+			pkcs11.NewAttribute(pkcs11.CKA_LABEL, nil),
+		})
 		return err
 	}); err != nil {
 		return "", "", errors.WithStack(err)
@@ -219,17 +227,26 @@ func (lib *PKCS11Lib) findKeyPairOnSession(session pkcs11.SessionHandle, slot ui
 	if pubHandle, err = lib.findKey(session, keyID, label, pkcs11.CKO_PUBLIC_KEY, keyType); err != nil {
 		return nil, errors.WithStack(err)
 	}
+	// the CKA_ID is known when the key was found by id; otherwise it is read
+	var id []byte
+	if keyID != "" {
+		id = []byte(keyID)
+	}
+	obj, ref, err := lib.newPrivateKeyObject(session, privHandle, slot, id)
+	if err != nil {
+		return nil, err
+	}
 	switch keyType {
 	case pkcs11.CKK_RSA:
 		if pub, err = lib.exportRSAPublicKey(session, pubHandle); err != nil {
 			return nil, errors.WithMessage(err, "exportRSAPublicKey")
 		}
-		return &PKCS11PrivateKeyRSA{key: &PKCS11PrivateKey{PKCS11Object{privHandle, slot}, pub}, lib: lib}, nil
+		return &PKCS11PrivateKeyRSA{key: &PKCS11PrivateKey{obj, pub}, lib: lib, ref: ref}, nil
 	case pkcs11.CKK_EC:
 		if pub, err = lib.exportECDSAPublicKey(session, pubHandle); err != nil {
 			return nil, errors.WithMessage(err, "exportECDSAPublicKey")
 		}
-		return &PKCS11PrivateKeyECDSA{key: &PKCS11PrivateKey{PKCS11Object{privHandle, slot}, pub}, lib: lib}, nil
+		return &PKCS11PrivateKeyECDSA{key: &PKCS11PrivateKey{obj, pub}, lib: lib, ref: ref}, nil
 	default:
 		return nil, errors.WithMessagef(errUnsupportedKeyType, "key type: %v", keyType)
 	}
@@ -361,7 +378,7 @@ func (lib *PKCS11Lib) GenerateRSAKey(label string, bits int, purpose int) (crypt
 		return nil, errors.WithStack(err)
 	}
 
-	id, l, err := lib.Identify(&priv.key.PKCS11Object)
+	id, l, err := lib.identify(&priv.key.PKCS11Object, priv.ref)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -382,7 +399,7 @@ func (lib *PKCS11Lib) GenerateECDSAKey(label string, curve elliptic.Curve) (cryp
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	id, l, err := lib.Identify(&priv.key.PKCS11Object)
+	id, l, err := lib.identify(&priv.key.PKCS11Object, priv.ref)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -403,17 +420,20 @@ func (lib *PKCS11Lib) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, 
 		return ki.KeyID(), ki.Label(), nil
 	}
 
-	var p11o *PKCS11Object
+	var (
+		p11o *PKCS11Object
+		ref  *objectRef
+	)
 	switch t := priv.(type) {
 	case *PKCS11PrivateKeyRSA:
-		p11o = &t.key.PKCS11Object
+		p11o, ref = &t.key.PKCS11Object, t.ref
 	case *PKCS11PrivateKeyECDSA:
-		p11o = &t.key.PKCS11Object
+		p11o, ref = &t.key.PKCS11Object, t.ref
 	default:
 		return "", "", errors.WithStack(errUnsupportedKeyType)
 	}
 
-	id, l, err := lib.Identify(p11o)
+	id, l, err := lib.identify(p11o, ref)
 	if err != nil {
 		return "", "", errors.WithStack(err)
 	}

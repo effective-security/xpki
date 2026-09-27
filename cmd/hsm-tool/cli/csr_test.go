@@ -7,6 +7,7 @@ import (
 	"uuid"
 
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/internal/testenv"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -14,7 +15,12 @@ type csrSuite struct {
 	testSuite
 }
 
+// TestCsrSuite needs the local-kms emulator behind aws-dev-kms.json, the
+// default provider on :14555 (XPKI-100); the extra provider from
+// aws-dev-kms.yaml (:14556) is loaded lazily and never called. It skips
+// when the emulator is unreachable, unless XPKI_INTEGRATION=required.
 func TestCsrSuite(t *testing.T) {
+	testenv.RequireTCP(t, "local-kms", "localhost:14555")
 	s := new(csrSuite)
 	s.appFlags = []string{
 		"--cfg", "../../../cryptoprov/awskmscrypto/testdata/aws-dev-kms.json",

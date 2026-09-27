@@ -6,6 +6,7 @@ import (
 
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,7 +16,12 @@ import (
 
 const softHSMConfig = "/tmp/xpki/softhsm_unittest.json"
 
+// loadProvider returns the SoftHSM provider. It skips the test when the
+// SoftHSM config is missing, or fails it with XPKI_INTEGRATION=required
+// (XPKI-100); a present config must load.
 func loadProvider(t *testing.T) cryptoprov.Provider {
+	t.Helper()
+	testenv.RequireFile(t, "SoftHSM config", softHSMConfig)
 	p, err := cryptoprov.LoadProvider(softHSMConfig)
 	require.NoError(t, err)
 

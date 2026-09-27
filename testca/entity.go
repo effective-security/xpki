@@ -47,8 +47,8 @@ func (id *Entity) Issue(opts ...Option) *Entity {
 	return NewEntity(options...)
 }
 
-// PFX wraps the certificate and private key in an encrypted PKCS#12 packet. The
-// provided password must be alphanumeric.
+// PFX wraps the certificate and private key in a password-protected PKCS#12
+// packet; see ToPFX for the password rules (any BMP characters, or empty).
 func (id *Entity) PFX(password string) []byte {
 	return ToPFX(id.Certificate, id.PrivateKey, password)
 }

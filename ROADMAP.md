@@ -47,9 +47,9 @@ first miss, and `ParserConfig` fields for the `RemoteKeySet` options, which
 
 Remaining after v0.29: a `context.Context`-aware borrow (today a borrower at
 the session limit waits without a deadline, since `crypto.Signer` has no
-context), and recovery of the login session after a device error (XPKI-110).
-The deprecated exported `BytesToUlong` can be removed in the next major
-version.
+context). The deprecated exported `BytesToUlong` can be removed in the next
+major version, and `PKCS11Object.Handle` (stale after a logout since v0.29
+refreshes handles internally) can become an accessor.
 
 ## certutil bundler concurrency
 
@@ -66,13 +66,19 @@ needs them. Drop legacy RFC 1423 PEM decryption
 - `gopkg.in/yaml.v3` is archived; `go.yaml.in/yaml/v3` is already an indirect
   dependency. Switch the four direct importers in one change.
 - `golang.org/x/crypto/hkdf` in `dataprotection` can move to `crypto/hkdf`.
-- Pin tool versions in `Makefile` (`tools`) instead of `@latest` (XPKI-096).
+
+## dataprotection: versioned blobs and key rotation
+
+`NewSymmetric` blobs are `nonce || ciphertext || tag` with no version or key
+id, so callers track which secret protected a blob and re-protect on read
+(v0.29 documents the limits: key material of 32 bytes or more, at most 2^32
+messages per secret). Add a versioned format (`version || key-id || nonce ||
+ciphertext || tag`), a multi-key provider that decrypts with retired secrets
+and encrypts with the current one, and a per-secret `Protect` counter or
+time-based rotation hook against the message budget; keep `Unprotect`
+accepting the legacy unversioned blob during migration.
 
 ## Tooling and CI
 
-- Run `make lint` and `govulncheck` in CI, and gate the `UnitTest` job on
-  `detect-noop` (XPKI-094, XPKI-095).
-- Make integration tests skip when SoftHSM or local-kms is unavailable
-  (XPKI-100) with `internal/testenv`; csr and hsm-tool remain.
 - Regenerate `cmd/*/README.md` from `--help` output and add per-command
   examples.

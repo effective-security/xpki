@@ -116,19 +116,27 @@ Do not start by grepping the tree.
 
 ### Tools
 
-- `make tools` : install golangci-lint, cov-report, govulncheck
+- `make tools` : install golangci-lint, cov-report, govulncheck and gomarkdoc
+  at the versions pinned in `Makefile` (`*_VERSION` variables); bump a pin
+  deliberately and rerun `make tools lint covtest docs`
 - `make hsmconfig` : create the SoftHSM token and test config
 - `make start-local-kms` : start the AWS KMS emulator containers
 - `make fmt` : apply go fmt
+- `make fmt-check` : fail on unformatted files without changing them
 - `make test` : test entire project
-- `make lint` : gofmt, go vet, golangci-lint
+- `make lint` : `fmt-check`, go vet, govulncheck, golangci-lint (never
+  modifies the checkout; CI runs it)
 - `make covtest coverage` : coverage run and report
 - `make docs` : regenerate gomarkdoc API docs in `Documentation/` and CLI help dumps (needs `make build` first)
 - `make all` : clean, tools, generate, hsmconfig, start-local-kms, covtest
 
-CI (`.github/workflows/unittest.yml`) runs `make covtest` with SoftHSM and
-local-kms and requires **80%** total coverage (`MIN_TESTCOV`). CI does not
-run `make lint` or the race detector; run both locally.
+CI (`.github/workflows/unittest.yml`) runs `make lint`, then `make covtest`
+with SoftHSM and local-kms, checks that the build left the checkout unchanged
+(`git diff --exit-code`), and requires more than **90%** total coverage
+(`MIN_TESTCOV`). A pull request that changes only documentation (or repeats
+an already successful run) skips the job and gets a "code cov: skipped"
+status instead. CI does not run the race detector; run `make test RACE=true`
+locally.
 
 ### Documentation
 

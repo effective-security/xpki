@@ -35,32 +35,62 @@ func TestContext(t *testing.T) {
 	assert.Equal(t, "{}\n", out.String())
 }
 
+// TestParse builds a fresh parser and destination for every case (XPKI-101):
+// kong keeps the flags it has already seen, so a shared parser accepts a
+// later invocation without the required --cfg.
 func TestParse(t *testing.T) {
-	var cl struct {
+	type app struct {
 		Cli
 
 		Cmd struct {
 			Ptr *bool `help:"test bool ptr"`
 		} `kong:"cmd"`
 	}
+	ptr := func(b bool) *bool { return &b }
 
-	p := mustNew(t, &cl)
-	ctx, err := p.Parse([]string{"--cfg=hsm.cfg", "cmd", "--ptr=false", "-D"})
-	require.NoError(t, err)
-	require.Equal(t, "cmd", ctx.Command())
-	if assert.NotNil(t, cl.Cmd.Ptr) {
-		assert.False(t, *cl.Cmd.Ptr)
+	for _, tc := range []struct {
+		name string
+		args []string
+		ptr  *bool
+		err  string
+	}{
+		{
+			name: "bool ptr false",
+			args: []string{"--cfg=hsm.cfg", "cmd", "--ptr=false", "-D"},
+			ptr:  ptr(false),
+		},
+		{
+			name: "bool ptr true with log level",
+			args: []string{"--cfg=hsm.cfg", "cmd", "--ptr=true", "-l=W"},
+			ptr:  ptr(true),
+		},
+		{
+			name: "invalid log level",
+			args: []string{"--cfg=hsm.cfg", "cmd", "--ptr=false", "-l=123"},
+			err:  "unable to parse log level: 123",
+		},
+		{
+			name: "missing cfg",
+			args: []string{"cmd", "--ptr=true"},
+			err:  "missing flags: --cfg=STRING",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cl app
+			p := mustNew(t, &cl)
+			ctx, err := p.Parse(tc.args)
+			if tc.err != "" {
+				require.EqualError(t, err, tc.err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "cmd", ctx.Command())
+			assert.Equal(t, "hsm.cfg", cl.Cfg)
+			if assert.NotNil(t, cl.Cmd.Ptr) {
+				assert.Equal(t, *tc.ptr, *cl.Cmd.Ptr)
+			}
+		})
 	}
-
-	_, err = p.Parse([]string{"--cfg=hsm.cfg", "cmd", "--ptr=true", "-l=W"})
-	assert.NoError(t, err)
-
-	_, err = p.Parse([]string{"--cfg=hsm.cfg", "cmd", "--ptr=false", "-l=123"})
-	assert.EqualError(t, err, "unable to parse log level: 123")
-
-	_, err = p.Parse([]string{"cmd", "--ptr=true"})
-	assert.NoError(t, err)
-	//assert.EqualError(t, err, "missing flags: --cfg=STRING")
 }
 
 func mustNew(t *testing.T, cli any, options ...kong.Option) *kong.Kong {

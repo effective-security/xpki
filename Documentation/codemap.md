@@ -60,7 +60,7 @@ consumers. Nothing in the library imports `cmd/`.
 | PKCS#11 signing / decryption               | `crypto11/rsa.go`, `crypto11/ecdsa.go`                                       | `PKCS11PrivateKeyRSA.Sign/Decrypt`, `PKCS11PrivateKeyECDSA.Sign`                                                              |
 | PKCS#11 token / key enumeration            | `crypto11/provider.go`, `crypto11/util.go`                                   | `EnumTokens`, `EnumKeys`, `KeyInfo`, `DestroyKeyPairOnSlot`                                                                   |
 | AWS KMS                                    | `cryptoprov/awskmscrypto/awskmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `KmsClient`, `NewSigner`, `Signer.SigningAlgorithms`, `Provider.EnumKeys`           |
-| GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory` (takes the endpoint), `KmsClient`, `KeyLabelAndID`, `NewSigner`, `Signer.Algorithm`, `Crc32c`, `Provider.Close`, `ErrClosed` |
+| GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory` (takes the endpoint), `KmsClient`, `KeyLabelAndID`, `NewSigner`, `Signer.Algorithm`, `Signer.SignatureAlgorithm`, `Crc32c`, `Provider.Close`, `ErrClosed` |
 | In-memory keys                             | `cryptoprov/inmemcrypto/provider.go`, `concurrency_test.go`                   | `NewProvider`, `Loader`, `ProviderName`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                   |
 | Test-provider key registry                 | `cryptoprov/testprov/provider.go`, `concurrency_test.go`                     | `Init`, `Loader`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `ExportKey`                                        |
 | CSR request types                          | `csr/csr.go`                                                                 | `CertificateRequest`, `SignRequest`, `X509Subject`, `X509Name`, `X509Extension`, `AllowedFields`                              |
@@ -121,7 +121,7 @@ parsing, TLS key-pair loading and AES-GCM helpers.
 | `provider.go` | Interfaces, `KeyInfo`/`TokenInfo`, `Crypto` (`New`, `Add`, `ByManufacturer`), `ErrNilProvider`, `ErrDuplicateProvider`      |
 | `loader.go`   | `loaders` map + `lockLoaders`; `Register`, `Unregister`, `Registered`, `LoadProvider`, `Load` (closes loaded providers on error) |
 | `config.go`   | `TokenConfig` interface, JSON/YAML struct, `LoadTokenConfig` with `file:` PIN resolution (absolute, cwd, config dir)        |
-| `uri.go`      | `ParseTokenURI`, `ParsePrivateKeyURI`                                                                                       |
+| `uri.go`      | RFC 7512 parser (`parsePKCS11URI`), `ParseTokenURI`, `ParsePrivateKeyURI`, `pin-value` redaction                            |
 | `utils.go`    | `Crypto.LoadPrivateKey` (PEM or `pkcs11:` URI), `ParsePrivateKeyPEM*`, `ParsePrivateKeyDER`, `LoadTLSKeyPair`, `TLSKeyPair` |
 | `signer.go`   | `NewSignerFromFromFile`, `NewSignerFromPEM`                                                                                 |
 | `gcm.go`      | `GcmEncrypt`/`GcmDecrypt` (nonce prefixed)                                                                                  |
@@ -135,9 +135,27 @@ parsing, TLS key-pair loading and AES-GCM helpers.
   selects JSON, otherwise YAML. JSON keys: `Manufacturer, Model, Path, TokenSerial,
 TokenLabel, Pin, Attributes`; YAML keys are snake_case.
 - `Provider` does not embed `KeyManager` or `Close`; type-assert when needed.
-- Key URI: `pkcs11:manufacturer=M;model=X;id=ID;serial=S;type=private`;
-  `ParsePrivateKeyURI` requires `type=private`, `serial`, `id`. Query-form
-  attributes are not parsed (XPKI-027).
+- Key URI (RFC 7512, `uri.go`): `pkcs11:` then path attributes
+  `manufacturer`, `model`, `serial`, `token`, `id`, `type` separated by `;`,
+  then `?` and the query attributes `module-name`, `module-path` (overrides
+  `module-name`, must be absolute), `pin-value` and `pin-source` (`file:`
+  URIs only, content trimmed) separated by `&`. Values are percent-decoded
+  with `+` kept literal, attribute names are case-sensitive, unknown and
+  vendor attributes and empty segments (a trailing or doubled separator)
+  are ignored, and the URI is trimmed of surrounding whitespace. The four
+  query attributes are also accepted in the path (the
+  form this package accepted before), but not in both places. A duplicate
+  attribute, `pin-source` together with `pin-value` (RFC 7512 §2.4, by
+  presence, even when one is empty), a
+  relative `module-path`, a bad percent escape or a malformed segment is a
+  wrapped `ErrInvalidURI`; `ParsePrivateKeyURI` requires `type=private`,
+  `serial` and `id` (`ErrInvalidPrivateKeyURI`; `id` may be binary).
+  Manufacturer and model are always trimmed of spaces and NULs. Error
+  messages quote the URI with every `pin-value` redacted per component (a
+  path value ends at `;`, a query value at `&`, and a quoted segment is
+  redacted whole); an unreadable
+  `pin-source` file keeps its `*fs.PathError` in the chain (`uriError`
+  unwraps to both `ErrInvalidURI` and the cause) (XPKI-027, fixed).
 - `Crypto` is safe for concurrent use (XPKI-016): `Add` is serialized by a
   mutex and publishes a new copy of the `providerKey{manufacturer, model}`
   map through an `atomic.Pointer`; `ByManufacturer` does not lock. The
@@ -221,9 +239,59 @@ C toolchain (cgo) and dlopens the module named in the config.
   module is shared but never finalized here. `Init` releases its reference and
   sessions on every error after the load.
 - Each `PKCS11Lib` owns a login session (`Session`, opened and logged in by
-  `Init`) that keeps the token logged in while pooled sessions come and go; it
-  is closed by `Close` and not counted in the pool limit. No `C_Logout`; it is
-  not reopened after a device/token error (XPKI-110).
+  `Init` through the `sessionOps.login` seam) that keeps the token logged in
+  while pooled sessions come and go; it is closed by `Close` and not counted
+  in the pool limit. No `C_Logout`.
+- Re-login and handle refresh (XPKI-110): `withSession` recovers two
+  failures, each at most once per call (the callback runs at most three
+  times). An idle pooled session whose handle is stale
+  (`staleSessionErrors`: `CKR_SESSION_HANDLE_INVALID`, `CKR_SESSION_CLOSED`,
+  as after a token was removed and reinserted) is discarded together with
+  every other idle session of the slot (`purgeIdle`) and the callback runs
+  on a new session. A logged-out login slot (the callback failed with a
+  `loginSensitiveError`: `CKR_USER_NOT_LOGGED_IN`,
+  `CKR_OBJECT_HANDLE_INVALID`, `CKR_KEY_HANDLE_INVALID` or `errKeyNotFound`,
+  while `C_GetSessionInfo`
+  reports a public session, since private objects are invisible without a
+  login; or the login generation advanced during the callback because
+  another caller re-logged in) triggers `relogin` (a no-op when the
+  generation advanced) and one retry. Only the slot `Init` selected is
+  logged in again (`isLoginSlot`); a `CKR_USER_NOT_LOGGED_IN` from a still
+  logged-in token (`CKA_ALWAYS_AUTHENTICATE` keys) or from another slot is
+  returned as is. Device errors only discard the session, so the re-login
+  is lazy. `relogin` is serialized by `loginMu` and guarded by the `loginGen`
+  generation, so concurrent failures cost one `C_Login`: it opens a new
+  session on `Slot.id`, logs in with `Config.Pin()` (no other PIN storage),
+  replaces `Session` and then closes the old one (the slot never has zero
+  sessions, which logs a SoftHSM token out). `CKR_USER_ALREADY_LOGGED_IN` is
+  success. A PIN failure (`stickyLoginErrors`) is kept in `loginErr` and
+  returned by every later operation without touching the token, so a changed
+  PIN cannot lock it; a new `Init` is needed. Other login failures are
+  retried by the next operation. A logout invalidates private object handles
+  for good (PKCS#11 §5.7.2), so `PKCS11PrivateKeyRSA`/`PKCS11PrivateKeyECDSA`
+  carry an unexported `objectRef` (class, an owned copy of the CKA_ID,
+  current handle; the id is read once by the constructors, or passed when
+  the key was found by id or generated) and `withKey`, used by RSA/ECDSA
+  `Sign`, RSA `Decrypt` and `IdentifyKey`, looks the object up again by
+  CKA_ID on `CKR_OBJECT_HANDLE_INVALID` or `CKR_KEY_HANDLE_INVALID` (the
+  code C_Sign/C_Decrypt use, `staleKeyHandleErrors`) and runs the callback
+  once more (so
+  up to six runs per call with the `withSession` retries). The exported
+  `PKCS11Object` keeps its two public fields, so positional literals still
+  compile; `Identify(*PKCS11Object)` uses the handle as given. A key
+  without CKA_ID gets no `objectRef` and keeps its handle, and a lookup
+  matching several objects is `errAmbiguousObject`, never a guess.
+  `PKCS11Object.Handle` keeps the original value and may be stale after a
+  logout. Key generation: once `C_GenerateKeyPair` succeeded, a failure to
+  read the public key or CKA_ID destroys the pair (`discardGeneratedPair`,
+  best effort) and is returned wrapped by `noRetry`, which `withSession`
+  returns unwrapped without running the callback again, so a retry never
+  generates a second pair or duplicates a caller-supplied id; a failure of
+  `C_GenerateKeyPair` itself (nothing committed) is retried like any other. `EnumKeys` on the login slot checks the session state
+  first and re-logs in when it is public, since a logged-out token silently
+  lists no private keys. `Session` is replaced by a re-login: callers must
+  not cache or close it. Callbacks passed to `withSession` must be safe to
+  run again after such a failure (which leaves no PKCS#11 operation active).
 - Session pools (XPKI-002/003/005): one `sessionPool` per slot, created on
   first use under `PKCS11Lib.mu`. At most `maxSessions` live sessions per slot
   (default `DefaultMaxSessions` = 1024, `WithMaxSessions`); a borrower waits
@@ -287,8 +355,15 @@ and closes `p11lib` (checking the error) before `os.Exit`. SoftHSM tests call
 `requireP11`, which uses `testenv.RequireFile` (missing config skips, or fails
 with `XPKI_INTEGRATION=required`) and fails when a present config did not load.
 Fixture-free: `sessions_test.go` (pool bounds, disposal, panic, open errors,
-Close waiting/wakeups, concurrent pool creation vs Close) through the
-`sessionOps` seam, config/DSA tests; `close_test.go` (errClosed from the
+Close waiting/wakeups, concurrent pool creation vs Close) and
+`relogin_test.go` (retry bounds, one re-login under concurrency, sticky PIN
+errors, stale idle sessions, handle refresh, Close during a re-login)
+through the `sessionOps` seam (`open`/`close`/`login`/`state`/`find`, with
+`fakeSessions` counters, gates and `logout()`), config/DSA tests;
+`relogin_softhsm_test.go` covers a real logout, `EnumKeys` after a logout,
+concurrent operations costing one login, a sticky wrong PIN, and
+`C_CloseAllSessions` in a re-executed child (`runChild`), since it
+invalidates the shared `p11lib`; `close_test.go` (errClosed from the
 caller-session methods, concurrent `Close` sharing its result, errors from
 sessions returned during `Close`, `moduleID` matching, and `ExportKey` with a
 `Close` injected through the `exportKeyAdmitted` hook; symlinked module sharing
@@ -366,7 +441,13 @@ id as given (`serial` is always `1`). `EnumKeys` does not list versions
 only (XPKI-019): `GenerateRSAKey` rejects purpose 2 before any RPC and treats
 every other purpose as signing, like the other providers (XPKI-118); the
 algorithm is PKCS#1 v1.5 SHA-256 (2048/3072) or SHA-512 (4096), P-256/SHA-256,
-P-384/SHA-384 (XPKI-114: `csr` signs 3072-bit keys with SHA-384); `GetKey`
+P-384/SHA-384. `Signer.SignatureAlgorithm()` implements
+`csr.SignatureAlgorithmer` from the KMS algorithm (`x509SignatureAlgorithms`:
+PKCS#1 → `SHAnWithRSA`, PSS → `SHAnWithRSAPSS`, EC → `ECDSAWithSHA256/384`,
+others `Unknown`), so `csr.DefaultSigAlgo` signs CSRs and certificates with
+the hash and padding the key version accepts (SHA-256 for 3072-bit and
+4096-SHA256 keys, PSS for PSS keys; XPKI-114); `sigalgo_test.go` signs CSRs
+for every algorithm on the fake gRPC KMS. `GetKey`
 rejects a version that is not `ENABLED` or whose algorithm is not in
 `signSchemes` (PKCS#1/PSS RSA and P-256/P-384 digest signing; secp256k1 is
 excluded because `crypto/x509` cannot parse its key, XPKI-119). `Init`
@@ -463,17 +544,40 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
 
 | File         | Role                                                                                                                                                                                          |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `csr.go`     | `CertificateRequest`, `SignRequest`, `X509Subject/Name/Extension`, `AllowedFields`, `Parse`/`ParsePEM` (verifies CSR signature), `PopulateName`, `SetSAN`, `Encode/DecodeCDP*`, `GeneralName` |
-| `csrprov.go` | `Provider` over one `cryptoprov.Provider`: `GenerateKeyAndRequest`, `CreateRequestAndExportKey`, `SignRequest`, `DefaultSigAlgo`                                                              |
+| `csr.go`     | `CertificateRequest`, `SignRequest`, `X509Subject/Name/Extension`, `AllowedFields`, `Parse`/`ParsePEM` (verifies CSR signature), `PopulateName`, `Encode/DecodeCDP*`, `GeneralName`           |
+| `san.go`     | `SAN`, `ParseSAN`, `ApplySAN`, deprecated `SetSAN`; DNS and IDNA validation                                                                                                                   |
+| `csrprov.go` | `Provider` over one `cryptoprov.Provider`: `GenerateKeyAndRequest`, `CreateRequestAndExportKey`, `SignRequest`, `DefaultSigAlgo`, `SignatureAlgorithmer`                                      |
 | `keyreq.go`  | `KeyRequest` (RSA 2048–4096, ECDSA 256/384/521, `KeyPurpose`), `Generate`, `SigAlgo`, `NewKeyRequest`                                                                                         |
 | `types.go`   | `OID`, `Duration` (JSON number = seconds, string = Go duration; YAML string only), `BasicConstraints`, policy qualifier constants                                                             |
 
 ### Invariants
 
-- SAN classification: contains `://` → URI (unparsable entries are skipped
-  with an error log), `net.ParseIP` → IP, `mail.ParseAddress` → email, else DNS
-  (unvalidated). `SetSAN(t, nil)` keeps CSR SANs; `SetSAN(t, []string{})`
-  clears them (XPKI-059).
+- SAN handling (XPKI-059): `ParseSAN` trims each name, classifies it
+  (contains `://` → URI, `net.ParseIP` → IP kept in 4-byte form for IPv4,
+  `mail.ParseAddress` → email, else DNS), validates and dedupes (first
+  occurrence wins; DNS and email case-insensitively, IP by value, URI by
+  `String()`). URIs and emails must serialize to ASCII. DNS: a non-ASCII
+  name becomes A-labels (`x/net/idna` with `StrictDomainName(false)`, so
+  underscores and `*` pass; this lowercases it), an ASCII name keeps its
+  case; at most 253 characters, labels of 1–63 `[A-Za-z0-9_-]` not starting
+  or ending with a hyphen, a wildcard only as the whole first label of a
+  name with two or more labels, no trailing dot; `localhost` is valid. Every
+  invalid name is reported, joined as `invalid SAN "x": reason`.
+  `ApplySAN(t, nil)` keeps the template (CSR names survive);
+  `ApplySAN(t, []string{})` clears; a non-nil list replaces the four name
+  lists (nil when empty) and removes every raw SAN extension from a clone of
+  `ExtraExtensions`, order kept; on error the template is unchanged.
+  `SetSAN` is deprecated: same nil/empty semantics, invalid names are skipped
+  with an error log; `ApplySAN(nil, …)` is an error and `SetSAN(nil, …)` a
+  no-op. `SAN.Validate` applies the rules and deduplication to already
+  classified names in place (unchanged on error); an email must be a bare
+  address `mail.ParseAddress` accepts, since a CSR can carry any IA5 string
+  there. A URI given as a string must contain `://` (`urn:` values are
+  rejected as DNS names).
+  `Provider.SignRequest` fails on an invalid SAN, and `authority.Issuer.Sign`
+  validates both `SignRequest.SAN` (`ApplySAN`) and the names copied from
+  the CSR (`SAN.Validate`, error `CSR: invalid SAN ...`) instead of issuing
+  them.
 - `Parse` keeps every CSR extension except BasicConstraints in
   `ExtraExtensions`; `authority.Issuer.Sign` decides what to keep (XPKI-049,
   fixed: deny-by-default for CSR extensions).
@@ -481,13 +585,23 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
   provider for requests decoded from JSON/YAML.
 - `X509Name` YAML/JSON keys are lowercase (`c`, `st`, `l`, `o`, `ou`, `email`);
   uppercase keys are silently ignored by the YAML decoder.
-- `SigAlgo`/`DefaultSigAlgo` never return SHA-1: RSA below 2048 and unknown
-  ECDSA curves fall back to SHA-256 (key size validation rejects them anyway).
+- `SigAlgo`/`DefaultSigAlgo`: RSA 2048 and 3072 bits → SHA-256 (XPKI-114:
+  NIST SP 800-57 rates RSA-3072 at 128 bits and GCP KMS signs 3072-bit keys
+  only with SHA-256), 4096 and above → SHA-512; ECDSA by curve. They never
+  return SHA-1: RSA below 2048 and unknown ECDSA curves fall back to SHA-256
+  (key size validation rejects them anyway). `DefaultSigAlgo` first honours
+  a signer implementing `SignatureAlgorithmer` (`gcpkmscrypto.Signer`) when
+  it returns a known algorithm.
 - `ParseObjectIdentifier` requires the whole string to be dotted decimals
   (`^\d+(\.\d+)*$`).
 - `Signer` and `KeyRequestGen` interfaces are unused.
 
-Tests: `csrprov_test.go` and `TestCSR` need SoftHSM. No `testdata/`.
+Tests: only `csrprov_test.go` (`TestGenerateKeyAndRequest`,
+`TestCreateRequestAndExportKey`) needs SoftHSM, gated by
+`testenv.RequireFile` in `loadProvider` (XPKI-100); `TestCSR` and every other
+test use `inmemcrypto`. `san_test.go` and `sigalgo_test.go` table the SAN
+rules and the hash defaults (including stub signers advertising an
+algorithm). No `testdata/`.
 
 `csr/parsing_coverage_test.go` covers signed CSR BasicConstraints, tampered
 signatures, GeneralName ASN.1 variants, invalid provider requests, and YAML
@@ -905,7 +1019,17 @@ and parallel unique-unknown kids.
   slice and `IDPParam`). `provider_bench_test.go` has the lookup,
   enumeration, token-request and `Config()` benchmarks.
 - **dataprotection**: `Provider` interface; `NewSymmetric(secret)` = HKDF-SHA256
-  → AES-256-GCM, blob `nonce(12) || ciphertext || tag`, no key id (XPKI-083).
+  → AES-256-GCM, blob `nonce(12) || ciphertext || tag(16)`
+  (`SymmetricNonceSize`, `SymmetricTagSize`, `SymmetricOverhead`), no
+  associated data and no key id, so rotation is the caller's: record which
+  secret protected a blob, keep the old provider to read, re-protect on read.
+  The secret is key material, not a passphrase (`SymmetricMinSecretSize` =
+  32 bytes recommended, not enforced); one secret protects at most
+  `SymmetricMaxMessagesPerKey` (2^32) messages (NIST SP 800-38D §8.3
+  random-IV bound) of less than 2^36−32 bytes each. `doc.go` states the
+  limits, `symmetric_limits_test.go` checks the constants against the AEAD
+  and `example_test.go` generates the secret with `crypto/rand` (XPKI-083,
+  fixed). The KDF and blob format are unchanged.
 
 Tests are pure except `keys_test.go` writing under `os.TempDir()`.
 `dpop/verify_policy_test.go` covers replay (sequential, 32 simultaneous
@@ -921,7 +1045,17 @@ conflicts/overrides; it makes no network requests.
 
 ## Helper packages
 
-- **armor**: `Decode` only; CRC24 required (XPKI-047); returns nil on malformed input, never panics. `testdata/` GPG keys incl. corrupted variants.
+- **armor**: `Decode` only. The CRC24 checksum line is optional (RFC 9580
+  §6.1): the last non-empty line before `-----END` is the checksum line when
+  it starts with `=` (unless the payload decodes only with that line, which
+  is then base64 padding on its own line); a well-formed one sets
+  `Block.HasCRC` and `Block.CRC`,
+  `Block.CRCValid()` compares it with `CRC24(Bytes)`, and a missing,
+  malformed or wrong checksum never rejects a block (XPKI-047, fixed).
+  Framing or base64 damage still returns nil and the decoder moves to the
+  next block; it never panics. `testdata/` holds GPG keys including a
+  `nocrc` variant and the corrupted variants, each classified in
+  `Test_ArmorDecode_Corrupted`.
 - **oid**: exported maps are process-global; `KeyUsages` returns canonical names in RFC 5280 bit order, each bit once.
 - **x/print**: writes to an `io.Writer`, ignores write errors, local time; a zero `NextUpdate` prints `Expires: not set`; `JSON` swallows marshal errors by design. Tests in `certutil_test.go` load `testdata/*.pem` and append synthetic `*x509.Certificate` values to cover SAN, AIA, CRL, and extension formatting.
 - **metricskey**: descriptors only; registered by consumers.
@@ -929,7 +1063,13 @@ conflicts/overrides; it makes no network requests.
 - **internal/testenv**: test-only; imports `testing`. `RequireTCP` dials with a 1s timeout and skips or fails (`XPKI_INTEGRATION=required`) only when the fixture is unreachable; `RequireFile` does the same for a missing fixture file and always fails on other stat errors (XPKI-100).
 - **testca**: everything panics on failure (test-only). Defaults RSA-2048,
   NotBefore = epoch, NotAfter = +10y, subject `[TEST]`. `Chain()` includes
-  leaf and root. `PFX`/`ToPKCS8` need `openssl` (XPKI-063).
+  leaf and root. `ToPKCS8` is stdlib PKCS#8 as a `PRIVATE KEY` PEM block
+  (RSA, ECDSA, Ed25519); `PFX`/`ToPFX` encode PKCS#12 with go-pkcs12
+  `Modern2023` (PBES2 AES-256-CBC, PBKDF2-HMAC-SHA-256, HMAC-SHA-256 MAC) and
+  accept any BMP-string password, including an empty one (a non-BMP
+  character panics, since PKCS#12 stores the password as UCS-2); no
+  `openssl` is needed
+  (XPKI-063, fixed). `utils_test.go` decodes both outputs.
   Default common-name allocation uses an atomic counter; a per-entity mutex
   protects `IncrementSN`'s return-and-increment of `NextSN` (XPKI-062, fixed).
   Key generation and signing run outside that mutex. `Issue` copies the
@@ -958,21 +1098,29 @@ conflicts/overrides; it makes no network requests.
   `--with-aia`), `crl info`, `crl fetch` (needs `--output` or `--print`;
   errors when no selected certificate has a CRL distribution point),
   `ocsp info` (`--issuer` PEM verifies the response signature), `ocsp fetch`
-  (error when the certificate has no OCSP URL). HTTP helpers take the CLI
-  context; output paths use `filepath.Join`.
+  (error when the certificate has no OCSP URL; every endpoint is tried and
+  each failure is printed as `<url> : ERROR: ...`; one valid response is a
+  success, and when all fail it returns `no valid OCSP response from N
+  endpoint(s)` listing each `<url>: <reason>`, XPKI-102). HTTP helpers take
+  the CLI context; output paths use `filepath.Join`.
 - Exit codes: kong parse error → 80; `Run` error → 1; panic → 2. `-` as a
   file name reads stdin.
 - Tests: `cmd/hsm-tool/cli` uses testify mocks for providers, plus `csr_test.go`
-  which needs local-kms and `authority/testdata`; `cmd/xpki-tool/cli` uses
-  `x/print/testdata` and `cli/testdata/ocsp1.res`, no network.
+  (`TestCsrSuite`) which needs local-kms on `:14555` (the `:14556` provider
+  is loaded lazily and never called) and `authority/testdata` and is gated
+  by `testenv.RequireTCP` (XPKI-100);
+  `hsm_cli_test.go` `TestParse` builds a fresh kong parser and destination
+  per case, since a reused parser keeps flags from earlier `Parse` calls
+  (XPKI-101). `cmd/xpki-tool/cli` uses `x/print/testdata`,
+  `cli/testdata/ocsp1.res` and local HTTP servers, no network.
 - Both READMEs are generated from `--help` output; regenerate them when flags change.
 
 ## Test layout summary
 
 | Fixture                                                                                          | Provided by                                    | Needed by                                                                                             |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr`                                                    |
-| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto` (`Test_KmsProvider` only, gated), `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS` only, gated), `cmd/hsm-tool/cli` (`csr_test.go`) |
+| `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr` (`csrprov_test.go`, gated)                         |
+| `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto` (`Test_KmsProvider` only, gated), `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS` only, gated), `cmd/hsm-tool/cli` (`TestCsrSuite`, gated) |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
 
@@ -980,15 +1128,19 @@ conflicts/overrides; it makes no network requests.
 fixture skips it unless `XPKI_INTEGRATION=required`, which the Makefile
 exports (so `make test`/`covtest` and CI fail); a reachable fixture always
 runs it. `internal/testenv.RequireFile` does the same for a fixture file
-(`crypto11` and `cryptoprov` gate on the SoftHSM config). `authority`,
-`crypto11`, `jwt`, `cryptoprov` and `certutil` use them so far; the other packages still
-fail hard when a fixture is missing (XPKI-100, remaining portions).
+(`crypto11`, `cryptoprov` and `csr` gate on the SoftHSM config). Every
+fixture-dependent test in `authority`, `crypto11`, `jwt`, `cryptoprov`,
+`certutil`, `csr` and `cmd/hsm-tool/cli` is gated this way; no test fails
+hard when a fixture is missing unless `XPKI_INTEGRATION=required`
+(XPKI-100, fixed).
 
 `cmd/xpki-tool/cli/coverage_test.go` uses generated certificates and local HTTP
 servers to cover certificate filters, trust validation, concurrent revocation
-checks, CRL/OCSP fetch and inspection, and input/transport errors. It
-characterizes OCSP fetch success after endpoint failures (XPKI-102), and
-asserts that a nil certificate or issuer returns the `CreateOCSPRequest` error
+checks, CRL/OCSP fetch and inspection, and input/transport errors. Its OCSP
+responder answers per certificate serial, so `TestOCSPFetchEndpointPolicy`
+asserts that `ocsp fetch` fails when every endpoint fails and succeeds when
+one answers (XPKI-102); `cmd/xpki-tool/main_test.go` checks the exit status
+1. It also asserts that a nil certificate or issuer returns the `CreateOCSPRequest` error
 with `ocsp.Unknown` and no HTTP request (XPKI-103). Fixtures use `t.TempDir()`. In
 `cmd/xpki-tool/cli/suite_test.go`, `testSuite.SetupSuite` allocates a unique
 directory on the suite's parent test; Go removes it after all suite subtests
@@ -1026,22 +1178,51 @@ and log output paths.
 
 ## Build and CI
 
-- `make tools` installs golangci-lint v2, cov-report, govulncheck (`@latest`,
-  XPKI-096). `make build` → `bin/hsm-tool`, `bin/xpki-tool`. `make test`,
+- `make tools` installs golangci-lint v2, cov-report, govulncheck and
+  gomarkdoc at the versions pinned by the `GOLANGCI_LINT_VERSION`,
+  `COV_REPORT_VERSION`, `GOVULNCHECK_VERSION` and `GOMARKDOC_VERSION`
+  variables in `Makefile` (overridable on the command line), into `bin/`
+  (`GOBIN`), which `.project/gomod-project.mk` puts on `PATH`. Update a pin
+  deliberately: bump it, run `make tools lint covtest docs`, and commit any
+  `.golangci.yaml` change the release needs (XPKI-096). `make build` →
+  `bin/hsm-tool`, `bin/xpki-tool`. `make test`,
   `make testshort`, `make test RACE=true`, `make covtest coverage`
   (per-package `-coverpkg=./...` merged by cov-report; exclusions in
-  `.project/gomod-project.mk`). `make lint` = gofmt + vet + `golangci-lint run`.
+  `.project/gomod-project.mk`). `make fmt` formats (`gofmt -s`); `make
+  fmt-check` lists and diffs the files `make fmt` would change and fails
+  without writing, and also fails when gofmt cannot parse a file. `make
+  lint` =
+  `fmt-check` + vet + `vulns` (govulncheck) + `golangci-lint run`, and
+  `covtest`/`testint` depend on `fmt-check`, so none of the CI targets
+  modifies the checkout (XPKI-095).
   `make version` prints `GIT_VERSION`, which `make build` and `make hsmconfig`
   link into the CLIs through `LDFLAGS` (XPKI-097). `make docs` runs gomarkdoc for `crypto11`, `cryptoprov`,
   `testca` into `Documentation/` and dumps `bin/*-tool --help` into
   `Documentation/cli/` (run `make build` first; the `cli/` directory must exist). `make all` = clean, tools, generate, change_log,
   start-local-kms, hsmconfig, covtest.
+- `docker-compose.yml` (`make start-local-kms`, project `xpki-kms`) runs two
+  `nsmithuk/local-kms:3.11.7` containers on the project's default network,
+  publishing `:14555` and `:14556`; no static addresses, no `version:` key
+  (XPKI-098). The emulator keeps its keys in memory, so `--force-recreate`
+  starts from an empty key store. Bump the image tag deliberately and rerun
+  the KMS-dependent suites (`awskmscrypto`, `authority`, `jwt`, `certutil`,
+  `cmd/hsm-tool/cli`).
 - `.golangci.yaml`: v2, default linters plus `revive` `exported`; `_test.go`
   excluded. `golangci-lint run` must stay clean (staticcheck SA1019 catches
   deprecated calls).
 - CI `.github/workflows/unittest.yml`: on push to `main`/`release-*`/tags and
-  PRs: `make tools`, `apt-get install softhsm2`, `make vars generate
-hsmconfig start-local-kms`, `make covtest`; PR status "code cov" against
-  `MIN_TESTCOV=80`. Lint and vulns are not run (XPKI-095). On push to `main`
+  PRs. `detect-noop` (`fkirc/skip-duplicate-actions`) sets `should_skip` for
+  a PR whose changes all match `paths_ignore` (Markdown, images,
+  `Documentation/`) or that duplicates an already successful run; pushes,
+  schedules and releases never skip. The `UnitTest` job runs only when
+  `should_skip != 'true'` (XPKI-094): `make tools`, `make lint`, `apt-get
+  install softhsm2`, `make vars generate hsmconfig start-local-kms`, `make
+  covtest`, `git diff --exit-code` (the build must leave the checkout
+  unchanged), then the PR status "code cov" (success when total coverage is
+  strictly greater than `MIN_TESTCOV=90`). When the job is skipped for a PR,
+  the `code-cov-skipped` job posts "code cov" as success with the description
+  `skipped: no Go or .VERSION changes`, so a required status never stays
+  pending. Lint failures (gofmt, vet, govulncheck, golangci-lint) fail the
+  job (XPKI-095). On push to `main`
   with a changed `.VERSION`, a tag `$(cat .VERSION).$(git rev-list --count HEAD)`
   is created (`settag.yml` does the same on demand).

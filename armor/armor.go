@@ -1,5 +1,8 @@
-// Package armor implements OpenPGP ASCII Armor, see RFC 4880. OpenPGP Armor is
-// very similar to PEM except that it has an additional CRC checksum.
+// Package armor implements OpenPGP ASCII Armor, see RFC 9580 §6. OpenPGP
+// Armor is very similar to PEM except that it may carry a CRC24 checksum
+// line before the end line. The checksum is optional and Decode never
+// rejects a block because of it (RFC 9580 §6.1); Block.CRCValid reports
+// whether a present checksum matches the decoded bytes.
 package armor
 
 import (
@@ -19,7 +22,7 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "armor"
 //	Headers
 //
 //	base64-encoded Bytes
-//	'=' base64 encoded checksum
+//	'=' base64 encoded checksum (optional)
 //	-----END Type-----
 //
 // where Headers is a possibly empty sequence of Key: Value lines.
@@ -27,7 +30,21 @@ type Block struct {
 	Type    string            // The type, taken from the preamble (i.e. "RSA PRIVATE KEY").
 	Headers map[string]string // Optional headers.
 	Bytes   []byte            // The decoded bytes of the contents. Typically a DER encoded ASN.1 structure.
-	CRC     uint32
+	// CRC is the CRC24 checksum from the checksum line. It is meaningful
+	// only when HasCRC is set.
+	CRC uint32
+	// HasCRC reports whether the block had a well-formed checksum line: "="
+	// followed by four base64 characters. Decode accepts a block without it,
+	// with a malformed one (HasCRC is false) and with a wrong one (HasCRC is
+	// true and CRCValid is false), as RFC 9580 §6.1 asks; callers that want
+	// the checksum enforced check CRCValid.
+	HasCRC bool
+}
+
+// CRCValid reports whether the block has a checksum line and its value
+// matches the CRC24 of Bytes.
+func (b *Block) CRCValid() bool {
+	return b != nil && b.HasCRC && b.CRC == CRC24(b.Bytes)
 }
 
 // getLine results the first \r\n or \n delineated line from the given byte
@@ -71,10 +88,11 @@ var pemStart = []byte("\n-----BEGIN ")
 var pemEnd = []byte("\n-----END ")
 var pemEndOfLine = []byte("-----")
 
-// Decode will find the next PEM formatted block (certificate, private key
-// etc) in the input. It returns that block and the remainder of the input. If
-// no PEM data is found, p is nil and the whole of the input is returned in
-// rest.
+// Decode will find the next armored block in the input. It returns that
+// block and the remainder of the input. If no armored data is found, p is
+// nil and the whole of the input is returned in rest. A block whose framing
+// or base64 data is malformed is skipped. The checksum line is optional and
+// never causes a block to be skipped; see Block.HasCRC and Block.CRCValid.
 func Decode(data []byte) (p *Block, rest []byte) {
 	var err error
 	// pemStart begins with a newline. However, at the very beginning of
@@ -160,38 +178,41 @@ func Decode(data []byte) (p *Block, rest []byte) {
 		return decodeError(data, rest)
 	}
 
-	// extract CRC bytes
-	base64Block := removeWhitespace(rest[:endIndex])
-	blockLen := len(base64Block)
-	if blockLen < 5 || base64Block[blockLen-5] != '=' {
-		logger.KV(xlog.DEBUG, "reason", "crc", "blockLen", blockLen)
-		return decodeError(data, rest)
-	}
+	// The data region is the base64 payload, optionally followed by the
+	// checksum line: "=" and four base64 characters (RFC 9580 §6.1). Only
+	// the last non-empty line can be the checksum line; a "=" line anywhere
+	// else is part of the payload and fails the base64 decoding below.
+	base64Data, crcLine := splitChecksumLine(rest[:endIndex])
 
-	base64Data := removeWhitespace(base64Block[:blockLen-5])
-	crcData := base64Block[blockLen-4:]
-
-	// This is the checksum line
-	var expectedBytes [3]byte
-	var m int
-	m, err = base64.StdEncoding.Decode(expectedBytes[0:], crcData)
-	if m != 3 || err != nil {
-		logger.KV(xlog.DEBUG, "reason", "crc", "crc_len", m, "err", err)
-		return decodeError(data, rest)
+	p.Bytes, err = decodeBase64(base64Data)
+	if err != nil && crcLine != nil {
+		// A last line made of "=" only may be the padding of a payload
+		// wrapped just before it rather than a checksum line: decode again
+		// with the line as payload before giving up.
+		if withLine, lerr := decodeBase64(append(base64Data, removeWhitespace(crcLine)...)); lerr == nil {
+			p.Bytes, err, crcLine = withLine, nil, nil
+		}
 	}
-	p.CRC = uint32(expectedBytes[0])<<16 | uint32(expectedBytes[1])<<8 | uint32(expectedBytes[2])
-	p.Bytes = make([]byte, base64.StdEncoding.DecodedLen(len(base64Data)))
-	n, err := base64.StdEncoding.Decode(p.Bytes, base64Data)
 	if err != nil {
 		logger.KV(xlog.DEBUG, "reason", "base64", "err", err)
 		return decodeError(data, rest)
 	}
-	p.Bytes = p.Bytes[:n]
 
-	crc := uint32(crc24(crc24Init, p.Bytes) & crc24Mask)
-	if p.CRC != crc {
-		logger.KV(xlog.DEBUG, "reason", "CRC", "expected", p.CRC, "actual", crc)
-		return decodeError(data, rest)
+	if crcLine != nil {
+		if crc, ok := parseChecksumLine(crcLine); ok {
+			p.HasCRC = true
+			p.CRC = crc
+		} else {
+			// a malformed checksum does not reject the block
+			logger.KV(xlog.DEBUG, "reason", "malformed_crc", "len", len(crcLine))
+		}
+	}
+
+	if p.HasCRC {
+		if crc := CRC24(p.Bytes); p.CRC != crc {
+			// a wrong checksum does not reject the block either
+			logger.KV(xlog.DEBUG, "reason", "crc_mismatch", "expected", p.CRC, "actual", crc)
+		}
 	}
 
 	// the -1 is because we might have only matched pemEnd without the
@@ -229,11 +250,55 @@ func decodeError(data, rest []byte) (*Block, []byte) {
 	return p, rest
 }
 
+// decodeBase64 decodes the whitespace-free base64 payload of a block.
+func decodeBase64(base64Data []byte) ([]byte, error) {
+	out := make([]byte, base64.StdEncoding.DecodedLen(len(base64Data)))
+	n, err := base64.StdEncoding.Decode(out, base64Data)
+	if err != nil {
+		return nil, err
+	}
+	return out[:n], nil
+}
+
+// splitChecksumLine splits the data region of a block into its base64
+// payload, with whitespace removed, and its checksum line: the last
+// non-empty line when it starts with "=", trimmed, else nil. Decode keeps
+// the line as payload instead when the payload does not decode without it,
+// since a wrapped payload may end with a line of padding only.
+func splitChecksumLine(region []byte) (base64Data, crcLine []byte) {
+	trimmed := bytes.TrimRight(region, " \t\r\n")
+	start := bytes.LastIndexByte(trimmed, '\n') + 1
+	if last := bytes.TrimSpace(trimmed[start:]); len(last) > 0 && last[0] == '=' {
+		return removeWhitespace(trimmed[:start]), last
+	}
+	return removeWhitespace(trimmed), nil
+}
+
+// parseChecksumLine decodes a checksum line: "=" and four base64
+// characters holding the CRC24 in three bytes.
+func parseChecksumLine(line []byte) (uint32, bool) {
+	if len(line) != 5 {
+		return 0, false
+	}
+	var crc [3]byte
+	n, err := base64.StdEncoding.Decode(crc[:], line[1:])
+	if err != nil || n != 3 {
+		return 0, false
+	}
+	return uint32(crc[0])<<16 | uint32(crc[1])<<8 | uint32(crc[2]), true
+}
+
 const crc24Init = 0xb704ce
 const crc24Poly = 0x1864cfb
 const crc24Mask = 0xffffff
 
-// crc24 calculates the OpenPGP checksum as specified in RFC 4880, section 6.1
+// CRC24 returns the OpenPGP checksum of data, as specified in RFC 9580,
+// section 6.1. It is the value carried by the armor checksum line.
+func CRC24(data []byte) uint32 {
+	return crc24(crc24Init, data) & crc24Mask
+}
+
+// crc24 calculates the OpenPGP checksum as specified in RFC 9580, section 6.1
 func crc24(crc uint32, d []byte) uint32 {
 	for _, b := range d {
 		crc ^= uint32(b) << 16

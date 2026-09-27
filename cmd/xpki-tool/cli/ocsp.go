@@ -65,7 +65,11 @@ type OCSPFetchCmd struct {
 	Print bool
 }
 
-// Run the command
+// Run the command. Every OCSP endpoint of the certificate is queried and
+// each failure is printed as `<url> : ERROR: <reason>`. The command succeeds
+// when at least one endpoint returned a valid response, and fails when
+// every endpoint failed (XPKI-102). A failure to write the response file
+// (--out) or to parse the response for --print is returned at once.
 func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 	w := ctx.Writer()
 
@@ -111,31 +115,40 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 		return err
 	}
 
+	var (
+		fetched  bool
+		failures []error
+	)
 	for _, url := range crt.OCSPServer {
 		logger.KV(xlog.DEBUG, "status", "fetching OCSP", "url", url)
 		status, der, err := OCSPValidation(ctx.Context(), client, crt, issuer, url)
-
 		if err != nil {
 			_, _ = fmt.Fprintf(w, "%s : ERROR: %s\n", url, err.Error())
-		} else {
-			_, _ = fmt.Fprintf(w, "%s: %v\n", url, statusMap[status])
+			failures = append(failures, errors.WithMessage(err, url))
+			continue
+		}
+		fetched = true
+		_, _ = fmt.Fprintf(w, "%s: %v\n", url, statusMap[status])
 
-			if a.Out != "" {
-				filename := filepath.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
-				err = os.WriteFile(filename, der, 0644)
-				if err != nil {
-					return errors.Wrapf(err, "unable to write OCSP: %s", filename)
-				}
-			}
-			if a.Print {
-				res, err := ocsp.ParseResponse(der, nil)
-				if err != nil {
-					return errors.Wrapf(err, "unable to parse OCSP")
-				}
-
-				print.OCSPResponse(w, res, true)
+		if a.Out != "" {
+			filename := filepath.Join(a.Out, fmt.Sprintf("%s.ocsp", certutil.GetIssuerID(crt)))
+			err = os.WriteFile(filename, der, 0644)
+			if err != nil {
+				return errors.Wrapf(err, "unable to write OCSP: %s", filename)
 			}
 		}
+		if a.Print {
+			res, err := ocsp.ParseResponse(der, nil)
+			if err != nil {
+				return errors.Wrapf(err, "unable to parse OCSP")
+			}
+
+			print.OCSPResponse(w, res, true)
+		}
+	}
+	if !fetched {
+		return errors.WithMessagef(errors.Join(failures...),
+			"no valid OCSP response from %d endpoint(s)", len(failures))
 	}
 
 	return nil

@@ -36,11 +36,28 @@ type fakeSessions struct {
 	// signalled when a close starts
 	closeGate chan struct{}
 	closing   chan struct{}
+	// logins counts login calls; loginPIN is the last PIN; loginErr fails
+	// login; loginGate, when set, blocks login until it is closed and
+	// loggingIn is signalled when a login starts
+	logins    int
+	loginPIN  string
+	loginErr  error
+	loginGate chan struct{}
+	loggingIn chan struct{}
+	// state is the session state reported for every live session; stateErr
+	// fails the query
+	state    uint
+	stateErr error
+	// objects maps CKA_ID to the handle find returns; finds counts calls
+	objects map[string]pkcs11.ObjectHandle
+	finds   int
 }
 
 func newFakeSessions() *fakeSessions {
 	return &fakeSessions{
-		live: map[pkcs11.SessionHandle]uint{},
+		live:    map[pkcs11.SessionHandle]uint{},
+		state:   pkcs11.CKS_RW_USER_FUNCTIONS,
+		objects: map[string]pkcs11.ObjectHandle{},
 	}
 }
 
@@ -75,7 +92,94 @@ func (f *fakeSessions) ops() sessionOps {
 			f.closed++
 			return f.closeErr
 		},
+		login: func(session pkcs11.SessionHandle, pin string) error {
+			f.mu.Lock()
+			gate, loggingIn := f.loginGate, f.loggingIn
+			f.mu.Unlock()
+			if gate != nil {
+				loggingIn <- struct{}{}
+				<-gate
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.logins++
+			f.loginPIN = pin
+			if _, ok := f.live[session]; !ok {
+				return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+			}
+			if f.loginErr == nil {
+				f.state = pkcs11.CKS_RW_USER_FUNCTIONS
+			}
+			return f.loginErr
+		},
+		state: func(session pkcs11.SessionHandle) (uint, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if _, ok := f.live[session]; !ok {
+				return 0, pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+			}
+			if f.stateErr != nil {
+				return 0, f.stateErr
+			}
+			return f.state, nil
+		},
+		find: func(session pkcs11.SessionHandle, class uint, id []byte) (pkcs11.ObjectHandle, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.finds++
+			if _, ok := f.live[session]; !ok {
+				return 0, pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+			}
+			// private objects are invisible to a logged-out session
+			if f.state == pkcs11.CKS_RO_PUBLIC_SESSION || f.state == pkcs11.CKS_RW_PUBLIC_SESSION {
+				return 0, errors.WithStack(errKeyNotFound)
+			}
+			if h, ok := f.objects[string(id)]; ok && class == pkcs11.CKO_PRIVATE_KEY {
+				return h, nil
+			}
+			return 0, errors.WithStack(errKeyNotFound)
+		},
 	}
+}
+
+// logout puts every session in the public state, as C_Logout does.
+func (f *fakeSessions) logout() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.state = pkcs11.CKS_RW_PUBLIC_SESSION
+}
+
+// setObject makes find return handle for id.
+func (f *fakeSessions) setObject(id string, handle pkcs11.ObjectHandle) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.objects[id] = handle
+}
+
+func (f *fakeSessions) findCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.finds
+}
+
+func (f *fakeSessions) loginCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.logins
+}
+
+func (f *fakeSessions) setLoginErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.loginErr = err
+}
+
+// isLive reports whether session is open.
+func (f *fakeSessions) isLive(session pkcs11.SessionHandle) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.live[session]
+	return ok
 }
 
 func (f *fakeSessions) counts() (opened, closed, live, maxLive int) {

@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -15,6 +16,7 @@ import (
 	"github.com/effective-security/xpki/certutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
 func TestDefaults(t *testing.T) {
@@ -193,10 +195,21 @@ func TestChainPool(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestPFX decodes the PKCS#12 packet instead of only checking for a panic
+// (XPKI-063).
 func TestPFX(t *testing.T) {
+	ent := NewEntity()
+	var data []byte
 	assert.NotPanics(t, func() {
-		NewEntity().PFX("asdf")
+		data = ent.PFX("as df!")
 	})
+
+	key, cert, err := pkcs12.Decode(data, "as df!")
+	require.NoError(t, err)
+	assert.Equal(t, ent.Certificate.Raw, cert.Raw)
+	rsaKey, ok := key.(*rsa.PrivateKey)
+	require.True(t, ok, "default entity key is RSA")
+	assert.True(t, ent.PrivateKey.(*rsa.PrivateKey).Equal(rsaKey))
 }
 
 func Test_MakeValidCertsChainTSA(t *testing.T) {

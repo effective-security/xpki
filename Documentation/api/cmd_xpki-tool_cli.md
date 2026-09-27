@@ -330,13 +330,13 @@ type OCSPFetchCmd struct {
 ```
 
 <a name="OCSPFetchCmd.Run"></a>
-### func \(\*OCSPFetchCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L69>)
+### func \(\*OCSPFetchCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L73>)
 
 ```go
 func (a *OCSPFetchCmd) Run(ctx *Cli) error
 ```
 
-Run the command
+Run the command. Every OCSP endpoint of the certificate is queried and each failure is printed as \`\<url\> : ERROR: \<reason\>\`. The command succeeds when at least one endpoint returned a valid response, and fails when every endpoint failed \(XPKI\-102\). A failure to write the response file \(\-\-out\) or to parse the response for \-\-print is returned at once.
 
 <a name="OCSPInfoCmd"></a>
 ## type [OCSPInfoCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L24-L27>)

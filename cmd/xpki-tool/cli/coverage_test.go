@@ -30,8 +30,12 @@ import (
 type revocationFixture struct {
 	root, leaf                    *testca.Entity
 	server                        *httptest.Server
+	dir                           string
 	rootFile, leafFile, chainFile string
 	ocspDER, crlDER               []byte
+	// responses maps a certificate serial to the OCSP response /ocsp serves
+	// for it; issueLeaf registers the leaves it issues.
+	responses map[string][]byte
 }
 
 func newRevocationFixture(t *testing.T, status int) *revocationFixture {
@@ -39,7 +43,7 @@ func newRevocationFixture(t *testing.T, status int) *revocationFixture {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	root := testca.NewEntity(testca.Subject(pkix.Name{CommonName: "CLI root"}), testca.PrivateKey(key), testca.Authority, testca.KeyUsage(x509.KeyUsageCertSign|x509.KeyUsageCRLSign))
-	f := &revocationFixture{root: root}
+	f := &revocationFixture{root: root, responses: map[string][]byte{}}
 	var expiredOCSP, wrongCRL []byte
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -49,13 +53,17 @@ func newRevocationFixture(t *testing.T, status int) *revocationFixture {
 			body, err := io.ReadAll(r.Body)
 			assert.NoError(t, err)
 			request, err := ocsp.ParseRequest(body)
-			if assert.NoError(t, err) {
-				assert.Equal(t, f.leaf.Certificate.SerialNumber, request.SerialNumber)
+			if !assert.NoError(t, err) {
+				return
 			}
 			if r.URL.Path == "/expired" {
+				assert.Equal(t, f.leaf.Certificate.SerialNumber, request.SerialNumber)
 				_, _ = w.Write(expiredOCSP)
-			} else {
-				_, _ = w.Write(f.ocspDER)
+				return
+			}
+			der, ok := f.responses[request.SerialNumber.String()]
+			if assert.True(t, ok, "unexpected serial %s", request.SerialNumber) {
+				_, _ = w.Write(der)
 			}
 		case "/crl":
 			assert.Equal(t, http.MethodGet, r.Method)
@@ -82,6 +90,7 @@ func newRevocationFixture(t *testing.T, status int) *revocationFixture {
 	}
 	f.ocspDER, err = ocsp.CreateResponse(root.Certificate, root.Certificate, response, root.PrivateKey)
 	require.NoError(t, err)
+	f.responses[f.leaf.Certificate.SerialNumber.String()] = f.ocspDER
 	response.NextUpdate = now.Add(-time.Second)
 	expiredOCSP, err = ocsp.CreateResponse(root.Certificate, root.Certificate, response, root.PrivateKey)
 	require.NoError(t, err)
@@ -104,15 +113,39 @@ func newRevocationFixture(t *testing.T, status int) *revocationFixture {
 	require.NoError(t, err)
 	// XPKI-105: the existing CLI suite shares a fixed /tmp directory across
 	// processes. Keep these fixtures isolated from other test runs.
-	dir := t.TempDir()
-	f.rootFile = filepath.Join(dir, "root.pem")
-	f.leafFile = filepath.Join(dir, "leaf.pem")
-	f.chainFile = filepath.Join(dir, "chain.pem")
+	f.dir = t.TempDir()
+	f.rootFile = filepath.Join(f.dir, "root.pem")
+	f.leafFile = filepath.Join(f.dir, "leaf.pem")
+	f.chainFile = filepath.Join(f.dir, "chain.pem")
 	require.NoError(t, root.SaveCertAndKey(f.rootFile, "", false))
 	require.NoError(t, f.leaf.SaveCertAndKey(f.leafFile, "", false))
 	chain := certutil.JoinPEM(testca.ToPEM(f.leaf.Certificate), testca.ToPEM(root.Certificate))
 	require.NoError(t, os.WriteFile(f.chainFile, chain, 0600))
 	return f
+}
+
+// issueLeaf issues a certificate named name with the given OCSP endpoint
+// paths on the fixture server, registers a "good" OCSP response for it at
+// /ocsp, and returns the certificate, its PEM file and the response DER.
+func (f *revocationFixture) issueLeaf(t *testing.T, name string, ocspPaths ...string) (*testca.Entity, string, []byte) {
+	t.Helper()
+	urls := make([]string, 0, len(ocspPaths))
+	for _, path := range ocspPaths {
+		urls = append(urls, f.server.URL+path)
+	}
+	leaf := f.root.Issue(testca.Subject(pkix.Name{CommonName: name}), testca.NotAfter(time.Now().Add(24*time.Hour)), testca.OCSPServer(urls...))
+	now := time.Now().UTC().Truncate(time.Second)
+	der, err := ocsp.CreateResponse(f.root.Certificate, f.root.Certificate, ocsp.Response{
+		Status:       ocsp.Good,
+		SerialNumber: leaf.Certificate.SerialNumber,
+		ThisUpdate:   now.Add(-time.Minute),
+		NextUpdate:   now.Add(time.Hour),
+	}, f.root.PrivateKey)
+	require.NoError(t, err)
+	f.responses[leaf.Certificate.SerialNumber.String()] = der
+	file := filepath.Join(f.dir, name+".pem")
+	require.NoError(t, leaf.SaveCertAndKey(file, "", false))
+	return leaf, file, der
 }
 
 func TestCertificateValidationRevocation(t *testing.T) {
@@ -314,13 +347,72 @@ func TestRevocationFetchAndInfo(t *testing.T) {
 		Cert:  badFile,
 		Print: true,
 	}).Run(ctx), "unable to parse CRL")
-	// XPKI-102: fetch reports endpoint failure on stdout but returns success.
+	// XPKI-102: when every endpoint fails, the failure is printed and the
+	// command fails.
 	out.Reset()
-	require.NoError(t, (&cli.OCSPFetchCmd{
+	err = (&cli.OCSPFetchCmd{
 		Cert: badFile,
 		CA:   f.rootFile,
-	}).Run(ctx))
-	assert.Contains(t, out.String(), "ERROR: failed to parse OCSP")
+	}).Run(ctx)
+	require.ErrorContains(t, err, "no valid OCSP response from 1 endpoint(s): "+f.server.URL+"/bad: failed to parse OCSP")
+	assert.Contains(t, out.String(), f.server.URL+"/bad : ERROR: failed to parse OCSP")
+}
+
+// TestOCSPFetchEndpointPolicy checks the exit policy of `ocsp fetch` over
+// several endpoints (XPKI-102): every endpoint is tried and reported, one
+// valid response is a success, and none is a failure.
+func TestOCSPFetchEndpointPolicy(t *testing.T) {
+	f := newRevocationFixture(t, ocsp.Good)
+	_, allBad, _ := f.issueLeaf(t, "all-bad", "/bad", "/short")
+	multi, firstBad, multiDER := f.issueLeaf(t, "first-bad", "/bad", "/ocsp")
+	_, lastBad, _ := f.issueLeaf(t, "last-bad", "/ocsp", "/bad")
+	ocspName := certutil.GetIssuerID(multi.Certificate) + ".ocsp"
+
+	t.Run("all endpoints fail", func(t *testing.T) {
+		var out bytes.Buffer
+		ctx := (&cli.Cli{Timeout: 2}).WithWriter(&out)
+		dir := t.TempDir()
+		err := (&cli.OCSPFetchCmd{Cert: allBad, CA: f.rootFile, Out: dir, Print: true}).Run(ctx)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "no valid OCSP response from 2 endpoint(s)")
+		assert.ErrorContains(t, err, f.server.URL+"/bad: failed to parse OCSP")
+		assert.ErrorContains(t, err, f.server.URL+"/short: unable to download")
+		assert.Contains(t, out.String(), f.server.URL+"/bad : ERROR: failed to parse OCSP")
+		assert.Contains(t, out.String(), f.server.URL+"/short : ERROR: ")
+		assert.NotContains(t, out.String(), "good")
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries, "no response is written when every endpoint failed")
+	})
+
+	t.Run("first fails second succeeds", func(t *testing.T) {
+		var out bytes.Buffer
+		ctx := (&cli.Cli{Timeout: 2}).WithWriter(&out)
+		dir := t.TempDir()
+		require.NoError(t, (&cli.OCSPFetchCmd{Cert: firstBad, CA: f.rootFile, Out: dir, Print: true}).Run(ctx))
+		assert.Contains(t, out.String(), f.server.URL+"/bad : ERROR: failed to parse OCSP")
+		assert.Contains(t, out.String(), f.server.URL+"/ocsp: good")
+		assert.Contains(t, out.String(), "Status: good")
+		data, err := os.ReadFile(filepath.Join(dir, ocspName))
+		require.NoError(t, err)
+		assert.Equal(t, multiDER, data)
+	})
+
+	t.Run("first succeeds second fails", func(t *testing.T) {
+		var out bytes.Buffer
+		ctx := (&cli.Cli{Timeout: 2}).WithWriter(&out)
+		require.NoError(t, (&cli.OCSPFetchCmd{Cert: lastBad, CA: f.rootFile}).Run(ctx))
+		assert.Contains(t, out.String(), f.server.URL+"/ocsp: good")
+		assert.Contains(t, out.String(), f.server.URL+"/bad : ERROR: failed to parse OCSP")
+	})
+
+	t.Run("write failure is immediate", func(t *testing.T) {
+		var out bytes.Buffer
+		ctx := (&cli.Cli{Timeout: 2}).WithWriter(&out)
+		err := (&cli.OCSPFetchCmd{Cert: firstBad, CA: f.rootFile, Out: filepath.Join(t.TempDir(), "missing")}).Run(ctx)
+		require.ErrorContains(t, err, "unable to write OCSP")
+		assert.NotContains(t, err.Error(), "no valid OCSP response")
+	})
 }
 
 func TestCertificateInfoFilters(t *testing.T) {

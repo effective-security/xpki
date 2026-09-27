@@ -165,7 +165,7 @@ func MakeValidCertsChainTSA(t *testing.T, hours int, ec bool) (crypto.Signer, *x
 MakeValidCertsChainTSA creates valid TSA cert with the only critical EKU extension for timestamping
 
 <a name="PrivKeyToPEM"></a>
-## func [PrivKeyToPEM](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L74>)
+## func [PrivKeyToPEM](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L65>)
 
 ```go
 func PrivKeyToPEM(priv any) []byte
@@ -183,7 +183,7 @@ func SetSAN(template *x509.Certificate, SAN []string)
 SetSAN fills template's IPAddresses, EmailAddresses, and DNSNames with the content of SAN, if it is not nil.
 
 <a name="ToDER"></a>
-## func [ToDER](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L53>)
+## func [ToDER](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L44>)
 
 ```go
 func ToDER(priv any) []byte
@@ -192,7 +192,7 @@ func ToDER(priv any) []byte
 ToDER exports private key to DER
 
 <a name="ToPEM"></a>
-## func [ToPEM](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L43>)
+## func [ToPEM](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L34>)
 
 ```go
 func ToPEM(cert *x509.Certificate) []byte
@@ -201,22 +201,22 @@ func ToPEM(cert *x509.Certificate) []byte
 ToPEM exports cert to PEM
 
 <a name="ToPFX"></a>
-## func [ToPFX](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L15>)
+## func [ToPFX](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L25>)
 
 ```go
 func ToPFX(cert *x509.Certificate, priv any, password string) []byte
 ```
 
-ToPFX converts cert with private key to PFX
+ToPFX wraps cert and its private key in a password\-protected PKCS\#12 \(PFX\) packet encoded with pkcs12.Modern2023 \(PBES2 with PBKDF2\-HMAC\-SHA\-256 and AES\-256\-CBC, HMAC\-SHA\-256 MAC\), readable by OpenSSL 1.1.1\+, Java 12\+ and Windows Server 2019\+. The password may be empty and may contain any character of the Basic Multilingual Plane, since PKCS\#12 encodes it as a BMPString \(UCS\-2\); a character outside it, such as an emoji, cannot be encoded and panics \(XPKI\-063: the former OpenSSL\-based implementation allowed alphanumeric passwords only\). priv must be an \*rsa.PrivateKey, \*ecdsa.PrivateKey or ed25519.PrivateKey; anything else panics, as does an encoding failure.
 
 <a name="ToPKCS8"></a>
-## func [ToPKCS8](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L97>)
+## func [ToPKCS8](<https://github.com/effective-security/xpki/blob/main/testca/utils.go#L91>)
 
 ```go
 func ToPKCS8(priv any) []byte
 ```
 
-ToPKCS8 exports private key to PKCS8
+ToPKCS8 exports the private key as an unencrypted PKCS\#8 PEM block \("PRIVATE KEY"\), the same form \`openssl pkcs8 \-topk8 \-nocrypt\` produced \(XPKI\-063\). priv must be an \*rsa.PrivateKey, \*ecdsa.PrivateKey or ed25519.PrivateKey; anything else panics.
 
 <a name="Entity"></a>
 ## type [Entity](<https://github.com/effective-security/xpki/blob/main/testca/entity.go#L15-L25>)
@@ -297,7 +297,7 @@ KeyAndCertChain returns chain for the PrivateKey
 func (id *Entity) PFX(password string) []byte
 ```
 
-PFX wraps the certificate and private key in an encrypted PKCS\#12 packet. The provided password must be alphanumeric.
+PFX wraps the certificate and private key in a password\-protected PKCS\#12 packet; see ToPFX for the password rules \(any BMP characters, or empty\).
 
 <a name="Entity.Root"></a>
 ### func \(\*Entity\) [Root](<https://github.com/effective-security/xpki/blob/main/testca/entity.go#L88>)

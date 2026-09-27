@@ -28,11 +28,21 @@ clean:
 		${COVPATH} \
 		${PROJ_BIN}
 
+# Tool versions (XPKI-096). They are pinned to releases tested with this
+# module's Go version and .golangci.yaml; `@latest` let a golangci-lint major
+# bump break the lint configuration. To update: change the version here, run
+# `make tools lint covtest docs` on a clean checkout, and commit the result
+# together with any .golangci.yaml change the new release needs.
+GOLANGCI_LINT_VERSION ?= v2.13.2
+COV_REPORT_VERSION ?= v1.1.0
+GOVULNCHECK_VERSION ?= v1.8.0
+GOMARKDOC_VERSION ?= v1.1.0
+
 tools:
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-	go install github.com/go-phorce/cov-report/cmd/cov-report@latest
-	go install golang.org/x/vuln/cmd/govulncheck@latest
-	go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go install github.com/go-phorce/cov-report/cmd/cov-report@$(COV_REPORT_VERSION)
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@$(GOMARKDOC_VERSION)
 
 version:
 	echo "$(GIT_VERSION)"

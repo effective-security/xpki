@@ -173,13 +173,13 @@ func (lib *PKCS11Lib) generateKeyID(session pkcs11.SessionHandle) ([]byte, error
 }
 
 // Compute DSA/ECDSA signature and marshal the result in DER form
-func (lib *PKCS11Lib) dsaGeneric(slot uint, key pkcs11.ObjectHandle, mechanism uint, digest []byte) ([]byte, error) {
+func (lib *PKCS11Lib) dsaGeneric(key *PKCS11Object, ref *objectRef, mechanism uint, digest []byte) ([]byte, error) {
 	var err error
 	var sigBytes []byte
 	var sig dsaSignature
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, nil)}
-	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
-		if err = lib.Ctx.SignInit(session, mech, key); err != nil {
+	err = lib.withKey(key, ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+		if err = lib.Ctx.SignInit(session, mech, handle); err != nil {
 			return err
 		}
 		sigBytes, err = lib.Ctx.Sign(session, digest)

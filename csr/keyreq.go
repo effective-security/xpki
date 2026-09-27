@@ -163,16 +163,17 @@ func validateECDSAKeyPairCurveInfoHandler(size int) error {
 	return errors.Errorf("invalid curve size: %d", size)
 }
 
-// SigAlgo returns signature algorithm for the given algorithm name and key size
-// TODO: use oid pkg
+// SigAlgo returns the signature algorithm for a key of algo ("RSA" or
+// "ECDSA", case-insensitive) and size, as DefaultSigAlgo chooses it from a
+// key: RSA 2048 and 3072 bits SHA-256 (XPKI-114), 4096 bits and above
+// SHA-512; ECDSA by curve size. Other algorithms give
+// x509.UnknownSignatureAlgorithm.
 func SigAlgo(algo string, size int) x509.SignatureAlgorithm {
 	switch strings.ToUpper(algo) {
 	case "RSA":
 		switch {
 		case size >= 4096:
 			return x509.SHA512WithRSA
-		case size >= 3072:
-			return x509.SHA384WithRSA
 		case size >= 2048:
 			return x509.SHA256WithRSA
 		default:

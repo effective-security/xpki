@@ -161,7 +161,11 @@ func TestCSRProviderInvalidRequests(t *testing.T) {
 		})
 		require.ErrorContains(t, err, "invalid extensions")
 	}
+	// an invalid SAN fails the request instead of being skipped (XPKI-059)
 	req := provider.NewSigningCertificateRequest("test", "ecdsa", 256, "test", nil, []string{"https://%zz", "127.0.0.1", "user@example.test", "https://host.example.test/path", "host.example.test"})
+	_, err = provider.SignRequest(key, req)
+	require.ErrorContains(t, err, `invalid SAN "https://%zz": invalid URI: parse "https://%zz": invalid URL escape "%zz"`)
+	req.SAN = req.SAN[1:]
 	data, err := provider.SignRequest(key, req)
 	require.NoError(t, err)
 	cert, err := csr.ParsePEM(data)
