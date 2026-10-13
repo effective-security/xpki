@@ -33,7 +33,7 @@ clean:
 # bump break the lint configuration. To update: change the version here, run
 # `make tools lint covtest docs` on a clean checkout, and commit the result
 # together with any .golangci.yaml change the new release needs.
-GOLANGCI_LINT_VERSION ?= v2.13.2
+GOLANGCI_LINT_VERSION ?= v2.14.0
 COV_REPORT_VERSION ?= v1.1.0
 GOVULNCHECK_VERSION ?= v1.8.0
 GOMARKDOC_VERSION ?= v1.1.0
