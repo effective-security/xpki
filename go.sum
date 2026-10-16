@@ -59,10 +59,10 @@ github.com/cockroachdb/logtags v0.0.0-20241215232642-bb51bb14a506/go.mod h1:Mw7H
 github.com/cockroachdb/redact v1.1.8 h1:8eVLLj6juKxiKrAEw2b8cJvNqWq++U8WOfQFuL7KTaA=
 github.com/cockroachdb/redact v1.1.8/go.mod h1:GceHHpJ0rMDpYARL5In88Alq/xMBUtVlz7Qxix6ZVkw=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
-github.com/effective-security/metrics v0.10.153 h1:PQEdPtFr8KpLiboClZZ8MWY+iE77X8qvJEfJU2bUE3Y=
-github.com/effective-security/metrics v0.10.153/go.mod h1:cAOT7i9AEOT640unGAKtgmEE3W8JijLsLSrfE7nGdU4=
-github.com/effective-security/x v0.18.106 h1:QZwdRU9QHGbQxNEeoROWLddBaP//CyXPPGHVN9ZIKAc=
-github.com/effective-security/x v0.18.106/go.mod h1:lXfO0CxXmhjVJzn2TQHKyl+lYwEtuSCBod+pOynesAY=
+github.com/effective-security/metrics v0.10.154 h1:mdz8ENepDo8AJOFG7ejKm6tWxvL41puDDd4xLCFvbag=
+github.com/effective-security/metrics v0.10.154/go.mod h1:RZtOhtR6FdrY1r+i9IHp+pGyzlYPAtrzLHog0lfgX3E=
+github.com/effective-security/x v1.0.109 h1:iW/iDi2v6YMz0FnrzfjSNEaS/V6lL2Vha3AlO6b0WE0=
+github.com/effective-security/x v1.0.109/go.mod h1:q++76YR6R6Mk0xEk/cgOWVbKWoPqQ1/82at9Thiw3zk=
 github.com/effective-security/xlog v1.0.69 h1:IkBXlwx+EIvkmbEx8EcWodyQIbXLcODpceWupQvVwbQ=
 github.com/effective-security/xlog v1.0.69/go.mod h1:mTijSHQgJkFLi13Ilc9CziGULKSEfeIE5pI8NnffhJQ=
 github.com/envoyproxy/go-control-plane v0.14.0 h1:hbG2kr4RuFj222B6+7T83thSPqLjwBIfQawTkC++2HA=
