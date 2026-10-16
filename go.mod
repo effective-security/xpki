@@ -10,8 +10,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.4
 	github.com/aws/smithy-go v1.28.5
 	github.com/cockroachdb/errors v1.14.0
-	github.com/effective-security/metrics v0.10.153
-	github.com/effective-security/x v0.18.106
+	github.com/effective-security/metrics v0.10.154
+	github.com/effective-security/x v1.0.109
 	github.com/effective-security/xlog v1.0.69
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/golang-jwt/jwt/v5 v5.3.1
