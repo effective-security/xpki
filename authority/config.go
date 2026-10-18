@@ -3,8 +3,6 @@ package authority
 import (
 	"crypto/x509"
 	"encoding/asn1"
-	"encoding/json"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -12,10 +10,11 @@ import (
 	"slices"
 
 	"github.com/cockroachdb/errors"
+	"github.com/effective-security/x/configloader"
+	"github.com/effective-security/x/fileutil/resolve"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/oid"
 	"github.com/jinzhu/copier"
-	"gopkg.in/yaml.v3"
 )
 
 // wildcardIssuer is the issuer_label of profiles shared by issuers that
@@ -283,18 +282,11 @@ func LoadConfig(path string) (*Config, error) {
 	if path == "" {
 		return nil, errors.New("invalid path")
 	}
-
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to read configuration file")
-	}
+	path = resolve.ExpandPath(path)
 
 	var cfg = new(Config)
-	if strings.HasSuffix(path, ".json") {
-		err = json.Unmarshal(body, cfg)
-	} else {
-		err = yaml.Unmarshal(body, cfg)
-	}
+
+	err := configloader.UnmarshalAndExpand(path, cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal configuration")
 	}

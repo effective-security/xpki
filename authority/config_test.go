@@ -20,8 +20,8 @@ func TestLoadInvalidConfigFile(t *testing.T) {
 		err  string
 	}{
 		{"", "invalid path"},
-		{"testdata/no_such_file", "unable to read configuration file: open testdata/no_such_file: no such file or directory"},
-		{"testdata/invalid_default.json", "failed to unmarshal configuration: time: invalid duration \"invalid_expiry\""},
+		{"testdata/no_such_file", "failed to unmarshal configuration: unable to read file: open testdata/no_such_file: no such file or directory"},
+		{"testdata/invalid_default.json", "failed to unmarshal configuration: unable parse JSON: testdata/invalid_default.json: time: invalid duration \"invalid_expiry\""},
 		{"testdata/invalid_empty.json", "no \"profiles\" configuration present"},
 		{"testdata/invalid_server.json", "invalid configuration: invalid server profile: unknown usage: encipherment"},
 		{"testdata/invalid_noexpiry.json", "invalid configuration: invalid noexpiry_profile profile: no expiry set"},
@@ -49,7 +49,7 @@ func TestLoadConfig(t *testing.T) {
 
 	_, err = authority.LoadConfig("not_found")
 	require.Error(t, err)
-	assert.Equal(t, "unable to read configuration file: open not_found: no such file or directory", err.Error())
+	assert.Equal(t, "failed to unmarshal configuration: unable to read file: open not_found: no such file or directory", err.Error())
 
 	cfg, err := authority.LoadConfig("testdata/ca-config.dev.json")
 	require.NoError(t, err)
