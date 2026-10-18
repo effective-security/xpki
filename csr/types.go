@@ -73,7 +73,7 @@ func (oid *OID) UnmarshalYAML(unmarshal func(any) error) error {
 
 // MarshalJSON marshals an oid into a JSON string.
 func (oid OID) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`"%v"`, asn1.ObjectIdentifier(oid))), nil
+	return fmt.Appendf(nil, `"%v"`, asn1.ObjectIdentifier(oid)), nil
 }
 
 // oidRegexp matches a complete dotted-decimal OID such as "1.2.840.113549".
@@ -81,14 +81,14 @@ var oidRegexp = regexp.MustCompile(`^\d+(\.\d+)*$`)
 
 // ParseObjectIdentifier parses a dotted-decimal OID string. The whole
 // string must be digits separated by single dots; anything else is an error.
-func ParseObjectIdentifier(oidString string) (oid asn1.ObjectIdentifier, err error) {
+func ParseObjectIdentifier(oidString string) (oid OID, err error) {
 	if !oidRegexp.MatchString(oidString) {
 		err = errors.Errorf("invalid OID: %q", oidString)
 		return
 	}
 
 	segments := strings.Split(oidString, ".")
-	oid = make(asn1.ObjectIdentifier, len(segments))
+	oid = make(OID, len(segments))
 	for i, intString := range segments {
 		oid[i], err = strconv.Atoi(intString)
 		if err != nil {
