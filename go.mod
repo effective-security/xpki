@@ -7,7 +7,7 @@ require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
-	github.com/aws/aws-sdk-go-v2/service/kms v1.61.4
+	github.com/aws/aws-sdk-go-v2/service/kms v1.61.5
 	github.com/aws/smithy-go v1.28.5
 	github.com/cockroachdb/errors v1.14.0
 	github.com/effective-security/metrics v0.10.154
