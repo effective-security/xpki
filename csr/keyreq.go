@@ -19,6 +19,15 @@ const (
 
 	// CurveP521 specifies curve P-521 for ECDSA
 	CurveP521 = 521
+
+	// Post-Quantum ML-DSA (FIPS 204 / Dilithium) algorithm identifiers
+	AlgoMLDSA     = "ML-DSA"
+	AlgoDilithium = "DILITHIUM"
+
+	// ML-DSA parameter sizes (FIPS 204)
+	MLDSA44 = 44
+	MLDSA65 = 65
+	MLDSA87 = 87
 )
 
 // KeyPurpose declares the purpose for keys
@@ -115,6 +124,12 @@ func (kr *KeyRequest) Generate() (crypto.PrivateKey, error) {
 			return nil, errors.WithMessage(err, "generate ECDSA key")
 		}
 		return pk, nil
+	case AlgoMLDSA, AlgoDilithium:
+		err := validateMLDSAKeyPairInfoHandler(kr.Size())
+		if err != nil {
+			return nil, errors.WithMessage(err, "validate ML-DSA key")
+		}
+		return nil, errors.New("ML-DSA provider key generation requires PQC hardware token or hybrid mode")
 	default:
 		return nil, errors.Errorf("invalid algorithm: %s", algo)
 	}
@@ -161,6 +176,25 @@ func validateECDSAKeyPairCurveInfoHandler(size int) error {
 		return nil
 	}
 	return errors.Errorf("invalid curve size: %d", size)
+}
+
+// validateMLDSAKeyPairInfoHandler validates size of the ML-DSA (Dilithium) parameter set
+func validateMLDSAKeyPairInfoHandler(size int) error {
+	switch size {
+	case MLDSA44, MLDSA65, MLDSA87:
+		return nil
+	}
+	return errors.Errorf("invalid ML-DSA parameter size (expected 44, 65, or 87): %d", size)
+}
+
+// IsPostQuantumAlgo returns true if the algorithm is a supported post-quantum standard
+func IsPostQuantumAlgo(algo string) bool {
+	switch strings.ToUpper(algo) {
+	case AlgoMLDSA, AlgoDilithium:
+		return true
+	default:
+		return false
+	}
 }
 
 // SigAlgo returns the signature algorithm for a key of algo ("RSA" or

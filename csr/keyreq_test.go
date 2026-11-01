@@ -31,6 +31,8 @@ func TestKeyRequest(t *testing.T) {
 		{"ECDSA", 384, x509.ECDSAWithSHA384, ""},
 		{"ECDSA", 256, x509.ECDSAWithSHA256, ""},
 		{"ECDSA", 128, x509.ECDSAWithSHA256, "validate ECDSA key: invalid curve size: 128"},
+		{"ML-DSA", 65, x509.UnknownSignatureAlgorithm, "ML-DSA provider key generation requires PQC hardware token or hybrid mode"},
+		{"ML-DSA", 99, x509.UnknownSignatureAlgorithm, "validate ML-DSA key: invalid ML-DSA parameter size (expected 44, 65, or 87): 99"},
 		{"DSA", 256, x509.UnknownSignatureAlgorithm, "invalid algorithm: DSA"},
 	}
 
@@ -51,4 +53,13 @@ func TestKeyRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPostQuantumDetection(t *testing.T) {
+	assert.True(t, csr.IsPostQuantumAlgo(csr.AlgoMLDSA))
+	assert.True(t, csr.IsPostQuantumAlgo(csr.AlgoDilithium))
+	assert.True(t, csr.IsPostQuantumAlgo("ml-dsa"))
+	assert.False(t, csr.IsPostQuantumAlgo("RSA"))
+	assert.False(t, csr.IsPostQuantumAlgo("ECDSA"))
+	assert.False(t, csr.IsPostQuantumAlgo("ED25519"))
 }
