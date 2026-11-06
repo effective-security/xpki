@@ -13,7 +13,7 @@ require (
 	github.com/effective-security/metrics v0.10.156
 	github.com/effective-security/x v1.0.110
 	github.com/effective-security/xlog v1.0.69
-	github.com/go-jose/go-jose/v4 v4.1.6
+	github.com/go-jose/go-jose/v4 v4.1.8
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/jinzhu/copier v0.4.0
