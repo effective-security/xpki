@@ -2,6 +2,7 @@ package testca
 
 import (
 	"crypto"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -22,6 +23,7 @@ type configuration struct {
 	issuer                *Entity
 	nextSN                *int64
 	priv                  *crypto.Signer
+	mldsaParams           *mldsa.Parameters
 	isCA                  bool
 	notBefore             *time.Time
 	notAfter              *time.Time
@@ -173,12 +175,20 @@ func randSN() *big.Int {
 
 func (c *configuration) getPrivateKey() crypto.Signer {
 	if c.priv == nil {
-		priv, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			panic(err)
+		var signer crypto.Signer
+		if c.mldsaParams != nil {
+			priv, err := mldsa.GenerateKey(*c.mldsaParams)
+			if err != nil {
+				panic(err)
+			}
+			signer = priv
+		} else {
+			priv, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				panic(err)
+			}
+			signer = priv
 		}
-
-		signer := crypto.Signer(priv)
 
 		c.priv = &signer
 	}
@@ -225,6 +235,17 @@ func NextSerialNumber(value int64) Option {
 func PrivateKey(value crypto.Signer) Option {
 	return func(c *configuration) {
 		c.priv = &value
+	}
+}
+
+// MLDSAKey is an Option that generates an ML-DSA (FIPS 204) private key of
+// params (mldsa.MLDSA44(), MLDSA65() or MLDSA87()) for the entity instead
+// of the default 2048-bit RSA key; a PrivateKey option takes precedence.
+// The certificate is then signed with the ML-DSA algorithm of the issuer's
+// key: its own for a self-signed entity.
+func MLDSAKey(params mldsa.Parameters) Option {
+	return func(c *configuration) {
+		c.mldsaParams = &params
 	}
 }
 

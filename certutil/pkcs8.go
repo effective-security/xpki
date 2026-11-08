@@ -20,6 +20,9 @@ import (
 // EncryptedPrivateKeyInfo.
 const pemTypeEncryptedPKCS8 = "ENCRYPTED PRIVATE KEY"
 
+// pemTypePKCS8 is the PEM block type of an unencrypted PKCS#8 key.
+const pemTypePKCS8 = "PRIVATE KEY"
+
 // maxPBKDF2Iterations bounds the PBKDF2 work an encrypted key can request.
 // OpenSSL writes 2048 by default; OWASP recommends at most 1,300,000
 // (HMAC-SHA1).

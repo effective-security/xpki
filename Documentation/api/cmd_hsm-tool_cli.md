@@ -274,8 +274,8 @@ HsmGenKeyCmd generates key
 
 ```go
 type HsmGenKeyCmd struct {
-    Algo    string `required:"" help:"algorithm: RSA|ECDSA"`
-    Size    int    `required:"" help:"key size in bits"`
+    Algo    string `required:"" help:"algorithm: RSA|ECDSA|ML-DSA"`
+    Size    int    `required:"" help:"key size in bits, or the ML-DSA parameter set: 44, 65 or 87"`
     Purpose string `required:"" help:"purpose of the key: SIGN|ENCRYPT"`
     Label   string `required:"" help:"name for generated key"`
     Output  string `help:"location to write the key, if not set, the output will be printed to STDOUT only"`

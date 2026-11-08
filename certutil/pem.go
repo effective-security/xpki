@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/asn1"
@@ -244,7 +245,9 @@ func EncodePublicKeyToPEM(pubKey crypto.PublicKey) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// EncodePrivateKeyToPEM returns PEM encoded private key
+// EncodePrivateKeyToPEM returns the PEM encoded private key: PKCS#1 ("RSA
+// PRIVATE KEY") for RSA, SEC1 ("EC PRIVATE KEY") for ECDSA and PKCS#8
+// ("PRIVATE KEY", seed form) for ML-DSA. Other key types are an error.
 func EncodePrivateKeyToPEM(priv crypto.PrivateKey) (key []byte, err error) {
 	switch priv := priv.(type) {
 	case *rsa.PrivateKey:
@@ -261,6 +264,16 @@ func EncodePrivateKeyToPEM(priv crypto.PrivateKey) (key []byte, err error) {
 		}
 		block := pem.Block{
 			Type:  "EC PRIVATE KEY",
+			Bytes: key,
+		}
+		key = pem.EncodeToMemory(&block)
+	case *mldsa.PrivateKey:
+		key, err = x509.MarshalPKCS8PrivateKey(priv)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		block := pem.Block{
+			Type:  pemTypePKCS8,
 			Bytes: key,
 		}
 		key = pem.EncodeToMemory(&block)
@@ -282,9 +295,9 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error) {
 // key. The private key may be an unencrypted PKCS#8, PKCS#1, or SEC1 key, a
 // legacy PEM block encrypted per RFC 1423 (Proc-Type: 4,ENCRYPTED), or an
 // encrypted PKCS#8 key (ENCRYPTED PRIVATE KEY) as described by
-// GetKeyDERFromPEM. The key may be RSA, ECDSA, or Ed25519 (PKCS#8 only).
-// A nil password fails for an encrypted key; a wrong password returns an
-// error that matches x509.IncorrectPasswordError.
+// GetKeyDERFromPEM. The key may be RSA, ECDSA, Ed25519 or ML-DSA (the last
+// two PKCS#8 only). A nil password fails for an encrypted key; a wrong
+// password returns an error that matches x509.IncorrectPasswordError.
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.Signer, err error) {
 	keyDER, err := GetKeyDERFromPEM(keyPEM, password)
 	if err != nil {
@@ -334,8 +347,12 @@ func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 	return nil, errors.Errorf("unable to decode private key")
 }
 
-// ParsePrivateKeyDER parses a PKCS #1, PKCS #8, ECDSA, or Ed25519 DER-encoded
-// private key. The key must not be in PEM format.
+// ParsePrivateKeyDER parses a PKCS #1, PKCS #8, ECDSA, Ed25519 or ML-DSA
+// DER-encoded private key. The key must not be in PEM format. An ML-DSA key
+// must be in the PKCS #8 seed form (RFC 9881), which
+// x509.MarshalPKCS8PrivateKey and "openssl genpkey -provparam
+// ml-dsa.output_formats=seed-only" write; the form holding both the seed
+// and the expanded key is rejected.
 func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error) {
 	generalKey, err := x509.ParsePKCS8PrivateKey(keyDER)
 	if err != nil {
@@ -361,8 +378,10 @@ func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error) {
 		return typ, nil
 	case ed25519.PrivateKey:
 		return typ, nil
+	case *mldsa.PrivateKey:
+		return typ, nil
 	}
 
-	// should never reach here
+	// a PKCS#8 key of another type, such as X25519
 	return nil, errors.Errorf("unable to parse private key")
 }

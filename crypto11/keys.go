@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"fmt"
 	"io"
@@ -247,6 +248,11 @@ func (lib *PKCS11Lib) findKeyPairOnSession(session pkcs11.SessionHandle, slot ui
 			return nil, errors.WithMessage(err, "exportECDSAPublicKey")
 		}
 		return &PKCS11PrivateKeyECDSA{key: &PKCS11PrivateKey{obj, pub}, lib: lib, ref: ref}, nil
+	case ckkMLDSA:
+		if pub, err = lib.exportMLDSAPublicKey(session, pubHandle); err != nil {
+			return nil, errors.WithMessage(err, "exportMLDSAPublicKey")
+		}
+		return &PKCS11PrivateKeyMLDSA{key: &PKCS11PrivateKey{obj, pub}, lib: lib, ref: ref}, nil
 	default:
 		return nil, errors.WithMessagef(errUnsupportedKeyType, "key type: %v", keyType)
 	}
@@ -259,9 +265,13 @@ func ConvertToPublic(priv crypto.PrivateKey) (crypto.PublicKey, error) {
 		return t.Public(), nil
 	case *ecdsa.PrivateKey:
 		return t.Public(), nil
+	case *mldsa.PrivateKey:
+		return t.Public(), nil
 	case *PKCS11PrivateKeyRSA:
 		return t.Public(), nil
 	case *PKCS11PrivateKeyECDSA:
+		return t.Public(), nil
+	case *PKCS11PrivateKeyMLDSA:
 		return t.Public(), nil
 	case *privateKeyGen:
 		// keys returned by GenerateRSAKey/GenerateECDSAKey wrap the PKCS#11 key
@@ -428,6 +438,8 @@ func (lib *PKCS11Lib) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, 
 	case *PKCS11PrivateKeyRSA:
 		p11o, ref = &t.key.PKCS11Object, t.ref
 	case *PKCS11PrivateKeyECDSA:
+		p11o, ref = &t.key.PKCS11Object, t.ref
+	case *PKCS11PrivateKeyMLDSA:
 		p11o, ref = &t.key.PKCS11Object, t.ref
 	default:
 		return "", "", errors.WithStack(errUnsupportedKeyType)

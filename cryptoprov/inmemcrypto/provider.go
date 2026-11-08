@@ -4,11 +4,11 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"io"
 	"sync"
 
@@ -80,16 +80,43 @@ func (s *provImpl) Public() crypto.PublicKey {
 	return s.pvk
 }
 
-// Sign signs data
+// Sign signs digest with the key. For an RSA or ECDSA key nil opts mean
+// crypto.SHA256. An ML-DSA key signs the message: it accepts nil, a zero
+// hash, *mldsa.Options or crypto.MLDSAMu and rejects every digest hash
+// (cryptoprov.MLDSASignerOptions).
 func (s *provImpl) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	signer, ok := s.pvk.(crypto.Signer)
+	if !ok {
+		return nil, errors.Errorf("crypto.Signer is not supported")
+	}
+	if _, isMLDSA := s.pvk.(*mldsa.PrivateKey); isMLDSA {
+		return signMLDSA(signer, digest, opts)
+	}
 	if opts == nil {
 		opts = crypto.SHA256
 	}
-	if signer, ok := s.pvk.(crypto.Signer); ok {
-		return signer.Sign(rand, digest, opts)
-	}
+	return signer.Sign(rand, digest, opts)
+}
 
-	return nil, errors.Errorf("crypto.Signer is not supported")
+// signMLDSA validates opts against the ML-DSA signer contract and signs
+// with the in-memory key, which hedges its signatures (FIPS 204 default).
+func signMLDSA(signer crypto.Signer, message []byte, opts crypto.SignerOpts) ([]byte, error) {
+	mu, context, err := cryptoprov.MLDSASignerOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	var keyOpts crypto.SignerOpts
+	switch {
+	case mu:
+		keyOpts = crypto.MLDSAMu
+	case context != "":
+		keyOpts = &mldsa.Options{Context: context}
+	}
+	sig, err := signer.Sign(rand.Reader, message, keyOpts)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return sig, nil
 }
 
 // Decrypt data
@@ -125,6 +152,17 @@ func (g *defaultEcdsaKeyGenerator) GenerateKey(c elliptic.Curve, rand io.Reader)
 	return ecdsa.GenerateKey(c, rand)
 }
 
+type mldsaKeyGenerator interface {
+	GenerateKey(params mldsa.Parameters) (*mldsa.PrivateKey, error)
+}
+
+type defaultMLDSAKeyGenerator struct {
+}
+
+func (g *defaultMLDSAKeyGenerator) GenerateKey(params mldsa.Parameters) (*mldsa.PrivateKey, error) {
+	return mldsa.GenerateKey(params)
+}
+
 type idGenerator interface {
 	Generate() string
 }
@@ -136,19 +174,20 @@ func (g *defaultIDGenerator) Generate() string {
 	return uuid.NewV7().String()
 }
 
-// Provider stores exportable RSA and ECDSA keys and supports concurrent key
-// generation, lookup, and PEM export. Token configuration must remain unchanged
-// while the provider is in use.
+// Provider stores exportable RSA, ECDSA and ML-DSA keys and supports
+// concurrent key generation, lookup, and PEM export. Token configuration
+// must remain unchanged while the provider is in use.
 type Provider struct {
 	idGenerator
 	rsaKeyGenerator
 	ecdsaKeyGenerator
+	mldsaKeyGenerator
 	inMemProv *inMemProv
 	tc        cryptoprov.TokenConfig
 }
 
-// NewProvider creates new provider for exportable RSA and ECDSA keys.
-// This provider should be used only when HSM use is not applicable.
+// NewProvider creates new provider for exportable RSA, ECDSA and ML-DSA
+// keys. This provider should be used only when HSM use is not applicable.
 func NewProvider() *Provider {
 	inMemProv := inMemProv{
 		keyIDToPvk: make(map[string]crypto.PrivateKey),
@@ -158,6 +197,7 @@ func NewProvider() *Provider {
 		inMemProv:         &inMemProv,
 		rsaKeyGenerator:   &defaultRsaKeyGenerator{},
 		ecdsaKeyGenerator: &defaultEcdsaKeyGenerator{},
+		mldsaKeyGenerator: &defaultMLDSAKeyGenerator{},
 		idGenerator:       &defaultIDGenerator{},
 	}
 }
@@ -242,6 +282,30 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	return si, nil
 }
 
+// GenerateMLDSAKey creates a signer using a randomly generated ML-DSA key
+// of params (mldsa.MLDSA44(), MLDSA65() or MLDSA87()). The signer signs
+// messages, not digests; see cryptoprov.MLDSASignerOptions.
+func (p *Provider) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error) {
+	key, err := p.mldsaKeyGenerator.GenerateKey(params)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "unable to generate key, parameter set: %s", params)
+	}
+
+	if len(label) == 0 {
+		label = uuid.NewV7().String()
+	}
+
+	id := p.Generate()
+
+	si := &provImpl{
+		id:    id,
+		label: label,
+		pvk:   key,
+	}
+	p.inMemProv.registerKey(id, si)
+	return si, nil
+}
+
 // IdentifyKey returns key id and label for the given private key
 func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error) {
 	if ki, ok := priv.(*provImpl); ok {
@@ -250,7 +314,8 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 	return "", "", errors.Errorf("unsupported key: %T", priv)
 }
 
-// ExportKey returns PEM encoded plain text key
+// ExportKey returns the PEM encoded plain text key: PKCS#1 for RSA, SEC1
+// for ECDSA and PKCS#8 (seed form) for ML-DSA.
 func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 	var key []byte
 
@@ -279,9 +344,19 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 			Bytes: key,
 		}
 		key = pem.EncodeToMemory(&block)
+	case *mldsa.PrivateKey:
+		key, err = x509.MarshalPKCS8PrivateKey(priv)
+		if err != nil {
+			return "", nil, errors.WithMessagef(err, "export ML-DSA key: %s", keyID)
+		}
+		block := pem.Block{
+			Type:  "PRIVATE KEY",
+			Bytes: key,
+		}
+		key = pem.EncodeToMemory(&block)
 	default:
-		logger.KV(xlog.ERROR, "reason", "unsupported key", "type", fmt.Sprintf("%T", priv))
-		panic("Generate should have failed to produce a valid key.")
+		// the generators register only the types above
+		return "", nil, errors.Errorf("unsupported key type %T: %s", priv, keyID)
 	}
 
 	return "", key, nil

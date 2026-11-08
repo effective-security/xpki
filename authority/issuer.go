@@ -3,6 +3,7 @@ package authority
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -259,7 +260,11 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 }
 
 // CreateIssuer returns Issuer created directly from crypto.Signer,
-// this method is mostly used for testing
+// this method is mostly used for testing. The signer may be an RSA, ECDSA
+// or ML-DSA key; an ML-DSA key cannot sign OCSP responses
+// (golang.org/x/crypto/ocsp supports RSA and ECDSA only), so an issuer
+// with an aia.ocsp_url must also set aia.delegated_ocsp_profile, whose
+// responder key is classical.
 func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, signer crypto.Signer) (*Issuer, error) {
 	cfg = cfg.Copy()
 	if cfg.Profiles == nil {
@@ -272,6 +277,9 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 	}
 
 	label := cfg.Label
+	if certutil.IsPostQuantumKey(signer) && cfg.AIA != nil && cfg.AIA.OcspURL != "" && cfg.AIA.DelegatedOCSPProfile == "" {
+		return nil, errors.Errorf("issuer %q: an ML-DSA key cannot sign OCSP responses; set aia.delegated_ocsp_profile for a classical responder key or remove aia.ocsp_url", label)
+	}
 	bundle, status, err := certutil.VerifyBundleFromPEM(certBytes, intCAbytes, rootBytes)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to create signing CA cert bundle")
@@ -369,15 +377,23 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 	return ca, nil
 }
 
-// SignProof returns base64 URL encoded signature of the data
+// SignProof returns base64 URL encoded signature of the data: PKCS#1 v1.5
+// or ECDSA over the hash of the issuer's key (KeyInfo.Hash), or a pure
+// ML-DSA signature of data itself.
 func (ca *Issuer) SignProof(data []byte) (string, error) {
 	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_proof")
 
-	hasher := ca.keyInfo.Hash
-
-	h := hasher.New()
-	h.Write(data)
-	sig, err := ca.signer.Sign(rand.Reader, h.Sum(nil), hasher)
+	var sig []byte
+	var err error
+	if ca.keyInfo.Type == certutil.KeyTypeMLDSA {
+		// ML-DSA signs the message, not a digest
+		sig, err = ca.signer.Sign(rand.Reader, data, nil)
+	} else {
+		hasher := ca.keyInfo.Hash
+		h := hasher.New()
+		h.Write(data)
+		sig, err = ca.signer.Sign(rand.Reader, h.Sum(nil), hasher)
+	}
 	if err != nil {
 		return "", errors.WithMessagef(err, "unable to sign proof")
 	}
@@ -387,28 +403,37 @@ func (ca *Issuer) SignProof(data []byte) (string, error) {
 
 // VerifyProof verifies the signature
 func (ca *Issuer) VerifyProof(data []byte, proof string) error {
-	hasher := ca.keyInfo.Hash
-
 	signature, err := base64.RawURLEncoding.DecodeString(proof)
 	if err != nil {
 		return errors.Wrap(err, "unable to verify proof")
 	}
-	h := hasher.New()
-	h.Write(data)
 
-	if ca.keyInfo.Type == "RSA" {
-		err = rsa.VerifyPKCS1v15(ca.signer.Public().(*rsa.PublicKey), hasher, h.Sum(nil), signature)
+	hasher := ca.keyInfo.Hash
+	digest := func() []byte {
+		h := hasher.New()
+		h.Write(data)
+		return h.Sum(nil)
+	}
+	switch pub := ca.signer.Public().(type) {
+	case *rsa.PublicKey:
+		err = rsa.VerifyPKCS1v15(pub, hasher, digest(), signature)
 		if err != nil {
 			return errors.Wrap(err, "invalid rsa signature")
 		}
 		return nil
+	case *ecdsa.PublicKey:
+		if !ecdsa.VerifyASN1(pub, digest(), signature) {
+			return errors.Errorf("ecdsa: invalid signature")
+		}
+		return nil
+	case *mldsa.PublicKey:
+		if err := mldsa.Verify(pub, data, signature, nil); err != nil {
+			return errors.WithMessage(err, "invalid ML-DSA signature")
+		}
+		return nil
+	default:
+		return errors.Errorf("unsupported issuer key: %T", pub)
 	}
-
-	ecc := ca.signer.Public().(*ecdsa.PublicKey)
-	if !ecdsa.VerifyASN1(ecc, h.Sum(nil), signature) {
-		return errors.Errorf("ecdsa: invalid signature")
-	}
-	return nil
 }
 
 // Sign signs a new certificate based on the PEM-encoded
@@ -433,6 +458,9 @@ func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, pro
 	requesterCsrTemplate, err := csr.ParsePEM([]byte(raReq.Request))
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "failed to parse CSR")
+	}
+	if !profile.allowsKeyAlgorithm(requesterCsrTemplate.PublicKeyAlgorithm) {
+		return nil, nil, errors.Errorf("public key algorithm %s is not allowed by profile %s", requesterCsrTemplate.PublicKeyAlgorithm, profileName)
 	}
 
 	logger.KV(xlog.TRACE,

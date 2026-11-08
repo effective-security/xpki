@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
@@ -21,6 +22,7 @@ import (
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/metricskey"
 	"github.com/googleapis/gax-go/v2"
@@ -70,6 +72,11 @@ const (
 	// version to leave PENDING_GENERATION (XPKI-024).
 	readyPollInterval = time.Second
 	readyPollAttempts = 60
+
+	// Algorithm name prefixes of the RSA and ECDSA signing families, for
+	// KeyInfo.Type.
+	rsaSignAlgorithmPrefix = "RSA_SIGN_"
+	ecSignAlgorithmPrefix  = "EC_SIGN_"
 
 	// uriSerial is the serial attribute of exported URIs: the URI parser
 	// requires one, and the version is carried by the id (XPKI-020).
@@ -297,6 +304,30 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	return p.genKey(context.Background(), label, algorithm)
 }
 
+// mldsaAlgorithms maps the ML-DSA parameter sets to the KMS algorithm
+// GenerateMLDSAKey creates: the EXTERNAL_MU variant, so the signer sends
+// the locally computed message representative μ instead of the message.
+var mldsaAlgorithms = map[mldsa.Parameters]kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm{
+	mldsa.MLDSA44(): kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_44_EXTERNAL_MU,
+	mldsa.MLDSA65(): kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65_EXTERNAL_MU,
+	mldsa.MLDSA87(): kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_87_EXTERNAL_MU,
+}
+
+// GenerateMLDSAKey creates a signer using a newly generated ML-DSA signing
+// key of params with the PQ_SIGN_ML_DSA_*_EXTERNAL_MU algorithm. The signer
+// signs messages, computing μ locally (cryptoprov.MLDSASignerOptions); a
+// key created outside this provider with the PQ_SIGN_ML_DSA_* algorithm
+// sends the message itself and is supported by GetKey too.
+func (p *Provider) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_mldsa")
+
+	algorithm, ok := mldsaAlgorithms[params]
+	if !ok {
+		return nil, errors.Errorf("unsupported ML-DSA parameter set: %s", params)
+	}
+	return p.genKey(context.Background(), label, algorithm)
+}
+
 // genKey creates an HSM signing key with algorithm, named after label by
 // KeyLabelAndID, waits for its first version and returns its signer. When
 // KMS reports that the key id exists, it tries new ids, createAttempts in
@@ -412,11 +443,11 @@ func (p *Provider) signerForVersion(ctx context.Context, ver *kmspb.CryptoKeyVer
 		return nil, errors.Errorf("key version %s is %s", keyID, state)
 	}
 	algorithm := ver.GetAlgorithm()
-	if _, ok := signSchemes[algorithm]; !ok {
+	if !supportsAlgorithm(algorithm) {
 		return nil, errors.Errorf("unsupported key algorithm %s: %s", algorithm, keyID)
 	}
 
-	pub, err := p.publicKey(ctx, ver.GetName())
+	pub, err := p.publicKey(ctx, ver.GetName(), algorithm)
 	if err != nil {
 		return nil, err
 	}
@@ -424,14 +455,26 @@ func (p *Provider) signerForVersion(ctx context.Context, ver *kmspb.CryptoKeyVer
 	return NewSigner(keyID, label, pub, algorithm, p), nil
 }
 
-// publicKey fetches and parses the public key of the version name.
-func (p *Provider) publicKey(ctx context.Context, name string) (crypto.PublicKey, error) {
-	resp, err := p.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: name})
+// publicKey fetches and parses the public key of the version name, whose
+// KMS algorithm is algorithm. A classical version is returned as PEM. An
+// ML-DSA version must be requested in the NIST_PQC format (KMS returns an
+// error otherwise) and comes back as the raw FIPS 204 encoding in
+// public_key with a CRC32C, which is verified before the key is accepted.
+func (p *Provider) publicKey(ctx context.Context, name string, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) (crypto.PublicKey, error) {
+	scheme, isMLDSA := mldsaSchemes[algorithm]
+	req := &kmspb.GetPublicKeyRequest{Name: name}
+	if isMLDSA {
+		req.PublicKeyFormat = kmspb.PublicKey_NIST_PQC
+	}
+	resp, err := p.GetPublicKey(ctx, req)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to get public key")
 	}
 	if resp == nil {
 		return nil, errors.WithMessage(errEmptyResponse, "failed to get public key")
+	}
+	if isMLDSA {
+		return mldsaPublicKey(resp, scheme.params)
 	}
 
 	pub, err := parseKeyFromPEM([]byte(resp.GetPem()))
@@ -440,6 +483,53 @@ func (p *Provider) publicKey(ctx context.Context, name string) (crypto.PublicKey
 	}
 
 	return pub, nil
+}
+
+// mldsaPublicKey decodes the NIST_PQC public key of resp as a key of params,
+// accepting it only with a present, matching checksum (as Sign does for
+// signatures, XPKI-023).
+func mldsaPublicKey(resp *kmspb.PublicKey, params mldsa.Parameters) (*mldsa.PublicKey, error) {
+	checksummed := resp.GetPublicKey()
+	data := checksummed.GetData()
+	if len(data) == 0 {
+		return nil, errors.WithMessage(errEmptyResponse, "failed to get public key")
+	}
+	crc := checksummed.GetCrc32CChecksum()
+	if crc == nil {
+		return nil, errors.Errorf("public key has no checksum")
+	}
+	if int64(Crc32c(data)) != crc.GetValue() {
+		return nil, errors.Errorf("public key corrupted in-transit")
+	}
+	pub, err := mldsa.NewPublicKey(params, data)
+	if err != nil {
+		return nil, errors.WithMessagef(err, "failed to parse public key")
+	}
+	return pub, nil
+}
+
+// publicKeyPEM returns the PEM public key of ver: as KMS returns it for a
+// classical version, re-encoded from the NIST_PQC bytes for an ML-DSA one.
+func (p *Provider) publicKeyPEM(ctx context.Context, ver *kmspb.CryptoKeyVersion) (string, error) {
+	if _, isMLDSA := mldsaSchemes[ver.GetAlgorithm()]; isMLDSA {
+		pub, err := p.publicKey(ctx, ver.GetName(), ver.GetAlgorithm())
+		if err != nil {
+			return "", err
+		}
+		pemKey, err := certutil.EncodePublicKeyToPEM(pub)
+		if err != nil {
+			return "", err
+		}
+		return string(pemKey), nil
+	}
+	resp, err := p.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: ver.GetName()})
+	if err != nil {
+		return "", err
+	}
+	if resp.GetPem() == "" {
+		return "", errors.WithStack(errEmptyResponse)
+	}
+	return resp.GetPem(), nil
 }
 
 func parseKeyFromPEM(bytes []byte) (any, error) {
@@ -825,14 +915,11 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 		if ver == nil {
 			return nil, errors.Errorf("key %s has no version with a public key", key)
 		}
-		pub, err := p.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: ver.GetName()})
+		pemKey, err := p.publicKeyPEM(ctx, ver)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
 		}
-		if pub.GetPem() == "" {
-			return nil, errors.WithMessagef(errEmptyResponse, "failed to get public key, id=%s", keyID)
-		}
-		res.PublicKey = pub.GetPem()
+		res.PublicKey = pemKey
 	}
 
 	return res, nil
@@ -857,7 +944,7 @@ func keyInfo(key *kmspb.CryptoKey) *cryptoprov.KeyInfo {
 	}
 	if vt := key.GetVersionTemplate(); vt != nil {
 		ki.Meta["protection"] = vt.GetProtectionLevel().String()
-		ki.Meta["algo"] = vt.GetAlgorithm().String()
+		setAlgorithmInfo(ki, vt.GetAlgorithm())
 	}
 	if primary := key.GetPrimary(); primary != nil {
 		ki.CurrentVersionID = versionOf(primary.GetName())
@@ -873,10 +960,28 @@ func setVersionInfo(ki *cryptoprov.KeyInfo, ver *kmspb.CryptoKeyVersion) {
 	ki.CurrentVersionID = versionOf(ver.GetName())
 	ki.Meta["state"] = ver.GetState().String()
 	if algorithm := ver.GetAlgorithm(); algorithm != kmspb.CryptoKeyVersion_CRYPTO_KEY_VERSION_ALGORITHM_UNSPECIFIED {
-		ki.Meta["algo"] = algorithm.String()
+		setAlgorithmInfo(ki, algorithm)
 	}
 	if protection := ver.GetProtectionLevel(); protection != kmspb.ProtectionLevel_PROTECTION_LEVEL_UNSPECIFIED {
 		ki.Meta["protection"] = protection.String()
+	}
+}
+
+// setAlgorithmInfo records algorithm in ki: Meta "algo", Type for the RSA,
+// ECDSA and ML-DSA signing algorithms and, for ML-DSA, the parameter set
+// under cryptoprov.MetaParameterSet.
+func setAlgorithmInfo(ki *cryptoprov.KeyInfo, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) {
+	name := algorithm.String()
+	ki.Meta["algo"] = name
+	switch {
+	case strings.HasPrefix(name, rsaSignAlgorithmPrefix):
+		ki.Type = certutil.KeyTypeRSA
+	case strings.HasPrefix(name, ecSignAlgorithmPrefix):
+		ki.Type = certutil.KeyTypeECDSA
+	}
+	if scheme, ok := mldsaSchemes[algorithm]; ok {
+		ki.Type = certutil.KeyTypeMLDSA
+		ki.Meta[cryptoprov.MetaParameterSet] = scheme.params.String()
 	}
 }
 

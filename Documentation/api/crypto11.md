@@ -72,6 +72,9 @@ This package is based on github.com/ThalesIgnite/crypto11 with modifications for
   - [func \(lib \*PKCS11Lib\) GenerateECDSAKeyPairOnSession\(session pkcs11.SessionHandle, slot uint, id \[\]byte, label \[\]byte, c elliptic.Curve\) \(\*PKCS11PrivateKeyECDSA, error\)](<#PKCS11Lib.GenerateECDSAKeyPairOnSession>)
   - [func \(lib \*PKCS11Lib\) GenerateECDSAKeyPairOnSlot\(slot uint, id \[\]byte, label \[\]byte, c elliptic.Curve\) \(\*PKCS11PrivateKeyECDSA, error\)](<#PKCS11Lib.GenerateECDSAKeyPairOnSlot>)
   - [func \(lib \*PKCS11Lib\) GenerateECDSAKeyPairWithLabel\(label string, c elliptic.Curve\) \(\*PKCS11PrivateKeyECDSA, error\)](<#PKCS11Lib.GenerateECDSAKeyPairWithLabel>)
+  - [func \(lib \*PKCS11Lib\) GenerateMLDSAKey\(label string, params mldsa.Parameters\) \(crypto.PrivateKey, error\)](<#PKCS11Lib.GenerateMLDSAKey>)
+  - [func \(lib \*PKCS11Lib\) GenerateMLDSAKeyPairOnSlot\(slot uint, id \[\]byte, label \[\]byte, params mldsa.Parameters\) \(\*PKCS11PrivateKeyMLDSA, error\)](<#PKCS11Lib.GenerateMLDSAKeyPairOnSlot>)
+  - [func \(lib \*PKCS11Lib\) GenerateMLDSAKeyPairWithLabel\(label string, params mldsa.Parameters\) \(\*PKCS11PrivateKeyMLDSA, error\)](<#PKCS11Lib.GenerateMLDSAKeyPairWithLabel>)
   - [func \(lib \*PKCS11Lib\) GenerateRSAKey\(label string, bits int, purpose int\) \(crypto.PrivateKey, error\)](<#PKCS11Lib.GenerateRSAKey>)
   - [func \(lib \*PKCS11Lib\) GenerateRSAKeyPair\(bits int, purpose KeyPurpose\) \(\*PKCS11PrivateKeyRSA, error\)](<#PKCS11Lib.GenerateRSAKeyPair>)
   - [func \(lib \*PKCS11Lib\) GenerateRSAKeyPairOnSession\(session pkcs11.SessionHandle, slot uint, id \[\]byte, label \[\]byte, bits int, purpose KeyPurpose\) \(\*PKCS11PrivateKeyRSA, error\)](<#PKCS11Lib.GenerateRSAKeyPairOnSession>)
@@ -92,6 +95,9 @@ This package is based on github.com/ThalesIgnite/crypto11 with modifications for
 - [type PKCS11PrivateKeyECDSA](<#PKCS11PrivateKeyECDSA>)
   - [func \(priv \*PKCS11PrivateKeyECDSA\) Public\(\) crypto.PublicKey](<#PKCS11PrivateKeyECDSA.Public>)
   - [func \(priv \*PKCS11PrivateKeyECDSA\) Sign\(rand io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(\[\]byte, error\)](<#PKCS11PrivateKeyECDSA.Sign>)
+- [type PKCS11PrivateKeyMLDSA](<#PKCS11PrivateKeyMLDSA>)
+  - [func \(priv \*PKCS11PrivateKeyMLDSA\) Public\(\) crypto.PublicKey](<#PKCS11PrivateKeyMLDSA.Public>)
+  - [func \(priv \*PKCS11PrivateKeyMLDSA\) Sign\(rand io.Reader, message \[\]byte, opts crypto.SignerOpts\) \(\[\]byte, error\)](<#PKCS11PrivateKeyMLDSA.Sign>)
 - [type PKCS11PrivateKeyRSA](<#PKCS11PrivateKeyRSA>)
   - [func \(priv \*PKCS11PrivateKeyRSA\) Decrypt\(rand io.Reader, ciphertext \[\]byte, options crypto.DecrypterOpts\) \(plaintext \[\]byte, err error\)](<#PKCS11PrivateKeyRSA.Decrypt>)
   - [func \(priv \*PKCS11PrivateKeyRSA\) Public\(\) crypto.PublicKey](<#PKCS11PrivateKeyRSA.Public>)
@@ -139,6 +145,7 @@ var KeyTypeNames = map[uint]string{
     pkcs11.CKK_DSA: "DSA",
     pkcs11.CKK_DH:  "DH",
     pkcs11.CKK_EC:  "ECDSA",
+    // contains filtered or unexported fields
 }
 ```
 
@@ -155,7 +162,7 @@ var ObjectClassNames = map[uint]string{
 ```
 
 <a name="BytesToUlong"></a>
-## func [BytesToUlong](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L70>)
+## func [BytesToUlong](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L71>)
 
 ```go
 func BytesToUlong(bs []byte) uint
@@ -166,7 +173,7 @@ BytesToUlong decodes a native CK\_ULONG attribute value, such as CKA\_KEY\_TYPE 
 Deprecated: BytesToUlong cannot report malformed input; check the length and decode the value with encoding/binary.NativeEndian instead.
 
 <a name="ConvertToPublic"></a>
-## func [ConvertToPublic](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L256>)
+## func [ConvertToPublic](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L262>)
 
 ```go
 func ConvertToPublic(priv crypto.PrivateKey) (crypto.PublicKey, error)
@@ -184,7 +191,7 @@ func LoadProvider(cfg cryptoprov.TokenConfig) (cryptoprov.Provider, error)
 LoadProvider provides loader for crypto11 provider
 
 <a name="UlongToBytes"></a>
-## func [UlongToBytes](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L53>)
+## func [UlongToBytes](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L54>)
 
 ```go
 func UlongToBytes(n uint) []byte
@@ -193,7 +200,7 @@ func UlongToBytes(n uint) []byte
 UlongToBytes encodes n as a native CK\_ULONG attribute value \(host byte order, ulongSize bytes\). Where CK\_ULONG is 32 bits, only the low 32 bits of n are kept.
 
 <a name="KeyIdentifier"></a>
-## type [KeyIdentifier](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L321-L324>)
+## type [KeyIdentifier](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L331-L334>)
 
 KeyIdentifier interface provides key ID and label
 
@@ -205,7 +212,7 @@ type KeyIdentifier interface {
 ```
 
 <a name="KeyPurpose"></a>
-## type [KeyPurpose](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L17>)
+## type [KeyPurpose](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L18>)
 
 KeyPurpose declares the purpose for keys
 
@@ -337,7 +344,7 @@ func (lib *PKCS11Lib) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, 
 EnumTokens enumerates tokens
 
 <a name="PKCS11Lib.ExportKey"></a>
-### func \(\*PKCS11Lib\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L289>)
+### func \(\*PKCS11Lib\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L299>)
 
 ```go
 func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error)
@@ -346,7 +353,7 @@ func (lib *PKCS11Lib) ExportKey(keyID string) (string, []byte, error)
 ExportKey returns PKCS\#11 URI for specified key ID. It does not return key bytes.
 
 <a name="PKCS11Lib.FindKeyPair"></a>
-### func \(\*PKCS11Lib\) [FindKeyPair](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L180>)
+### func \(\*PKCS11Lib\) [FindKeyPair](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L181>)
 
 ```go
 func (lib *PKCS11Lib) FindKeyPair(keyID, label string) (crypto.PrivateKey, error)
@@ -357,7 +364,7 @@ FindKeyPair retrieves a previously created asymmetric key.
 Either \(but not both\) of id and label may be nil, in which case they are ignored.
 
 <a name="PKCS11Lib.FindKeyPairOnSession"></a>
-### func \(\*PKCS11Lib\) [FindKeyPairOnSession](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L201>)
+### func \(\*PKCS11Lib\) [FindKeyPairOnSession](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L202>)
 
 ```go
 func (lib *PKCS11Lib) FindKeyPairOnSession(session pkcs11.SessionHandle, slot uint, keyID, label string) (crypto.PrivateKey, error)
@@ -368,7 +375,7 @@ FindKeyPairOnSession retrieves a previously created asymmetric key, using a spec
 Either \(but not both\) of id and label may be nil, in which case they are ignored. session is owned by the caller; after Close it returns errClosed.
 
 <a name="PKCS11Lib.FindKeyPairOnSlot"></a>
-### func \(\*PKCS11Lib\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L187>)
+### func \(\*PKCS11Lib\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L188>)
 
 ```go
 func (lib *PKCS11Lib) FindKeyPairOnSlot(slot uint, keyID, label string) (crypto.PrivateKey, error)
@@ -379,7 +386,7 @@ FindKeyPairOnSlot retrieves a previously created asymmetric key, using a specifi
 Either \(but not both\) of id and label may be nil, in which case they are ignored.
 
 <a name="PKCS11Lib.FindKeys"></a>
-### func \(\*PKCS11Lib\) [FindKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L144>)
+### func \(\*PKCS11Lib\) [FindKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L145>)
 
 ```go
 func (lib *PKCS11Lib) FindKeys(session pkcs11.SessionHandle, keylabel string, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error)
@@ -397,7 +404,7 @@ func (lib *PKCS11Lib) GenRandom(data []byte) (n int, err error)
 GenRandom fills data with random bytes generated via PKCS\#11 using the default slot.
 
 <a name="PKCS11Lib.GenerateECDSAKey"></a>
-### func \(\*PKCS11Lib\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L397>)
+### func \(\*PKCS11Lib\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L407>)
 
 ```go
 func (lib *PKCS11Lib) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
@@ -457,8 +464,35 @@ The key will have a random ID.
 
 Only a limited set of named elliptic curves are supported. The underlying PKCS\#11 implementation may impose further restrictions.
 
+<a name="PKCS11Lib.GenerateMLDSAKey"></a>
+### func \(\*PKCS11Lib\) [GenerateMLDSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L245>)
+
+```go
+func (lib *PKCS11Lib) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error)
+```
+
+GenerateMLDSAKey generates an ML\-DSA key pair of params and returns a signer that also reports its key ID and label \(KeyIdentifier\). The token must implement PKCS\#11 v3.2 ML\-DSA; SoftHSM 2.6 does not and fails the key pair generation.
+
+<a name="PKCS11Lib.GenerateMLDSAKeyPairOnSlot"></a>
+### func \(\*PKCS11Lib\) [GenerateMLDSAKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L169>)
+
+```go
+func (lib *PKCS11Lib) GenerateMLDSAKeyPairOnSlot(slot uint, id []byte, label []byte, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error)
+```
+
+GenerateMLDSAKeyPairOnSlot creates an ML\-DSA key pair of params on slot with CKM\_ML\_DSA\_KEY\_PAIR\_GEN, which needs a PKCS\#11 v3.2 token. label and/or id can be nil, in which case random values are generated.
+
+<a name="PKCS11Lib.GenerateMLDSAKeyPairWithLabel"></a>
+### func \(\*PKCS11Lib\) [GenerateMLDSAKeyPairWithLabel](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L162>)
+
+```go
+func (lib *PKCS11Lib) GenerateMLDSAKeyPairWithLabel(label string, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error)
+```
+
+GenerateMLDSAKeyPairWithLabel creates an ML\-DSA key pair of params with label and a random ID on the configured slot.
+
 <a name="PKCS11Lib.GenerateRSAKey"></a>
-### func \(\*PKCS11Lib\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L374>)
+### func \(\*PKCS11Lib\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L384>)
 
 ```go
 func (lib *PKCS11Lib) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
@@ -517,7 +551,7 @@ The key will have a random ID.
 RSA private keys are generated with both sign and decrypt permissions, and a public exponent of 65537.
 
 <a name="PKCS11Lib.GetKey"></a>
-### func \(\*PKCS11Lib\) [GetKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L274>)
+### func \(\*PKCS11Lib\) [GetKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L284>)
 
 ```go
 func (lib *PKCS11Lib) GetKey(keyID string) (crypto.PrivateKey, error)
@@ -526,7 +560,7 @@ func (lib *PKCS11Lib) GetKey(keyID string) (crypto.PrivateKey, error)
 GetKey returns private key handle
 
 <a name="PKCS11Lib.Identify"></a>
-### func \(\*PKCS11Lib\) [Identify](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L33>)
+### func \(\*PKCS11Lib\) [Identify](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L34>)
 
 ```go
 func (lib *PKCS11Lib) Identify(object *PKCS11Object) (keyID, label string, err error)
@@ -537,7 +571,7 @@ Identify returns the ID and label for a PKCS\#11 object.
 Either of these values may be used to retrieve the key for later use. The object's Handle is used as given; IdentifyKey, given a private key of this package, also recovers from a handle invalidated by a logout.
 
 <a name="PKCS11Lib.IdentifyKey"></a>
-### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L418>)
+### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L428>)
 
 ```go
 func (lib *PKCS11Lib) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error)
@@ -555,7 +589,7 @@ func (lib *PKCS11Lib) KeyInfo(slotID uint, keyID string, includePublic bool) (*c
 KeyInfo retrieves info about key with the specified id
 
 <a name="PKCS11Lib.ListKeys"></a>
-### func \(\*PKCS11Lib\) [ListKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L111>)
+### func \(\*PKCS11Lib\) [ListKeys](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L112>)
 
 ```go
 func (lib *PKCS11Lib) ListKeys(session pkcs11.SessionHandle, keyclass uint, keytype uint) ([]pkcs11.ObjectHandle, error)
@@ -682,6 +716,35 @@ This completes the implementation of crypto.Signer for PKCS11PrivateKeyECDSA.
 PKCS\#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 
 The return value is a DER\-encoded byteblock.
+
+<a name="PKCS11PrivateKeyMLDSA"></a>
+## type [PKCS11PrivateKeyMLDSA](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L98-L104>)
+
+PKCS11PrivateKeyMLDSA contains a reference to a loaded PKCS\#11 ML\-DSA private key object. It signs messages, not digests \(crypto/x509 passes the whole TBS with a zero hash\); see Sign.
+
+```go
+type PKCS11PrivateKeyMLDSA struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="PKCS11PrivateKeyMLDSA.Public"></a>
+### func \(\*PKCS11PrivateKeyMLDSA\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L107>)
+
+```go
+func (priv *PKCS11PrivateKeyMLDSA) Public() crypto.PublicKey
+```
+
+Public returns the public half of the key, an \*mldsa.PublicKey.
+
+<a name="PKCS11PrivateKeyMLDSA.Sign"></a>
+### func \(\*PKCS11PrivateKeyMLDSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L118>)
+
+```go
+func (priv *PKCS11PrivateKeyMLDSA) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error)
+```
+
+Sign signs message with the ML\-DSA key through CKM\_ML\_DSA and returns the FIPS 204 signature. It accepts the message with nil options, a zero hash or an \*mldsa.Options without context \(cryptoprov.MLDSASignerOptions\); the token hedges the signature. A digest hash, a μ \(crypto.MLDSAMu\) and a context string are errors, since PKCS\#11 v3.2 has no external\-μ mechanism and this package passes no mechanism parameter. PKCS\#11 picks its own randomness, so rand is ignored.
 
 <a name="PKCS11PrivateKeyRSA"></a>
 ## type [PKCS11PrivateKeyRSA](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L15-L21>)

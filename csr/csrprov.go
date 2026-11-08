@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -210,8 +211,10 @@ type SignatureAlgorithmer interface {
 // RSA keys of 2048 and 3072 bits use SHA-256 and keys of 4096 bits or more
 // SHA-512 (NIST SP 800-57 rates 3072-bit RSA at 128 bits, matching SHA-256,
 // and GCP KMS signs 3072-bit keys only with SHA-256, XPKI-114); ECDSA
-// P-256, P-384 and P-521 use SHA-256, SHA-384 and SHA-512. SHA-1 is never
-// returned; other key types give x509.UnknownSignatureAlgorithm.
+// P-256, P-384 and P-521 use SHA-256, SHA-384 and SHA-512; an ML-DSA key
+// uses the algorithm of its parameter set (x509.MLDSA44, MLDSA65 or
+// MLDSA87), which signs the message itself. SHA-1 is never returned; other
+// key types give x509.UnknownSignatureAlgorithm.
 func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm {
 	if a, ok := priv.(SignatureAlgorithmer); ok {
 		if algo := a.SignatureAlgorithm(); algo != x509.UnknownSignatureAlgorithm {
@@ -243,6 +246,8 @@ func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm {
 		default:
 			return x509.ECDSAWithSHA256
 		}
+	case *mldsa.PublicKey:
+		return mldsaSigAlgo(pub.Parameters())
 	default:
 		return x509.UnknownSignatureAlgorithm
 	}

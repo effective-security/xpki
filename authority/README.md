@@ -62,6 +62,12 @@ the certificate.
   the CA's `NotAfter` and re-issued at most once a minute.
 - A delegated response's `NextUpdate` is capped at the responder's
   `NotAfter`, and a `ThisUpdate` at or after it is rejected.
+- An ML-DSA (FIPS 204) CA key cannot sign OCSP responses:
+  `golang.org/x/crypto/ocsp` supports RSA and ECDSA only. `CreateIssuer`
+  rejects such an issuer when `aia.ocsp_url` is set without
+  `aia.delegated_ocsp_profile`, and `SignOCSP` never signs with an ML-DSA
+  key; the delegated responder's P-256 key is certified by the ML-DSA CA
+  and its responses verify against the ML-DSA issuer certificate.
 
 ## Signing pipeline
 
@@ -125,3 +131,22 @@ value derived from the profile. The CSR rules below exist for that reason.
 Invalid windows are rejected, never adjusted. A profile without `expiry`
 (only possible when added without `Validate`) needs an explicit NotAfter and
 has no lifetime bound.
+
+### Key algorithm policy
+
+`allowed_key_algorithms` lists the public key algorithms a CSR may carry:
+`rsa`, `ecdsa`, `ed25519` or `ml-dsa` (case-insensitive). An empty list
+keeps the default, every key type `crypto/x509` can certify. A CSR whose key
+is not listed fails with `public key algorithm X is not allowed by profile
+P`, so a profile can be post-quantum only or classical only:
+
+```yaml
+profiles:
+  server-pq:
+    expiry: 168h
+    usages: [digital signature, server auth]
+    allowed_key_algorithms: [ml-dsa]
+```
+
+The issuer's own key is not subject to the list; an ML-DSA issuer certifies
+RSA, ECDSA and ML-DSA keys, and a classical issuer certifies ML-DSA keys.

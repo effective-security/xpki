@@ -3,6 +3,7 @@ package cryptoprov
 import (
 	"crypto"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"maps"
 	"reflect"
 	"sync"
@@ -40,7 +41,9 @@ type TokenInfo struct {
 	Serial       string
 }
 
-// KeyInfo provides key information
+// KeyInfo provides key information. Type names the key algorithm as
+// crypto/x509 prints it ("RSA", "ECDSA", "ML-DSA"); for an ML-DSA key Meta
+// also carries MetaParameterSet, for example "ML-DSA-65".
 type KeyInfo struct {
 	ID               string
 	Label            string
@@ -62,11 +65,17 @@ type KeyManager interface {
 	KeyInfo(slotID uint, keyID string, includePublic bool) (*KeyInfo, error)
 }
 
-// KeyGenerator defines interface for key generation operations
+// KeyGenerator defines interface for key generation operations. Every
+// generated key is a crypto.Signer; an ML-DSA signer follows the contract
+// MLDSASignerOptions describes.
 type KeyGenerator interface {
 	// GenerateRSAKey returns RSA key for purpose: 1-signing, 2-encryption
 	GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
 	GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
+	// GenerateMLDSAKey returns an ML-DSA (FIPS 204) signing key of the
+	// parameter set params: mldsa.MLDSA44(), MLDSA65() or MLDSA87(), see
+	// MLDSAParameters. The key signs messages, not digests.
+	GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error)
 	IdentifyKey(crypto.PrivateKey) (keyID, label string, err error)
 	ExportKey(keyID string) (string, []byte, error)
 	GetKey(keyID string) (crypto.PrivateKey, error)

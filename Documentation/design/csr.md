@@ -87,25 +87,18 @@ defaults.
 
 ## Post-quantum readiness
 
-Checked on 2026-11-08 with Go 1.27.3: `x509.CreateCertificateRequest`,
-`ParseCertificateRequest` and `CheckSignature` work with `*mldsa.PrivateKey`
-and `*mldsa.PublicKey` (`PublicKeyAlgorithm` `ML-DSA`, signature algorithms
-`x509.MLDSA44/65/87`), so `SignRequest` and `Parse` need no change once a
-provider returns an ML-DSA signer. The package changes are in the key
-request and algorithm selection:
+Implemented in v1.1: `KeyRequest` accepts `algo: ML-DSA` (or `MLDSA`,
+case-insensitive) with `size: 44 | 65 | 87` (`AlgoMLDSA`, `MLDSA44/65/87`),
+`Generate` calls `cryptoprov.KeyGenerator.GenerateMLDSAKey` after
+validating the parameter set, `SigAlgo("ML-DSA", 65)` is `x509.MLDSA65`,
+`DefaultSigAlgo` maps an `*mldsa.PublicKey` to the algorithm of its
+parameter set, and `IsPostQuantumAlgo` recognises the algorithm names.
+`SignRequest` and `Parse` needed no change: `x509.CreateCertificateRequest`
+passes the whole TBS with a zero hash, which every ML-DSA signer of the
+module accepts. The `DILITHIUM` alias proposed in PR 568 was dropped: the
+keys are FIPS 204 ML-DSA, not round-3 Dilithium, and the name would
+suggest an interoperability that does not exist.
 
-| Location                                   | Today                                                              | Needed                                                                                                                                  |
-| ------------------------------------------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `keyreq.go` constants                      | `CurveP256/384/521`                                                | `AlgoMLDSA = "ML-DSA"`, parameter sets `MLDSA44/65/87` ([PR 568](https://github.com/effective-security/xpki/pull/568) adds them)        |
-| `keyreq.go` `KeyRequest.Generate`          | `RSA`, `ECDSA` cases                                               | `ML-DSA` case: validate the parameter set, then call the provider's ML-DSA generator; until providers implement it, return "not implemented" (the review comment on PR 568: do not suggest a recovery path that does not exist) |
-| `keyreq.go` `SigAlgo`                      | RSA/ECDSA → hash-based algorithms                                  | `("ML-DSA", 44/65/87)` → `x509.MLDSA44/65/87`                                                                                           |
-| `csrprov.go` `DefaultSigAlgo`              | Switch on `*rsa.PublicKey`, `*ecdsa.PublicKey`                     | `*mldsa.PublicKey` → by `Parameters()`                                                                                                   |
-| `keyreq.go` `IsPostQuantumAlgo`            | — (added by PR 568)                                                | Keep for algo names; key-based detection belongs in `certutil` (leaf package) so `authority` and `jwt` can share it                      |
-| `csrprov.go` `SignRequest`, `csr.go` `Parse` | Key-type agnostic                                                | No change (verified)                                                                                                                   |
-| `doc.go`                                   | "RSA, ECDSA"                                                       | Add ML-DSA when generation works end to end                                                                                             |
-
-Decisions to take before implementing (recorded in [pqc.md](pqc.md)):
-whether `size` carries the parameter set (`44`/`65`/`87`, as PR 568
-proposes) or a new field does; which spellings of the algorithm name are
-accepted (`ML-DSA`; `DILITHIUM` as a legacy alias or not); and whether
-hybrid/composite signatures are in scope (not in the first milestone).
+Key-based detection lives in `certutil` (`IsPostQuantumKey`,
+`IsPostQuantumCertificate`), the leaf package `authority`, `jwt` and the
+CLIs share.

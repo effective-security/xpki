@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	crand "crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -137,6 +138,26 @@ func GenerateRSAKeyInPEM(rand io.Reader, size int) ([]byte, error) {
 	pemKey := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+
+	return pemKey, nil
+}
+
+// GenerateMLDSAKeyInPEM returns a PEM encoded ML-DSA key of params in the
+// PKCS#8 seed form ("PRIVATE KEY").
+func GenerateMLDSAKeyInPEM(params mldsa.Parameters) ([]byte, error) {
+	key, err := mldsa.GenerateKey(params)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	keyBytes, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	pemKey := pem.EncodeToMemory(&pem.Block{
+		Type:  pemTypePKCS8,
+		Bytes: keyBytes,
 	})
 
 	return pemKey, nil

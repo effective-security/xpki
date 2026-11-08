@@ -138,23 +138,33 @@ persist in the token unless destroyed.
 PKCS#11 v3.2 defines ML-DSA objects and mechanisms (`CKK_ML_DSA`,
 `CKA_PARAMETER_SET` with `CKP_ML_DSA_44/65/87`, `CKM_ML_DSA_KEY_PAIR_GEN`,
 `CKM_ML_DSA` for pure signing with an optional context and hedge
-parameter, `CKM_HASH_ML_DSA` for the pre-hash variant). Checked on
-2026-11-08: `github.com/miekg/pkcs11` v1.1.2 defines none of these
-constants, and SoftHSM 2.6.1 (the test fixture) does not implement them.
-ML-DSA support in this package therefore needs a v3.2-capable module for
-tests (a software token such as Kryoptic, or a vendor HSM) and locally
-declared constants. The ML-DSA mechanism signs the **message**, not a
-digest, so a `PKCS11PrivateKeyMLDSA.Sign` must take the full message with
-nil or `*mldsa.Options`, and the external-μ form (`crypto.MLDSAMu`, 64
-bytes) only where the module supports it.
+parameter, `CKM_HASH_ML_DSA` for the pre-hash variant).
+`github.com/miekg/pkcs11` v1.1.2 defines none of these constants, and
+SoftHSM 2.6.1 (the test fixture) does not implement them.
 
-| Location                                              | Today                                           | Needed                                                                                         |
-| ----------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `common.go` `KeyTypeNames`, `keyTypeAndClass`         | RSA, DSA, DH, EC                                | `CKK_ML_DSA` → `ML-DSA`; constants declared locally until the binding has them                 |
-| `keys.go` `findKeyPairOnSession`                      | `CKK_RSA`, `CKK_EC` branches                    | `CKK_ML_DSA` branch; public key from `CKA_VALUE` + `CKA_PARAMETER_SET` → `mldsa.NewPublicKey`  |
-| `keys.go` `ConvertToPublic`, `IdentifyKey`            | RSA/ECDSA key object types                      | ML-DSA key object type                                                                         |
-| `keys.go` `GenerateRSAKey`/`GenerateECDSAKey`         | Two generators                                  | `GenerateMLDSAKey(label, params)` with `CKM_ML_DSA_KEY_PAIR_GEN` and `CKA_PARAMETER_SET`       |
-| new `mldsa.go`                                        | —                                               | `PKCS11PrivateKeyMLDSA`: `Sign` (message semantics), `withKey` handle refresh                   |
-| `util.go` `getPublicKeyPEM`                           | RSA/ECDSA PKIX                                   | PKIX for `*mldsa.PublicKey` (Go 1.27 `x509.MarshalPKIXPublicKey` supports it)                  |
-| `provider.go` `EnumKeys`, `KeyInfo`                   | Type from `KeyTypeNames`                        | Follows the map; add the parameter set to `KeyInfo.Meta`                                       |
-| Test fixture, `scripts/config-softhsm.sh`, CI         | SoftHSM only                                    | A second, gated token config for a v3.2 module; skip when absent, fail with `XPKI_INTEGRATION=required` only where CI provisions it |
+Implemented in v1.1 (`mldsa.go`), **not yet exercised against a token**:
+
+- The v3.2 constants are declared locally (unexported), `KeyTypeNames` maps
+  `CKK_ML_DSA` to `ML-DSA`, and `findKeyPairOnSession`, `ConvertToPublic`
+  and `IdentifyKey` know the new `PKCS11PrivateKeyMLDSA` type. The public
+  key is decoded from `CKA_PARAMETER_SET` and `CKA_VALUE`
+  (`mldsa.NewPublicKey`).
+- `GenerateMLDSAKey` generates the pair with `CKM_ML_DSA_KEY_PAIR_GEN` and
+  `CKA_PARAMETER_SET` on the public template, with the same orphan cleanup
+  as the ECDSA path.
+- `PKCS11PrivateKeyMLDSA.Sign` validates the options with
+  `cryptoprov.MLDSASignerOptions`, then signs the **message** with
+  `CKM_ML_DSA` and no mechanism parameter (hedged signing, empty context,
+  as X.509 needs). A μ (`crypto.MLDSAMu`) and a context string are errors:
+  PKCS#11 v3.2 has no external-μ mechanism and this package does not build
+  the `CK_SIGN_ADDITIONAL_CONTEXT` parameter.
+
+Verification status: the pure helpers (parameter-set mapping, public key
+decoding, option validation) and the SoftHSM failure path (the mechanism is
+rejected, no orphan key) are unit-tested; the generate/find/sign/export
+path runs only in `TestMLDSAOnPKCS11v32Token`, which needs the token config
+of a v3.2 module in `XPKI_PKCS11_V32_CONFIG` and skips otherwise. No such
+module was available when v1.1 was built (Kryoptic has no published
+container image and could not be built in the development environment), so
+that path is unverified; CI does not provision one. `KeyInfo.Meta` does not
+carry the parameter set for PKCS#11 keys yet.

@@ -32,6 +32,7 @@ func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool) {
 	_, _ = fmt.Fprintf(w, "Subject: %s\n", certutil.NameToString(&crt.Subject))
 	_, _ = fmt.Fprintf(w, "Serial: %s\n", crt.SerialNumber.String())
 	_, _ = fmt.Fprintf(w, "Issuer: %s\n", certutil.NameToString(&crt.Issuer))
+	printAlgorithms(w, crt.PublicKeyAlgorithm, crt.SignatureAlgorithm)
 	_, _ = fmt.Fprintf(w, "Issued: %s (%s ago)\n", crt.NotBefore.Local().String(), issuedIn.String())
 	_, _ = fmt.Fprintf(w, "Expires: %s (in %s)\n", crt.NotAfter.Local().String(), expiresIn.String())
 
@@ -106,9 +107,21 @@ func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool) {
 	}
 }
 
+// printAlgorithms prints the public key and signature algorithm lines when
+// they are known, so a post-quantum (ML-DSA) key or signature is visible.
+func printAlgorithms(w io.Writer, pub x509.PublicKeyAlgorithm, sig x509.SignatureAlgorithm) {
+	if pub != x509.UnknownPublicKeyAlgorithm {
+		_, _ = fmt.Fprintf(w, "Public Key Algorithm: %s\n", pub)
+	}
+	if sig != x509.UnknownSignatureAlgorithm {
+		_, _ = fmt.Fprintf(w, "Signature Algorithm: %s\n", sig)
+	}
+}
+
 // CertificateRequest prints cert request details
 func CertificateRequest(w io.Writer, crt *x509.CertificateRequest) {
 	_, _ = fmt.Fprintf(w, "Subject: %s\n", certutil.NameToString(&crt.Subject))
+	printAlgorithms(w, crt.PublicKeyAlgorithm, crt.SignatureAlgorithm)
 	if len(crt.DNSNames) > 0 {
 		_, _ = fmt.Fprintf(w, "DNS Names:\n")
 		for _, n := range crt.DNSNames {

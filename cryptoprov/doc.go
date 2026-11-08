@@ -10,7 +10,9 @@
 //
 // The package handles key generation, signing, encryption, and key management
 // operations in a provider-agnostic way, allowing applications to switch
-// between different cryptographic backends without code changes.
+// between different cryptographic backends without code changes. Keys are
+// RSA, ECDSA or ML-DSA (FIPS 204, post-quantum); an ML-DSA signer signs
+// messages rather than digests, see MLDSASignerOptions.
 //
 // Configuration is a small JSON or YAML token config whose Manufacturer field
 // selects a loader registered with Register; provider packages register

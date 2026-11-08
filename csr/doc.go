@@ -2,7 +2,7 @@
 // Certificate Signing Requests (CSRs) as defined by RFC 2986.
 //
 // This package supports:
-//   - CSR generation with various key types (RSA, ECDSA)
+//   - CSR generation with various key types (RSA, ECDSA, ML-DSA)
 //   - CSR parsing and validation
 //   - Request and key-request types shared with the authority package
 //   - Extension handling for certificate requests

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/metricskey"
 )
 
@@ -28,9 +30,10 @@ type signScheme struct {
 }
 
 // signingAlgorithms maps a scheme to the KMS algorithm that signs a digest
-// with it. SM2, ML-DSA and Ed25519 keys are not supported: crypto/x509 can
-// not parse an SM2 or ML-DSA public key, and Ed25519 signs a message, not a
-// digest.
+// with it. ML-DSA keys sign a message representative instead
+// (mldsaSigningAlgorithm). SM2 and Ed25519 keys are not supported:
+// crypto/x509 can not parse an SM2 public key, and Ed25519 signs a message
+// with an algorithm this module does not use.
 var signingAlgorithms = map[signScheme]types.SigningAlgorithmSpec{
 	{rsa: true, pss: true, hash: crypto.SHA256}: types.SigningAlgorithmSpecRsassaPssSha256,
 	{rsa: true, pss: true, hash: crypto.SHA384}: types.SigningAlgorithmSpecRsassaPssSha384,
@@ -42,6 +45,11 @@ var signingAlgorithms = map[signScheme]types.SigningAlgorithmSpec{
 	{hash: crypto.SHA384}:                       types.SigningAlgorithmSpecEcdsaSha384,
 	{hash: crypto.SHA512}:                       types.SigningAlgorithmSpecEcdsaSha512,
 }
+
+// mldsaSigningAlgorithm is the only KMS algorithm of an ML-DSA key; the
+// message type selects between the RAW message and the EXTERNAL_MU
+// representative, which this signer computes locally.
+const mldsaSigningAlgorithm = types.SigningAlgorithmSpecMlDsaShake256
 
 // Signer implements crypto.Signer interface
 type Signer struct {
@@ -94,27 +102,27 @@ func (s *Signer) String() string {
 	)
 }
 
-// Sign signs digest with the KMS key. opts is required (XPKI-025): its hash
-// selects the KMS algorithm and digest must have that hash's length.
-// *rsa.PSSOptions select RSASSA_PSS for an RSA key and are rejected for an
-// ECDSA key; the salt must be rsa.PSSSaltLengthEqualsHash or the hash size,
-// the only salt KMS produces (rsa.PSSSaltLengthAuto asks for a maximal salt
-// and is rejected). The algorithm must be one the key supports, as KMS
-// reported when the signer was created; for an ECDSA key that is the
-// algorithm of its curve. Invalid options fail before any RPC.
+// Sign signs digest with the KMS key. For an RSA or ECDSA key opts is
+// required (XPKI-025): its hash selects the KMS algorithm and digest must
+// have that hash's length. *rsa.PSSOptions select RSASSA_PSS for an RSA key
+// and are rejected for an ECDSA key; the salt must be
+// rsa.PSSSaltLengthEqualsHash or the hash size, the only salt KMS produces
+// (rsa.PSSSaltLengthAuto asks for a maximal salt and is rejected). The
+// algorithm must be one the key supports, as KMS reported when the signer
+// was created; for an ECDSA key that is the algorithm of its curve.
+//
+// An ML-DSA key signs the message: digest is the message with nil, a zero
+// hash or *mldsa.Options, or the 64-byte representative μ with
+// crypto.MLDSAMu (cryptoprov.MLDSASignerOptions); every other hash is an
+// error. The signer computes μ locally and calls KMS with MessageType
+// EXTERNAL_MU and ML_DSA_SHAKE_256, so the message itself is never sent.
+// Invalid options fail before any RPC.
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "sign")
 
-	algorithm, err := s.signingAlgorithm(digest, opts)
+	req, err := s.signInput(digest, opts)
 	if err != nil {
 		return nil, err
-	}
-
-	req := &kms.SignInput{
-		KeyId:            aws.String(s.keyID),
-		Message:          digest,
-		MessageType:      types.MessageTypeDigest,
-		SigningAlgorithm: algorithm,
 	}
 	resp, err := s.kmsClient.Sign(context.Background(), req)
 	if err != nil {
@@ -124,6 +132,55 @@ func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (si
 		return nil, errors.Wrap(errEmptyResponse, "unable to sign")
 	}
 	return resp.Signature, nil
+}
+
+// signInput validates digest and opts against the key and returns the Sign
+// request: a DIGEST message for an RSA or ECDSA key, an EXTERNAL_MU message
+// for an ML-DSA key.
+func (s *Signer) signInput(digest []byte, opts crypto.SignerOpts) (*kms.SignInput, error) {
+	if pub, ok := s.pubKey.(*mldsa.PublicKey); ok {
+		mu, err := s.mldsaMu(pub, digest, opts)
+		if err != nil {
+			return nil, err
+		}
+		return &kms.SignInput{
+			KeyId:            aws.String(s.keyID),
+			Message:          mu,
+			MessageType:      types.MessageTypeExternalMu,
+			SigningAlgorithm: mldsaSigningAlgorithm,
+		}, nil
+	}
+
+	algorithm, err := s.signingAlgorithm(digest, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &kms.SignInput{
+		KeyId:            aws.String(s.keyID),
+		Message:          digest,
+		MessageType:      types.MessageTypeDigest,
+		SigningAlgorithm: algorithm,
+	}, nil
+}
+
+// mldsaMu returns the μ KMS signs for message and opts: the given μ with
+// crypto.MLDSAMu, else the μ of the message and context computed locally
+// with pub. The key must support ML_DSA_SHAKE_256.
+func (s *Signer) mldsaMu(pub *mldsa.PublicKey, message []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if !slices.Contains(s.signingAlgorithms, mldsaSigningAlgorithm) {
+		return nil, errors.Errorf("key %s does not support %s (supported: %v)", s.keyID, mldsaSigningAlgorithm, s.signingAlgorithms)
+	}
+	isMu, context, err := cryptoprov.MLDSASignerOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	if isMu {
+		if len(message) != cryptoprov.MLDSAMuSize {
+			return nil, errors.Errorf("μ length %d does not match ML-DSA (%d bytes)", len(message), cryptoprov.MLDSAMuSize)
+		}
+		return message, nil
+	}
+	return cryptoprov.MLDSAMu(pub, context, message)
 }
 
 // signingAlgorithm validates digest and opts against the key and returns

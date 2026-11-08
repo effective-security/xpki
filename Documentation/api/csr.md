@@ -10,7 +10,7 @@ Package csr provides utilities for creating, parsing, and validating Certificate
 
 This package supports:
 
-- CSR generation with various key types \(RSA, ECDSA\)
+- CSR generation with various key types \(RSA, ECDSA, ML\-DSA\)
 - CSR parsing and validation
 - Request and key\-request types shared with the authority package
 - Extension handling for certificate requests
@@ -27,8 +27,8 @@ The package integrates with the cryptoprov package to support hardware\-backed p
 - [func EncodeCDP\(cdp \[\]string\) \(\*pkix.Extension, error\)](<#EncodeCDP>)
 - [func EncodeCDPFull\(cdp \[\]string, issuer asn1.RawValue\) \(\*pkix.Extension, error\)](<#EncodeCDPFull>)
 - [func FindAttr\(attrs \[\]pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier\) \*pkix.AttributeTypeAndValue](<#FindAttr>)
+- [func IsPostQuantumAlgo\(algo string\) bool](<#IsPostQuantumAlgo>)
 - [func Parse\(csrBytes \[\]byte\) \(\*x509.Certificate, error\)](<#Parse>)
-- [func ParseObjectIdentifier\(oidString string\) \(oid asn1.ObjectIdentifier, err error\)](<#ParseObjectIdentifier>)
 - [func ParsePEM\(csrPEM \[\]byte\) \(\*x509.Certificate, error\)](<#ParsePEM>)
 - [func PopulateName\(raSubject \*X509Subject, csrSubject pkix.Name\) pkix.Name](<#PopulateName>)
 - [func SetSAN\(template \*x509.Certificate, names \[\]string\)](<#SetSAN>)
@@ -63,6 +63,7 @@ The package integrates with the cryptoprov package to support hardware\-backed p
   - [func \(kr \*KeyRequest\) Size\(\) int](<#KeyRequest.Size>)
 - [type KeyRequestGen](<#KeyRequestGen>)
 - [type OID](<#OID>)
+  - [func ParseObjectIdentifier\(oidString string\) \(oid OID, err error\)](<#ParseObjectIdentifier>)
   - [func \(oid OID\) Equal\(other OID\) bool](<#OID.Equal>)
   - [func \(oid OID\) MarshalJSON\(\) \(\[\]byte, error\)](<#OID.MarshalJSON>)
   - [func \(oid OID\) String\(\) string](<#OID.String>)
@@ -92,6 +93,22 @@ The package integrates with the cryptoprov package to support hardware\-backed p
 
 ## Constants
 
+<a name="AlgoRSA"></a>KeyRequest algorithm names; Algo is matched case\-insensitively.
+
+```go
+const (
+    // AlgoRSA requests an RSA key of Size bits (2048 to 4096).
+    AlgoRSA = "RSA"
+    // AlgoECDSA requests an ECDSA key on the curve of Size bits (CurveP256,
+    // CurveP384 or CurveP521).
+    AlgoECDSA = "ECDSA"
+    // AlgoMLDSA requests an ML-DSA (FIPS 204) key of the parameter set
+    // Size: MLDSA44, MLDSA65 or MLDSA87. The spelling "MLDSA" is accepted
+    // too.
+    AlgoMLDSA = "ML-DSA"
+)
+```
+
 <a name="CurveP256"></a>
 
 ```go
@@ -104,6 +121,15 @@ const (
 
     // CurveP521 specifies curve P-521 for ECDSA
     CurveP521 = 521
+
+    // MLDSA44 specifies the ML-DSA-44 parameter set
+    MLDSA44 = cryptoprov.MLDSA44
+
+    // MLDSA65 specifies the ML-DSA-65 parameter set
+    MLDSA65 = cryptoprov.MLDSA65
+
+    // MLDSA87 specifies the ML-DSA-87 parameter set
+    MLDSA87 = cryptoprov.MLDSA87
 )
 ```
 
@@ -140,13 +166,13 @@ func DecodeCDP(val []byte) ([]string, error)
 DecodeCDP returns list of CDP
 
 <a name="DefaultSigAlgo"></a>
-## func [DefaultSigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L215>)
+## func [DefaultSigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L218>)
 
 ```go
 func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm
 ```
 
-DefaultSigAlgo returns the X.509 signature algorithm for priv: the one a SignatureAlgorithmer advertises, else one chosen by key type and size. RSA keys of 2048 and 3072 bits use SHA\-256 and keys of 4096 bits or more SHA\-512 \(NIST SP 800\-57 rates 3072\-bit RSA at 128 bits, matching SHA\-256, and GCP KMS signs 3072\-bit keys only with SHA\-256, XPKI\-114\); ECDSA P\-256, P\-384 and P\-521 use SHA\-256, SHA\-384 and SHA\-512. SHA\-1 is never returned; other key types give x509.UnknownSignatureAlgorithm.
+DefaultSigAlgo returns the X.509 signature algorithm for priv: the one a SignatureAlgorithmer advertises, else one chosen by key type and size. RSA keys of 2048 and 3072 bits use SHA\-256 and keys of 4096 bits or more SHA\-512 \(NIST SP 800\-57 rates 3072\-bit RSA at 128 bits, matching SHA\-256, and GCP KMS signs 3072\-bit keys only with SHA\-256, XPKI\-114\); ECDSA P\-256, P\-384 and P\-521 use SHA\-256, SHA\-384 and SHA\-512; an ML\-DSA key uses the algorithm of its parameter set \(x509.MLDSA44, MLDSA65 or MLDSA87\), which signs the message itself. SHA\-1 is never returned; other key types give x509.UnknownSignatureAlgorithm.
 
 <a name="EncodeCDP"></a>
 ## func [EncodeCDP](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L420>)
@@ -175,6 +201,15 @@ func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pki
 
 FindAttr returns attribute
 
+<a name="IsPostQuantumAlgo"></a>
+## func [IsPostQuantumAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L179>)
+
+```go
+func IsPostQuantumAlgo(algo string) bool
+```
+
+IsPostQuantumAlgo reports whether algo names a post\-quantum key algorithm a KeyRequest can ask for: ML\-DSA \(case\-insensitive, with or without the hyphen\).
+
 <a name="Parse"></a>
 ## func [Parse](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L224>)
 
@@ -183,15 +218,6 @@ func Parse(csrBytes []byte) (*x509.Certificate, error)
 ```
 
 Parse takes an incoming certificate request and builds a certificate template from it.
-
-<a name="ParseObjectIdentifier"></a>
-## func [ParseObjectIdentifier](<https://github.com/effective-security/xpki/blob/main/csr/types.go#L84>)
-
-```go
-func ParseObjectIdentifier(oidString string) (oid asn1.ObjectIdentifier, err error)
-```
-
-ParseObjectIdentifier parses a dotted\-decimal OID string. The whole string must be digits separated by single dots; anything else is an error.
 
 <a name="ParsePEM"></a>
 ## func [ParsePEM](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L272>)
@@ -223,13 +249,13 @@ SetSAN is ApplySAN without an error: a name ParseSAN rejects is skipped with an 
 Deprecated: use ApplySAN, which reports the invalid names.
 
 <a name="SigAlgo"></a>
-## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L171>)
+## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L232>)
 
 ```go
 func SigAlgo(algo string, size int) x509.SignatureAlgorithm
 ```
 
-SigAlgo returns the signature algorithm for a key of algo \("RSA" or "ECDSA", case\-insensitive\) and size, as DefaultSigAlgo chooses it from a key: RSA 2048 and 3072 bits SHA\-256 \(XPKI\-114\), 4096 bits and above SHA\-512; ECDSA by curve size. Other algorithms give x509.UnknownSignatureAlgorithm.
+SigAlgo returns the signature algorithm for a key of algo \("RSA", "ECDSA" or "ML\-DSA", case\-insensitive\) and size, as DefaultSigAlgo chooses it from a key: RSA 2048 and 3072 bits SHA\-256 \(XPKI\-114\), 4096 bits and above SHA\-512; ECDSA by curve size; ML\-DSA by parameter set \(x509.MLDSA44, MLDSA65 or MLDSA87\). Other algorithms, and an ML\-DSA size that is not a parameter set, give x509.UnknownSignatureAlgorithm.
 
 <a name="AllowedFields"></a>
 ## type [AllowedFields](<https://github.com/effective-security/xpki/blob/main/csr/csr.go#L38-L44>)
@@ -468,7 +494,7 @@ func (e *GeneralName) Parse(raw asn1.RawValue) error
 Parse parses an DER\-encoded ASN.1 data structure and stores the result in the object.
 
 <a name="KeyPurpose"></a>
-## type [KeyPurpose](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L25>)
+## type [KeyPurpose](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L51>)
 
 KeyPurpose declares the purpose for keys
 
@@ -490,9 +516,9 @@ const (
 ```
 
 <a name="KeyRequest"></a>
-## type [KeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L47-L54>)
+## type [KeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L75-L82>)
 
-KeyRequest contains the algorithm and key size for a new private key.
+KeyRequest contains the algorithm and key size for a new private key: A is AlgoRSA, AlgoECDSA or AlgoMLDSA \(case\-insensitive\) and S the key size in bits, the curve size or the ML\-DSA parameter set number.
 
 ```go
 type KeyRequest struct {
@@ -505,7 +531,7 @@ type KeyRequest struct {
 ```
 
 <a name="NewKeyRequest"></a>
-### func [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L135>)
+### func [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L195>)
 
 ```go
 func NewKeyRequest(prov cryptoprov.Provider, label, algo string, keySize int, purpose KeyPurpose) *KeyRequest
@@ -514,7 +540,7 @@ func NewKeyRequest(prov cryptoprov.Provider, label, algo string, keySize int, pu
 NewKeyRequest returns KeyRequest from given parameters
 
 <a name="KeyRequest.Algo"></a>
-### func \(\*KeyRequest\) [Algo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L62>)
+### func \(\*KeyRequest\) [Algo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L90>)
 
 ```go
 func (kr *KeyRequest) Algo() string
@@ -523,16 +549,16 @@ func (kr *KeyRequest) Algo() string
 Algo returns the requested key algorithm represented as a string.
 
 <a name="KeyRequest.Generate"></a>
-### func \(\*KeyRequest\) [Generate](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L84>)
+### func \(\*KeyRequest\) [Generate](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L114>)
 
 ```go
 func (kr *KeyRequest) Generate() (crypto.PrivateKey, error)
 ```
 
-Generate generates a key as specified in the request. Currently, only ECDSA and RSA are supported.
+Generate generates a key as specified in the request: RSA, ECDSA or ML\-DSA \(through cryptoprov.KeyGenerator.GenerateMLDSAKey; a provider whose backend lacks ML\-DSA returns its own error\). ML\-DSA is a signature scheme, so an EncryptionKey purpose is rejected for it.
 
 <a name="KeyRequest.Label"></a>
-### func \(\*KeyRequest\) [Label](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L57>)
+### func \(\*KeyRequest\) [Label](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L85>)
 
 ```go
 func (kr *KeyRequest) Label() string
@@ -541,7 +567,7 @@ func (kr *KeyRequest) Label() string
 Label returns the requested key label.
 
 <a name="KeyRequest.Purpose"></a>
-### func \(\*KeyRequest\) [Purpose](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L72>)
+### func \(\*KeyRequest\) [Purpose](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L100>)
 
 ```go
 func (kr *KeyRequest) Purpose() int
@@ -550,7 +576,7 @@ func (kr *KeyRequest) Purpose() int
 Purpose returns the purpose of the key .
 
 <a name="KeyRequest.SigAlgo"></a>
-### func \(\*KeyRequest\) [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L78>)
+### func \(\*KeyRequest\) [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L106>)
 
 ```go
 func (kr *KeyRequest) SigAlgo() x509.SignatureAlgorithm
@@ -559,7 +585,7 @@ func (kr *KeyRequest) SigAlgo() x509.SignatureAlgorithm
 SigAlgo returns an appropriate X.509 signature algorithm given the key request's type and size.
 
 <a name="KeyRequest.Size"></a>
-### func \(\*KeyRequest\) [Size](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L67>)
+### func \(\*KeyRequest\) [Size](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L95>)
 
 ```go
 func (kr *KeyRequest) Size() int
@@ -568,7 +594,7 @@ func (kr *KeyRequest) Size() int
 Size returns the requested key size.
 
 <a name="KeyRequestGen"></a>
-## type [KeyRequestGen](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L37-L44>)
+## type [KeyRequestGen](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L63-L70>)
 
 KeyRequestGen contains the algorithm and key size for a new private key.
 
@@ -591,6 +617,15 @@ OID is the asn1's ObjectIdentifier, provide a custom JSON marshal / unmarshal.
 ```go
 type OID asn1.ObjectIdentifier
 ```
+
+<a name="ParseObjectIdentifier"></a>
+### func [ParseObjectIdentifier](<https://github.com/effective-security/xpki/blob/main/csr/types.go#L84>)
+
+```go
+func ParseObjectIdentifier(oidString string) (oid OID, err error)
+```
+
+ParseObjectIdentifier parses a dotted\-decimal OID string. The whole string must be digits separated by single dots; anything else is an error.
 
 <a name="OID.Equal"></a>
 ### func \(OID\) [Equal](<https://github.com/effective-security/xpki/blob/main/csr/types.go#L36>)
@@ -638,7 +673,7 @@ func (oid *OID) UnmarshalYAML(unmarshal func(any) error) error
 UnmarshalYAML unmarshals a YAML string into an OID.
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L23-L25>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L24-L26>)
 
 Provider extends cryptoprov.Crypto functionality to support CSP processing and certificate signing
 
@@ -649,7 +684,7 @@ type Provider struct {
 ```
 
 <a name="NewProvider"></a>
-### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L28>)
+### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L29>)
 
 ```go
 func NewProvider(provider cryptoprov.Provider) *Provider
@@ -658,7 +693,7 @@ func NewProvider(provider cryptoprov.Provider) *Provider
 NewProvider returns an instance of CSR provider
 
 <a name="Provider.CreateRequestAndExportKey"></a>
-### func \(\*Provider\) [CreateRequestAndExportKey](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L51>)
+### func \(\*Provider\) [CreateRequestAndExportKey](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L52>)
 
 ```go
 func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, key []byte, keyID string, pub crypto.PublicKey, err error)
@@ -667,7 +702,7 @@ func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, k
 CreateRequestAndExportKey takes a certificate request and generates a key and CSR from it.
 
 <a name="Provider.GenerateKeyAndRequest"></a>
-### func \(\*Provider\) [GenerateKeyAndRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L92>)
+### func \(\*Provider\) [GenerateKeyAndRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L93>)
 
 ```go
 func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte, priv crypto.PrivateKey, keyID string, err error)
@@ -676,7 +711,7 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 GenerateKeyAndRequest takes a certificate request and generates a key and CSR from it.
 
 <a name="Provider.NewKeyRequest"></a>
-### func \(\*Provider\) [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L124>)
+### func \(\*Provider\) [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L184>)
 
 ```go
 func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPurpose) *KeyRequest
@@ -685,7 +720,7 @@ func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPur
 NewKeyRequest returns KeyRequest from given parameters
 
 <a name="Provider.NewSigningCertificateRequest"></a>
-### func \(\*Provider\) [NewSigningCertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L35-L40>)
+### func \(\*Provider\) [NewSigningCertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L36-L41>)
 
 ```go
 func (c *Provider) NewSigningCertificateRequest(keyLabel, algo string, keySize int, CN string, names []X509Name, san []string) *CertificateRequest
@@ -694,7 +729,7 @@ func (c *Provider) NewSigningCertificateRequest(keyLabel, algo string, keySize i
 NewSigningCertificateRequest creates new request for signing certificate
 
 <a name="Provider.SignRequest"></a>
-### func \(\*Provider\) [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L131>)
+### func \(\*Provider\) [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L132>)
 
 ```go
 func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) (csrPEM []byte, err error)
@@ -787,7 +822,7 @@ func (r *SignRequest) SubjectCommonName() string
 SubjectCommonName returns CN in the request
 
 <a name="SignatureAlgorithmer"></a>
-## type [SignatureAlgorithmer](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L204-L206>)
+## type [SignatureAlgorithmer](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L205-L207>)
 
 SignatureAlgorithmer is implemented by a crypto.Signer whose key accepts a single X.509 signature algorithm, such as a KMS key whose algorithm fixes the hash and padding. DefaultSigAlgo returns that algorithm when it is not x509.UnknownSignatureAlgorithm.
 

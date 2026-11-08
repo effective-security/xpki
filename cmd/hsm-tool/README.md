@@ -97,8 +97,8 @@ Flags:
   -D, --debug                Enable debug mode
   -l, --log-level="error"    Set the logging level (debug|info|warn|error)
 
-      --algo=STRING          algorithm: RSA|ECDSA
-      --size=INT             key size in bits
+      --algo=STRING          algorithm: RSA|ECDSA|ML-DSA
+      --size=INT             key size in bits, or the ML-DSA parameter set: 44, 65 or 87
       --purpose=STRING       purpose of the key: SIGN|ENCRYPT
       --label=STRING         name for generated key
       --output=STRING        location to write the key, if not set, the output

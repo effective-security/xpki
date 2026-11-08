@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -50,7 +51,7 @@ func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
 
 // ParsePrivateKeyPEM parses and returns a PEM-encoded private
 // key. The private key may be either an unencrypted PKCS#8, PKCS#1,
-// or elliptic private key.
+// or elliptic private key; see ParsePrivateKeyDER for the key types.
 func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error) {
 	return ParsePrivateKeyPEMWithPassword(keyPEM, nil)
 }
@@ -59,7 +60,7 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error) {
 // key. The private key may be an unencrypted PKCS#8, PKCS#1, or SEC1 key,
 // or a legacy PEM block encrypted per RFC 1423 (Proc-Type: 4,ENCRYPTED);
 // encrypted PKCS#8 (ENCRYPTED PRIVATE KEY) is not supported. The key may be
-// RSA or ECDSA.
+// RSA, ECDSA, Ed25519 or ML-DSA (the last two PKCS#8 only).
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.PrivateKey, err error) {
 	keyDER, err := GetPrivateKeyDERFromPEM(keyPEM, password)
 	if err != nil {
@@ -97,7 +98,10 @@ func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error) {
 }
 
 // ParsePrivateKeyDER parses a PKCS #1, PKCS #8, ECDSA DER-encoded
-// private key. The key must not be in PEM format.
+// private key. The key must not be in PEM format. PKCS #8 keys may be RSA,
+// ECDSA, Ed25519 or ML-DSA; an ML-DSA key must be in the seed form
+// (RFC 9881), the form x509.MarshalPKCS8PrivateKey and
+// "openssl genpkey -provparam ml-dsa.output_formats=seed-only" write.
 func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
 	generalKey, pkcs8Err := x509.ParsePKCS8PrivateKey(keyDER)
 	if pkcs8Err != nil {
@@ -118,6 +122,8 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
 	case *ecdsa.PrivateKey:
 		return typ, nil
 	case ed25519.PrivateKey:
+		return typ, nil
+	case *mldsa.PrivateKey:
 		return typ, nil
 	}
 

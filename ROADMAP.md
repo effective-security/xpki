@@ -26,37 +26,36 @@ handling; add it when a caller needs KMS-held encryption keys.
 
 ## Post-quantum signatures: ML-DSA (FIPS 204)
 
-Add ML-DSA-44/65/87 as a signing key type across the module, with
-detection of post-quantum keys and algorithms. Design, verified toolchain
-baseline and the per-file inventory are in
-[`Documentation/design/pqc.md`](Documentation/design/pqc.md); the
-execution batches (PQ0–PQ6) and the open decisions D1–D7 are in
-[PLAN.md](PLAN.md#pqc-execution-plan-ml-dsa).
-[PR 568](https://github.com/effective-security/xpki/pull/568) is the
-starting point: `csr` constants, parameter-set validation and
-`IsPostQuantumAlgo`; key generation is not implemented there.
+v1.1 ships ML-DSA-44/65/87 keys through every provider, CSRs,
+certificates, CRLs, proofs, detection helpers, an `allowed_key_algorithms`
+profile policy and `hsm-tool` support (see
+[`Documentation/RELEASE_NOTES_1.1.md`](Documentation/RELEASE_NOTES_1.1.md)
+and [`Documentation/design/pqc.md`](Documentation/design/pqc.md)). Open
+work, each item its own change when wanted:
 
-- Go 1.27 (`crypto/mldsa`, `crypto/x509`) already signs and verifies CSRs,
-  certificates and CRLs with ML-DSA keys, so the library work is in the
-  provider contract and in every place that assumes RSA or ECDSA:
-  `cryptoprov.KeyGenerator` (an optional `MLDSAKeyGenerator` interface,
-  promoted at the next major version), `csr.KeyRequest.Generate`/`SigAlgo`/
-  `DefaultSigAlgo`, `certutil.NewKeyInfo`/`ParsePrivateKeyDER`/
-  `EncodePrivateKeyToPEM`/bundler key check, `authority.CreateIssuer`/
-  `SignProof`/`VerifyProof`, the `inmemcrypto`, `testprov`, `awskmscrypto`,
-  `gcpkmscrypto` and `crypto11` providers, `hsm-tool` and `x/print`.
-- ML-DSA signs a message, not a digest: provider signers accept a message
-  (nil or `*mldsa.Options`) or a 64-byte μ (`crypto.MLDSAMu`); KMS signers
-  compute μ locally and use the external-μ operations.
-- Constraints: `golang.org/x/crypto/ocsp` cannot sign with ML-DSA, so an
-  ML-DSA issuer needs a delegated classical OCSP responder until responses
-  are built locally; `miekg/pkcs11` lacks the PKCS#11 v3.2 constants and
-  SoftHSM 2.6.1 has no ML-DSA, so `crypto11` needs a v3.2 software token
-  fixture; `local-kms` 3.11.7 rejects ML-DSA key specs, so the AWS
-  integration test stays gated and the unit tests use the in-process fake.
-- Later milestones, each its own item when wanted: ML-DSA in `jwt`/`dpop`
-  (RFC 9964 via go-jose v4.1.9), composite/hybrid signatures, SLH-DSA,
-  ML-KEM for `dataprotection`.
+- **`crypto11` verification** (PLAN.md PQ5b): the PKCS#11 v3.2 ML-DSA code
+  has not run against a token; provision a v3.2 software token (Kryoptic)
+  as a fixture, verify and fix, add the parameter set to `KeyInfo.Meta`,
+  decide on `CK_SIGN_ADDITIONAL_CONTEXT` (context strings, deterministic
+  signing).
+- **Live KMS confirmation**: the AWS (`EXTERNAL_MU`/`ML_DSA_SHAKE_256`) and
+  GCP (`PQ_SIGN_ML_DSA_*`, `data`/`data_crc32c`) request shapes follow the
+  SDK types and documentation and are exercised against in-process fakes;
+  `local-kms` 3.11.7 rejects ML-DSA key specs. Run `TestKmsProviderMLDSA`
+  and a GCP smoke test against the real services once and record the result.
+- **OCSP with an ML-DSA responder**: `golang.org/x/crypto/ocsp` signs with
+  RSA/ECDSA only, so an ML-DSA issuer needs a delegated classical
+  responder (D5). Build the response locally (or upstream the change) so an
+  ML-DSA key can sign OCSP, and make the delegated responder key algorithm
+  configurable.
+- **ML-DSA in `jwt`/`jwt/dpop`** (RFC 9964: `ML-DSA-44/65/87` JOSE
+  algorithms, `AKP` JWKs; go-jose v4.1.9 implements them on Go 1.27):
+  `NewSignerInfo`, `VerifySignature`, JWKS `AKP` keys, the DPoP algorithm
+  allow-list, and `oauth2client.Client.PublicKey` widened to
+  `crypto.PublicKey`. Today an ML-DSA signer is rejected with an error.
+- Later: composite/hybrid signatures (draft-ietf-lamps-pq-composite-sigs),
+  SLH-DSA (FIPS 205), ML-KEM (FIPS 203, `crypto/mlkem`) for
+  `dataprotection` or TLS.
 
 ## DPoP: replay protection and access-token binding
 
