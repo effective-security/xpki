@@ -32,8 +32,9 @@ The module is `github.com/effective-security/xpki` and targets Go 1.27.
 | `testca`                  | Test-only CA and certificate generator                                                           |
 
 See [`Documentation/codemap.md`](Documentation/codemap.md) for entry points
-and invariants per package, [`FINDINGS.md`](FINDINGS.md) for known defects,
-and [`ROADMAP.md`](ROADMAP.md) for planned work.
+and invariants per package, [`Documentation/design`](Documentation/design/README.md)
+for the high-level design of the main packages, [`FINDINGS.md`](FINDINGS.md)
+for known defects, and [`ROADMAP.md`](ROADMAP.md) for planned work.
 
 ## Install
 

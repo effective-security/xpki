@@ -24,6 +24,40 @@ GCP `RSA_DECRYPT_OAEP_*`) needs `KeyManager` listing and `GetKey` to return
 a decrypter for such keys, and `crypto11`-compatible `*rsa.OAEPOptions`
 handling; add it when a caller needs KMS-held encryption keys.
 
+## Post-quantum signatures: ML-DSA (FIPS 204)
+
+Add ML-DSA-44/65/87 as a signing key type across the module, with
+detection of post-quantum keys and algorithms. Design, verified toolchain
+baseline and the per-file inventory are in
+[`Documentation/design/pqc.md`](Documentation/design/pqc.md); the
+execution batches (PQ0–PQ6) and the open decisions D1–D7 are in
+[PLAN.md](PLAN.md#pqc-execution-plan-ml-dsa).
+[PR 568](https://github.com/effective-security/xpki/pull/568) is the
+starting point: `csr` constants, parameter-set validation and
+`IsPostQuantumAlgo`; key generation is not implemented there.
+
+- Go 1.27 (`crypto/mldsa`, `crypto/x509`) already signs and verifies CSRs,
+  certificates and CRLs with ML-DSA keys, so the library work is in the
+  provider contract and in every place that assumes RSA or ECDSA:
+  `cryptoprov.KeyGenerator` (an optional `MLDSAKeyGenerator` interface,
+  promoted at the next major version), `csr.KeyRequest.Generate`/`SigAlgo`/
+  `DefaultSigAlgo`, `certutil.NewKeyInfo`/`ParsePrivateKeyDER`/
+  `EncodePrivateKeyToPEM`/bundler key check, `authority.CreateIssuer`/
+  `SignProof`/`VerifyProof`, the `inmemcrypto`, `testprov`, `awskmscrypto`,
+  `gcpkmscrypto` and `crypto11` providers, `hsm-tool` and `x/print`.
+- ML-DSA signs a message, not a digest: provider signers accept a message
+  (nil or `*mldsa.Options`) or a 64-byte μ (`crypto.MLDSAMu`); KMS signers
+  compute μ locally and use the external-μ operations.
+- Constraints: `golang.org/x/crypto/ocsp` cannot sign with ML-DSA, so an
+  ML-DSA issuer needs a delegated classical OCSP responder until responses
+  are built locally; `miekg/pkcs11` lacks the PKCS#11 v3.2 constants and
+  SoftHSM 2.6.1 has no ML-DSA, so `crypto11` needs a v3.2 software token
+  fixture; `local-kms` 3.11.7 rejects ML-DSA key specs, so the AWS
+  integration test stays gated and the unit tests use the in-process fake.
+- Later milestones, each its own item when wanted: ML-DSA in `jwt`/`dpop`
+  (RFC 9964 via go-jose v4.1.9), composite/hybrid signatures, SLH-DSA,
+  ML-KEM for `dataprotection`.
+
 ## DPoP: replay protection and access-token binding
 
 `dpop.VerifyConfig` has an opt-in `ReplayCache` (in-memory only), `ath` and

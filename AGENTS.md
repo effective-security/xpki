@@ -196,6 +196,10 @@ Start here instead of grepping the tree.
 - **[`Documentation/codemap.md`](Documentation/codemap.md)** — concept
   index, per-package files and entry points, invariants, internal
   dependencies, test layout, build and CI.
+- **[`Documentation/design/`](Documentation/design/README.md)** — high-level
+  design of `cryptoprov`, `crypto11`, `csr`, `authority` and
+  `dataprotection`, plus the cross-cutting post-quantum (ML-DSA) design and
+  code inventory in `pqc.md`.
 - **[`README.md`](README.md)** — high-level overview, package table,
   configuration samples and quick-start code.
 - **[`FINDINGS.md`](FINDINGS.md)** — open defects, referenced by ID from

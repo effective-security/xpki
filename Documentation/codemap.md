@@ -8,6 +8,7 @@ grep for something that belongs in this map, add the row in the same change
 - High level purpose and samples: [README.md](../README.md)
 - Known defects and verified fixes, with IDs referenced from code comments: [FINDINGS.md](../FINDINGS.md)
 - Larger planned work: [ROADMAP.md](../ROADMAP.md)
+- High-level design per package (why it is built this way, extension points, post-quantum readiness): [design](./design/README.md)
 - Generated API reference (`make docs`, gomarkdoc, do not edit): [api](./api)
 
 ## Module layout
