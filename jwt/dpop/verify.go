@@ -299,7 +299,7 @@ const jwsJSONPrefix = "{"
 
 func proofHeaders(phdr string) ([]jose.Header, error) {
 	if strings.HasPrefix(strings.TrimSpace(phdr), jwsJSONPrefix) {
-		jws, err := jose.ParseSigned(phdr, supportedSignatureAlgorithms)
+		jws, err := jose.ParseSignedJSON(phdr, supportedSignatureAlgorithms)
 		if err != nil {
 			return nil, err
 		}

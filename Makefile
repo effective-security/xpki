@@ -34,13 +34,13 @@ clean:
 # `make tools lint covtest docs` on a clean checkout, and commit the result
 # together with any .golangci.yaml change the new release needs.
 GOLANGCI_LINT_VERSION ?= v2.14.0
-COV_REPORT_VERSION ?= v1.1.0
+COV_REPORT_VERSION ?= v1.2.1
 GOVULNCHECK_VERSION ?= v1.8.0
 GOMARKDOC_VERSION ?= v1.1.0
 
 tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-	go install github.com/go-phorce/cov-report/cmd/cov-report@$(COV_REPORT_VERSION)
+	go install github.com/effective-security/cov-report/cmd/cov-report@$(COV_REPORT_VERSION)
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@$(GOMARKDOC_VERSION)
 
