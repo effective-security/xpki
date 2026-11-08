@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"testing"
@@ -86,6 +87,45 @@ func TestKeyInfoOpaqueKeys(t *testing.T) {
 
 	_, err = certutil.NewKeyInfo(opaqueSigner{edKey})
 	require.EqualError(t, err, "key not supported: ed25519.PublicKey")
+}
+
+// TestKeyInfoMLDSA checks the D3 values for every parameter set and input
+// form: Type "ML-DSA", KeySize the parameter set number, no hash (the key
+// signs the message), IsPrivate only for the in-memory private key.
+func TestKeyInfoMLDSA(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		params mldsa.Parameters
+		size   int
+	}{
+		{mldsa.MLDSA44(), 44},
+		{mldsa.MLDSA65(), 65},
+		{mldsa.MLDSA87(), 87},
+	} {
+		t.Run(tc.params.String(), func(t *testing.T) {
+			t.Parallel()
+			key, err := mldsa.GenerateKey(tc.params)
+			require.NoError(t, err)
+
+			check := func(k any, private bool, wantKey any) {
+				t.Helper()
+				ki, err := certutil.NewKeyInfo(k)
+				require.NoError(t, err)
+				assert.Equal(t, certutil.KeyTypeMLDSA, ki.Type)
+				assert.Equal(t, tc.size, ki.KeySize)
+				assert.Equal(t, crypto.Hash(0), ki.Hash)
+				assert.Equal(t, private, ki.IsPrivate)
+				assert.Equal(t, wantKey, ki.Key)
+			}
+			check(key, true, key)
+			check(key.PublicKey(), false, key.PublicKey())
+			check(key.Public(), false, key.Public())
+			check(opaqueSigner{key}, false, opaqueSigner{key})
+			// a JWK reports the key it wraps
+			check(&jose.JSONWebKey{Key: key}, true, key)
+			check(&jose.JSONWebKey{Key: key.PublicKey()}, false, key.PublicKey())
+		})
+	}
 }
 
 // localKMSAddr is the local-kms container that aws-dev-kms.yaml points to.

@@ -11,6 +11,33 @@ which adds the `csr` constants, parameter validation and
 `IsPostQuantumAlgo`; its review notes that key generation is not
 implemented, which this document plans.
 
+## Status (v1.1)
+
+Implemented in v1.1 and summarized in
+[`RELEASE_NOTES_1.1.md`](../RELEASE_NOTES_1.1.md): batches PQ0–PQ4 and PQ6
+of the plan (foundations, in-memory providers and `testca`, `authority`,
+AWS KMS, GCP KMS, CLI and documentation), with these deviations from the
+recommendations below:
+
+- **D1**: `GenerateMLDSAKey` was folded into `cryptoprov.KeyGenerator`
+  directly (v1.1 permits breaking changes) instead of an optional
+  `MLDSAKeyGenerator` interface; there is no "not implemented" path in
+  `csr`, a backend without ML-DSA returns its own error.
+- **D2**: `algo: ML-DSA` and `MLDSA` (case-insensitive) are accepted; the
+  `DILITHIUM` alias of PR 568 is not, since the keys are FIPS 204 ML-DSA,
+  not round-3 Dilithium.
+- **D5**: `CreateIssuer` rejects an ML-DSA signer only when `aia.ocsp_url`
+  is set without `aia.delegated_ocsp_profile` (an `aia` block for CRL and
+  issuer URLs alone is fine); in addition `SignOCSP` refuses to sign with
+  an ML-DSA responder key in every configuration.
+- **PQ5** (`crypto11`): the code is in place but has not run against a
+  PKCS#11 v3.2 token (none was available; see PLAN.md PQ5b). μ and context
+  strings are rejected by that provider. The `crypto11` tables in
+  [crypto11.md](crypto11.md#post-quantum-readiness) describe the state.
+
+The code inventory below records the v1.0 baseline the work started from
+and the change made for each site.
+
 ## Scope
 
 In scope for the first milestone:
@@ -45,7 +72,7 @@ Checked on this machine; recheck when a version changes.
 | SoftHSM (test fixture)                      | 2.6.1            | **No** ML-DSA mechanisms. A PKCS#11 v3.2 software token (for example Kryoptic) or a vendor HSM is needed for `crypto11` tests.                                                                                                              |
 | AWS KMS SDK (`service/kms`)                 | v1.62.5          | `KeySpec` `ML_DSA_44/65/87`, `SigningAlgorithmSpec` `ML_DSA_SHAKE_256`. The service signs a `RAW` message or an `EXTERNAL_MU` 64-byte μ; the RAW message size is bounded by the API (4096 bytes), to be confirmed against the live service. |
 | `nsmithuk/local-kms` (test fixture)         | 3.11.7           | **No.** `CreateKey` with `KeySpec=ML_DSA_65` returns `ValidationException` listing only RSA, ECC and symmetric specs (checked against the running container).                                                                               |
-| GCP KMS SDK (`cloud.google.com/go/kms`)     | v1.36.1          | `CryptoKeyVersion` algorithms `PQ_SIGN_ML_DSA_44/65/87` and `PQ_SIGN_ML_DSA_*_EXTERNAL_MU` (plus SLH-DSA variants). PQ algorithms take the message in `AsymmetricSignRequest.data`, not a digest; the `EXTERNAL_MU` variants take μ.           |
+| GCP KMS SDK (`cloud.google.com/go/kms`)     | v1.36.1          | `CryptoKeyVersion` algorithms `PQ_SIGN_ML_DSA_44/65/87` and `PQ_SIGN_ML_DSA_*_EXTERNAL_MU` (plus SLH-DSA variants). PQ algorithms take the message in `AsymmetricSignRequest.data` (bounded by the API, 64 KiB), not a digest; the `EXTERNAL_MU` variants take μ. `GetPublicKey` of a PQ version requires `public_key_format=NIST_PQC` and returns the raw FIPS 204 key with a CRC32C in `public_key`, no PEM (SDK contract; not run live).           |
 | `github.com/go-jose/go-jose/v4`             | v4.1.9           | RFC 9964 ML-DSA algorithms and `AKP` JWKs on Go 1.27 (recognized but unusable on older toolchains).                                                                                                                                         |
 | OpenSSL (interop vectors)                   | 3.5.5            | `ML-DSA-44/65/87` signature algorithms available (`openssl list -signature-algorithms`); can generate PKCS#8, SPKI, CSR and certificate test vectors.                                                                                        |
 
@@ -160,7 +187,7 @@ See the table in [authority.md](authority.md#post-quantum-readiness):
 module; `crypto/x509` knows the ML-DSA OIDs), `metricskey`,
 `internal/version`.
 
-## Decisions (proposed, Needs Approval)
+## Decisions (approved 2026-11-08; outcome in "Status (v1.1)")
 
 | ID | Question                                                                                      | Recommendation                                                                                                                                                                                                                                                                                       |
 | -- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

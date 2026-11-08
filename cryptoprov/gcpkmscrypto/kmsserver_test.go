@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -260,6 +261,30 @@ func algorithmScheme(algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm)
 	}
 }
 
+// mldsaAlgorithm is the test's own table of the ML-DSA algorithms: the
+// parameter set and whether KMS takes μ (EXTERNAL_MU) or the message.
+func mldsaAlgorithm(algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) (params mldsa.Parameters, externalMu bool, ok bool) {
+	switch algorithm {
+	case kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_44:
+		return mldsa.MLDSA44(), false, true
+	case kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65:
+		return mldsa.MLDSA65(), false, true
+	case kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_87:
+		return mldsa.MLDSA87(), false, true
+	case kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_44_EXTERNAL_MU:
+		return mldsa.MLDSA44(), true, true
+	case kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65_EXTERNAL_MU:
+		return mldsa.MLDSA65(), true, true
+	case kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_87_EXTERNAL_MU:
+		return mldsa.MLDSA87(), true, true
+	default:
+		return mldsa.Parameters{}, false, false
+	}
+}
+
+// mldsaMuSize is the length of the μ an EXTERNAL_MU algorithm accepts.
+const mldsaMuSize = 64
+
 var (
 	rsaKeysMu sync.Mutex
 	rsaKeys   = map[int]*rsa.PrivateKey{}
@@ -281,6 +306,9 @@ func testRSAKey(bits int) (*rsa.PrivateKey, error) {
 }
 
 func newLocalKey(algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) (crypto.Signer, error) {
+	if params, _, ok := mldsaAlgorithm(algorithm); ok {
+		return mldsa.GenerateKey(params)
+	}
 	switch algorithm {
 	case kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256:
 		return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -427,6 +455,29 @@ func (s *fakeKMSServer) GetPublicKey(_ context.Context, req *kmspb.GetPublicKeyR
 	if v.pending > 0 || v.pb.GetState() != kmspb.CryptoKeyVersion_ENABLED {
 		return nil, status.Errorf(codes.FailedPrecondition, "crypto key version %q is not enabled", req.GetName())
 	}
+	// As the service does: a PQ version is returned only in the NIST_PQC
+	// format, as raw bytes with a checksum and no PEM; a classical version
+	// is returned as PEM unless another format is asked for.
+	format := req.GetPublicKeyFormat()
+	if _, _, ok := mldsaAlgorithm(v.pb.GetAlgorithm()); ok {
+		if format != kmspb.PublicKey_NIST_PQC {
+			return nil, status.Errorf(codes.InvalidArgument, "public_key_format NIST_PQC is required for algorithm %s", v.pb.GetAlgorithm())
+		}
+		raw := v.signer.Public().(*mldsa.PublicKey).Bytes()
+		return &kmspb.PublicKey{
+			Name:            req.GetName(),
+			Algorithm:       v.pb.GetAlgorithm(),
+			PublicKeyFormat: kmspb.PublicKey_NIST_PQC,
+			PublicKey: &kmspb.ChecksummedData{
+				Data:           raw,
+				Crc32CChecksum: wrapperspb.Int64(int64(gcpkmscrypto.Crc32c(raw))),
+			},
+			ProtectionLevel: kmspb.ProtectionLevel_HSM,
+		}, nil
+	}
+	if format != kmspb.PublicKey_PUBLIC_KEY_FORMAT_UNSPECIFIED && format != kmspb.PublicKey_PEM {
+		return nil, status.Errorf(codes.InvalidArgument, "public_key_format %s is not valid for algorithm %s", format, v.pb.GetAlgorithm())
+	}
 	der, err := x509.MarshalPKIXPublicKey(v.signer.Public())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "marshal public key: %v", err)
@@ -448,6 +499,9 @@ func (s *fakeKMSServer) AsymmetricSign(_ context.Context, req *kmspb.AsymmetricS
 	}
 	if v.pending > 0 || v.pb.GetState() != kmspb.CryptoKeyVersion_ENABLED {
 		return nil, status.Errorf(codes.FailedPrecondition, "crypto key version %q is not enabled", req.GetName())
+	}
+	if _, externalMu, ok := mldsaAlgorithm(v.pb.GetAlgorithm()); ok {
+		return signMLDSA(v, externalMu, req)
 	}
 	hash, pss, ok := algorithmScheme(v.pb.GetAlgorithm())
 	if !ok {
@@ -495,6 +549,44 @@ func (s *fakeKMSServer) AsymmetricSign(_ context.Context, req *kmspb.AsymmetricS
 		SignatureCrc32C:      wrapperspb.Int64(int64(gcpkmscrypto.Crc32c(sig))),
 		VerifiedDigestCrc32C: req.GetDigestCrc32C() != nil,
 		ProtectionLevel:      kmspb.ProtectionLevel_HSM,
+	}, nil
+}
+
+// signMLDSA signs req.Data with an ML-DSA version the way KMS does: the
+// data is the 64-byte μ for an EXTERNAL_MU algorithm and the message
+// otherwise, a digest is not accepted, and the data checksum is verified.
+func signMLDSA(v *fakeVersion, externalMu bool, req *kmspb.AsymmetricSignRequest) (*kmspb.AsymmetricSignResponse, error) {
+	key, ok := v.signer.(*mldsa.PrivateKey)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "unexpected key type %T", v.signer)
+	}
+	if req.GetDigest() != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "algorithm %s does not accept a digest", v.pb.GetAlgorithm())
+	}
+	data := req.GetData()
+	if len(data) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "data is required")
+	}
+	if crc := req.GetDataCrc32C(); crc != nil && crc.GetValue() != int64(gcpkmscrypto.Crc32c(data)) {
+		return nil, status.Error(codes.InvalidArgument, "data checksum mismatch")
+	}
+	var opts crypto.SignerOpts
+	if externalMu {
+		if len(data) != mldsaMuSize {
+			return nil, status.Errorf(codes.InvalidArgument, "algorithm %s needs a %d-byte mu", v.pb.GetAlgorithm(), mldsaMuSize)
+		}
+		opts = crypto.MLDSAMu
+	}
+	sig, err := key.Sign(rand.Reader, data, opts)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "sign: %v", err)
+	}
+	return &kmspb.AsymmetricSignResponse{
+		Name:               req.GetName(),
+		Signature:          sig,
+		SignatureCrc32C:    wrapperspb.Int64(int64(gcpkmscrypto.Crc32c(sig))),
+		VerifiedDataCrc32C: req.GetDataCrc32C() != nil,
+		ProtectionLevel:    kmspb.ProtectionLevel_HSM,
 	}, nil
 }
 

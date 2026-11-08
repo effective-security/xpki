@@ -136,14 +136,22 @@ need the SoftHSM token and are gated with `internal/testenv.RequireFile`
 
 ## Post-quantum readiness
 
-Places in this package that assume RSA or ECDSA, and what ML-DSA (FIPS 204)
-support needs from them (details and phases in [pqc.md](pqc.md)):
+Implemented in v1.1 (see [pqc.md](pqc.md) for the cross-cutting design):
 
-| Location                              | Today                                                                  | Needed                                                                                                                         |
-| ------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `provider.go` `KeyGenerator`          | `GenerateRSAKey`, `GenerateECDSAKey` only                              | A way to request an ML-DSA key by parameter set (optional `MLDSAKeyGenerator` interface, promoted later)                       |
-| `provider.go` `KeyInfo.Type`          | Free-form string filled by backends (`RSA`, `ECDSA`)                   | Agree the value `ML-DSA` (and the parameter set in `Meta` or `KeySize`) across backends                                         |
-| `utils.go` `ParsePrivateKeyDER`       | Accepts `*rsa`, `*ecdsa`, `ed25519` from PKCS#8/PKCS#1/SEC1            | Accept `*mldsa.PrivateKey` from PKCS#8 (Go 1.27 `x509.ParsePKCS8PrivateKey` already returns it)                               |
-| `utils.go` `TLSKeyPair`               | Compares keys with `Equal`                                              | Works as is (`*mldsa.PublicKey` implements `Equal`)                                                                           |
-| `signer.go`, `LoadPrivateKey`         | Key-type agnostic                                                      | No change                                                                                                                      |
-| `doc.go`, README samples              | Name RSA/ECDSA                                                         | Mention ML-DSA once supported                                                                                                  |
+- `KeyGenerator.GenerateMLDSAKey(label, params)` is part of the provider
+  contract; every provider in this module implements it. External
+  implementers must add it (v1.1 is a breaking release).
+- `mldsa.go` holds the shared pieces of the contract: `MLDSAParameters`
+  (44/65/87 → `mldsa.Parameters`), `MLDSASignerOptions` (the message with
+  nil, zero-hash or `*mldsa.Options`; μ with `crypto.MLDSAMu`; every
+  digest hash rejected) and `MLDSAMu` (FIPS 204 Algorithm 7, used by the
+  KMS signers so the message never leaves the process).
+- `KeyInfo.Type` is `ML-DSA` and `Meta[MetaParameterSet]` the parameter set
+  name for ML-DSA keys; the KMS providers now also fill `Type` for RSA and
+  ECDSA keys.
+- `ParsePrivateKeyDER`/`ParsePrivateKeyPEM` return `*mldsa.PrivateKey` for
+  a PKCS#8 seed-form key; the seed-and-expanded form OpenSSL writes by
+  default is rejected by the standard library.
+
+Remaining: the `Provider` interfaces still take no `context.Context`
+(ROADMAP), and `jwt` does not sign with ML-DSA keys.

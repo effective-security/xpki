@@ -113,23 +113,30 @@ a gated `countingSigner`.
 
 ## Post-quantum readiness
 
-Checked on 2026-11-08 with Go 1.27.3: `x509.CreateCertificate` and
-`x509.CreateRevocationList` sign with an ML-DSA key, including an opaque
-`crypto.Signer` whose `Public()` is `*mldsa.PublicKey` (x509 passes the
-whole TBS with `crypto.Hash(0)` as options), and `Verify` accepts the
-resulting chain. `golang.org/x/crypto/ocsp` v0.58.0 does **not**: its
-`signingParamsForPublicKey` accepts RSA and ECDSA only, so an ML-DSA CA key
-cannot sign OCSP responses through that library.
+Implemented in v1.1:
 
-| Location                                             | Today                                                                 | Needed                                                                                                                                                                    |
-| ---------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `issuer.go` `CreateIssuer` → `certutil.NewKeyInfo`   | Fails for a non-RSA/ECDSA signer, so an ML-DSA issuer cannot be built | `certutil.NewKeyInfo` support (type `ML-DSA`, parameter set, no hash)                                                                                                     |
-| `issuer.go` `sigAlgo = csr.DefaultSigAlgo(signer)`   | RSA/ECDSA only                                                        | Follows the `csr` change (`x509.MLDSA44/65/87`)                                                                                                                           |
-| `issuer.go` `sign` → `x509.CreateCertificate`        | Works (verified)                                                      | No change; CSR public keys of type ML-DSA are accepted by x509 as is                                                                                                       |
-| `issuer.go` `SignProof` / `VerifyProof`              | Hash-then-sign with `keyInfo.Hash`; verify asserts `*rsa`/`*ecdsa`    | Branch on key type: ML-DSA signs the message (nil or `*mldsa.Options`) and verifies with `mldsa.Verify`; today's assertions would panic on an ML-DSA public key           |
-| `ocsp.go` `SignOCSP` → `ocsp.CreateResponse`         | RSA/ECDSA signer only (library limit)                                 | Decision: require a delegated responder with a classical key for ML-DSA issuers (reject in `CreateIssuer` otherwise), or build the response locally; see pqc.md D5        |
-| `ocsp.go` delegated responder key                    | Hard-coded `ecdsa`, 256, from `inmemcrypto`                           | Keep classical until OCSP signing supports ML-DSA; make the algorithm configurable later                                                                                   |
-| `issuer.go` `keyHash`/`nameHash`                     | Hash over SPKI bits and subject                                       | No change (independent of key type)                                                                                                                                       |
-| `config.go` `CertProfile`                            | No policy on the CSR public key algorithm or size                     | Optional `allowed_key_algorithms` (decision D7) so a profile can require or forbid ML-DSA keys; default keeps today's behavior                                             |
-| `root.go` `NewRoot`, `util.go` `GenCert`             | Work through `csr`                                                    | No change once `csr` and a provider support ML-DSA                                                                                                                        |
-| `README.md`, `testdata/csrprofiles`                  | RSA/ECDSA samples                                                     | Add an ML-DSA profile sample and the OCSP constraint                                                                                                                       |
+- `CreateIssuer` accepts an ML-DSA signer (`certutil.NewKeyInfo` reports
+  type `ML-DSA`, the parameter set as `KeySize` and no hash) and signs
+  certificates and CRLs with `x509.MLDSA44/65/87` through
+  `csr.DefaultSigAlgo`. An ML-DSA issuer certifies classical and ML-DSA
+  keys alike, and a classical issuer certifies ML-DSA keys.
+- `SignProof` signs the data itself with an ML-DSA key (nil options) and
+  `VerifyProof` switches on the public key type (`mldsa.Verify`), so an
+  unknown key type is an error instead of a type-assertion panic.
+- OCSP (decision D5): `golang.org/x/crypto/ocsp` signs with RSA and ECDSA
+  keys only. `CreateIssuer` rejects an ML-DSA signer whose `aia.ocsp_url`
+  is set without `aia.delegated_ocsp_profile`; with no OCSP URL the issuer
+  is accepted, and `SignOCSP` refuses to sign with the CA key. The
+  delegated responder keeps its in-memory P-256 key and is certified by the
+  ML-DSA CA, so responses parse with `ocsp.ParseResponse` against the
+  ML-DSA issuer certificate.
+- `CertProfile.AllowedKeyAlgorithms` (`allowed_key_algorithms`: `rsa`,
+  `ecdsa`, `ed25519`, `ml-dsa`; decision D7) restricts the public key
+  algorithm of a CSR; empty keeps every key x509 can certify. `Validate`
+  rejects unknown names and `Sign` fails with `public key algorithm X is
+  not allowed by profile P`.
+- `testdata/csrprofiles/mldsa_server.yaml` is the ML-DSA request sample.
+
+Remaining: an ML-DSA OCSP responder needs responses built locally (or
+upstream support in `x/crypto/ocsp`); the delegated responder key algorithm
+is not configurable.

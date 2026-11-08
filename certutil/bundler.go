@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"context"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -701,9 +699,10 @@ func (b *Chain) buildHostnames() {
 
 // Bundle takes an X509 certificate (already in the
 // Certificate structure), a private key as crypto.Signer in one of the appropriate
-// formats (i.e. *rsa.PrivateKey or *ecdsa.PrivateKey, or even a opaque key), using them to
-// build a certificate bundle. certs[0] is the leaf (a reversed chain is
-// detected). A nil or empty certs returns an error matching
+// formats (i.e. *rsa.PrivateKey, *ecdsa.PrivateKey or *mldsa.PrivateKey, or even an
+// opaque key), using them to build a certificate bundle. certs[0] is the
+// leaf (a reversed chain is detected); its key must be RSA, ECDSA or ML-DSA.
+// A nil or empty certs returns an error matching
 // ErrNoCertificates, and a nil entry returns an error (XPKI-036).
 func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, error) {
 	return b.BundleContext(context.Background(), certs, key)
@@ -731,35 +730,16 @@ func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, 
 		}
 	}
 
-	var ok bool
 	cert := certs[0]
+	if !isSupportedLeafKeyAlgorithm(cert.PublicKeyAlgorithm) {
+		return nil, errors.New("unsupported key")
+	}
 	if key != nil {
-		switch cert.PublicKeyAlgorithm {
-		case x509.RSA:
-			var rsaPublicKey *rsa.PublicKey
-			if rsaPublicKey, ok = key.Public().(*rsa.PublicKey); !ok {
-				return nil, errors.New("key mismatch")
-			}
-			if !cert.PublicKey.(*rsa.PublicKey).Equal(rsaPublicKey) {
-				return nil, errors.New("key mismatch")
-			}
-		case x509.ECDSA:
-			var ecdsaPublicKey *ecdsa.PublicKey
-			if ecdsaPublicKey, ok = key.Public().(*ecdsa.PublicKey); !ok {
-				return nil, errors.New("key mismatch")
-			}
-			if !cert.PublicKey.(*ecdsa.PublicKey).Equal(ecdsaPublicKey) {
-				return nil, errors.New("key mismatch")
-			}
-		default:
-			return nil, errors.New("unsupported key")
-		}
-	} else {
-		switch cert.PublicKeyAlgorithm {
-		case x509.RSA:
-		case x509.ECDSA:
-		default:
-			return nil, errors.New("unsupported key")
+		// every supported public key type implements Equal, which also
+		// rejects a key of another type
+		pub, ok := cert.PublicKey.(interface{ Equal(crypto.PublicKey) bool })
+		if !ok || !pub.Equal(key.Public()) {
+			return nil, errors.New("key mismatch")
 		}
 	}
 
@@ -987,4 +967,15 @@ func compareChainExpiry(chain1, chain2 []*x509.Certificate) int {
 	t1 := ExpiryTime(chain1)
 	t2 := ExpiryTime(chain2)
 	return compareTime(t1, t2)
+}
+
+// isSupportedLeafKeyAlgorithm reports whether Bundle accepts a leaf with
+// the public key algorithm: RSA, ECDSA or ML-DSA.
+func isSupportedLeafKeyAlgorithm(algo x509.PublicKeyAlgorithm) bool {
+	switch algo {
+	case x509.RSA, x509.ECDSA, x509.MLDSA:
+		return true
+	default:
+		return false
+	}
 }

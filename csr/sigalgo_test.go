@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/effective-security/xpki/csr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // stubSigner is a crypto.Signer that only reports a public key.
@@ -58,6 +60,11 @@ func TestSigAlgo(t *testing.T) {
 		{"ECDSA", csr.CurveP521, x509.ECDSAWithSHA512},
 		{"ECDSA", 224, x509.ECDSAWithSHA256},
 		{"Ed25519", 0, x509.UnknownSignatureAlgorithm},
+		{"ML-DSA", csr.MLDSA44, x509.MLDSA44},
+		{"ml-dsa", csr.MLDSA65, x509.MLDSA65},
+		{"MLDSA", csr.MLDSA87, x509.MLDSA87},
+		{"ML-DSA", 256, x509.UnknownSignatureAlgorithm},
+		{"ML-DSA", 0, x509.UnknownSignatureAlgorithm},
 	} {
 		assert.Equal(t, tc.want, csr.SigAlgo(tc.algo, tc.size), "%s %d", tc.algo, tc.size)
 	}
@@ -68,6 +75,12 @@ func TestSigAlgo(t *testing.T) {
 func TestDefaultSigAlgo(t *testing.T) {
 	t.Parallel()
 	p256 := &ecdsa.PublicKey{Curve: elliptic.P256()}
+	mldsa44, err := mldsa.GenerateKey(mldsa.MLDSA44())
+	require.NoError(t, err)
+	mldsa65, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	mldsa87, err := mldsa.GenerateKey(mldsa.MLDSA87())
+	require.NoError(t, err)
 	for _, tc := range []struct {
 		name string
 		key  crypto.Signer
@@ -86,6 +99,10 @@ func TestDefaultSigAlgo(t *testing.T) {
 		{"advertised 4096 sha256", algoSigner{stubSigner{rsaPublic(4096)}, x509.SHA256WithRSA}, x509.SHA256WithRSA},
 		{"advertised unknown falls back", algoSigner{stubSigner{rsaPublic(4096)}, x509.UnknownSignatureAlgorithm}, x509.SHA512WithRSA},
 		{"advertised ecdsa", algoSigner{stubSigner{p256}, x509.ECDSAWithSHA384}, x509.ECDSAWithSHA384},
+		{"mldsa44", stubSigner{mldsa44.Public()}, x509.MLDSA44},
+		{"mldsa65", mldsa65, x509.MLDSA65},
+		{"mldsa87", stubSigner{mldsa87.Public()}, x509.MLDSA87},
+		{"advertised mldsa", algoSigner{stubSigner{mldsa65.Public()}, x509.MLDSA65}, x509.MLDSA65},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, csr.DefaultSigAlgo(tc.key))
@@ -95,5 +112,8 @@ func TestDefaultSigAlgo(t *testing.T) {
 	// SigAlgo and DefaultSigAlgo agree for every generated key size
 	for _, bits := range []int{2048, 3072, 4096} {
 		assert.Equal(t, csr.SigAlgo("RSA", bits), csr.DefaultSigAlgo(stubSigner{rsaPublic(bits)}), "RSA %d", bits)
+	}
+	for size, key := range map[int]*mldsa.PrivateKey{csr.MLDSA44: mldsa44, csr.MLDSA65: mldsa65, csr.MLDSA87: mldsa87} {
+		assert.Equal(t, csr.SigAlgo(csr.AlgoMLDSA, size), csr.DefaultSigAlgo(key), "ML-DSA %d", size)
 	}
 }

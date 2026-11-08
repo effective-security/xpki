@@ -3,8 +3,10 @@ package certutil_test
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/pem"
 	"strings"
 	"testing"
 
@@ -109,6 +111,31 @@ func Test_EncodePrivateKeyToPEM_RSA(t *testing.T) {
 
 	_, err = cryptoprov.ParsePrivateKeyPEM(p)
 	require.NoError(t, err)
+}
+
+// Test_EncodePrivateKeyToPEM_MLDSA round-trips every parameter set through
+// the PKCS#8 seed form with both PEM parsers of the module.
+func Test_EncodePrivateKeyToPEM_MLDSA(t *testing.T) {
+	t.Parallel()
+	for _, params := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
+		key, err := mldsa.GenerateKey(params)
+		require.NoError(t, err)
+
+		p, err := certutil.EncodePrivateKeyToPEM(key)
+		require.NoError(t, err)
+		block, rest := pem.Decode(p)
+		require.NotNil(t, block)
+		assert.Empty(t, rest)
+		assert.Equal(t, "PRIVATE KEY", block.Type)
+		assert.Len(t, block.Bytes, 54, "seed form")
+
+		parsed, err := certutil.ParsePrivateKeyPEM(p)
+		require.NoError(t, err)
+		assert.True(t, key.Equal(parsed))
+		generic, err := cryptoprov.ParsePrivateKeyPEM(p)
+		require.NoError(t, err)
+		assert.True(t, key.Equal(generic))
+	}
 }
 
 func Test_EncodePrivateKeyToPEM_EC(t *testing.T) {

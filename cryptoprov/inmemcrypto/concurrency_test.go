@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -33,6 +34,8 @@ func TestConcurrentKeyOperations(t *testing.T) {
 	require.NoError(t, err)
 	existingRSA, err := p.GenerateRSAKey("existing-rsa", rsaKeyBits, signPurpose)
 	require.NoError(t, err)
+	existingMLDSA, err := p.GenerateMLDSAKey("existing-mldsa", mldsa.MLDSA65())
+	require.NoError(t, err)
 
 	type generatedKey struct {
 		key   crypto.PrivateKey
@@ -54,6 +57,7 @@ func TestConcurrentKeyOperations(t *testing.T) {
 			for {
 				checkStoredKey(t, p, existingEC, "existing-ec")
 				checkStoredKey(t, p, existingRSA, "existing-rsa")
+				checkStoredKey(t, p, existingMLDSA, "existing-mldsa")
 				key, err := p.GetKey(missingKeyID)
 				assert.EqualError(t, err, "key not found: missing-key: key not found: missing-key")
 				assert.True(t, key == nil, "missing key must return nil")
@@ -77,9 +81,12 @@ func TestConcurrentKeyOperations(t *testing.T) {
 			for i := range keysPerWriter {
 				result := &generated[worker*keysPerWriter+i]
 				result.label = fmt.Sprintf("worker-%d-key-%d", worker, i)
-				if worker == 0 {
+				switch worker {
+				case 0:
 					result.key, result.err = p.GenerateRSAKey(result.label, rsaKeyBits, signPurpose)
-				} else {
+				case 1:
+					result.key, result.err = p.GenerateMLDSAKey(result.label, mldsa.MLDSA44())
+				default:
 					result.key, result.err = p.GenerateECDSAKey(result.label, elliptic.P256())
 				}
 				if assert.NoError(t, result.err) {
@@ -159,6 +166,18 @@ func checkStoredKey(t *testing.T, p *inmemcrypto.Provider, key crypto.PrivateKey
 		}
 		assert.True(t, publicKey.Equal(parsed.Public()), "exported RSA key must match the signer")
 		exported = parsed
+	case *mldsa.PublicKey:
+		assert.Equal(t, "PRIVATE KEY", block.Type)
+		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if !assert.NoError(t, err) {
+			return nil
+		}
+		mlParsed, ok := parsed.(*mldsa.PrivateKey)
+		if !assert.True(t, ok, "exported ML-DSA key must be PKCS#8 ML-DSA, got %T", parsed) {
+			return nil
+		}
+		assert.True(t, publicKey.Equal(mlParsed.Public()), "exported ML-DSA key must match the signer")
+		exported = mlParsed
 	default:
 		t.Errorf("unexpected public key type %T", publicKey)
 		return nil
@@ -170,7 +189,15 @@ func checkStoredKey(t *testing.T, p *inmemcrypto.Provider, key crypto.PrivateKey
 
 func checkSignature(t *testing.T, signer crypto.Signer, publicKey crypto.PublicKey) {
 	t.Helper()
-	digest := sha256.Sum256([]byte("inmemcrypto concurrent key operations"))
+	message := []byte("inmemcrypto concurrent key operations")
+	digest := sha256.Sum256(message)
+	if publicKey, ok := publicKey.(*mldsa.PublicKey); ok {
+		// an ML-DSA signer signs the message itself
+		signature, err := signer.Sign(rand.Reader, message, nil)
+		require.NoError(t, err)
+		require.NoError(t, mldsa.Verify(publicKey, message, signature, nil))
+		return
+	}
 	signature, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.NoError(t, err)
 	switch publicKey := publicKey.(type) {

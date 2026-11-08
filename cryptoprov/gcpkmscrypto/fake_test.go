@@ -138,6 +138,17 @@ func signResponse(req *kmspb.AsymmetricSignRequest, sig []byte) *kmspb.Asymmetri
 	}
 }
 
+// dataSignResponse returns a valid response for a request that sent data
+// (an ML-DSA key) with signature sig.
+func dataSignResponse(req *kmspb.AsymmetricSignRequest, sig []byte) *kmspb.AsymmetricSignResponse {
+	return &kmspb.AsymmetricSignResponse{
+		Name:               req.Name,
+		Signature:          sig,
+		SignatureCrc32C:    wrapperspb.Int64(int64(gcpkmscrypto.Crc32c(sig))),
+		VerifiedDataCrc32C: true,
+	}
+}
+
 // enabledVersion returns an ENABLED HSM version of the key in coverageKeyring
 // with algorithm.
 func enabledVersion(key string, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) *kmspb.CryptoKeyVersion {

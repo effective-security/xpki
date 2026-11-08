@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/mldsa"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/x/ctl"
+	"github.com/effective-security/xpki/certutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,4 +167,35 @@ func TestCryptoProv(t *testing.T) {
 		require.NotNil(t, def)
 		assert.NotSame(t, crypto.Default(), def)
 	})
+}
+
+// TestGenerateMLDSAKeyInmem is the CLI acceptance check for post-quantum
+// keys: "hsm generate --algo ML-DSA --size 65" on the in-memory provider
+// prints a PKCS#8 key that parses as ML-DSA-65, and an invalid parameter
+// set is rejected.
+func TestGenerateMLDSAKeyInmem(t *testing.T) {
+	var out bytes.Buffer
+	c := &Cli{Cfg: "inmem"}
+	c.WithWriter(&out).WithErrWriter(&out)
+
+	cmd := HsmGenKeyCmd{
+		Algo:    "ML-DSA",
+		Size:    65,
+		Purpose: "sign",
+		Label:   "pq",
+	}
+	require.NoError(t, cmd.Run(c))
+
+	var printed map[string]string
+	require.NoError(t, json.Unmarshal(out.Bytes(), &printed))
+	require.Contains(t, printed["key"], "-----BEGIN PRIVATE KEY-----")
+	signer, err := certutil.ParsePrivateKeyPEM([]byte(printed["key"]))
+	require.NoError(t, err)
+	key, ok := signer.(*mldsa.PrivateKey)
+	require.True(t, ok, "%T", signer)
+	assert.Equal(t, mldsa.MLDSA65(), key.PublicKey().Parameters())
+
+	cmd.Size = 128
+	err = cmd.Run(c)
+	require.EqualError(t, err, "validate ML-DSA key: invalid ML-DSA parameter set (expected 44, 65 or 87): 128")
 }

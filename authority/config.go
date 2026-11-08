@@ -234,6 +234,13 @@ type CertProfile struct {
 	AllowedRoles []string `json:"allowed_roles" yaml:"allowed_roles"`
 	DeniedRoles  []string `json:"denied_roles" yaml:"denied_roles"`
 
+	// AllowedKeyAlgorithms, when set, lists the public key algorithms a
+	// CSR may carry: "rsa", "ecdsa", "ed25519" or "ml-dsa"
+	// (case-insensitive; "mldsa" is accepted). An empty list keeps the
+	// default, every key type crypto/x509 can sign for. It lets a profile
+	// issue only post-quantum, or only classical, certificates.
+	AllowedKeyAlgorithms []string `json:"allowed_key_algorithms" yaml:"allowed_key_algorithms"`
+
 	AllowedNamesRegex *regexp.Regexp `json:"-" yaml:"-"`
 	AllowedDNSRegex   *regexp.Regexp `json:"-" yaml:"-"`
 	AllowedEmailRegex *regexp.Regexp `json:"-" yaml:"-"`
@@ -369,6 +376,12 @@ func (p *CertProfile) Validate() error {
 		return err
 	}
 
+	for _, name := range p.AllowedKeyAlgorithms {
+		if _, ok := keyAlgorithmNames[normalizeKeyAlgorithm(name)]; !ok {
+			return errors.Errorf("unknown key algorithm: %s", name)
+		}
+	}
+
 	for _, policy := range p.Policies {
 		for _, qualifier := range policy.Qualifiers {
 			if qualifier.Type != "" &&
@@ -451,6 +464,47 @@ func (p *CertProfile) IsAllowedExtention(oid csr.OID) bool {
 func (p *CertProfile) allowsCSRExtension(id asn1.ObjectIdentifier) bool {
 	other := csr.OID(id)
 	return slices.ContainsFunc(p.AllowedExtensions, other.Equal)
+}
+
+// Names accepted in CertProfile.AllowedKeyAlgorithms.
+const (
+	keyAlgorithmRSA     = "rsa"
+	keyAlgorithmECDSA   = "ecdsa"
+	keyAlgorithmEd25519 = "ed25519"
+	keyAlgorithmMLDSA   = "ml-dsa"
+	// keyAlgorithmMLDSAAlias is the ML-DSA name without the hyphen.
+	keyAlgorithmMLDSAAlias = "mldsa"
+)
+
+// keyAlgorithmNames maps the allowed_key_algorithms names to the X.509
+// public key algorithm of a CSR.
+var keyAlgorithmNames = map[string]x509.PublicKeyAlgorithm{
+	keyAlgorithmRSA:     x509.RSA,
+	keyAlgorithmECDSA:   x509.ECDSA,
+	keyAlgorithmEd25519: x509.Ed25519,
+	keyAlgorithmMLDSA:   x509.MLDSA,
+}
+
+// normalizeKeyAlgorithm returns the canonical allowed_key_algorithms name.
+func normalizeKeyAlgorithm(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == keyAlgorithmMLDSAAlias {
+		return keyAlgorithmMLDSA
+	}
+	return lower
+}
+
+// allowsKeyAlgorithm reports whether a CSR whose public key has the
+// algorithm may be issued with the profile: always when
+// AllowedKeyAlgorithms is empty, otherwise only when listed.
+func (p *CertProfile) allowsKeyAlgorithm(algo x509.PublicKeyAlgorithm) bool {
+	if len(p.AllowedKeyAlgorithms) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(p.AllowedKeyAlgorithms, func(name string) bool {
+		allowed, ok := keyAlgorithmNames[normalizeKeyAlgorithm(name)]
+		return ok && allowed == algo
+	})
 }
 
 // FindExtension returns extension, or nil

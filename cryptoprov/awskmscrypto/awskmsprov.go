@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/x509"
 	"fmt"
 	"strings"
@@ -49,6 +50,11 @@ const (
 	// accessDeniedCode is the code of the KMS access denied error, which is
 	// not modelled in the KMS types.
 	accessDeniedCode = "AccessDeniedException"
+
+	// Key spec prefixes of the asymmetric key families, for KeyInfo.Type.
+	rsaKeySpecPrefix   = "RSA_"
+	eccKeySpecPrefix   = "ECC_"
+	mldsaKeySpecPrefix = "ML_DSA_"
 )
 
 // errEmptyResponse is the cause of an error for a nil KMS response.
@@ -59,6 +65,39 @@ var rsaKeySpecs = map[int]types.KeySpec{
 	2048: types.KeySpecRsa2048,
 	3072: types.KeySpecRsa3072,
 	4096: types.KeySpecRsa4096,
+}
+
+// mldsaKeySpecs maps the ML-DSA parameter sets to their KMS key spec.
+var mldsaKeySpecs = map[mldsa.Parameters]types.KeySpec{
+	mldsa.MLDSA44(): types.KeySpecMlDsa44,
+	mldsa.MLDSA65(): types.KeySpecMlDsa65,
+	mldsa.MLDSA87(): types.KeySpecMlDsa87,
+}
+
+// mldsaParameters returns the parameter set of an ML-DSA key spec.
+func mldsaParameters(spec types.KeySpec) (mldsa.Parameters, bool) {
+	for params, s := range mldsaKeySpecs {
+		if s == spec {
+			return params, true
+		}
+	}
+	return mldsa.Parameters{}, false
+}
+
+// keyType returns the KeyInfo.Type of a key spec: RSA, ECDSA or ML-DSA, and
+// "" for a symmetric, SM2 or unknown spec.
+func keyType(spec types.KeySpec) string {
+	name := string(spec)
+	switch {
+	case strings.HasPrefix(name, rsaKeySpecPrefix):
+		return certutil.KeyTypeRSA
+	case strings.HasPrefix(name, eccKeySpecPrefix):
+		return certutil.KeyTypeECDSA
+	case strings.HasPrefix(name, mldsaKeySpecPrefix):
+		return certutil.KeyTypeMLDSA
+	default:
+		return ""
+	}
 }
 
 func init() {
@@ -202,6 +241,22 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 		spec = types.KeySpecEccNistP521
 	default:
 		return nil, errors.New("unsupported curve")
+	}
+	return p.createSigningKey(context.Background(), label, spec)
+}
+
+// GenerateMLDSAKey creates a KMS signing key of the ML-DSA parameter set
+// params (key spec ML_DSA_44, ML_DSA_65 or ML_DSA_87) with label as its
+// description and alias, and returns its Signer. The signer signs messages
+// through the EXTERNAL_MU operation: μ is computed locally, so the message
+// never leaves the process and the RAW message size limit of KMS does not
+// apply; see cryptoprov.MLDSASignerOptions for the options it accepts.
+func (p *Provider) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error) {
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_mldsa")
+
+	spec, ok := mldsaKeySpecs[params]
+	if !ok {
+		return nil, errors.Errorf("unsupported ML-DSA parameter set: %s", params)
 	}
 	return p.createSigningKey(context.Background(), label, spec)
 }
@@ -372,8 +427,10 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 	}, nil
 }
 
+// keyMeta returns the KeyInfo.Meta of a key; an ML-DSA key also reports its
+// parameter set under cryptoprov.MetaParameterSet.
 func keyMeta(meta *types.KeyMetadata) map[string]string {
-	return map[string]string{
+	m := map[string]string{
 		"description": aws.ToString(meta.Description),
 		"usage":       string(meta.KeyUsage),
 		"origin":      string(meta.Origin),
@@ -381,6 +438,10 @@ func keyMeta(meta *types.KeyMetadata) map[string]string {
 		"enabled":     fmt.Sprintf("%t", meta.Enabled),
 		"algo":        fmt.Sprintf("%v", meta.SigningAlgorithms),
 	}
+	if params, ok := mldsaParameters(meta.KeySpec); ok {
+		m[cryptoprov.MetaParameterSet] = params.String()
+	}
+	return m
 }
 
 // EnumKeys lists the signing keys (usage SIGN_VERIFY, not pending deletion)
@@ -516,6 +577,7 @@ func (p *Provider) listedKey(ctx context.Context, key types.KeyListEntry, prefix
 	return &cryptoprov.KeyInfo{
 		ID:           keyID,
 		Label:        label,
+		Type:         keyType(meta.KeySpec),
 		Meta:         keyMeta(meta),
 		CreationTime: meta.CreationDate,
 	}, nil
@@ -574,6 +636,7 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 	return &cryptoprov.KeyInfo{
 		ID:           keyID,
 		Label:        aws.ToString(meta.Description),
+		Type:         keyType(meta.KeySpec),
 		PublicKey:    pubKey,
 		Meta:         keyMeta(meta),
 		CreationTime: meta.CreationDate,

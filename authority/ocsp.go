@@ -13,6 +13,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
 	"github.com/effective-security/xpki/metricskey"
@@ -154,6 +155,10 @@ func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 			"issuer", issuer.Subject.CommonName,
 		)
 		template.Certificate = responder.Cert
+	}
+	// golang.org/x/crypto/ocsp signs with RSA and ECDSA keys only
+	if certutil.IsPostQuantumKey(responder.Signer) {
+		return nil, errors.New("OCSP responses cannot be signed with an ML-DSA key: configure aia.delegated_ocsp_profile")
 	}
 	res, err := ocsp.CreateResponse(issuer, responder.Cert, template, responder.Signer)
 	if err != nil {

@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"path/filepath"
 	"testing"
 	"time"
@@ -364,6 +365,11 @@ func (m *mockedProvider) GenerateRSAKey(label string, bits int, purpose int) (cr
 
 func (m *mockedProvider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error) {
 	args := m.Called(label, curve)
+	return args.Get(0).(crypto.PrivateKey), args.Error(1)
+}
+
+func (m *mockedProvider) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error) {
+	args := m.Called(label, params)
 	return args.Get(0).(crypto.PrivateKey), args.Error(1)
 }
 

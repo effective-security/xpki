@@ -48,6 +48,9 @@ chain, err := b.BundleContext(ctx, []*x509.Certificate{leaf}, nil)
 - [func HashToBase64URL\(hash crypto.Hash, data \[\]byte\) string](<#HashToBase64URL>)
 - [func HashToHex\(hash crypto.Hash, data \[\]byte\) string](<#HashToHex>)
 - [func IsOCSPSigner\(crt \*x509.Certificate\) bool](<#IsOCSPSigner>)
+- [func IsPostQuantumCertificate\(crt \*x509.Certificate\) bool](<#IsPostQuantumCertificate>)
+- [func IsPostQuantumKey\(key any\) bool](<#IsPostQuantumKey>)
+- [func IsPostQuantumSignatureAlgorithm\(algo x509.SignatureAlgorithm\) bool](<#IsPostQuantumSignatureAlgorithm>)
 - [func JoinPEM\(p1, p2 \[\]byte\) \[\]byte](<#JoinPEM>)
 - [func LoadAndVerifyBundleFromPEM\(certFile, intCAFile, rootFile string, opt ...Option\) \(\*Bundle, \*BundleStatus, error\)](<#LoadAndVerifyBundleFromPEM>)
 - [func LoadChainFromPEM\(certFile string\) \(\[\]\*x509.Certificate, error\)](<#LoadChainFromPEM>)
@@ -111,6 +114,19 @@ const (
 )
 ```
 
+<a name="KeyTypeRSA"></a>Key type names reported by KeyInfo.Type, as crypto/x509 prints the public key algorithm.
+
+```go
+const (
+    // KeyTypeRSA is the KeyInfo.Type of an RSA key.
+    KeyTypeRSA = "RSA"
+    // KeyTypeECDSA is the KeyInfo.Type of an ECDSA key.
+    KeyTypeECDSA = "ECDSA"
+    // KeyTypeMLDSA is the KeyInfo.Type of an ML-DSA (FIPS 204) key.
+    KeyTypeMLDSA = "ML-DSA"
+)
+```
+
 ## Variables
 
 <a name="ErrNoCertificates"></a>ErrNoCertificates is returned, wrapped, when a Bundler or BuildBundle is given no certificate to bundle.
@@ -152,7 +168,7 @@ func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte,
 CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer key with hash. A nil crt or issuer or an unavailable hash returns an error before any work \(XPKI\-103\), and so does an issuer whose subject is not crt's issuer name or whose key did not sign crt \(XPKI\-121\). The signature check accepts SHA\-1 and applies no CA policy.
 
 <a name="CreatePoolFromPEM"></a>
-## func [CreatePoolFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L147>)
+## func [CreatePoolFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L148>)
 
 ```go
 func CreatePoolFromPEM(pemBytes []byte) (*x509.CertPool, error)
@@ -170,16 +186,16 @@ func Digest(hash crypto.Hash, data []byte) []byte
 Digest returns computed digest bytes
 
 <a name="EncodePrivateKeyToPEM"></a>
-## func [EncodePrivateKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L248>)
+## func [EncodePrivateKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L251>)
 
 ```go
 func EncodePrivateKeyToPEM(priv crypto.PrivateKey) (key []byte, err error)
 ```
 
-EncodePrivateKeyToPEM returns PEM encoded private key
+EncodePrivateKeyToPEM returns the PEM encoded private key: PKCS\#1 \("RSA PRIVATE KEY"\) for RSA, SEC1 \("EC PRIVATE KEY"\) for ECDSA and PKCS\#8 \("PRIVATE KEY", seed form\) for ML\-DSA. Other key types are an error.
 
 <a name="EncodePublicKeyToPEM"></a>
-## func [EncodePublicKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L227>)
+## func [EncodePublicKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L228>)
 
 ```go
 func EncodePublicKeyToPEM(pubKey crypto.PublicKey) ([]byte, error)
@@ -188,7 +204,7 @@ func EncodePublicKeyToPEM(pubKey crypto.PublicKey) ([]byte, error)
 EncodePublicKeyToPEM returns PEM encoded public key
 
 <a name="EncodeToPEM"></a>
-## func [EncodeToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L117>)
+## func [EncodeToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L118>)
 
 ```go
 func EncodeToPEM(out io.Writer, withComments bool, certs ...*x509.Certificate) error
@@ -197,7 +213,7 @@ func EncodeToPEM(out io.Writer, withComments bool, certs ...*x509.Certificate) e
 EncodeToPEM converts certificates to PEM format, with optional comments
 
 <a name="EncodeToPEMString"></a>
-## func [EncodeToPEMString](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L130>)
+## func [EncodeToPEMString](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L131>)
 
 ```go
 func EncodeToPEMString(withComments bool, certs ...*x509.Certificate) (string, error)
@@ -206,7 +222,7 @@ func EncodeToPEMString(withComments bool, certs ...*x509.Certificate) (string, e
 EncodeToPEMString converts certificates to PEM format, with optional comments
 
 <a name="ExpiryTime"></a>
-## func [ExpiryTime](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L874>)
+## func [ExpiryTime](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L854>)
 
 ```go
 func ExpiryTime(chain []*x509.Certificate) (notAfter time.Time)
@@ -260,7 +276,7 @@ func GetIssuerID(c *x509.Certificate) string
 GetIssuerID returns ID of the issuer. If present, it uses Authority Key Identifier, otherwise SHA1 of the Issuer name
 
 <a name="GetKeyDERFromPEM"></a>
-## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L306>)
+## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L319>)
 
 ```go
 func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
@@ -340,8 +356,35 @@ func IsOCSPSigner(crt *x509.Certificate) bool
 
 IsOCSPSigner returns true for OCSP key usage
 
+<a name="IsPostQuantumCertificate"></a>
+## func [IsPostQuantumCertificate](<https://github.com/effective-security/xpki/blob/main/certutil/pqc.go#L82>)
+
+```go
+func IsPostQuantumCertificate(crt *x509.Certificate) bool
+```
+
+IsPostQuantumCertificate reports whether crt carries a post\-quantum public key or is signed with a post\-quantum signature algorithm, so a chain that mixes classical and ML\-DSA keys is detected at either end. A nil certificate is not post\-quantum.
+
+<a name="IsPostQuantumKey"></a>
+## func [IsPostQuantumKey](<https://github.com/effective-security/xpki/blob/main/certutil/pqc.go#L47>)
+
+```go
+func IsPostQuantumKey(key any) bool
+```
+
+IsPostQuantumKey reports whether key is a post\-quantum \(ML\-DSA\) key: an \*mldsa.PublicKey or \*mldsa.PrivateKey, or a crypto.Signer or crypto.Decrypter, such as an HSM or KMS key, whose Public\(\) is one. A nil key is not post\-quantum.
+
+<a name="IsPostQuantumSignatureAlgorithm"></a>
+## func [IsPostQuantumSignatureAlgorithm](<https://github.com/effective-security/xpki/blob/main/certutil/pqc.go#L69>)
+
+```go
+func IsPostQuantumSignatureAlgorithm(algo x509.SignatureAlgorithm) bool
+```
+
+IsPostQuantumSignatureAlgorithm reports whether algo is a post\-quantum X.509 signature algorithm: ML\-DSA\-44, ML\-DSA\-65 or ML\-DSA\-87.
+
 <a name="JoinPEM"></a>
-## func [JoinPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L189>)
+## func [JoinPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L190>)
 
 ```go
 func JoinPEM(p1, p2 []byte) []byte
@@ -359,7 +402,7 @@ func LoadAndVerifyBundleFromPEM(certFile, intCAFile, rootFile string, opt ...Opt
 LoadAndVerifyBundleFromPEM constructs and verifies the cert chain
 
 <a name="LoadChainFromPEM"></a>
-## func [LoadChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L55>)
+## func [LoadChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L56>)
 
 ```go
 func LoadChainFromPEM(certFile string) ([]*x509.Certificate, error)
@@ -368,7 +411,7 @@ func LoadChainFromPEM(certFile string) ([]*x509.Certificate, error)
 LoadChainFromPEM returns Certificates loaded from the file
 
 <a name="LoadFromPEM"></a>
-## func [LoadFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L21>)
+## func [LoadFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L22>)
 
 ```go
 func LoadFromPEM(certFile string) (*x509.Certificate, error)
@@ -377,7 +420,7 @@ func LoadFromPEM(certFile string) (*x509.Certificate, error)
 LoadFromPEM returns Certificate loaded from the file
 
 <a name="LoadPEMFiles"></a>
-## func [LoadPEMFiles](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L162>)
+## func [LoadPEMFiles](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L163>)
 
 ```go
 func LoadPEMFiles(files ...string) ([]byte, error)
@@ -404,7 +447,7 @@ func NewHash(algo string) (hash.Hash, error)
 NewHash returns hash instance
 
 <a name="ParseChainFromPEM"></a>
-## func [ParseChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L70>)
+## func [ParseChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L71>)
 
 ```go
 func ParseChainFromPEM(certificateChainPem []byte) ([]*x509.Certificate, error)
@@ -413,7 +456,7 @@ func ParseChainFromPEM(certificateChainPem []byte) ([]*x509.Certificate, error)
 ParseChainFromPEM returns Certificates parsed from PEM
 
 <a name="ParseFromPEM"></a>
-## func [ParseFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L36>)
+## func [ParseFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L37>)
 
 ```go
 func ParseFromPEM(bytes []byte) (*x509.Certificate, error)
@@ -431,16 +474,16 @@ func ParseHexDigestWithPrefix(digest string) (hash.Hash, []byte, error)
 ParseHexDigestWithPrefix parses encoded digest in \{alg\}:\{hex\} format
 
 <a name="ParsePrivateKeyDER"></a>
-## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L339>)
+## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L356>)
 
 ```go
 func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error)
 ```
 
-ParsePrivateKeyDER parses a PKCS \#1, PKCS \#8, ECDSA, or Ed25519 DER\-encoded private key. The key must not be in PEM format.
+ParsePrivateKeyDER parses a PKCS \#1, PKCS \#8, ECDSA, Ed25519 or ML\-DSA DER\-encoded private key. The key must not be in PEM format. An ML\-DSA key must be in the PKCS \#8 seed form \(RFC 9881\), which x509.MarshalPKCS8PrivateKey and "openssl genpkey \-provparam ml\-dsa.output\_formats=seed\-only" write; the form holding both the seed and the expanded key is rejected.
 
 <a name="ParsePrivateKeyPEM"></a>
-## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L277>)
+## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L290>)
 
 ```go
 func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error)
@@ -449,16 +492,16 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error)
 ParsePrivateKeyPEM parses and returns a PEM\-encoded private key. The private key may be either an unencrypted PKCS\#8, PKCS\#1, or elliptic private key.
 
 <a name="ParsePrivateKeyPEMWithPassword"></a>
-## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L288>)
+## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L301>)
 
 ```go
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.Signer, err error)
 ```
 
-ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\), or an encrypted PKCS\#8 key \(ENCRYPTED PRIVATE KEY\) as described by GetKeyDERFromPEM. The key may be RSA, ECDSA, or Ed25519 \(PKCS\#8 only\). A nil password fails for an encrypted key; a wrong password returns an error that matches x509.IncorrectPasswordError.
+ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\), or an encrypted PKCS\#8 key \(ENCRYPTED PRIVATE KEY\) as described by GetKeyDERFromPEM. The key may be RSA, ECDSA, Ed25519 or ML\-DSA \(the last two PKCS\#8 only\). A nil password fails for an encrypted key; a wrong password returns an error that matches x509.IncorrectPasswordError.
 
 <a name="ParseRSAPublicKeyFromPEM"></a>
-## func [ParseRSAPublicKeyFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L201>)
+## func [ParseRSAPublicKeyFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L202>)
 
 ```go
 func ParseRSAPublicKeyFromPEM(key []byte) (*rsa.PublicKey, error)
@@ -599,7 +642,7 @@ func (b *Bundle) ExpiresInHours() time.Duration
 ExpiresInHours returns the time until Expires truncated toward zero to whole hours: 90 minutes is 1h, and an expiry 90 minutes ago is \-1h \(XPKI\-045\).
 
 <a name="BundleFlavor"></a>
-## type [BundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L44>)
+## type [BundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L42>)
 
 BundleFlavor is named optimization strategy on certificate chain selection when bundling.
 
@@ -657,7 +700,7 @@ func (b *BundleStatus) IsUntrusted() bool
 IsUntrusted returns true if the cert's issuers are not trusted
 
 <a name="Bundler"></a>
-## type [Bundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L82-L89>)
+## type [Bundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L80-L87>)
 
 A Bundler contains the certificate pools for producing certificate bundles. It contains any intermediates and root certificates that should be used.
 
@@ -675,7 +718,7 @@ type Bundler struct {
 ```
 
 <a name="LoadBundler"></a>
-### func [LoadBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L156>)
+### func [LoadBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L154>)
 
 ```go
 func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler, error)
@@ -684,7 +727,7 @@ func LoadBundler(rootBundleFile, intBundleFile string, opt ...Option) (*Bundler,
 LoadBundler creates a new Bundler from the files passed in; these files should contain a list of valid root certificates and a list of valid intermediate certificates, respectively.
 
 <a name="NewBundler"></a>
-### func [NewBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L210>)
+### func [NewBundler](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L208>)
 
 ```go
 func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundler, error)
@@ -693,7 +736,7 @@ func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundl
 NewBundler returns a Bundler that trusts roots, plus the system roots with WithSystemRoots, and uses intermediates to build chains. The flavor defaults to Optimal with trust roots and to Force without them; Optimal without trust roots is an error, so a Bundler never trusts system roots implicitly. RootPool is nil only when there are no trust roots.
 
 <a name="NewBundlerFromPEM"></a>
-### func [NewBundlerFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L192>)
+### func [NewBundlerFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L190>)
 
 ```go
 func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bundler, error)
@@ -702,16 +745,16 @@ func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bund
 NewBundlerFromPEM creates a new Bundler from PEM\-encoded root certificates and intermediate certificates. Without root certificates the default flavor is Force; see NewBundler.
 
 <a name="Bundler.Bundle"></a>
-### func \(\*Bundler\) [Bundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L708>)
+### func \(\*Bundler\) [Bundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L707>)
 
 ```go
 func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, error)
 ```
 
-Bundle takes an X509 certificate \(already in the Certificate structure\), a private key as crypto.Signer in one of the appropriate formats \(i.e. \*rsa.PrivateKey or \*ecdsa.PrivateKey, or even a opaque key\), using them to build a certificate bundle. certs\[0\] is the leaf \(a reversed chain is detected\). A nil or empty certs returns an error matching ErrNoCertificates, and a nil entry returns an error \(XPKI\-036\).
+Bundle takes an X509 certificate \(already in the Certificate structure\), a private key as crypto.Signer in one of the appropriate formats \(i.e. \*rsa.PrivateKey, \*ecdsa.PrivateKey or \*mldsa.PrivateKey, or even an opaque key\), using them to build a certificate bundle. certs\[0\] is the leaf \(a reversed chain is detected\); its key must be RSA, ECDSA or ML\-DSA. A nil or empty certs returns an error matching ErrNoCertificates, and a nil entry returns an error \(XPKI\-036\).
 
 <a name="Bundler.BundleContext"></a>
-### func \(\*Bundler\) [BundleContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L716>)
+### func \(\*Bundler\) [BundleContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L715>)
 
 ```go
 func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, key crypto.Signer) (*Chain, error)
@@ -720,7 +763,7 @@ func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, 
 BundleContext is Bundle with a context that bounds and cancels AIA downloads. When ctx is done during an AIA download, the returned error matches ctx.Err\(\) with errors.Is. An Optimal Bundler whose RootPool is nil fails instead of verifying against the system roots.
 
 <a name="Bundler.ChainFromFile"></a>
-### func \(\*Bundler\) [ChainFromFile](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L329>)
+### func \(\*Bundler\) [ChainFromFile](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L327>)
 
 ```go
 func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*Chain, error)
@@ -729,7 +772,7 @@ func (b *Bundler) ChainFromFile(bundleFile, keyFile string, password string) (*C
 ChainFromFile takes a set of files containing the PEM\-encoded leaf certificate \(optionally along with some intermediate certs\), the PEM\-encoded private key and returns the bundle built from that key and the certificate\(s\).
 
 <a name="Bundler.ChainFromPEM"></a>
-### func \(\*Bundler\) [ChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L352>)
+### func \(\*Bundler\) [ChainFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L350>)
 
 ```go
 func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain, error)
@@ -738,7 +781,7 @@ func (b *Bundler) ChainFromPEM(certsRaw, keyPEM []byte, password string) (*Chain
 ChainFromPEM builds a certificate chain from the set of byte slices containing the PEM or DER\-encoded certificate\(s\), private key.
 
 <a name="Bundler.ChainFromPEMContext"></a>
-### func \(\*Bundler\) [ChainFromPEMContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L358>)
+### func \(\*Bundler\) [ChainFromPEMContext](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L356>)
 
 ```go
 func (b *Bundler) ChainFromPEMContext(ctx context.Context, certsRaw, keyPEM []byte, password string) (*Chain, error)
@@ -747,7 +790,7 @@ func (b *Bundler) ChainFromPEMContext(ctx context.Context, certsRaw, keyPEM []by
 ChainFromPEMContext is ChainFromPEM with a context that bounds and cancels AIA downloads; see BundleContext.
 
 <a name="Bundler.VerifyOptions"></a>
-### func \(\*Bundler\) [VerifyOptions](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L265>)
+### func \(\*Bundler\) [VerifyOptions](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L263>)
 
 ```go
 func (b *Bundler) VerifyOptions() x509.VerifyOptions
@@ -756,7 +799,7 @@ func (b *Bundler) VerifyOptions() x509.VerifyOptions
 VerifyOptions returns the x509.VerifyOptions used by Optimal bundling. Roots is never nil: without a RootPool it is an empty pool, so the options never fall back to the system roots. It is a snapshot: intermediates learned later are not added to it.
 
 <a name="Chain"></a>
-## type [Chain](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L662-L673>)
+## type [Chain](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L660-L671>)
 
 Chain contains a certificate and its trust chain. It is intended to store the most widely applicable chain, with shortness an explicit goal.
 
@@ -776,9 +819,9 @@ type Chain struct {
 ```
 
 <a name="KeyInfo"></a>
-## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/certutil/keyinfo.go#L14-L20>)
+## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/certutil/keyinfo.go#L19-L25>)
 
-KeyInfo provides information about the key
+KeyInfo provides information about the key: Type is KeyTypeRSA, KeyTypeECDSA or KeyTypeMLDSA; KeySize is the RSA modulus or ECDSA curve size in bits, or the ML\-DSA parameter set number \(44, 65 or 87\); Hash is the digest a hash\-then\-sign caller uses with the key, and zero for an ML\-DSA key, which signs the message itself.
 
 ```go
 type KeyInfo struct {
@@ -791,16 +834,16 @@ type KeyInfo struct {
 ```
 
 <a name="NewKeyInfo"></a>
-### func [NewKeyInfo](<https://github.com/effective-security/xpki/blob/main/certutil/keyinfo.go#L23>)
+### func [NewKeyInfo](<https://github.com/effective-security/xpki/blob/main/certutil/keyinfo.go#L31>)
 
 ```go
 func NewKeyInfo(k any) (*KeyInfo, error)
 ```
 
-NewKeyInfo returns \*KeyInfo
+NewKeyInfo returns the KeyInfo of k: an RSA, ECDSA or ML\-DSA private key, public key, crypto.Signer or crypto.Decrypter \(an HSM or KMS key, whose Public\(\) is inspected\) or a JWK holding one of them. IsPrivate is set only for an in\-memory private key.
 
 <a name="Option"></a>
-## type [Option](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L107>)
+## type [Option](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L105>)
 
 An Option sets options such as allowed key usages, etc.
 
@@ -809,7 +852,7 @@ type Option func(*options)
 ```
 
 <a name="WithAIA"></a>
-### func [WithAIA](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L128>)
+### func [WithAIA](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L126>)
 
 ```go
 func WithAIA(enable bool) Option
@@ -818,7 +861,7 @@ func WithAIA(enable bool) Option
 WithAIA lets to enable downloading issuers from AIA.
 
 <a name="WithBundleFlavor"></a>
-### func [WithBundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L121>)
+### func [WithBundleFlavor](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L119>)
 
 ```go
 func WithBundleFlavor(flavor BundleFlavor) Option
@@ -827,7 +870,7 @@ func WithBundleFlavor(flavor BundleFlavor) Option
 WithBundleFlavor selects Optimal or Force chain building. Without this option the flavor is Optimal when the Bundler has trust roots \(explicit roots or WithSystemRoots\) and Force otherwise. NewBundler rejects Optimal without trust roots and any other flavor value; the last option wins.
 
 <a name="WithHTTPClient"></a>
-### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L147>)
+### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L145>)
 
 ```go
 func WithHTTPClient(client *http.Client) Option
@@ -836,7 +879,7 @@ func WithHTTPClient(client *http.Client) Option
 WithHTTPClient sets the client for AIA downloads. Each request is bounded by the client's Timeout, or 3s when it is zero, and by the context given to BundleContext. Only a 200 response of at most 1 MiB is parsed. Without this option a client with a 3s timeout is used.
 
 <a name="WithKeyUsages"></a>
-### func [WithKeyUsages](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L111>)
+### func [WithKeyUsages](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L109>)
 
 ```go
 func WithKeyUsages(usages ...x509.ExtKeyUsage) Option
@@ -845,7 +888,7 @@ func WithKeyUsages(usages ...x509.ExtKeyUsage) Option
 WithKeyUsages lets you set which Extended Key Usage values are acceptable. By default x509.ExtKeyUsageAny will be used.
 
 <a name="WithSystemRoots"></a>
-### func [WithSystemRoots](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L137>)
+### func [WithSystemRoots](<https://github.com/effective-security/xpki/blob/main/certutil/bundler.go#L135>)
 
 ```go
 func WithSystemRoots(enable bool) Option

@@ -16,16 +16,20 @@ This package abstracts cryptographic operations to support:
 - In\-memory providers for testing and development
 - Custom providers through the Provider interface
 
-The package handles key generation, signing, encryption, and key management operations in a provider\-agnostic way, allowing applications to switch between different cryptographic backends without code changes.
+The package handles key generation, signing, encryption, and key management operations in a provider\-agnostic way, allowing applications to switch between different cryptographic backends without code changes. Keys are RSA, ECDSA or ML\-DSA \(FIPS 204, post\-quantum\); an ML\-DSA signer signs messages rather than digests, see MLDSASignerOptions.
 
 Configuration is a small JSON or YAML token config whose Manufacturer field selects a loader registered with Register; provider packages register themselves in init\(\), so import them for side effects before calling Load.
 
 ## Index
 
+- [Constants](<#constants>)
 - [Variables](<#variables>)
 - [func GcmDecrypt\(ciphertext \[\]byte, key \[\]byte\) \(\[\]byte, error\)](<#GcmDecrypt>)
 - [func GcmEncrypt\(plaintext \[\]byte, key \[\]byte\) \(\[\]byte, error\)](<#GcmEncrypt>)
 - [func GetPrivateKeyDERFromPEM\(in \[\]byte, password \[\]byte\) \(\[\]byte, error\)](<#GetPrivateKeyDERFromPEM>)
+- [func MLDSAMu\(pub \*mldsa.PublicKey, context string, message \[\]byte\) \(\[\]byte, error\)](<#MLDSAMu>)
+- [func MLDSAParameters\(size int\) \(mldsa.Parameters, error\)](<#MLDSAParameters>)
+- [func MLDSASignerOptions\(opts crypto.SignerOpts\) \(mu bool, context string, err error\)](<#MLDSASignerOptions>)
 - [func ParsePrivateKeyDER\(keyDER \[\]byte\) \(crypto.PrivateKey, error\)](<#ParsePrivateKeyDER>)
 - [func ParsePrivateKeyPEM\(keyPEM \[\]byte\) \(key crypto.PrivateKey, err error\)](<#ParsePrivateKeyPEM>)
 - [func ParsePrivateKeyPEMWithPassword\(keyPEM \[\]byte, password \[\]byte\) \(key crypto.PrivateKey, err error\)](<#ParsePrivateKeyPEMWithPassword>)
@@ -56,6 +60,29 @@ Configuration is a small JSON or YAML token config whose Manufacturer field sele
   - [func ParseTokenURI\(uri string\) \(TokenConfig, error\)](<#ParseTokenURI>)
 - [type TokenInfo](<#TokenInfo>)
 
+
+## Constants
+
+<a name="MLDSA44"></a>
+
+```go
+const (
+    // MLDSA44, MLDSA65 and MLDSA87 are the FIPS 204 parameter set numbers as
+    // csr.KeyRequest.Size and certutil.KeyInfo.KeySize carry them.
+    MLDSA44 = 44
+    MLDSA65 = 65
+    MLDSA87 = 87
+
+    // MetaParameterSet is the KeyInfo.Meta key under which a provider
+    // reports the parameter set of an ML-DSA key, for example "ML-DSA-65".
+    MetaParameterSet = "parameter_set"
+
+    // MLDSAMuSize is the length in bytes of the ML-DSA message
+    // representative μ (FIPS 204, Algorithm 7) that a signer accepts with
+    // crypto.MLDSAMu.
+    MLDSAMuSize = 64
+)
+```
 
 ## Variables
 
@@ -102,7 +129,7 @@ func GcmEncrypt(plaintext []byte, key []byte) ([]byte, error)
 GcmEncrypt returns encrypted blob with GCM cipher
 
 <a name="GetPrivateKeyDERFromPEM"></a>
-## func [GetPrivateKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L74>)
+## func [GetPrivateKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L75>)
 
 ```go
 func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
@@ -110,32 +137,59 @@ func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
 
 GetPrivateKeyDERFromPEM parses a PEM\-encoded private key and returns DER\-format key bytes.
 
+<a name="MLDSAMu"></a>
+## func [MLDSAMu](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L96>)
+
+```go
+func MLDSAMu(pub *mldsa.PublicKey, context string, message []byte) ([]byte, error)
+```
+
+MLDSAMu returns μ, the message representative an ML\-DSA signature is computed over \(FIPS 204, Algorithm 7\): SHAKE256\(tr ‖ 0x00 ‖ len\(context\) ‖ context ‖ message, 64\) with tr = SHAKE256\(pk, 64\). A KMS or HSM external\-μ operation over it produces the same signature as signing message with context locally, which mldsa.Verify checks with the same message and context. The context is at most 255 bytes.
+
+<a name="MLDSAParameters"></a>
+## func [MLDSAParameters](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L42>)
+
+```go
+func MLDSAParameters(size int) (mldsa.Parameters, error)
+```
+
+MLDSAParameters returns the ML\-DSA parameter set for its FIPS 204 number: MLDSA44, MLDSA65 or MLDSA87. Any other number is an error.
+
+<a name="MLDSASignerOptions"></a>
+## func [MLDSASignerOptions](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L63>)
+
+```go
+func MLDSASignerOptions(opts crypto.SignerOpts) (mu bool, context string, err error)
+```
+
+MLDSASignerOptions validates opts against the contract every ML\-DSA signer of this module follows: ML\-DSA signs a message, not a digest. The signer accepts the message with nil options, options whose HashFunc is zero \(x509.CreateCertificate passes crypto.Hash\(0\)\) or \*mldsa.Options carrying an optional context string \(a nil \*mldsa.Options counts as nil\), and a 64\-byte message representative μ with crypto.MLDSAMu. Any other hash, and a nil pointer of any other options type, is an error, so a hash\-then\-sign caller fails instead of signing a digest as if it were the message. It returns whether the message is a μ and the context.
+
 <a name="ParsePrivateKeyDER"></a>
-## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L101>)
+## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L105>)
 
 ```go
 func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error)
 ```
 
-ParsePrivateKeyDER parses a PKCS \#1, PKCS \#8, ECDSA DER\-encoded private key. The key must not be in PEM format.
+ParsePrivateKeyDER parses a PKCS \#1, PKCS \#8, ECDSA DER\-encoded private key. The key must not be in PEM format. PKCS \#8 keys may be RSA, ECDSA, Ed25519 or ML\-DSA; an ML\-DSA key must be in the seed form \(RFC 9881\), the form x509.MarshalPKCS8PrivateKey and "openssl genpkey \-provparam ml\-dsa.output\_formats=seed\-only" write.
 
 <a name="ParsePrivateKeyPEM"></a>
-## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L54>)
+## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L55>)
 
 ```go
 func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error)
 ```
 
-ParsePrivateKeyPEM parses and returns a PEM\-encoded private key. The private key may be either an unencrypted PKCS\#8, PKCS\#1, or elliptic private key.
+ParsePrivateKeyPEM parses and returns a PEM\-encoded private key. The private key may be either an unencrypted PKCS\#8, PKCS\#1, or elliptic private key; see ParsePrivateKeyDER for the key types.
 
 <a name="ParsePrivateKeyPEMWithPassword"></a>
-## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L63>)
+## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L64>)
 
 ```go
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.PrivateKey, err error)
 ```
 
-ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, or a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\); encrypted PKCS\#8 \(ENCRYPTED PRIVATE KEY\) is not supported. The key may be RSA or ECDSA.
+ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, or a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\); encrypted PKCS\#8 \(ENCRYPTED PRIVATE KEY\) is not supported. The key may be RSA, ECDSA, Ed25519 or ML\-DSA \(the last two PKCS\#8 only\).
 
 <a name="Register"></a>
 ## func [Register](<https://github.com/effective-security/xpki/blob/main/cryptoprov/loader.go#L19>)
@@ -156,7 +210,7 @@ func Registered() []string
 Registered returns registered providers
 
 <a name="Crypto"></a>
-## type [Crypto](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L85-L93>)
+## type [Crypto](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L94-L102>)
 
 Crypto exposes instances of Provider, found by manufacturer and model. It is safe for concurrent use: Add may run while other goroutines call ByManufacturer or LoadPrivateKey.
 
@@ -176,7 +230,7 @@ func Load(defaultConfig string, providersConfigs []string) (c *Crypto, err error
 Load returns Crypto with loaded providers from the given config locations. Each config must name a different manufacturer and model than the others \(ErrDuplicateProvider\). On error, Load closes the providers it already loaded that implement Close\(\) error.
 
 <a name="New"></a>
-### func [New](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L111>)
+### func [New](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L120>)
 
 ```go
 func New(defaultProvider Provider, providers []Provider) (*Crypto, error)
@@ -185,7 +239,7 @@ func New(defaultProvider Provider, providers []Provider) (*Crypto, error)
 New creates an instance of Crypto providers. defaultProvider is required; providers are added with Add, so a nil entry or a conflicting duplicate fails New.
 
 <a name="Crypto.Add"></a>
-### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L148>)
+### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L157>)
 
 ```go
 func (c *Crypto) Add(p Provider) error
@@ -194,7 +248,7 @@ func (c *Crypto) Add(p Provider) error
 Add registers p for lookup by its manufacturer and model. Adding the same provider again, including the default one, is a no\-op when its dynamic value is comparable, such as a pointer; the provider types in this module are. A provider value that is not comparable \(a struct holding a map, slice or func\) can not be matched, so adding it again returns ErrDuplicateProvider. A different provider with the manufacturer and model of a registered or the default provider returns ErrDuplicateProvider \(XPKI\-016\), and a nil provider, including a typed nil, returns ErrNilProvider.
 
 <a name="Crypto.ByManufacturer"></a>
-### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L182>)
+### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L191>)
 
 ```go
 func (c *Crypto) ByManufacturer(manufacturer, model string) (Provider, error)
@@ -203,7 +257,7 @@ func (c *Crypto) ByManufacturer(manufacturer, model string) (Provider, error)
 ByManufacturer returns the default provider or the registered provider for manufacturer and model. It does not lock and may run concurrently with Add.
 
 <a name="Crypto.Default"></a>
-### func \(\*Crypto\) [Default](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L135>)
+### func \(\*Crypto\) [Default](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L144>)
 
 ```go
 func (c *Crypto) Default() Provider
@@ -212,7 +266,7 @@ func (c *Crypto) Default() Provider
 Default returns a default crypto provider
 
 <a name="Crypto.LoadPrivateKey"></a>
-### func \(\*Crypto\) [LoadPrivateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L19>)
+### func \(\*Crypto\) [LoadPrivateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L20>)
 
 ```go
 func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
@@ -221,7 +275,7 @@ func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
 LoadPrivateKey returns crypto.PrivateKey. The input key can be in PEM encoded format, or PKCS11 URI.
 
 <a name="Crypto.LoadTLSKeyPair"></a>
-### func \(\*Crypto\) [LoadTLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L132>)
+### func \(\*Crypto\) [LoadTLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L138>)
 
 ```go
 func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, error)
@@ -248,7 +302,7 @@ func (c *Crypto) NewSignerFromPEM(caKey []byte) (crypto.Signer, error)
 NewSignerFromPEM generates a new crypto signer from PEM encoded blocks, or caKey contains PKCS\#11 Uri
 
 <a name="Crypto.TLSKeyPair"></a>
-### func \(\*Crypto\) [TLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L149>)
+### func \(\*Crypto\) [TLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L155>)
 
 ```go
 func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error)
@@ -257,15 +311,19 @@ func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate,
 TLSKeyPair parses a public/private key pair from PEM encoded data. The key may be a PEM private key or a pkcs11: URI resolved through the registered providers. On successful return, Certificate.Leaf holds the parsed leaf certificate. An error is returned when the private key does not match the leaf certificate's public key.
 
 <a name="KeyGenerator"></a>
-## type [KeyGenerator](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L66-L73>)
+## type [KeyGenerator](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L71-L82>)
 
-KeyGenerator defines interface for key generation operations
+KeyGenerator defines interface for key generation operations. Every generated key is a crypto.Signer; an ML\-DSA signer follows the contract MLDSASignerOptions describes.
 
 ```go
 type KeyGenerator interface {
     // GenerateRSAKey returns RSA key for purpose: 1-signing, 2-encryption
     GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
     GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
+    // GenerateMLDSAKey returns an ML-DSA (FIPS 204) signing key of the
+    // parameter set params: mldsa.MLDSA44(), MLDSA65() or MLDSA87(), see
+    // MLDSAParameters. The key signs messages, not digests.
+    GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error)
     IdentifyKey(crypto.PrivateKey) (keyID, label string, err error)
     ExportKey(keyID string) (string, []byte, error)
     GetKey(keyID string) (crypto.PrivateKey, error)
@@ -273,9 +331,9 @@ type KeyGenerator interface {
 ```
 
 <a name="KeyInfo"></a>
-## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L44-L53>)
+## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L47-L56>)
 
-KeyInfo provides key information
+KeyInfo provides key information. Type names the key algorithm as crypto/x509 prints it \("RSA", "ECDSA", "ML\-DSA"\); for an ML\-DSA key Meta also carries MetaParameterSet, for example "ML\-DSA\-65".
 
 ```go
 type KeyInfo struct {
@@ -291,7 +349,7 @@ type KeyInfo struct {
 ```
 
 <a name="KeyManager"></a>
-## type [KeyManager](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L56-L63>)
+## type [KeyManager](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L59-L66>)
 
 KeyManager defines interface for key management operations
 
@@ -342,7 +400,7 @@ func ParsePrivateKeyURI(uri string) (PrivateKeyURI, error)
 ParsePrivateKeyURI parses a PKCS \#11 URI \(RFC 7512\) into a key configuration. The URI must have type=private, serial and id \(the id is percent\-decoded and may hold binary data\). Query attributes are validated like ParseTokenURI does but not returned.
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L76-L80>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L85-L89>)
 
 Provider defines an interface to work with crypto providers: HSM, SoftHSM, KMS, crypto
 
@@ -435,7 +493,7 @@ func ParseTokenURI(uri string) (TokenConfig, error)
 ParseTokenURI parses a PKCS \#11 URI \(RFC 7512\) into a token configuration. The path attributes manufacturer, model, token and serial select the token; the query attributes module\-name, module\-path, pin\-value and pin\-source \(a file: URI whose content, trimmed, is the PIN\) set the library and the PIN. module\-path overrides module\-name when both are present. The query attributes are also accepted in the path, as this package did before XPKI\-027, but not in both places, and a URI with both pin\-source and pin\-value is refused \(RFC 7512 §2.4\). Manufacturer and model are trimmed. Errors never contain a pin\-value.
 
 <a name="TokenInfo"></a>
-## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L34-L41>)
+## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L35-L42>)
 
 TokenInfo provides PKCS \#11 token info
 

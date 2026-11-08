@@ -3,7 +3,8 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/effective-security/xpki.svg)](https://pkg.go.dev/github.com/effective-security/xpki)
 
 Go library and CLI tools for building PKI: hardware or cloud backed keys
-(PKCS#11, AWS KMS, GCP KMS), certificate signing requests, a certificate
+(PKCS#11, AWS KMS, GCP KMS), RSA, ECDSA and post-quantum ML-DSA (FIPS 204)
+keys, certificate signing requests, a certificate
 authority with policy profiles, OCSP and CRL signing, certificate bundling
 and verification, and JWT/DPoP token issuance and validation.
 
@@ -13,12 +14,12 @@ The module is `github.com/effective-security/xpki` and targets Go 1.27.
 
 | Package                   | Purpose                                                                                          |
 | ------------------------- | ------------------------------------------------------------------------------------------------ |
-| `cryptoprov`              | Provider abstraction (`Provider`, `KeyManager`, `Crypto`), config loading, key URIs, PEM helpers |
+| `cryptoprov`              | Provider abstraction (`Provider`, `KeyManager`, `Crypto`), config loading, key URIs, PEM helpers, ML-DSA signer contract |
 | `crypto11`                | PKCS#11 provider (HSM, SoftHSM): `crypto.Signer`/`crypto.Decrypter` backed by device keys        |
 | `cryptoprov/awskmscrypto` | AWS KMS provider                                                                                 |
 | `cryptoprov/gcpkmscrypto` | Google Cloud KMS provider                                                                        |
 | `cryptoprov/inmemcrypto`  | In-memory provider for tests and development                                                     |
-| `csr`                     | CSR generation and parsing, key requests, SAN and CRL distribution point encoding                |
+| `csr`                     | CSR generation and parsing, key requests (RSA, ECDSA, ML-DSA), SAN and CRL distribution point encoding |
 | `authority`               | Certificate Authority: issuers, certificate profiles, `Sign`, OCSP and CRL signing               |
 | `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP request creation                        |
 | `jwt`                     | JWT signing and verification, claims, static and remote JWKS key sets                            |
@@ -190,6 +191,29 @@ req := &csr.CertificateRequest{
 }
 csrPEM, priv, keyID, err := prov.GenerateKeyAndRequest(req)
 ```
+
+### Post-quantum keys (ML-DSA)
+
+Every provider generates ML-DSA (FIPS 204) keys; the request names the
+parameter set as the size:
+
+```go
+req.KeyRequest = prov.NewKeyRequest("server-pq", csr.AlgoMLDSA, csr.MLDSA65, csr.SigningKey)
+```
+
+or, in a CSR profile, `key: {algo: ML-DSA, size: 65}`. The CSR and the
+certificates issued for it carry `x509.MLDSA65`; `certutil.IsPostQuantumKey`
+and `certutil.IsPostQuantumCertificate` detect such keys and certificates,
+and a profile can require or forbid them with
+`allowed_key_algorithms: [ml-dsa]`. An ML-DSA signer signs the message, not
+a digest: pass the message with nil options (or `*mldsa.Options`), or a
+64-byte μ with `crypto.MLDSAMu`; a digest hash is an error. An ML-DSA
+issuer that advertises OCSP needs `aia.delegated_ocsp_profile`, since
+`golang.org/x/crypto/ocsp` signs with RSA and ECDSA keys only. Private keys
+are exported as PKCS#8 (seed form); `hsm-tool hsm generate --algo ML-DSA
+--size 65` prints one. The `crypto11` support needs a PKCS#11 v3.2 token
+and is not yet verified against one; see
+[`Documentation/design/pqc.md`](Documentation/design/pqc.md).
 
 ### Run a CA
 

@@ -36,6 +36,7 @@ var KeyTypeNames = map[uint]string{
 	pkcs11.CKK_DSA: "DSA",
 	pkcs11.CKK_DH:  "DH",
 	pkcs11.CKK_EC:  "ECDSA",
+	ckkMLDSA:       "ML-DSA",
 }
 
 // ulongSize is the width in bytes of a PKCS#11 CK_ULONG (C unsigned long)

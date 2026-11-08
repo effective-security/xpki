@@ -2,6 +2,10 @@ package print_test
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/mldsa"
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/testca"
 	"github.com/effective-security/xpki/x/print"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -418,4 +423,46 @@ func loadCerts(t *testing.T, files ...string) []*x509.Certificate {
 		all = append(all, certs...)
 	}
 	return all
+}
+
+// Test_PrintAlgorithms checks that the key and signature algorithms are
+// printed for certificates and requests, so a post-quantum chain is visible.
+func Test_PrintAlgorithms(t *testing.T) {
+	t.Parallel()
+	root := testca.NewEntity(testca.Authority, testca.MLDSAKey(mldsa.MLDSA65()), testca.Subject(pkix.Name{CommonName: "pq root"}))
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leaf := root.Issue(testca.PrivateKey(ecKey), testca.DNSName("pq.example.com"))
+
+	out := bytes.NewBuffer(nil)
+	print.Certificate(out, root.Certificate, false)
+	assert.Contains(t, out.String(), "Public Key Algorithm: ML-DSA\n")
+	assert.Contains(t, out.String(), "Signature Algorithm: ML-DSA-65\n")
+
+	out.Reset()
+	print.Certificate(out, leaf.Certificate, false)
+	assert.Contains(t, out.String(), "Public Key Algorithm: ECDSA\n")
+	assert.Contains(t, out.String(), "Signature Algorithm: ML-DSA-65\n")
+
+	// a certificate built without algorithms prints neither line
+	out.Reset()
+	print.Certificate(out, &x509.Certificate{
+		Subject:      pkix.Name{CommonName: testNoExtCN},
+		SerialNumber: big.NewInt(1),
+	}, false)
+	assert.NotContains(t, out.String(), "Algorithm:")
+
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject:  pkix.Name{CommonName: "pq request"},
+		DNSNames: []string{"pq.example.com"},
+	}, root.PrivateKey)
+	require.NoError(t, err)
+	csr, err := x509.ParseCertificateRequest(der)
+	require.NoError(t, err)
+	out.Reset()
+	print.CertificateRequest(out, csr)
+	assert.Contains(t, out.String(), "Subject: CN=pq request\n")
+	assert.Contains(t, out.String(), "Public Key Algorithm: ML-DSA\n")
+	assert.Contains(t, out.String(), "Signature Algorithm: ML-DSA-65\n")
+	assert.Contains(t, out.String(), "  - pq.example.com\n")
 }

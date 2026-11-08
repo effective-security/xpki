@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -136,12 +137,16 @@ func Test_ParsePrivateKeyDER(t *testing.T) {
 	require.NoError(t, err)
 	_, edKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
+	mlKey, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
 
 	rsaPKCS8, err := x509.MarshalPKCS8PrivateKey(rsaKey)
 	require.NoError(t, err)
 	ecPKCS8, err := x509.MarshalPKCS8PrivateKey(ecKey)
 	require.NoError(t, err)
 	edPKCS8, err := x509.MarshalPKCS8PrivateKey(edKey)
+	require.NoError(t, err)
+	mlPKCS8, err := x509.MarshalPKCS8PrivateKey(mlKey)
 	require.NoError(t, err)
 	ecSEC1, err := x509.MarshalECPrivateKey(ecKey)
 	require.NoError(t, err)
@@ -156,6 +161,7 @@ func Test_ParsePrivateKeyDER(t *testing.T) {
 		{"ecdsa_pkcs8", ecPKCS8, ecKey},
 		{"ecdsa_sec1", ecSEC1, ecKey},
 		{"ed25519_pkcs8", edPKCS8, edKey},
+		{"mldsa65_pkcs8", mlPKCS8, mlKey},
 	}
 	for _, tc := range tcases {
 		t.Run(tc.name, func(t *testing.T) {

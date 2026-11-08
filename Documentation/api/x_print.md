@@ -20,7 +20,7 @@ Package print writes human\-readable descriptions of certificates, certificate r
 
 
 <a name="CertAndKey"></a>
-## func [CertAndKey](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L222>)
+## func [CertAndKey](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L235>)
 
 ```go
 func CertAndKey(w io.Writer, key, csrBytes, cert []byte)
@@ -38,7 +38,7 @@ func Certificate(w io.Writer, crt *x509.Certificate, verboseExtensions bool)
 Certificate prints cert details
 
 <a name="CertificateList"></a>
-## func [CertificateList](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L160>)
+## func [CertificateList](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L173>)
 
 ```go
 func CertificateList(w io.Writer, crl *x509.RevocationList)
@@ -47,7 +47,7 @@ func CertificateList(w io.Writer, crl *x509.RevocationList)
 CertificateList prints CRL details
 
 <a name="CertificateRequest"></a>
-## func [CertificateRequest](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L110>)
+## func [CertificateRequest](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L122>)
 
 ```go
 func CertificateRequest(w io.Writer, crt *x509.CertificateRequest)
@@ -65,7 +65,7 @@ func Certificates(w io.Writer, list []*x509.Certificate, verboseExtensions bool)
 Certificates prints list of cert details
 
 <a name="JSON"></a>
-## func [JSON](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L241>)
+## func [JSON](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L254>)
 
 ```go
 func JSON(w io.Writer, v any)
@@ -74,7 +74,7 @@ func JSON(w io.Writer, v any)
 JSON prints json
 
 <a name="OCSPResponse"></a>
-## func [OCSPResponse](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L185>)
+## func [OCSPResponse](<https://github.com/effective-security/xpki/blob/main/x/print/certutil.go#L198>)
 
 ```go
 func OCSPResponse(w io.Writer, res *ocsp.Response, verboseExtensions bool)

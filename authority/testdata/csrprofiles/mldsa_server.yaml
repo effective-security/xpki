@@ -1,0 +1,14 @@
+---
+# A TLS server request with a post-quantum ML-DSA-65 key (FIPS 204).
+# The signing CA may use a classical or an ML-DSA key.
+common_name: pq.localhost
+san:
+  - pq.localhost
+  - 127.0.0.1
+key:
+  algo: ML-DSA
+  size: 65
+names:
+  - c: US
+    l: WA
+    o: trusty.com

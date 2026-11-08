@@ -25,6 +25,7 @@ Package awskmscrypto implements cryptoprov.Provider and cryptoprov.KeyManager ov
   - [func \(p \*Provider\) ExportKey\(keyID string\) \(string, \[\]byte, error\)](<#Provider.ExportKey>)
   - [func \(p \*Provider\) FindKeyPairOnSlot\(slotID uint, keyID, label string\) \(crypto.PrivateKey, error\)](<#Provider.FindKeyPairOnSlot>)
   - [func \(p \*Provider\) GenerateECDSAKey\(label string, curve elliptic.Curve\) \(crypto.PrivateKey, error\)](<#Provider.GenerateECDSAKey>)
+  - [func \(p \*Provider\) GenerateMLDSAKey\(label string, params mldsa.Parameters\) \(crypto.PrivateKey, error\)](<#Provider.GenerateMLDSAKey>)
   - [func \(p \*Provider\) GenerateRSAKey\(label string, bits int, purpose int\) \(crypto.PrivateKey, error\)](<#Provider.GenerateRSAKey>)
   - [func \(p \*Provider\) GetKey\(keyID string\) \(crypto.PrivateKey, error\)](<#Provider.GetKey>)
   - [func \(p \*Provider\) IdentifyKey\(priv crypto.PrivateKey\) \(keyID, label string, err error\)](<#Provider.IdentifyKey>)
@@ -59,7 +60,7 @@ var KmsClientFactory = func(cfg aws.Config, optFns ...func(*kms.Options)) KmsCli
 ```
 
 <a name="KmsLoader"></a>
-## func [KmsLoader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L612>)
+## func [KmsLoader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L675>)
 
 ```go
 func KmsLoader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error)
@@ -68,7 +69,7 @@ func KmsLoader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error)
 KmsLoader provides loader for KMS provider
 
 <a name="NewSigner"></a>
-## func [NewSigner](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L59>)
+## func [NewSigner](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L67>)
 
 ```go
 func NewSigner(keyID string, label string, signingAlgorithms []types.SigningAlgorithmSpec, publicKey crypto.PublicKey, kmsClient KmsClient) crypto.Signer
@@ -77,7 +78,7 @@ func NewSigner(keyID string, label string, signingAlgorithms []types.SigningAlgo
 NewSigner creates a signer for the KMS key keyID. signingAlgorithms are the algorithms KMS reports for the key \(KeyMetadata.SigningAlgorithms or GetPublicKeyOutput.SigningAlgorithms\); Sign accepts only those, so a key without any, such as an ENCRYPT\_DECRYPT key, can not sign.
 
 <a name="KmsClient"></a>
-## type [KmsClient](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L69-L77>)
+## type [KmsClient](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L108-L116>)
 
 KmsClient interface
 
@@ -94,7 +95,7 @@ type KmsClient interface {
 ```
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L85-L94>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L124-L133>)
 
 Provider implements Provider interface for KMS
 
@@ -105,7 +106,7 @@ type Provider struct {
 ```
 
 <a name="Init"></a>
-### func [Init](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L103>)
+### func [Init](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L142>)
 
 ```go
 func Init(tc cryptoprov.TokenConfig) (*Provider, error)
@@ -114,7 +115,7 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error)
 Init creates a provider for tc, whose Attributes may carry "Endpoint=\<url\>" and "Region=\<region\>". Credentials, the default region and retries come from the default AWS SDK chain, which reads AWS\_ACCESS\_KEY\_ID, AWS\_SECRET\_ACCESS\_KEY and AWS\_SESSION\_TOKEN before the shared config, so the provider does not copy them into a static provider of its own \(XPKI\-034\). The client from KmsClientFactory makes no request until a key operation.
 
 <a name="Provider.Close"></a>
-### func \(\*Provider\) [Close](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L607>)
+### func \(\*Provider\) [Close](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L670>)
 
 ```go
 func (p *Provider) Close() error
@@ -123,7 +124,7 @@ func (p *Provider) Close() error
 Close allocated resources and file reloader
 
 <a name="Provider.CurrentSlotID"></a>
-### func \(\*Provider\) [CurrentSlotID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L169>)
+### func \(\*Provider\) [CurrentSlotID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L208>)
 
 ```go
 func (p *Provider) CurrentSlotID() uint
@@ -132,7 +133,7 @@ func (p *Provider) CurrentSlotID() uint
 CurrentSlotID returns current slot id. For KMS only one slot is assumed to be available.
 
 <a name="Provider.DestroyKeyPairOnSlot"></a>
-### func \(\*Provider\) [DestroyKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L531>)
+### func \(\*Provider\) [DestroyKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L593>)
 
 ```go
 func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error
@@ -141,7 +142,7 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error
 DestroyKeyPairOnSlot destroys key pair on slot. For KMS slotID is ignored and KMS retire API is used to destroy the key.
 
 <a name="Provider.EnumKeys"></a>
-### func \(\*Provider\) [EnumKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L396>)
+### func \(\*Provider\) [EnumKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L457>)
 
 ```go
 func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error)
@@ -150,7 +151,7 @@ func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, e
 EnumKeys lists the signing keys \(usage SIGN\_VERIFY, not pending deletion\) whose label, the KMS key description, starts with prefix; an empty prefix lists all of them. slotID is ignored. KMS lists key ids only, so every key of the account is described \(XPKI\-032\), describeConcurrency calls at a time, with the SDK retrying throttled calls; the caller needs kms:ListKeys and kms:DescribeKey. A key the caller may not describe \(AccessDeniedException\) is not listed and is logged. Any other ListKeys or DescribeKey failure ends the listing and is returned wrapped, so errors.As still finds the service error; there is no partial result \(XPKI\-033\). Keys are returned in the KMS listing order.
 
 <a name="Provider.EnumTokens"></a>
-### func \(\*Provider\) [EnumTokens](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L365>)
+### func \(\*Provider\) [EnumTokens](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L420>)
 
 ```go
 func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error)
@@ -159,7 +160,7 @@ func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, err
 EnumTokens lists tokens. For KMS currentSlotOnly is ignored and only one slot is assumed to be available.
 
 <a name="Provider.ExportKey"></a>
-### func \(\*Provider\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L585>)
+### func \(\*Provider\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L648>)
 
 ```go
 func (p *Provider) ExportKey(keyID string) (string, []byte, error)
@@ -168,7 +169,7 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error)
 ExportKey returns PKCS\#11 URI for specified key ID. It does not return key bytes
 
 <a name="Provider.FindKeyPairOnSlot"></a>
-### func \(\*Provider\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L602>)
+### func \(\*Provider\) [FindKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L665>)
 
 ```go
 func (p *Provider) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.PrivateKey, error)
@@ -177,7 +178,7 @@ func (p *Provider) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.P
 FindKeyPairOnSlot retrieves a previously created asymmetric key, using a specified slot.
 
 <a name="Provider.GenerateECDSAKey"></a>
-### func \(\*Provider\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L192>)
+### func \(\*Provider\) [GenerateECDSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L231>)
 
 ```go
 func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
@@ -185,8 +186,17 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 
 GenerateECDSAKey creates a KMS signing key on curve \(P\-256, P\-384 or P\-521\) with label as its description and alias, and returns its Signer.
 
+<a name="Provider.GenerateMLDSAKey"></a>
+### func \(\*Provider\) [GenerateMLDSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L254>)
+
+```go
+func (p *Provider) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error)
+```
+
+GenerateMLDSAKey creates a KMS signing key of the ML\-DSA parameter set params \(key spec ML\_DSA\_44, ML\_DSA\_65 or ML\_DSA\_87\) with label as its description and alias, and returns its Signer. The signer signs messages through the EXTERNAL\_MU operation: μ is computed locally, so the message never leaves the process and the RAW message size limit of KMS does not apply; see cryptoprov.MLDSASignerOptions for the options it accepts.
+
 <a name="Provider.GenerateRSAKey"></a>
-### func \(\*Provider\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L177>)
+### func \(\*Provider\) [GenerateRSAKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L216>)
 
 ```go
 func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
@@ -195,7 +205,7 @@ func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.P
 GenerateRSAKey creates a KMS signing key of bits \(2048, 3072 or 4096\) with label as its description and alias, and returns its Signer. This provider has no decrypter, so the encryption purpose \(2\) is an error before any RPC \(XPKI\-031\); any other purpose is a signing key.
 
 <a name="Provider.GetKey"></a>
-### func \(\*Provider\) [GetKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L333>)
+### func \(\*Provider\) [GetKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L388>)
 
 ```go
 func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error)
@@ -204,7 +214,7 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error)
 GetKey returns the Signer of the KMS key keyID \(a key id, ARN, alias name or alias ARN\), labelled with the key description. The key usage must be SIGN\_VERIFY and the key must not be pending deletion: neither can sign, so no signer is returned for them \(XPKI\-031\). A disabled key gets a signer, since it can be enabled again; its Sign fails until then.
 
 <a name="Provider.IdentifyKey"></a>
-### func \(\*Provider\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L321>)
+### func \(\*Provider\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L376>)
 
 ```go
 func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error)
@@ -213,7 +223,7 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 IdentifyKey returns key id and label for the given private key
 
 <a name="Provider.KeyInfo"></a>
-### func \(\*Provider\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L548>)
+### func \(\*Provider\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L610>)
 
 ```go
 func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error)
@@ -222,7 +232,7 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 KeyInfo retrieves info about key with the specified id
 
 <a name="Provider.Manufacturer"></a>
-### func \(\*Provider\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L159>)
+### func \(\*Provider\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L198>)
 
 ```go
 func (p *Provider) Manufacturer() string
@@ -231,7 +241,7 @@ func (p *Provider) Manufacturer() string
 Manufacturer returns manufacturer for the provider
 
 <a name="Provider.Model"></a>
-### func \(\*Provider\) [Model](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L164>)
+### func \(\*Provider\) [Model](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/awskmsprov.go#L203>)
 
 ```go
 func (p *Provider) Model() string
@@ -240,7 +250,7 @@ func (p *Provider) Model() string
 Model returns model for the provider
 
 <a name="Signer"></a>
-## type [Signer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L47-L53>)
+## type [Signer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L55-L61>)
 
 Signer implements crypto.Signer interface
 
@@ -251,7 +261,7 @@ type Signer struct {
 ```
 
 <a name="Signer.KeyID"></a>
-### func \(\*Signer\) [KeyID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L71>)
+### func \(\*Signer\) [KeyID](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L79>)
 
 ```go
 func (s *Signer) KeyID() string
@@ -260,7 +270,7 @@ func (s *Signer) KeyID() string
 KeyID returns key id of the signer
 
 <a name="Signer.Label"></a>
-### func \(\*Signer\) [Label](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L76>)
+### func \(\*Signer\) [Label](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L84>)
 
 ```go
 func (s *Signer) Label() string
@@ -269,7 +279,7 @@ func (s *Signer) Label() string
 Label returns key label of the signer
 
 <a name="Signer.Public"></a>
-### func \(\*Signer\) [Public](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L86>)
+### func \(\*Signer\) [Public](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L94>)
 
 ```go
 func (s *Signer) Public() crypto.PublicKey
@@ -278,16 +288,18 @@ func (s *Signer) Public() crypto.PublicKey
 Public returns public key for the signer
 
 <a name="Signer.Sign"></a>
-### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L105>)
+### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L120>)
 
 ```go
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
 ```
 
-Sign signs digest with the KMS key. opts is required \(XPKI\-025\): its hash selects the KMS algorithm and digest must have that hash's length. \*rsa.PSSOptions select RSASSA\_PSS for an RSA key and are rejected for an ECDSA key; the salt must be rsa.PSSSaltLengthEqualsHash or the hash size, the only salt KMS produces \(rsa.PSSSaltLengthAuto asks for a maximal salt and is rejected\). The algorithm must be one the key supports, as KMS reported when the signer was created; for an ECDSA key that is the algorithm of its curve. Invalid options fail before any RPC.
+Sign signs digest with the KMS key. For an RSA or ECDSA key opts is required \(XPKI\-025\): its hash selects the KMS algorithm and digest must have that hash's length. \*rsa.PSSOptions select RSASSA\_PSS for an RSA key and are rejected for an ECDSA key; the salt must be rsa.PSSSaltLengthEqualsHash or the hash size, the only salt KMS produces \(rsa.PSSSaltLengthAuto asks for a maximal salt and is rejected\). The algorithm must be one the key supports, as KMS reported when the signer was created; for an ECDSA key that is the algorithm of its curve.
+
+An ML\-DSA key signs the message: digest is the message with nil, a zero hash or \*mldsa.Options, or the 64\-byte representative μ with crypto.MLDSAMu \(cryptoprov.MLDSASignerOptions\); every other hash is an error. The signer computes μ locally and calls KMS with MessageType EXTERNAL\_MU and ML\_DSA\_SHAKE\_256, so the message itself is never sent. Invalid options fail before any RPC.
 
 <a name="Signer.SigningAlgorithms"></a>
-### func \(\*Signer\) [SigningAlgorithms](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L81>)
+### func \(\*Signer\) [SigningAlgorithms](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L89>)
 
 ```go
 func (s *Signer) SigningAlgorithms() []types.SigningAlgorithmSpec
@@ -296,7 +308,7 @@ func (s *Signer) SigningAlgorithms() []types.SigningAlgorithmSpec
 SigningAlgorithms returns the KMS signing algorithms the key supports.
 
 <a name="Signer.String"></a>
-### func \(\*Signer\) [String](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L90>)
+### func \(\*Signer\) [String](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L98>)
 
 ```go
 func (s *Signer) String() string

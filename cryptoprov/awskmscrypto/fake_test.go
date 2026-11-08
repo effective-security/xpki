@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -117,7 +118,13 @@ var specAlgorithms = map[types.KeySpec][]types.SigningAlgorithmSpec{
 	types.KeySpecEccNistP256: {types.SigningAlgorithmSpecEcdsaSha256},
 	types.KeySpecEccNistP384: {types.SigningAlgorithmSpecEcdsaSha384},
 	types.KeySpecEccNistP521: {types.SigningAlgorithmSpecEcdsaSha512},
+	types.KeySpecMlDsa44:     {types.SigningAlgorithmSpecMlDsaShake256},
+	types.KeySpecMlDsa65:     {types.SigningAlgorithmSpecMlDsaShake256},
+	types.KeySpecMlDsa87:     {types.SigningAlgorithmSpecMlDsaShake256},
 }
+
+// mldsaMuSize is the length of the EXTERNAL_MU message KMS accepts.
+const mldsaMuSize = 64
 
 // rsaEncryptionAlgorithms are the algorithms of an ENCRYPT_DECRYPT RSA key.
 var rsaEncryptionAlgorithms = []types.EncryptionAlgorithmSpec{
@@ -154,6 +161,12 @@ func keyPair(spec types.KeySpec) (crypto.Signer, error) {
 		priv, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	case types.KeySpecEccNistP521:
 		priv, err = ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	case types.KeySpecMlDsa44:
+		priv, err = mldsa.GenerateKey(mldsa.MLDSA44())
+	case types.KeySpecMlDsa65:
+		priv, err = mldsa.GenerateKey(mldsa.MLDSA65())
+	case types.KeySpecMlDsa87:
+		priv, err = mldsa.GenerateKey(mldsa.MLDSA87())
 	default:
 		return nil, validationError("unsupported key spec: " + string(spec))
 	}
@@ -492,6 +505,9 @@ func (f *fakeKMS) Sign(_ context.Context, req *kms.SignInput, _ ...func(*kms.Opt
 	if !slices.Contains(key.meta.SigningAlgorithms, algorithm) {
 		return nil, &types.InvalidKeyUsageException{Message: aws.String("algorithm " + string(algorithm) + " is not valid for the key")}
 	}
+	if algorithm == types.SigningAlgorithmSpecMlDsaShake256 {
+		return signMLDSA(key, req)
+	}
 	if req.MessageType != types.MessageTypeDigest {
 		return nil, validationError("only DIGEST messages are supported")
 	}
@@ -515,6 +531,36 @@ func (f *fakeKMS) Sign(_ context.Context, req *kms.SignInput, _ ...func(*kms.Opt
 		KeyId:            key.meta.Arn,
 		Signature:        sig,
 		SigningAlgorithm: algorithm,
+	}, nil
+}
+
+// signMLDSA signs with an ML-DSA key the way KMS does: a RAW message is
+// signed as is, an EXTERNAL_MU message must be the 64-byte μ, and a DIGEST
+// is rejected.
+func signMLDSA(key *fakeKey, req *kms.SignInput) (*kms.SignOutput, error) {
+	priv, ok := key.priv.(*mldsa.PrivateKey)
+	if !ok {
+		return nil, validationError("key is not ML-DSA")
+	}
+	var opts crypto.SignerOpts
+	switch req.MessageType {
+	case types.MessageTypeRaw:
+	case types.MessageTypeExternalMu:
+		if len(req.Message) != mldsaMuSize {
+			return nil, validationError("EXTERNAL_MU message must be 64 bytes")
+		}
+		opts = crypto.MLDSAMu
+	default:
+		return nil, validationError("ML-DSA keys sign RAW or EXTERNAL_MU messages")
+	}
+	sig, err := priv.Sign(rand.Reader, req.Message, opts)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return &kms.SignOutput{
+		KeyId:            key.meta.Arn,
+		Signature:        sig,
+		SigningAlgorithm: req.SigningAlgorithm,
 	}, nil
 }
 

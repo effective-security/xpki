@@ -126,87 +126,31 @@ RACE=true`.
 
 Execution plan for the roadmap item
 [Post-quantum signatures: ML-DSA (FIPS 204)](ROADMAP.md#post-quantum-signatures-ml-dsa-fips-204).
-The design, the verified toolchain baseline (2026-11-08) and the per-file
-inventory are in [`Documentation/design/pqc.md`](Documentation/design/pqc.md);
-this section is the work breakdown. It is not a findings batch: there is no
-defect to reproduce, so the "prove the pre-fix failure" step is replaced by
-the acceptance tests listed per batch, written before the implementation.
-Remove a batch from this section when it is merged and summarize it in the
-next `Documentation/RELEASE_NOTES_<version>.md`.
+The design and the decisions D1–D7 are in
+[`Documentation/design/pqc.md`](Documentation/design/pqc.md). Batches PQ0
+(foundations), PQ1 (in-memory providers, `testca`), PQ2 (`authority`), PQ3
+(AWS KMS), PQ4 (GCP KMS) and PQ6 (CLI, printing, documentation) were
+implemented in v1.1 and are summarized in
+[`Documentation/RELEASE_NOTES_1.1.md`](Documentation/RELEASE_NOTES_1.1.md).
+What remains is the verification half of PQ5.
 
-### Decisions to resolve first
+### Remaining batch
 
-The decisions below are described with their recommendation in
-`Documentation/design/pqc.md` ("Decisions"). They gate the batches named
-in the last column; the other batches can start on tests and fakes.
+| Batch | Owner package(s) | Scope                                                                                                                                                                                                                                                                                                                                                      | Depends on                        | Regression risk                                   |
+| ----- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------- |
+| PQ5b  | `crypto11`       | Verify the ML-DSA code of v1.1 (`mldsa.go`: `GenerateMLDSAKey`, lookup, `PKCS11PrivateKeyMLDSA.Sign`, public key export) against a PKCS#11 v3.2 module. Provision a software token (Kryoptic: no published container image as of 2026-11-08; a Rust build against OpenSSL 3.5) in `scripts/`, the Makefile and CI; point `XPKI_PKCS11_V32_CONFIG` at its config so `TestMLDSAOnPKCS11v32Token` runs. Fix whatever the token reports (attribute templates, `CKA_PARAMETER_SET` placement, signature encoding), add the parameter set to `KeyInfo.Meta`, and decide whether `CK_SIGN_ADDITIONAL_CONTEXT` (context strings, deterministic signing) is worth building. | A v3.2 token the build can run    | Medium: untested cgo path; shared `keys.go` switches already in place |
 
-| Decision | Topic                                                   | Status         | Gates      |
-| -------- | ------------------------------------------------------- | -------------- | ---------- |
-| D1       | Optional `MLDSAKeyGenerator` interface vs widening `KeyGenerator` | Needs Approval | PQ0, PQ1   |
-| D2       | `KeyRequest` encoding (`algo: ML-DSA`, `size: 44\|65\|87`), accepted aliases, PR 568 error text | Needs Approval | PQ0        |
-| D3       | `KeyInfo` values for ML-DSA (`Type`, `KeySize`, `Hash`, `Meta`) | Needs Approval | PQ0        |
-| D4       | Signer contract: message / μ options, no digest hashes  | Needs Approval | PQ1–PQ5    |
-| D5       | OCSP with an ML-DSA issuer: delegated classical responder required (phase 1) | Needs Approval | PQ2        |
-| D6       | Hedged signing by default                               | Needs Approval | PQ1, PQ3–5 |
-| D7       | Optional `allowed_key_algorithms` profile policy        | Needs Approval | PQ2        |
-
-### Batches
-
-| Batch | Owner package(s)                | Scope                                                                                                                                                                                                                                                         | Depends on | Regression risk |
-| ----- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | --------------- |
-| PQ0   | `csr`, `certutil`, `cryptoprov` | Foundations, fixture-free. Absorb PR 568 with the review fix (D2). `csr`: `SigAlgo`/`DefaultSigAlgo` for ML-DSA, `KeyRequest.Generate` calling the D1 interface. `certutil`: `NewKeyInfo`, `ParsePrivateKeyDER`, `EncodePrivateKeyToPEM` (PKCS#8), bundler leaf key check, `IsPostQuantumKey`/`IsPostQuantumCertificate`, OpenSSL 3.5 interop vectors under `certutil/testdata/pqc/`. `cryptoprov`: `MLDSAKeyGenerator`, `ParsePrivateKeyDER`. | D1–D3      | Low: additive cases in type switches; existing RSA/ECDSA paths unchanged |
-| PQ1   | `cryptoprov/inmemcrypto`, `cryptoprov/testprov`, `testca` | `GenerateMLDSAKey`, `Sign` option forwarding (nil default only for RSA/ECDSA), PKCS#8 export, `IdentifyKey`; `testca` ML-DSA entity option. End-to-end: `csr.Provider.GenerateKeyAndRequest` → `ParsePEM` → `CheckSignature` with an in-memory ML-DSA key. | PQ0, D4, D6 | Low: new generator; the `Sign` default change is covered by existing RSA/ECDSA tests |
-| PQ2   | `authority`                     | `CreateIssuer` with an ML-DSA signer (key info, `sigAlgo`), `Sign` issuing from classical and ML-DSA CSRs, `NewRoot`/`GenCert`, `SignProof`/`VerifyProof` message path, OCSP constraint (D5), optional `allowed_key_algorithms` (D7), README and sample profile. | PQ1, D5, D7 | Medium: touches `CreateIssuer` validation and `VerifyProof`; behavior for RSA/ECDSA issuers must be byte-for-byte unchanged |
-| PQ3   | `cryptoprov/awskmscrypto`       | `ML_DSA_*` key specs, `GenerateMLDSAKey`, `GetKey`/`EnumKeys` for PQ keys, `Sign` with locally computed μ and `EXTERNAL_MU`/`ML_DSA_SHAKE_256`, option validation before any RPC, outdated comment. `fakeKMS` with real ML-DSA keys and both message types. Gated integration test documented as skipped on `local-kms` (no ML-DSA, verified) and runnable against a real account. | PQ0, D4, D6 | Medium: `Sign` dispatch changes; existing algorithm map must be unchanged for RSA/ECDSA |
-| PQ4   | `cryptoprov/gcpkmscrypto`       | `PQ_SIGN_ML_DSA_*` (`_EXTERNAL_MU` preferred) algorithms in `signSchemes`/`x509SignatureAlgorithms`, `GenerateMLDSAKey`, `GetKey`, `Sign` sending `data`/μ with CRC32C, `SignatureAlgorithm()`; fake gRPC KMS extended. | PQ0, D4, D6 | Medium: same as PQ3 |
-| PQ5   | `crypto11`                      | Local PKCS#11 v3.2 constants, `CKK_ML_DSA` in `KeyTypeNames`/`keyTypeAndClass`, `PKCS11PrivateKeyMLDSA` (message semantics, handle refresh), `GenerateMLDSAKey`, `findKeyPairOnSession`, public key export, `ConvertToPublic`, `IdentifyKey`, `getPublicKeyPEM`. Second gated fixture (a v3.2 software token such as Kryoptic) with its own config path constant, `scripts/`, Makefile and CI provisioning. | PQ0, D4, fixture available | Medium: shared `keys.go` switches; cgo build must stay clean on every platform |
-| PQ6   | `cmd/hsm-tool`, `x/print`, docs | `--algo` help and README regeneration, `csr` profile sample, printer lines for key and signature algorithm, `Documentation/codemap.md` rows and invariants (supported algorithms, signer contract, fixtures), root `README.md`, design documents, release notes. | PQ1–PQ5    | Low |
-
-Second milestone, not scheduled: ML-DSA in `jwt`/`jwt/dpop` (RFC 9964,
-go-jose v4.1.9), local OCSP response building for ML-DSA responders,
-composite signatures.
-
-### Acceptance criteria
-
-- PQ0: `csr.SigAlgo("ML-DSA", 65) == x509.MLDSA65`;
-  `csr.DefaultSigAlgo` on an `*mldsa.PrivateKey` returns the key's
-  parameter set algorithm; `certutil.NewKeyInfo` returns the D3 values for
-  private, public, signer and JWK inputs; `ParsePrivateKeyDER` and
-  `EncodePrivateKeyToPEM` round-trip an ML-DSA key and parse the OpenSSL
-  3.5 vectors; `KeyRequest.Generate` for `ML-DSA` with a provider lacking
-  the D1 interface returns the "not implemented" error, with a valid
-  parameter set checked first. RSA/ECDSA table tests unchanged.
-- PQ1: generation, lookup and export of all three parameter sets; a
-  concurrency test overlapping generation with lookup and signing
-  (`make test RACE=true`); `Sign` with `crypto.SHA256` on an ML-DSA key
-  returns an error; CSR created and verified end to end.
-- PQ2: an ML-DSA root issues an ML-DSA leaf and an ECDSA leaf, and an ECDSA
-  issuer issues an ML-DSA leaf; `x509.Verify` passes for each chain;
-  `SignProof`/`VerifyProof` round-trip and reject a tampered proof;
-  `CreateIssuer` with an ML-DSA signer and no delegated responder fails
-  with the D5 error; `SignOCSP` through the delegated responder works;
-  profiles with `allowed_key_algorithms` accept and reject as configured;
-  the existing policy suite (`issuer_policy_test.go`) is unchanged.
-- PQ3/PQ4: with the fakes, every parameter set signs a certificate and a
-  CSR that verify locally; invalid options fail before any RPC; μ matches
-  `mldsa.Verify` with the same message; CRC32C and empty-response checks
-  hold; RSA/ECDSA tests unchanged. The gated real-service test is recorded
-  as not run in CI with the reason.
-- PQ5: with the v3.2 fixture, generate, find by id and label, sign, export
-  the public key, destroy; without the fixture the tests skip (or fail
-  only with `XPKI_INTEGRATION=required` where CI provisions it).
-- PQ6: `hsm-tool hsm generate --algo ML-DSA --size 65 --cfg inmem` prints a
-  PKCS#8 key; `git diff --exit-code` clean after `make build docs`.
+Acceptance for PQ5b: with the fixture, generate, find by id and label,
+sign (verified with `mldsa.Verify`), export the public key and destroy for
+all three parameter sets; `make test` on a machine without the fixture still
+skips the test; CI either provisions the token or documents that it does
+not.
 
 ### Validation protocol
 
-For every batch: write the acceptance tests first and see them fail on
-the current tree; `make lint`; the owning package's tests plus `authority`,
-`csr` and `cmd/hsm-tool/cli` as consumers; `make test RACE=true` for PQ1,
-PQ3, PQ4 and PQ5 (provider registries and session pools); `make covtest`
-stays above the `MIN_TESTCOV=90` gate without excluding new files. Record
-in the PR which fixtures ran (SoftHSM, local-kms, the v3.2 token, a real
-KMS) and which were skipped. Update `Documentation/codemap.md` in the same
-change (supported algorithms, signer contract, fixtures, new files), and
-the design documents under `Documentation/design/` when a decision above
-is resolved differently from its recommendation.
+Write the missing assertions in `crypto11/mldsa_test.go` first and run them
+against the token; `make lint`; `make test RACE=true` for `crypto11`
+(session pool); `make covtest` stays above `MIN_TESTCOV=90`. Record in the
+PR which module and version signed, and update
+`Documentation/design/crypto11.md` and the codemap (fixture conventions,
+`Meta` contents) in the same change.

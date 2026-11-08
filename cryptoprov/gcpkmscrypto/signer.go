@@ -3,6 +3,7 @@ package gcpkmscrypto
 import (
 	"context"
 	"crypto"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/metricskey"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -27,10 +29,10 @@ type signScheme struct {
 
 // signSchemes maps the KMS algorithms that sign a digest to their scheme.
 // KMS rejects a digest of another hash, and the padding cannot be chosen
-// per call, so Sign checks its options against the scheme (XPKI-019). Raw
-// PKCS#1, Ed25519, post-quantum, decryption and MAC algorithms are not
-// supported, and neither is secp256k1, whose public key crypto/x509 cannot
-// parse (XPKI-119).
+// per call, so Sign checks its options against the scheme (XPKI-019). The
+// ML-DSA algorithms sign data instead (mldsaSchemes). Raw PKCS#1, Ed25519,
+// SLH-DSA, decryption and MAC algorithms are not supported, and neither is
+// secp256k1, whose public key crypto/x509 cannot parse (XPKI-119).
 var signSchemes = map[kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm]signScheme{
 	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_2048_SHA256:   {hash: crypto.SHA256, pss: true},
 	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_3072_SHA256:   {hash: crypto.SHA256, pss: true},
@@ -44,19 +46,51 @@ var signSchemes = map[kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm]signSchem
 	kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384:        {hash: crypto.SHA384},
 }
 
+// mldsaScheme is what an ML-DSA KMS algorithm fixes: the parameter set and
+// whether KMS takes the message representative μ (the EXTERNAL_MU
+// algorithms) or the message itself in AsymmetricSignRequest.Data.
+type mldsaScheme struct {
+	params     mldsa.Parameters
+	externalMu bool
+}
+
+// mldsaSchemes maps the ML-DSA KMS algorithms to their scheme.
+var mldsaSchemes = map[kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm]mldsaScheme{
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_44:             {params: mldsa.MLDSA44()},
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65:             {params: mldsa.MLDSA65()},
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_87:             {params: mldsa.MLDSA87()},
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_44_EXTERNAL_MU: {params: mldsa.MLDSA44(), externalMu: true},
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65_EXTERNAL_MU: {params: mldsa.MLDSA65(), externalMu: true},
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_87_EXTERNAL_MU: {params: mldsa.MLDSA87(), externalMu: true},
+}
+
+// supportsAlgorithm reports whether Sign supports the KMS algorithm: a
+// digest signing algorithm (signSchemes) or an ML-DSA one (mldsaSchemes).
+func supportsAlgorithm(algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) bool {
+	_, digest := signSchemes[algorithm]
+	_, pq := mldsaSchemes[algorithm]
+	return digest || pq
+}
+
 // x509SignatureAlgorithms maps the supported KMS algorithms to the X.509
 // signature algorithm they produce.
 var x509SignatureAlgorithms = map[kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm]x509.SignatureAlgorithm{
-	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_2048_SHA256:   x509.SHA256WithRSAPSS,
-	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_3072_SHA256:   x509.SHA256WithRSAPSS,
-	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA256:   x509.SHA256WithRSAPSS,
-	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA512:   x509.SHA512WithRSAPSS,
-	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256: x509.SHA256WithRSA,
-	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256: x509.SHA256WithRSA,
-	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA256: x509.SHA256WithRSA,
-	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512: x509.SHA512WithRSA,
-	kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256:        x509.ECDSAWithSHA256,
-	kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384:        x509.ECDSAWithSHA384,
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_44:             x509.MLDSA44,
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65:             x509.MLDSA65,
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_87:             x509.MLDSA87,
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_44_EXTERNAL_MU: x509.MLDSA44,
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65_EXTERNAL_MU: x509.MLDSA65,
+	kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_87_EXTERNAL_MU: x509.MLDSA87,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_2048_SHA256:      x509.SHA256WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_3072_SHA256:      x509.SHA256WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA256:      x509.SHA256WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA512:      x509.SHA512WithRSAPSS,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256:    x509.SHA256WithRSA,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256:    x509.SHA256WithRSA,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA256:    x509.SHA256WithRSA,
+	kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512:    x509.SHA512WithRSA,
+	kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256:           x509.ECDSAWithSHA256,
+	kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384:           x509.ECDSAWithSHA384,
 }
 
 // Signer implements crypto.Signer interface
@@ -134,13 +168,23 @@ func (s *Signer) String() string {
 	)
 }
 
-// Sign signs digest with the KMS key version. opts is required: its hash
-// must be the key algorithm's, digest must have that hash's length, and
-// *rsa.PSSOptions with the hash-length salt (rsa.PSSSaltLengthEqualsHash or
-// the explicit size; KMS cannot honour PSSSaltLengthAuto, XPKI-124) are
-// required for PSS algorithms and rejected for others (XPKI-019,
-// XPKI-025). Invalid options fail before any RPC. The response is accepted
-// only when KMS verified the digest checksum and the signature matches its
+// Sign signs digest with the KMS key version. For an RSA or ECDSA key opts
+// is required: its hash must be the key algorithm's, digest must have that
+// hash's length, and *rsa.PSSOptions with the hash-length salt
+// (rsa.PSSSaltLengthEqualsHash or the explicit size; KMS cannot honour
+// PSSSaltLengthAuto, XPKI-124) are required for PSS algorithms and rejected
+// for others (XPKI-019, XPKI-025).
+//
+// An ML-DSA key signs the message: digest is the message with nil, a zero
+// hash or *mldsa.Options, or the 64-byte representative μ with
+// crypto.MLDSAMu (cryptoprov.MLDSASignerOptions). A key with an EXTERNAL_MU
+// algorithm receives μ, computed locally when the message is given, so the
+// message never leaves the process; a key with a PQ_SIGN_ML_DSA_*
+// algorithm receives the message itself and accepts neither μ nor a
+// context string.
+//
+// Invalid options fail before any RPC. The response is accepted only when
+// KMS verified the checksum of what was sent and the signature matches its
 // checksum (XPKI-023). After the provider is closed, Sign returns ErrClosed.
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "sign")
@@ -151,15 +195,25 @@ func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (si
 	if s.nameErr != nil {
 		return nil, s.nameErr
 	}
-	kmsDigest, err := signDigest(digest, opts, s.algorithm)
-	if err != nil {
-		return nil, err
-	}
 
 	req := &kmspb.AsymmetricSignRequest{
-		Name:         s.name,
-		Digest:       kmsDigest,
-		DigestCrc32C: wrapperspb.Int64(int64(Crc32c(digest))),
+		Name: s.name,
+	}
+	scheme, isMLDSA := mldsaSchemes[s.algorithm]
+	if isMLDSA {
+		data, err := mldsaData(s.pubKey, scheme, s.algorithm, digest, opts)
+		if err != nil {
+			return nil, err
+		}
+		req.Data = data
+		req.DataCrc32C = wrapperspb.Int64(int64(Crc32c(data)))
+	} else {
+		kmsDigest, err := signDigest(digest, opts, s.algorithm)
+		if err != nil {
+			return nil, err
+		}
+		req.Digest = kmsDigest
+		req.DigestCrc32C = wrapperspb.Int64(int64(Crc32c(digest)))
 	}
 
 	if err = s.prov.enter(); err != nil {
@@ -177,7 +231,11 @@ func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (si
 
 	// Integrity verification of the result; see
 	// https://cloud.google.com/kms/docs/data-integrity-guidelines
-	if !result.GetVerifiedDigestCrc32C() {
+	verified := result.GetVerifiedDigestCrc32C()
+	if isMLDSA {
+		verified = result.GetVerifiedDataCrc32C()
+	}
+	if !verified {
 		return nil, errors.Errorf("request corrupted in-transit")
 	}
 	// a missing checksum is never taken as a verified signature
@@ -190,6 +248,40 @@ func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (si
 	}
 
 	return result.GetSignature(), nil
+}
+
+// mldsaData validates opts against the ML-DSA key algorithm and returns the
+// data KMS signs: for an EXTERNAL_MU algorithm the given μ, or the μ of
+// the message and context computed locally with pub; for a PQ_SIGN_ML_DSA_*
+// algorithm the message itself, which KMS signs with an empty context.
+func mldsaData(pub crypto.PublicKey, scheme mldsaScheme, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm, message []byte, opts crypto.SignerOpts) ([]byte, error) {
+	mlPub, ok := pub.(*mldsa.PublicKey)
+	if !ok {
+		return nil, errors.Errorf("key algorithm %s needs an ML-DSA public key, got %T", algorithm, pub)
+	}
+	if params := mlPub.Parameters(); params != scheme.params {
+		return nil, errors.Errorf("public key parameter set %s does not match key algorithm %s", params, algorithm)
+	}
+	isMu, context, err := cryptoprov.MLDSASignerOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	if !scheme.externalMu {
+		if isMu {
+			return nil, errors.Errorf("key algorithm %s signs the message; μ needs an EXTERNAL_MU algorithm", algorithm)
+		}
+		if context != "" {
+			return nil, errors.Errorf("key algorithm %s does not support a context string", algorithm)
+		}
+		return message, nil
+	}
+	if isMu {
+		if len(message) != cryptoprov.MLDSAMuSize {
+			return nil, errors.Errorf("μ length %d does not match ML-DSA (%d bytes)", len(message), cryptoprov.MLDSAMuSize)
+		}
+		return message, nil
+	}
+	return cryptoprov.MLDSAMu(mlPub, context, message)
 }
 
 // signDigest validates opts and digest against the key algorithm and
