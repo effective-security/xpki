@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/miekg/pkcs11"
 )
@@ -122,11 +123,18 @@ func (lib *PKCS11Lib) enumKeysOnSession(sh pkcs11.SessionHandle, prefix string) 
 		if err != nil {
 			return nil, errors.WithMessagef(err, "key %q", keyID)
 		}
+		var meta map[string]string
+		if keyType == certutil.KeyTypeMLDSA {
+			if meta, err = lib.mldsaKeyMeta(sh, obj); err != nil {
+				return nil, errors.WithMessagef(err, "key %q", keyID)
+			}
+		}
 		res = append(res, cryptoprov.KeyInfo{
 			ID:    keyID,
 			Label: keyLabel,
 			Type:  keyType,
 			Class: class,
+			Meta:  meta,
 		})
 	}
 
@@ -170,6 +178,13 @@ func (lib *PKCS11Lib) keyInfoOnSession(session pkcs11.SessionHandle, slotID uint
 		return nil, errors.WithMessagef(err, "key %q", keyID)
 	}
 
+	var meta map[string]string
+	if keyType == certutil.KeyTypeMLDSA {
+		if meta, err = lib.mldsaKeyMeta(session, privHandle); err != nil {
+			return nil, errors.WithMessagef(err, "key %q", keyID)
+		}
+	}
+
 	pubKey := ""
 	if includePublic {
 		pubKey, err = lib.getPublicKeyPEM(session, slotID, keyID)
@@ -184,5 +199,6 @@ func (lib *PKCS11Lib) keyInfoOnSession(session pkcs11.SessionHandle, slotID uint
 		Type:      keyType,
 		Class:     class,
 		PublicKey: pubKey,
+		Meta:      meta,
 	}, nil
 }

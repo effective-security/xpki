@@ -11,7 +11,6 @@ import (
 	"github.com/effective-security/xlog"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/x/print"
-	"golang.org/x/crypto/ocsp"
 )
 
 // OCSPCmd is the parent for crl command
@@ -46,7 +45,7 @@ func (a *OCSPInfoCmd) Run(ctx *Cli) error {
 		}
 	}
 
-	res, err := ocsp.ParseResponse(der, issuer)
+	res, err := certutil.ParseOCSPResponse(der, issuer)
 	if err != nil {
 		return errors.WithMessage(err, "unable to parse OCSP")
 	}
@@ -138,7 +137,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error {
 			}
 		}
 		if a.Print {
-			res, err := ocsp.ParseResponse(der, nil)
+			res, err := certutil.ParseOCSPResponse(der, nil)
 			if err != nil {
 				return errors.Wrapf(err, "unable to parse OCSP")
 			}

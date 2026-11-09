@@ -61,6 +61,7 @@ The package integrates with the cryptoprov package to support hardware\-backed p
   - [func \(kr \*KeyRequest\) Purpose\(\) int](<#KeyRequest.Purpose>)
   - [func \(kr \*KeyRequest\) SigAlgo\(\) x509.SignatureAlgorithm](<#KeyRequest.SigAlgo>)
   - [func \(kr \*KeyRequest\) Size\(\) int](<#KeyRequest.Size>)
+  - [func \(kr \*KeyRequest\) Validate\(\) error](<#KeyRequest.Validate>)
 - [type KeyRequestGen](<#KeyRequestGen>)
 - [type OID](<#OID>)
   - [func ParseObjectIdentifier\(oidString string\) \(oid OID, err error\)](<#ParseObjectIdentifier>)
@@ -202,7 +203,7 @@ func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pki
 FindAttr returns attribute
 
 <a name="IsPostQuantumAlgo"></a>
-## func [IsPostQuantumAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L179>)
+## func [IsPostQuantumAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L194>)
 
 ```go
 func IsPostQuantumAlgo(algo string) bool
@@ -249,7 +250,7 @@ SetSAN is ApplySAN without an error: a name ParseSAN rejects is skipped with an 
 Deprecated: use ApplySAN, which reports the invalid names.
 
 <a name="SigAlgo"></a>
-## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L232>)
+## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L247>)
 
 ```go
 func SigAlgo(algo string, size int) x509.SignatureAlgorithm
@@ -531,7 +532,7 @@ type KeyRequest struct {
 ```
 
 <a name="NewKeyRequest"></a>
-### func [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L195>)
+### func [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L210>)
 
 ```go
 func NewKeyRequest(prov cryptoprov.Provider, label, algo string, keySize int, purpose KeyPurpose) *KeyRequest
@@ -549,13 +550,13 @@ func (kr *KeyRequest) Algo() string
 Algo returns the requested key algorithm represented as a string.
 
 <a name="KeyRequest.Generate"></a>
-### func \(\*KeyRequest\) [Generate](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L114>)
+### func \(\*KeyRequest\) [Generate](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L140>)
 
 ```go
 func (kr *KeyRequest) Generate() (crypto.PrivateKey, error)
 ```
 
-Generate generates a key as specified in the request: RSA, ECDSA or ML\-DSA \(through cryptoprov.KeyGenerator.GenerateMLDSAKey; a provider whose backend lacks ML\-DSA returns its own error\). ML\-DSA is a signature scheme, so an EncryptionKey purpose is rejected for it.
+Generate generates a key as specified in the request \(see Validate\): RSA, ECDSA or ML\-DSA \(through cryptoprov.KeyGenerator.GenerateMLDSAKey; a provider whose backend lacks ML\-DSA returns its own error\).
 
 <a name="KeyRequest.Label"></a>
 ### func \(\*KeyRequest\) [Label](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L85>)
@@ -592,6 +593,15 @@ func (kr *KeyRequest) Size() int
 ```
 
 Size returns the requested key size.
+
+<a name="KeyRequest.Validate"></a>
+### func \(\*KeyRequest\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L114>)
+
+```go
+func (kr *KeyRequest) Validate() error
+```
+
+Validate reports whether the request names a known algorithm with a size and purpose it supports, without generating a key, so a configuration can be rejected before the first use. Generate calls it. ML\-DSA is a signature scheme, so an EncryptionKey purpose is rejected for it.
 
 <a name="KeyRequestGen"></a>
 ## type [KeyRequestGen](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L63-L70>)
@@ -711,7 +721,7 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 GenerateKeyAndRequest takes a certificate request and generates a key and CSR from it.
 
 <a name="Provider.NewKeyRequest"></a>
-### func \(\*Provider\) [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L184>)
+### func \(\*Provider\) [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L199>)
 
 ```go
 func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPurpose) *KeyRequest

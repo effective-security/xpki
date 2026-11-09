@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
@@ -68,8 +69,9 @@ type AlgorithmKeySet interface {
 // key must remain, otherwise GetKey returns ErrKeyNotFound or ErrAmbiguousKey.
 type StaticKeySet struct {
 	// PublicKeys used to verify the JWT. They have no kid, see StaticKeySet.
-	// Supported types are *rsa.PublicKey and *ecdsa.PublicKey; any other
-	// entry makes GetKey fail.
+	// Supported types are *rsa.PublicKey, *ecdsa.PublicKey and
+	// *mldsa.PublicKey; any other entry, or an uninitialized ML-DSA key, makes
+	// GetKey fail.
 	PublicKeys []crypto.PublicKey
 	KeySet     []jose.JSONWebKey
 }
@@ -105,8 +107,13 @@ func (s *StaticKeySet) GetKeyForAlgorithm(_ context.Context, keyID, alg string) 
 func publicKeysToJWK(keys []crypto.PublicKey) ([]jose.JSONWebKey, error) {
 	jwks := make([]jose.JSONWebKey, 0, len(keys))
 	for i, key := range keys {
-		switch key.(type) {
+		switch typ := key.(type) {
 		case *rsa.PublicKey, *ecdsa.PublicKey:
+			jwks = append(jwks, jose.JSONWebKey{Key: key})
+		case *mldsa.PublicKey:
+			if !validMLDSAKey(typ) {
+				return nil, errors.Errorf("invalid ML-DSA public key at index %d", i)
+			}
 			jwks = append(jwks, jose.JSONWebKey{Key: key})
 		default:
 			return nil, errors.Errorf("unsupported public key type at index %d: %T", i, key)
@@ -172,6 +179,8 @@ func isSigningKeyFor(key *jose.JSONWebKey, alg string) bool {
 	case algES256, algES384, algES512:
 		pub, ok := key.Key.(*ecdsa.PublicKey)
 		return ok && pub.Curve == curveMap[alg]
+	case algMLDSA44, algMLDSA65, algMLDSA87:
+		return mldsaKeyFits(key.Key, alg)
 	default:
 		return false
 	}

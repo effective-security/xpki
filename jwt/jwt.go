@@ -91,7 +91,8 @@ type ProviderConfig struct {
 	Keys []*Key `json:"keys" yaml:"keys"`
 
 	// PrivateKey is a PEM-encoded key or a pkcs11: URI resolved through cryptoprov;
-	// when set, the provider signs with RS*/ES* instead of HS256 keys
+	// when set, the provider signs with RS*, ES* or ML-DSA-*, by the key,
+	// instead of HS256 keys
 	PrivateKey string `json:"private_key" yaml:"private_key"`
 
 	// TokenExpiry specifies token expiration period

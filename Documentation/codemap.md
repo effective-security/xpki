@@ -67,26 +67,28 @@ consumers. Nothing in the library imports `cmd/`.
 | Test-provider key registry                 | `cryptoprov/testprov/provider.go`, `concurrency_test.go`                     | `Init`, `Loader`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `GenerateMLDSAKey`, `ExportKey`                    |
 | CSR request types                          | `csr/csr.go`                                                                 | `CertificateRequest`, `SignRequest`, `X509Subject`, `X509Name`, `X509Extension`, `AllowedFields`                              |
 | CSR create / sign / parse                  | `csr/csrprov.go`, `csr/csr.go`                                               | `NewProvider`, `GenerateKeyAndRequest`, `CreateRequestAndExportKey`, `SignRequest`, `Parse`, `ParsePEM`                       |
-| Key request (algo/size/purpose)            | `csr/keyreq.go`                                                              | `KeyRequest`, `NewKeyRequest`, `KeyPurpose`, `SigAlgo`, `AlgoRSA/ECDSA/MLDSA`, `MLDSA44/65/87`, `IsPostQuantumAlgo`           |
+| Key request (algo/size/purpose)            | `csr/keyreq.go`                                                              | `KeyRequest`, `KeyRequest.Validate`, `NewKeyRequest`, `KeyPurpose`, `SigAlgo`, `AlgoRSA/ECDSA/MLDSA`, `MLDSA44/65/87`, `IsPostQuantumAlgo` |
 | Subject merge, SAN classification          | `csr/csr.go`                                                                 | `PopulateName`, `SetSAN`, `FindAttr`                                                                                          |
 | CRL distribution point extension           | `csr/csr.go`                                                                 | `EncodeCDP`, `EncodeCDPFull`, `DecodeCDP`, `DecodeCDPFull`, `GeneralName`                                                     |
 | JSON/YAML OID and Duration                 | `csr/types.go`                                                               | `OID`, `Duration`, `ParseObjectIdentifier`                                                                                    |
-| CA config and profiles                     | `authority/config.go`                                                        | `Config`, `IssuerConfig`, `AIAConfig`, `CertProfile` (`AllowedKeyAlgorithms`), `LoadConfig`, `Validate`, `Usages`             |
+| CA config and profiles                     | `authority/config.go`                                                        | `Config`, `IssuerConfig`, `AIAConfig` (`DelegatedOCSPKey`), `CertProfile` (`AllowedKeyAlgorithms`), `LoadConfig`, `Validate`, `Usages` |
 | CA issuer registry                         | `authority/authority.go`                                                     | `NewAuthority`, `GetIssuerBy{Label,Profile,KeyID,KeyHash,NameHash}`                                                           |
 | Issuer construction / signing              | `authority/issuer.go`                                                        | `NewIssuer`, `NewIssuerWithBundles`, `CreateIssuer`, `Issuer.Sign`, `SignProof`, `VerifyProof`                                |
-| OCSP signing, delegated responder          | `authority/ocsp.go`                                                          | `SignOCSP`, `OCSPSignRequest`, `CreateDelegatedOCSPSigner`, `OCSPReasonStringToCode`                                          |
+| OCSP signing, delegated responder          | `authority/ocsp.go`                                                          | `SignOCSP`, `OCSPSignRequest`, `CreateDelegatedOCSPSigner`, `OCSPReasonStringToCode`, `validateDelegatedOCSPKey`              |
 | OCSP responder renewal / locking           | `authority/ocsp.go` (`delegatedResponder`), `authority/issuer.go` (`Issuer`) | `caResponder`, `delegated`, `renewal` (`ocspRenewal`), `renewLock`, `renewWaitHook`, `validateDelegatedOCSPProfile`, `signWithProfile` |
 | Certificate policies, SKI                  | `authority/extensions.go`                                                    | `addPolicies`, `CTPoisonOID`, `SCTListOID`                                                                                    |
+| ML-DSA key usage rule (RFC 9881)           | `authority/extensions.go`, `authority/config.go`                             | `mldsaForbiddenKeyUsage`, `checkMLDSATemplate`, `CertProfile.checkMLDSAKeyUsage`                                              |
 | Root bootstrap / cert files                | `authority/root.go`, `authority/util.go`                                     | `NewRoot`, `Issuer.GenCert`                                                                                                   |
-| PEM parse / encode                         | `certutil/pem.go`                                                            | `ParseFromPEM`, `ParseChainFromPEM`, `Load*FromPEM`, `EncodeToPEM*`, `ParsePrivateKeyPEM*`, `EncodePrivateKeyToPEM`           |
+| PEM parse / encode                         | `certutil/pem.go`                                                            | `ParseFromPEM`, `ParseChainFromPEM`, `Load*FromPEM`, `EncodeToPEM*`, `ParsePrivateKeyPEM*`, `EncodePrivateKeyToPEM`, `ParsePublicKeyFromPEM` |
 | Chain bundling / verification              | `certutil/bundler.go`, `certutil/bundle.go`                                  | `NewBundler*`, `LoadBundler`, `Bundler.Bundle`/`BundleContext`, `VerifyBundleFromPEM`, `LoadAndVerifyBundleFromPEM`, `Bundle`, `BundleStatus` |
 | Hashes, thumbprints, IDs                   | `certutil/hash.go`, `certutil/cert_id.go`                                    | `Digest`, `SHA1*`, `SHA256*`, `NewHash`, `GetThumbprintStr`, `GetSubjectID`, `GetIssuerID`                                    |
 | Key info (type, size, hash, JWK)           | `certutil/keyinfo.go`                                                        | `NewKeyInfo`, `KeyInfo`                                                                                                       |
 | Post-quantum detection                     | `certutil/pqc.go`                                                            | `IsPostQuantumKey`, `IsPostQuantumCertificate`, `IsPostQuantumSignatureAlgorithm`, `KeyTypeRSA/ECDSA/MLDSA`                  |
 | OCSP request, extensions                   | `certutil/ocsp.go`, `certutil/extensions.go`                                 | `CreateOCSPRequest`, `FindExtension`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                        |
+| OCSP response create / verify (ML-DSA too) | `certutil/ocsp.go`                                                           | `CreateOCSPResponse`, `ParseOCSPResponse`, `ParseOCSPResponseForCert`                                                         |
 | Randomness                                 | `certutil/random.go`                                                         | `Random`, `RandomString`, `RandReader`                                                                                        |
 | JWT provider (sign + verify)               | `jwt/jwt.go`                                                                 | `ProviderConfig`, `LoadProvider`, `NewProvider`, `NewProviderFromCryptoSigner`, `NewProviderWithSymmetricKey`, `WithHeaders`  |
-| JWT signing internals                      | `jwt/sign.go`                                                                | `NewSignerInfo`, `VerifySignature`                                                                                            |
+| JWT signing internals                      | `jwt/sign.go`                                                                | `NewSignerInfo`, `VerifySignature`, `mldsaParameterSets`, `mldsaKeyFits`                                                      |
 | JWT parsing (third-party tokens)           | `jwt/parser.go`                                                              | `ParserConfig`, `LoadParserConfig`, `NewParser`, `TokenParser`, `Keyfunc`                                                     |
 | Claims                                     | `jwt/claims.go`                                                              | `Claims`, `MapClaims`, `NumericDate`, `Audience`, `CreateClaims`, `SetClaimsExpiration`, `TimeNowFn`                          |
 | JWKS key sets                              | `jwt/jwks.go`                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`       |
@@ -102,8 +104,10 @@ consumers. Nothing in the library imports `cmd/`.
 | ASCII armor decoding                       | `armor/armor.go`                                                             | `Decode`, `Block`                                                                                                             |
 | Metrics descriptors                        | `metricskey/metricskey.go`                                                   | `PerfCryptoOperation`, `PerfCAOperation`, `PerfCASignRequest`, `Metrics`                                                      |
 | Build version                              | `internal/version/*.go`                                                      | `Current`, `Info`, `PopulateFromBuild`                                                                                        |
-| Integration fixture gating (tests)         | `internal/testenv/testenv.go`                                                | `RequireTCP`, `RequireFile`, `IntegrationRequired`, `IntegrationEnv`, `Required`                                              |
+| Integration fixture gating (tests)         | `internal/testenv/testenv.go`                                                | `RequireTCP`, `RequireFile`, `SoftHSMConfig`, `IntegrationRequired`, `IntegrationEnv`, `Required`                                              |
 | SoftHSM fixture setup                      | `scripts/config-softhsm.sh`, `scripts/config-softhsm_test.sh`                | `make hsmconfig`, `make test-scripts`, setup `--help`                                                                         |
+| Kryoptic fixture setup (PKCS#11 v3.2)      | `scripts/config-kryoptic.sh`, `scripts/config-kryoptic_test.sh`, `scripts/p11-init-token.go` | `make kryoptic-config`, `make test-kryoptic`, `make test-scripts`                                               |
+| Live KMS confirmation (opt-in)             | `cryptoprov/awskmscrypto/mldsa_live_test.go`, `cryptoprov/gcpkmscrypto/mldsa_live_test.go` | `TestLiveKMSMLDSA`, `XPKI_LIVE_AWS_KMS_REGION`, `XPKI_LIVE_GCP_KMS_KEYRING`                                       |
 | Test CA fixtures                           | `testca/entity.go`, `configuration.go`, `mkcert.go`, `testca.go`, `utils.go` | `NewEntity`, options (`MLDSAKey`), `MakeSelfCert*`, `MakeValidCertsChainTSA`, `ToPEM`, `GenerateMLDSAKeyInPEM`                |
 | Concurrent test CA names / serials         | `testca/configuration.go`, `entity.go`, `concurrency_test.go`                | `NewEntity`, `Entity.Issue`, `Entity.IncrementSN`, `NextSerialNumber`                                                         |
 | CLI: HSM/KMS key management                | `cmd/hsm-tool/cli/hsm.go`, `csr.go`, `cli.go`                                | `Cli`, `HsmListCmd`… , `CsrCreateCmd`…                                                                                        |
@@ -207,7 +211,7 @@ TokenLabel, Pin, Attributes`; YAML keys are snake_case.
 ### Test layout
 
 Only `Test_LoadConfig`, `Test_Load`, `Test_P11` and `Test_LoadSigner_P11`
-need SoftHSM at `/tmp/xpki/softhsm_unittest.json` (`make hsmconfig`); they
+need SoftHSM at `testenv.SoftHSMConfig`, `~/.xpki/softhsm_unittest.json` (`make hsmconfig`); they
 call `requireSoftHSM` (`testenv.RequireFile`, XPKI-100), and
 `loadP11Provider` closes the library at cleanup. Everything else is
 fixture-free with `inmemcrypto`/`testprov`. `crypto_test.go` covers the
@@ -244,7 +248,7 @@ C toolchain (cgo) and dlopens the module named in the config.
 | `keys.go`     | `KeyPurpose`, `findKey`, `ListKeys`, `FindKeyPair*`, `ConvertToPublic`, `GetKey`, `ExportKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `IdentifyKey` |
 | `rsa.go`      | `PKCS11PrivateKeyRSA`: generate, `Sign` (PKCS#1 v1.5, PSS), `Decrypt` (PKCS#1 v1.5, OAEP), `Validate`                                              |
 | `ecdsa.go`    | `PKCS11PrivateKeyECDSA`: curve table (P-224/256/384/521), generate, `Sign` (DER r,s)                                                               |
-| `mldsa.go`    | `PKCS11PrivateKeyMLDSA` (PKCS#11 v3.2; constants declared locally since miekg/pkcs11 v1.1.2 lacks them): `GenerateMLDSAKey` (`CKM_ML_DSA_KEY_PAIR_GEN`, `CKA_PARAMETER_SET` on the public template), public key from `CKA_PARAMETER_SET` + `CKA_VALUE`, `Sign` over the message (`CKM_ML_DSA`, no parameter). Not yet exercised against a token |
+| `mldsa.go`    | `PKCS11PrivateKeyMLDSA` (PKCS#11 v3.2; constants declared locally since miekg/pkcs11 v1.1.2 lacks them): `GenerateMLDSAKey` (`CKM_ML_DSA_KEY_PAIR_GEN`, `CKA_PARAMETER_SET` on the public template), public key from `CKA_PARAMETER_SET` + `CKA_VALUE`, `Sign` over the message (`CKM_ML_DSA`, no parameter). Run against Kryoptic 1.5.4 |
 | `common.go`   | Attribute/class/type name maps, CK_ULONG codec (`ulongSize`, checked `bytesToUlong`, `keyTypeAndClass`, deprecated `BytesToUlong`, `UlongToBytes`), ECDSA signature DER helpers, label/ID generation on the held session |
 | `util.go`     | `CurrentSlotID`, `TokensInfo`, `DestroyKeyPairOnSlot`, `getPublicKeyPEM` (on a given session)                                                      |
 | `rand.go`     | `GenRandom`                                                                                                                                        |
@@ -371,24 +375,26 @@ C toolchain (cgo) and dlopens the module named in the config.
   nor the public object exists; `ConvertToPublic` also accepts the wrapper
   returned by `GenerateRSAKey`/`GenerateECDSAKey`.
 - ML-DSA (v1.1, `mldsa.go`): `KeyTypeNames[CKK_ML_DSA]` is `ML-DSA`, so
-  `EnumKeys`/`KeyInfo` report the type (the parameter set is not in `Meta`
-  yet). `PKCS11PrivateKeyMLDSA.Sign` validates options with
+  `EnumKeys`/`KeyInfo` report the type, and `mldsaKeyMeta` reads the parameter
+  set from `CKA_PARAMETER_SET` of the private key into
+  `Meta[cryptoprov.MetaParameterSet]`. `PKCS11PrivateKeyMLDSA.Sign` validates options with
   `cryptoprov.MLDSASignerOptions`, then signs the message with `CKM_ML_DSA`
   through `withKey` (handle refresh as for RSA/ECDSA); a μ
   (`crypto.MLDSAMu`) and a context string are errors
   (`errMLDSAExternalMu`, `errMLDSAContext`): v3.2 has no external-μ
-  mechanism and the `CK_SIGN_ADDITIONAL_CONTEXT` parameter is not built.
+  mechanism and the `CK_SIGN_ADDITIONAL_CONTEXT` parameter is deliberately not
+  built, since X.509, OCSP and JOSE need an empty context and hedged signing.
   Generation follows the ECDSA path (random label/ID, orphan cleanup with
   `noRetry`). On SoftHSM 2.6 generation fails with a `pkcs11.Error` and
-  leaves no key. The generate/find/sign path has not run against a v3.2
-  token (none was available); `TestMLDSAOnPKCS11v32Token` runs it when
-  `XPKI_PKCS11_V32_CONFIG` names such a token's config.
+  leaves no key. `TestMLDSAOnPKCS11v32Token` runs the generate/find/sign path
+  when `XPKI_PKCS11_V32_CONFIG` names a v3.2 token's config, which
+  `make kryoptic-config` writes; it passed on Kryoptic 1.5.4 on 2026-11-09.
 - Panics: `mustMarshal` at init,
   RSA `Sign(nil opts)` (same as stdlib). Everything else returns wrapped errors.
 
 ### Test layout
 
-`TestMain` loads `/tmp/xpki/softhsm_unittest.json` only when the file exists
+`TestMain` loads `~/.xpki/softhsm_unittest.json` only when the file exists
 and closes `p11lib` (checking the error) before `os.Exit`. SoftHSM tests call
 `requireP11`, which uses `testenv.RequireFile` (missing config skips, or fails
 with `XPKI_INTEGRATION=required`) and fails when a present config did not load.
@@ -510,7 +516,12 @@ generation (XPKI-024) polls `GetCryptoKeyVersion` (state, not error text) at
 most 60 times, 1 s apart, stops at once on an RPC error or a state other than
 `PENDING_GENERATION`, and the wait between polls ends on `Close` (`ErrClosed`)
 or context cancellation; the interval, attempt count and wait are unexported
-fields set by `export_test.go`.
+fields set by `export_test.go`. A key that exists but whose signer cannot be
+returned is scheduled for destruction (`discardVersion`, best effort, as
+`awskmscrypto`'s `discardKey`): its context is detached from the caller's with a
+30 s deadline, a failure is logged with the version name, KMS refuses a version
+still `PENDING_GENERATION`, and a `GENERATION_FAILED` version has no key material
+and is left alone.
 GCP lifecycle (XPKI-018): every client-using `Provider` method and
 `Signer.Sign` registers with `enter`/`exit` (not nested); `Close` (once, via
 `sync.Once`) rejects new calls with wrapped `ErrClosed`, ends the wait for key
@@ -577,7 +588,10 @@ for every option form with local verification, local rejection, KMS
 failures, a CSR and certificate through `csr.Provider`, and
 `TestKmsProviderMLDSA`, gated on local-kms, which skips with the
 emulator's `ValidationException` (3.11.7 has no ML-DSA key specs) and
-runs the full flow against a KMS that has them; `generate_test.go` purpose/size rejection,
+runs the full flow against a KMS that has them; `mldsa_live_test.go`
+`TestLiveKMSMLDSA` runs the flow against the real service when
+`XPKI_LIVE_AWS_KMS_REGION` is set (billable keys, opt-in; passed on 2026-11-09), and
+`TestLiveKMSFlowOnFake` runs its signer flow on the fake; `generate_test.go` purpose/size rejection,
 aliases, `GetKey` usage and empty responses; `enum_test.go` prefix
 contents, paging, failures at every position with no partial result and
 kept error identity, and bounded concurrency; `enum_bench_test.go`
@@ -597,14 +611,18 @@ need not swap the global factory and can run in parallel. `versions_test.go`
 covers version selection, rotation, pinned/legacy URIs, disabled/missing
 versions, paging, KeyInfo and destruction; `signer_test.go` option/padding
 rejection without RPC, request digests, response integrity and local
-verification of every algorithm; `generate_test.go` label/id rules, purpose
+verification of every algorithm; `generate_test.go` label/id rules, discarding an
+incomplete key (`TestGenerateKeyDiscard`), purpose
 rejection, `ALREADY_EXISTS` retries, poll/wait counts, exhaustion, permanent
 states and cancellation by `Close`/context; `mldsa_test.go` the six ML-DSA algorithms
 (`kmsserver_test.go` signs `data` with real ML-DSA keys: μ for EXTERNAL_MU,
 the message otherwise, checksum and digest rejection): X.509 mapping, local
 rejection, the `data`/`data_crc32c` request shape and response integrity
 (`dataSignResponse`), signatures verified locally, CSRs, `KeyInfo` and
-`GenerateMLDSAKey`; `gen_bench_test.go` the wait and
+`GenerateMLDSAKey`; `mldsa_live_test.go` `TestLiveKMSMLDSA` the flow against the
+real service when `XPKI_LIVE_GCP_KMS_KEYRING` is set (billable keys, opt-in; not
+yet completed, ROADMAP 3.2), and `TestLiveKMSFlowOnFake` its signer flow on the fake;
+`gen_bench_test.go` the wait and
 Close-latency benchmarks; `endpoint_test.go` `Init`-to-factory endpoint wiring
 and the SDK path against the local server; `coverage_test.go` real SDK
 pagination (`listingKMSServer`) and failure propagation; `lifecycle_test.go`
@@ -688,7 +706,8 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
   `MLDSA` folds to `ML-DSA`; there is no `DILITHIUM` alias (D2).
   `KeyRequest.Generate` validates the parameter set
   (`cryptoprov.MLDSAParameters`), rejects the `EncryptionKey` purpose for
-  ML-DSA and calls `GenerateMLDSAKey`.
+  ML-DSA and calls `GenerateMLDSAKey`. `KeyRequest.Validate` makes those checks
+  without a provider or a key, and `Generate` calls it.
 - `ParseObjectIdentifier` requires the whole string to be dotted decimals
   (`^\d+(\.\d+)*$`).
 - `Signer` and `KeyRequestGen` interfaces are unused.
@@ -719,7 +738,7 @@ In-process CA. Config → `Authority` → `Issuer` → `Sign`.
 | `config.go`     | `Config`, `CAConfig`, `IssuerConfig`, `AIAConfig`, `CertProfile`, `CAConstraint`, `LoadConfig`, `Validate`, role/extension allow-lists, `Usages` |
 | `issuer.go`     | `Issuer` construction, `Sign` pipeline, `fillTemplate`, serial generation (20 random bytes, top bit cleared), `SignProof`/`VerifyProof`          |
 | `ocsp.go`       | `SignOCSP`, `CreateDelegatedOCSPSigner`, `OCSPResponder`, delegated responder issuance/renewal (`delegatedResponder`), reason/status maps        |
-| `extensions.go` | Certificate Policies ASN.1, SKI, CT OIDs, effective OCSP-signing EKU (`ekuHasOCSPSigning`, `isOCSPSigningTemplate`)                              |
+| `extensions.go` | Certificate Policies ASN.1, SKI, CT OIDs, effective OCSP-signing EKU (`ekuHasOCSPSigning`, `isOCSPSigningTemplate`), ML-DSA key usage rule (`parseKeyUsage`, `checkMLDSATemplate`) |
 | `root.go`       | `NewRoot`: key + CSR + self-signed root                                                                                                          |
 | `util.go`       | `Issuer.GenCert`: key, CSR, sign, write files (existing files renamed `.bak`)                                                                    |
 | `README.md`     | Configuration and signing flow diagrams, per-extension source table (profile / SignRequest / CSR), validity envelope                            |
@@ -743,6 +762,10 @@ restricts the CSR public key algorithm; empty keeps every key x509 can
 certify, and `Validate` rejects unknown names (v1.1, D7). `IssuerConfig.Type` is the
 `type` key in YAML and JSON (XPKI-058). AIA `crl_expiry`, `ocsp_expiry`, `crl_renewal` are
 `time.Duration` with defaults applied through the `Get*` accessors.
+`delegated_ocsp_key_algo` and `delegated_ocsp_key_size` select the delegated
+responder key (`DelegatedOCSPKey`: ECDSA P-256 when no algorithm is set); both
+are explicit, a size needs an algorithm, either needs `delegated_ocsp_profile`,
+and `CreateIssuer` validates them (`validateDelegatedOCSPKey`).
 
 ### Field ownership in `Issuer.Sign`
 
@@ -808,14 +831,19 @@ certify, and `Validate` rejects unknown names (v1.1, D7). `IssuerConfig.Type` is
   `crypto/x509` with the whole TBS. `SignProof` signs the data itself with
   an ML-DSA key (nil options) and `VerifyProof` switches on the public key
   type (`mldsa.Verify`; an unknown type is an error, not a panic).
-  OCSP (D5): `golang.org/x/crypto/ocsp` signs with RSA/ECDSA only, so
-  `CreateIssuer` rejects an ML-DSA signer with `aia.ocsp_url` set and no
-  `aia.delegated_ocsp_profile` (`an ML-DSA key cannot sign OCSP responses`),
-  and `SignOCSP` refuses an ML-DSA responder key (`certutil.IsPostQuantumKey`)
-  even without an OCSP URL; the delegated responder keeps its in-memory
-  P-256 key and is certified by the ML-DSA CA. `signWithProfile` rejects a
+  OCSP (D5): `SignOCSP` signs with any responder key through
+  `certutil.CreateOCSPResponse`, so an ML-DSA CA key signs when no delegated
+  profile is set. The delegated responder key is in-memory and of the
+  configured algorithm, P-256 by default, whatever the CA key is.
+  `signWithProfile` rejects a
   CSR whose public key algorithm the profile's `allowed_key_algorithms`
-  does not list (`public key algorithm X is not allowed by profile P`).
+  does not list (`public key algorithm X is not allowed by profile P`), and
+  `validateDelegatedOCSPProfile` applies that to the responder key, in
+  `CreateIssuer` and before each issuance. Both also reject an ML-DSA certificate
+  with a key usage RFC 9881 forbids (`mldsaForbiddenKeyUsage` in `extensions.go`:
+  `profile P: key usage not allowed for an ML-DSA key: ...`), rejected and not
+  adjusted. `checkMLDSATemplate` reads the final template, so a raw key usage
+  extension from the profile or the `SignRequest` counts and replaces `usages`.
 - Profiles must be `Validate()`d before use (compiles regexes; `LoadConfig` does).
 - `Copy()` methods are shallow for `*CertProfile`.
 - Metrics: `metricskey.PerfCAOperation`, `PerfCASignRequest`.
@@ -841,9 +869,11 @@ start/renewal; `issuer_test.go`
 `TestNewIssuerDelegatedOCSP` builds one from files. `mldsa_test.go` covers
 ML-DSA roots (`NewRoot`) and issuers for every parameter set: ML-DSA and
 ECDSA leaves verified with `x509.Verify`, proofs, CRLs, a classical issuer
-certifying an ML-DSA key, the OCSP constraint with and without a delegated
-responder (`ocsp.ParseResponse` against the ML-DSA CA), and
-`allowed_key_algorithms`. `ocsp_bench_test.go` has
+certifying an ML-DSA key, OCSP on an ML-DSA issuer (`TestMLDSAIssuerOCSP`: the CA
+key, a default P-256 responder read by `ocsp.ParseResponse`, an ML-DSA responder of
+every parameter set, read by `certutil.ParseOCSPResponse`), a classical CA with an
+ML-DSA responder, the responder key settings (`TestDelegatedOCSPKeyConfig`), the
+RFC 9881 key usage rule (`TestMLDSAKeyUsage`), and `allowed_key_algorithms`. `ocsp_bench_test.go` has
 `BenchmarkSignOCSP` (warm sign/lookup), `BenchmarkDelegatedOCSPRetryWindow`
 and `BenchmarkDelegatedOCSPCreate`. `issuer_coverage_test.go` exercises proof signatures, extension
 policies, and internal template validation. `issuer_policy_test.go` covers the
@@ -869,12 +899,29 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
 | `keyinfo.go`    | `KeyInfo`, `NewKeyInfo` (RSA/ECDSA/ML-DSA from signer, decrypter or JWK; ML-DSA: `Type` `ML-DSA`, `KeySize` 44/65/87, `Hash` 0), `KeyTypeRSA/ECDSA/MLDSA`       |
 | `pqc.go`        | `IsPostQuantumKey` (key, signer, decrypter; nil-safe), `IsPostQuantumSignatureAlgorithm`, `IsPostQuantumCertificate` (key or signature algorithm)                 |
 | `name.go`       | `NameToString` (OpenSSL-style DN)                                                                                                                               |
-| `ocsp.go`       | `CreateOCSPRequest` (nil certificate/issuer or unavailable hash is an error; the issuer must carry crt's issuer name and its key must verify crt's signature, SHA-1 allowed, XPKI-121) |
+| `ocsp.go`       | `CreateOCSPRequest` (nil certificate/issuer or unavailable hash is an error; the issuer must carry crt's issuer name and its key must verify crt's signature, SHA-1 allowed, XPKI-121); `CreateOCSPResponse`, `ParseOCSPResponse[ForCert]` (ML-DSA, see invariants) |
 | `extensions.go` | `FindExtension*`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                                                                              |
 | `random.go`     | `RandReader`, `Random`, `RandomString` (panic on RNG failure)                                                                                                   |
 
 ### Invariants
 
+- OCSP responses: `golang.org/x/crypto/ocsp` neither signs with nor
+  verifies ML-DSA, so `CreateOCSPResponse` gives a classical key to
+  `ocsp.CreateResponse` unchanged, and for an ML-DSA key lets it encode the
+  response with `unsignedOCSPSigner` (an ECDSA placeholder, empty signature),
+  signs the `tbsResponseData` as the message with nil options (the provider
+  contract) and sets the `id-ml-dsa-*` algorithm with no parameters.
+  `ParseOCSPResponseForCert` sends everything that is not an ML-DSA basic
+  response to x/crypto, malformed input and trailing data included. For ML-DSA
+  it rejects algorithm parameters (RFC 9881), lets x/crypto read the fields of a
+  copy without certificates and with no issuer, then verifies by its rules: an
+  embedded certificate (the first) must verify the response and, when `issuer`
+  is set, be signed by it; otherwise `issuer` verifies the response when set. A
+  failed check is an `ocsp.ParseError`, as in x/crypto. The EKU and validity of
+  a responder and the issuer hashes of the CertID are not checked, also as in
+  x/crypto: that is left to the service reading the response (ROADMAP 11).
+  `CreateOCSPResponse` returns an error for a nil or typed
+  nil signer and an uninitialized ML-DSA key.
 - Chain building: `certs[0]` is the leaf; `Force` only checks each cert is
   signed by the next; `Optimal` runs `x509.Verify` against `RootPool` and
   `IntermediatePool`, fetches AIA intermediates on unknown authority when
@@ -939,9 +986,11 @@ including unsupported des3/scrypt/PKCS#12 samples. `pkcs8_test.go` also
 builds PBES2 structures in Go for the PRF × AES matrix, malformed
 parameters and DER plaintexts that are not a `PrivateKeyInfo`. `testdata/pqc/`
 holds OpenSSL 3.5.5 ML-DSA interoperability vectors (seed-form PKCS#8 keys,
-SPKIs, CSRs, self-signed certificates and one seed-and-expanded key Go
-rejects; its README has the commands), checked by `pqc_test.go` together
-with the detection helpers and mixed classical/ML-DSA chains from `testca`.
+SPKIs, CSRs, self-signed certificates, OCSP responses and one seed-and-expanded
+key Go rejects; its README has the commands), checked by `pqc_test.go` together
+with the detection helpers and mixed classical/ML-DSA chains from `testca`, and
+by `ocsp_mldsa_test.go`, which also round-trips responses for every parameter set
+and status, records what x/crypto cannot do, and rejects hostile responses.
 `TestKeyInfoKMS` is the only fixture test: it is gated with
 `testenv.RequireTCP` on local-kms `:14556`; `TestKeyInfoOpaqueKeys` covers
 opaque signers without KMS. `bundle_input_test.go` covers the nil/empty
@@ -966,7 +1015,8 @@ and file errors without adding private-key fixtures.
 
 ## Package jwt
 
-Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
+Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512,
+ML-DSA-44/65/87 (RFC 9964).
 
 ### Files
 
@@ -982,8 +1032,16 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 ### Invariants
 
 - Alg from key: RSA ≥4096 → RS512, ≥3072 → RS384, else RS256; P-521 → ES512,
-  P-384 → ES384, else ES256. HS256 key ring: seeds are SHA-256'd, `kid` header
+  P-384 → ES384, else ES256; ML-DSA → the algorithm named after its parameter
+  set. HS256 key ring: seeds are SHA-256'd, `kid` header
   set; `NewProvider` errors if `kid` is not in `keys`.
+- ML-DSA: `sign` passes the JWS signing input itself with nil options (the
+  provider contract), and `VerifySignature` calls `mldsa.Verify` with an empty
+  context; there is no hash. `mldsaKeyFits` requires an initialized
+  `*mldsa.PublicKey` of the algorithm's parameter set, so an uninitialized key,
+  on which `crypto/mldsa` panics, is an error; `NewSignerInfo`, for the private
+  key too, `publicKeysToJWK` and `dpop.Thumbprint` check that as well. `jose`
+  marshals the `jwk` header as `AKP` with `alg` from the parameter set.
 - Default expiry 60m, `DefaultNotBefore` −2m, `DefaultTimeSkew` 5m on
   `iat`/`nbf` only. `ExpectedAudience` means all listed values present.
   Issuer/subject compared case-insensitively.
@@ -1030,11 +1088,13 @@ Self-contained JWS/JWT: HS256/384/512, RS256/384/512, ES256/384/512.
 - Key selection (XPKI-071/072, `selectKey`): a key is eligible when its JWK
   `use` is empty or `sig` and, when the alg is known, its type/curve and JWK
   `alg` fit it (RS* → RSA, ES256/384/512 → P-256/384/521; other algs have no
-  eligible key). A `kid` selects `KeySet` entries with that `KeyID`, else
+  eligible key; ML-DSA-* → an initialized ML-DSA key of that parameter set). A
+  `kid` selects `KeySet` entries with that `KeyID`, else
   `StaticKeySet.PublicKeys` by RFC 7638 SHA-256 thumbprint (base64url); an
   empty `kid` considers all entries of both lists. Exactly one eligible key
   must remain, otherwise `ErrKeyNotFound` / `ErrAmbiguousKey` (wrapped).
-  `PublicKeys` accepts only `*rsa.PublicKey`/`*ecdsa.PublicKey`; anything
+  `PublicKeys` accepts only `*rsa.PublicKey`, `*ecdsa.PublicKey` and an
+  initialized `*mldsa.PublicKey`; anything
   else fails every lookup. `parser.ParseToken` passes the token alg through
   `AlgorithmKeySet.GetKeyForAlgorithm`; plain `GetKey` checks only `use`.
 - `RemoteKeySet` (XPKI-070) refetches when no cached key fits the lookup, at
@@ -1073,7 +1133,10 @@ header without `jti`, the algorithm pin of every constructor (hand-signed
 HS384/HS512 and RS384/RS512 tokens with the provider's own key) and time
 claim normalization; `TestValid_RFC3339TimeClaims` (`claims_test.go`) covers
 string time claims in `Valid`.
-`jwks_test.go` has table tests for key selection, parser round trips with
+`mldsa_test.go` covers ML-DSA through a contract-enforcing provider key: provider
+and parser round trips in both directions with go-jose as the independent RFC 9964
+implementation, `AKP` JWKS (static and over HTTP), key selection, the algorithm pin,
+and verification failures. `jwks_test.go` has table tests for key selection, parser round trips with
 kid-less tokens and `PublicKeys`, and `RemoteKeySet` behavior against a
 local `httptest` JWKS server (`jwksServer`: mutable body/status and a request
 gate for stalled fetches). `jwks_internal_test.go` drives the cooldown with
@@ -1094,7 +1157,7 @@ and parallel unique-unknown kids.
   HMAC `alg` is a DPoP error, not a go-jose parse error, and `TYP` is not
   `typ`); JSON JWS is parsed so more than one signature is `token
   contains multiple headers`; then `typ`, public `jwk`, alg in the
-  asymmetric allow-list (RS\*, PS\*, ES\*, EdDSA); the signature is verified
+  asymmetric allow-list (RS\*, PS\*, ES\*, EdDSA, ML-DSA-\*); the signature is verified
   by go-jose with the embedded JWK **before** any claim is read (go-jose
   rejects a key type/curve that does not fit the alg), and claims are
   decoded case-sensitively like `GetTokenInfo`; then
@@ -1140,6 +1203,9 @@ and parallel unique-unknown kids.
   returns a copy, `SetClientSecret`/`SetPubKey` are the only mutations, under
   the client's RWMutex, and `CreateTokenRequestWithContext` snapshots the id,
   secret and URL under it; `PublicKey()` returns the key parsed from `PubKey`
+  by `certutil.ParsePublicKeyFromPEM`, a `crypto.PublicKey`, limited by
+  `New` to RSA, ECDSA and ML-DSA, the types `jwt` verifies with (`SetPubKey` does
+  not check the type)
   (`JwksURL` and `PubKey` are configuration for a caller's verifier, this
   package verifies nothing) (XPKI-080). The `Provider` registry is an
   immutable `registry` snapshot in an `atomic.Pointer`, replaced under a
@@ -1164,6 +1230,8 @@ and parallel unique-unknown kids.
   fixed). The KDF and blob format are unchanged.
 
 Tests are pure except `keys_test.go` writing under `os.TempDir()`.
+`dpop/mldsa_test.go` covers proofs from an ML-DSA provider key with the token
+binding and the replay cache, and `AKP` keys through `SaveKey`/`LoadKey`.
 `dpop/verify_policy_test.go` covers replay (sequential, 32 simultaneous
 duplicates, store error, retention), ath/cnf.jkt binding, server-style
 requests for htu, and a real-signature matrix for every allowed alg;
@@ -1192,7 +1260,9 @@ conflicts/overrides; it makes no network requests.
 - **x/print**: writes to an `io.Writer`, ignores write errors, local time; a zero `NextUpdate` prints `Expires: not set`; `Certificate` and `CertificateRequest` print `Public Key Algorithm:` and `Signature Algorithm:` lines when the algorithms are known (v1.1, so ML-DSA is visible); `JSON` swallows marshal errors by design. Tests in `certutil_test.go` load `testdata/*.pem` and append synthetic `*x509.Certificate` values to cover SAN, AIA, CRL, and extension formatting, and print an ML-DSA chain from `testca`.
 - **metricskey**: descriptors only; registered by consumers.
 - **internal/version**: `build` is set by the linker (`make build` passes `-X ...internal/version.build=$(GIT_VERSION)`); otherwise `buildVersion` reads the module version from `debug.ReadBuildInfo`, else `devel-<revision>[-dirty]`, else `devel` (XPKI-097). `PopulateFromBuild` strips a leading `v`.
-- **internal/testenv**: test-only; imports `testing`. `RequireTCP` dials with a 1s timeout and skips or fails (`XPKI_INTEGRATION=required`) only when the fixture is unreachable; `RequireFile` does the same for a missing fixture file and always fails on other stat errors (XPKI-100).
+- **internal/testenv**: test-only; imports `testing`. `SoftHSMConfig` is the
+  per-user path of the configuration `make hsmconfig` writes, which names a module
+  the tests load (XPKI-128). `RequireTCP` dials with a 1s timeout and skips or fails (`XPKI_INTEGRATION=required`) only when the fixture is unreachable; `RequireFile` does the same for a missing fixture file and always fails on other stat errors (XPKI-100).
 - **testca**: everything panics on failure (test-only). Defaults RSA-2048
   (`MLDSAKey(params)` generates an ML-DSA key instead; a `PrivateKey` option
   wins), NotBefore = epoch, NotAfter = +10y, subject `[TEST]`. `Chain()` includes
@@ -1234,7 +1304,8 @@ conflicts/overrides; it makes no network requests.
   `csr-info`, `cert info`, `cert validate` (`--ca`, `--root`, `--revocation`,
   `--with-aia`), `crl info`, `crl fetch` (needs `--output` or `--print`;
   errors when no selected certificate has a CRL distribution point),
-  `ocsp info` (`--issuer` PEM verifies the response signature), `ocsp fetch`
+  `ocsp info` (`--issuer` PEM verifies the response signature, ML-DSA included,
+  through `certutil.ParseOCSPResponse`), `ocsp fetch`
   (error when the certificate has no OCSP URL; every endpoint is tried and
   each failure is printed as `<url> : ERROR: ...`; one valid response is a
   success, and when all fail it returns `no valid OCSP response from N
@@ -1256,9 +1327,10 @@ conflicts/overrides; it makes no network requests.
 
 | Fixture                                                                                          | Provided by                                    | Needed by                                                                                             |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `/tmp/xpki/softhsm_unittest.json`, token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr` (`csrprov_test.go`, gated)                         |
+| `~/.xpki/softhsm_unittest.json` (`testenv.SoftHSMConfig`), token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr` (`csrprov_test.go`, gated)                         |
 | `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto` (`Test_KmsProvider` and `TestKmsProviderMLDSA`, gated; the latter skips when the emulator rejects ML-DSA key specs, as 3.11.7 does), `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS` only, gated), `cmd/hsm-tool/cli` (`TestCsrSuite`, gated) |
-| `XPKI_PKCS11_V32_CONFIG=<token config>` of a PKCS#11 v3.2 module with ML-DSA (for example Kryoptic) | not provided; opt-in                           | `crypto11` (`TestMLDSAOnPKCS11v32Token`, skipped unless set)                                          |
+| `XPKI_PKCS11_V32_CONFIG=<token config>` and `KRYOPTIC_CONF` of a PKCS#11 v3.2 module with ML-DSA | `make kryoptic-config` (`scripts/config-kryoptic.sh`); opt-in | `crypto11` (`TestMLDSAOnPKCS11v32Token`, skipped unless set; `make test-kryoptic`)                    |
+| `XPKI_LIVE_AWS_KMS_REGION`, `XPKI_LIVE_GCP_KMS_KEYRING`; real credentials                        | the operator; opt-in, billable keys            | `awskmscrypto`, `gcpkmscrypto` (`TestLiveKMSMLDSA`, skipped unless set)                               |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
 
@@ -1270,9 +1342,10 @@ runs it. `internal/testenv.RequireFile` does the same for a fixture file
 fixture-dependent test in `authority`, `crypto11`, `jwt`, `cryptoprov`,
 `certutil`, `csr` and `cmd/hsm-tool/cli` is gated this way; no test fails
 hard when a fixture is missing unless `XPKI_INTEGRATION=required`
-(XPKI-100, fixed). The one exception is the opt-in PKCS#11 v3.2 token
-(`XPKI_PKCS11_V32_CONFIG`): CI provisions none, so `crypto11`'s
-`TestMLDSAOnPKCS11v32Token` skips whatever `XPKI_INTEGRATION` says.
+(XPKI-100, fixed). The exceptions are the opt-in PKCS#11 v3.2 token
+(`XPKI_PKCS11_V32_CONFIG`) and live KMS (`XPKI_LIVE_*`): CI provisions neither, so
+`TestMLDSAOnPKCS11v32Token` and `TestLiveKMSMLDSA` skip whatever
+`XPKI_INTEGRATION` says.
 
 `cmd/xpki-tool/cli/coverage_test.go` uses generated certificates and local HTTP
 servers to cover certificate filters, trust validation, concurrent revocation
@@ -1287,6 +1360,30 @@ directory on the suite's parent test; Go removes it after all suite subtests
 finish. Overlapping CLI test processes cannot overwrite or remove one
 another's fixtures (XPKI-105, fixed); give each process separate coverage
 and log output paths.
+
+## Kryoptic setup script
+
+- `scripts/config-kryoptic.sh` builds Kryoptic at a pinned tag with the `pqc`
+  feature (its default features have no ML-DSA; needs Rust, libclang, SQLite and OpenSSL
+  3.5 headers), or takes `--module`; writes `token.conf` (sqlite, slot 1) and a
+  generated `pin.txt` under `--dir` (default `~/.xpki/kryoptic`, `KRYOPTIC_DIR` in
+  the Makefile), and the token JSON (`--out-cfg`, default `DIR/token.json`), mode
+  0600, PINs never printed. `--dir` must be a directory this user owns, not a
+  symlink, and is set to 0700. `protected_dir` refuses a fixture, configuration or
+  module directory with an ancestor another user can replace: each must be owned
+  by this user or root and not writable by group or others unless sticky, and the
+  physical paths are used from then on. The files are removed
+  and recreated rather than truncated, so an old mode or a symlink cannot expose
+  the PIN. Paths are made absolute, a clone goes through a temporary name, and it
+  replaces the token on each run. Set `KRYOPTIC_CONF` to
+  `DIR/token.conf` for whatever loads the module; `make test-kryoptic` does.
+- `scripts/p11-init-token.go` (`//go:build ignore`, so not in `./...`, `go run`
+  only) does `C_InitToken` and `C_InitPIN`, so the fixture needs no OpenSC; it
+  finds the slot again by label, since a module may move an initialized token, as
+  SoftHSM does. It was checked against SoftHSM.
+- `scripts/config-kryoptic_test.sh` checks the script with stub tools through
+  `make test-scripts`. The real `make kryoptic-config test-kryoptic` passed on
+  Kryoptic 1.5.4 on 2026-11-09; CI does neither.
 
 ## SoftHSM setup scripts
 

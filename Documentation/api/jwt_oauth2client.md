@@ -17,9 +17,9 @@ Package oauth2client holds the configuration model and registry for OAuth2 and O
   - [func \(p \*Client\) Config\(\) \*ClientConfig](<#Client.Config>)
   - [func \(p \*Client\) CreateTokenRequest\(v url.Values, authStyle oauth2.AuthStyle\) \(\*http.Request, error\)](<#Client.CreateTokenRequest>)
   - [func \(p \*Client\) CreateTokenRequestWithContext\(ctx context.Context, v url.Values, authStyle oauth2.AuthStyle\) \(\*http.Request, error\)](<#Client.CreateTokenRequestWithContext>)
-  - [func \(p \*Client\) PublicKey\(\) \*rsa.PublicKey](<#Client.PublicKey>)
+  - [func \(p \*Client\) PublicKey\(\) crypto.PublicKey](<#Client.PublicKey>)
   - [func \(p \*Client\) SetClientSecret\(s string\) \*Client](<#Client.SetClientSecret>)
-  - [func \(p \*Client\) SetPubKey\(newPubKey \*rsa.PublicKey\)](<#Client.SetPubKey>)
+  - [func \(p \*Client\) SetPubKey\(newPubKey crypto.PublicKey\)](<#Client.SetPubKey>)
 - [type ClientConfig](<#ClientConfig>)
 - [type Config](<#Config>)
   - [func LoadConfig\(file string\) \(\*Config, error\)](<#LoadConfig>)
@@ -38,7 +38,7 @@ Package oauth2client holds the configuration model and registry for OAuth2 and O
 
 
 <a name="Client"></a>
-## type [Client](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L25-L31>)
+## type [Client](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L28-L34>)
 
 Client of OAuth2.
 
@@ -69,16 +69,16 @@ func LoadClient(file string) (*Client, error)
 LoadClient returns a single \`Client\` loaded from config
 
 <a name="New"></a>
-### func [New](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L35>)
+### func [New](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L39>)
 
 ```go
 func New(cfg *ClientConfig) (*Client, error)
 ```
 
-New returns a Client for a copy of cfg. A PubKey that is not a PEM\-encoded RSA public key is an error.
+New returns a Client for a copy of cfg. A PubKey that is not a PEM\-encoded RSA, ECDSA or ML\-DSA public key, the types package jwt verifies with, is an error.
 
 <a name="Client.Config"></a>
-### func \(\*Client\) [Config](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L60>)
+### func \(\*Client\) [Config](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L69>)
 
 ```go
 func (p *Client) Config() *ClientConfig
@@ -87,7 +87,7 @@ func (p *Client) Config() *ClientConfig
 Config returns a copy of the OAuth2 configuration, with the current client secret. Changing the copy does not change the Client.
 
 <a name="Client.CreateTokenRequest"></a>
-### func \(\*Client\) [CreateTokenRequest](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L94>)
+### func \(\*Client\) [CreateTokenRequest](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L105>)
 
 ```go
 func (p *Client) CreateTokenRequest(v url.Values, authStyle oauth2.AuthStyle) (*http.Request, error)
@@ -96,7 +96,7 @@ func (p *Client) CreateTokenRequest(v url.Values, authStyle oauth2.AuthStyle) (*
 CreateTokenRequest returns a new \*http.Request to retrieve a new token from tokenURL using the provided clientID, clientSecret, and POST body parameters.
 
 <a name="Client.CreateTokenRequestWithContext"></a>
-### func \(\*Client\) [CreateTokenRequestWithContext](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L100>)
+### func \(\*Client\) [CreateTokenRequestWithContext](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L111>)
 
 ```go
 func (p *Client) CreateTokenRequestWithContext(ctx context.Context, v url.Values, authStyle oauth2.AuthStyle) (*http.Request, error)
@@ -105,16 +105,16 @@ func (p *Client) CreateTokenRequestWithContext(ctx context.Context, v url.Values
 CreateTokenRequestWithContext is like CreateTokenRequest but binds the request to ctx so the caller can cancel or time out the token exchange.
 
 <a name="Client.PublicKey"></a>
-### func \(\*Client\) [PublicKey](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L69>)
+### func \(\*Client\) [PublicKey](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L79>)
 
 ```go
-func (p *Client) PublicKey() *rsa.PublicKey
+func (p *Client) PublicKey() crypto.PublicKey
 ```
 
-PublicKey returns the JWT issuer public key parsed from the PubKey setting or given to SetPubKey, or nil. This package does not verify tokens with it; pass it to a verifier, for example in jwt.StaticKeySet.PublicKeys.
+PublicKey returns the JWT issuer public key parsed from the PubKey setting or given to SetPubKey, or nil: an \*rsa.PublicKey, \*ecdsa.PublicKey or \*mldsa.PublicKey from the setting. This package does not verify tokens with it; pass it to a verifier, for example in jwt.StaticKeySet.PublicKeys.
 
 <a name="Client.SetClientSecret"></a>
-### func \(\*Client\) [SetClientSecret](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L84>)
+### func \(\*Client\) [SetClientSecret](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L95>)
 
 ```go
 func (p *Client) SetClientSecret(s string) *Client
@@ -123,13 +123,13 @@ func (p *Client) SetClientSecret(s string) *Client
 SetClientSecret sets the client secret used by later token requests
 
 <a name="Client.SetPubKey"></a>
-### func \(\*Client\) [SetPubKey](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L77>)
+### func \(\*Client\) [SetPubKey](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/client.go#L88>)
 
 ```go
-func (p *Client) SetPubKey(newPubKey *rsa.PublicKey)
+func (p *Client) SetPubKey(newPubKey crypto.PublicKey)
 ```
 
-SetPubKey replaces the JWT issuer public key returned by PublicKey. During normal operation, identity provider's public key is read from config on start\-up.
+SetPubKey replaces the JWT issuer public key returned by PublicKey. The type is not checked; a verifier rejects one it does not support. During normal operation, identity provider's public key is read from config on start\-up.
 
 <a name="ClientConfig"></a>
 ## type [ClientConfig](<https://github.com/effective-security/xpki/blob/main/jwt/oauth2client/config.go#L16-L59>)

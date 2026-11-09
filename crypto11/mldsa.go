@@ -28,8 +28,9 @@ const (
 	ckmMLDSAKeyPairGen = 0x0000001C
 	// ckmMLDSA is CKM_ML_DSA, the pure ML-DSA signature over a message. Its
 	// optional CK_SIGN_ADDITIONAL_CONTEXT parameter (hedge variant and
-	// context string) is not used: the token picks hedged signing and the
-	// context is empty, as X.509 requires.
+	// context string) is not built: without it the token hedges (D6) and the
+	// context is empty, which is what X.509 (RFC 9881), OCSP and JOSE
+	// (RFC 9964) need, so no caller in this module has a use for it.
 	ckmMLDSA = 0x0000001D
 )
 
@@ -141,6 +142,24 @@ func (priv *PKCS11PrivateKeyMLDSA) Sign(rand io.Reader, message []byte, opts cry
 		return nil, errors.WithStack(err)
 	}
 	return sig, nil
+}
+
+// mldsaKeyMeta returns the KeyInfo.Meta of an ML-DSA key object: its parameter
+// set name under cryptoprov.MetaParameterSet (design decision D3).
+func (lib *PKCS11Lib) mldsaKeyMeta(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) (map[string]string, error) {
+	attributes, err := lib.Ctx.GetAttributeValue(session, handle, []*pkcs11.Attribute{
+		pkcs11.NewAttribute(ckaParameterSet, nil),
+	})
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	params, err := mldsaParameters(attributes[0].Value)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		cryptoprov.MetaParameterSet: params.String(),
+	}, nil
 }
 
 // exportMLDSAPublicKey reads the public key of an ML-DSA public key object

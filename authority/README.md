@@ -62,12 +62,18 @@ the certificate.
   the CA's `NotAfter` and re-issued at most once a minute.
 - A delegated response's `NextUpdate` is capped at the responder's
   `NotAfter`, and a `ThisUpdate` at or after it is rejected.
-- An ML-DSA (FIPS 204) CA key cannot sign OCSP responses:
-  `golang.org/x/crypto/ocsp` supports RSA and ECDSA only. `CreateIssuer`
-  rejects such an issuer when `aia.ocsp_url` is set without
-  `aia.delegated_ocsp_profile`, and `SignOCSP` never signs with an ML-DSA
-  key; the delegated responder's P-256 key is certified by the ML-DSA CA
-  and its responses verify against the ML-DSA issuer certificate.
+- The delegated responder has an in-memory ECDSA P-256 key unless
+  `aia.delegated_ocsp_key_algo` (`RSA`, `ECDSA`, `ML-DSA`) and
+  `aia.delegated_ocsp_key_size` (bits, curve size or parameter set) select
+  another; the delegated profile's `allowed_key_algorithms` must admit it, and
+  for an ML-DSA key its key usages must suit one (see "Key algorithm policy").
+- An ML-DSA (FIPS 204) key signs OCSP responses, as the CA key or as the
+  responder key. `golang.org/x/crypto/ocsp` cannot verify such a response:
+  relying parties read it with `certutil.ParseOCSPResponse` or OpenSSL 3.5. An
+  ML-DSA CA keeps a classical signature on its responses with the default P-256
+  delegated responder, which `golang.org/x/crypto/ocsp` verifies. The responder's
+  certificate is still signed by the CA, so a client that cannot verify ML-DSA at
+  all cannot validate either form.
 
 ## Signing pipeline
 
@@ -150,3 +156,10 @@ profiles:
 
 The issuer's own key is not subject to the list; an ML-DSA issuer certifies
 RSA, ECDSA and ML-DSA keys, and a classical issuer certifies ML-DSA keys.
+
+A certificate for an ML-DSA key must not carry `key encipherment`, `data
+encipherment`, `key agreement`, `encipher only` or `decipher only` (RFC 9881 §5).
+Such a request fails with `profile P: key usage not allowed for an ML-DSA key:
+...`, whether the usage comes from `usages` or a raw key usage extension; the bits
+are not dropped. A profile with `usages: [signing, key encipherment, server auth]`
+keeps working for RSA and ECDSA keys, and ML-DSA keys need their own profile.

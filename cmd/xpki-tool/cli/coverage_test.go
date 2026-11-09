@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -296,6 +297,73 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+// TestOCSPMLDSAResponse reads an ML-DSA signed response, which
+// golang.org/x/crypto/ocsp cannot verify, through every OCSP command.
+func TestOCSPMLDSAResponse(t *testing.T) {
+	t.Parallel()
+	key, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	root := testca.NewEntity(testca.Authority, testca.PrivateKey(key), testca.KeyUsage(x509.KeyUsageCertSign))
+
+	var response atomic.Pointer[[]byte]
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(*response.Load())
+	}))
+	t.Cleanup(server.Close)
+	leaf := root.Issue(testca.Subject(pkix.Name{CommonName: "ML-DSA OCSP"}), testca.OCSPServer(server.URL+"/ocsp"))
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	der, err := certutil.CreateOCSPResponse(root.Certificate, root.Certificate, ocsp.Response{
+		Status:       ocsp.Good,
+		SerialNumber: leaf.Certificate.SerialNumber,
+		ThisUpdate:   now,
+		NextUpdate:   now.Add(time.Hour),
+	}, key)
+	require.NoError(t, err)
+	response.Store(&der)
+
+	client := server.Client()
+	client.Timeout = 5 * time.Second
+	status, raw, err := cli.OCSPValidation(context.Background(), client, leaf.Certificate, root.Certificate, server.URL+"/ocsp")
+	require.NoError(t, err)
+	assert.Equal(t, ocsp.Good, status)
+	assert.Equal(t, der, raw)
+
+	// a response signed by another key of the issuer's type is rejected
+	other, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	forged, err := certutil.CreateOCSPResponse(root.Certificate, root.Certificate, ocsp.Response{
+		Status:       ocsp.Good,
+		SerialNumber: leaf.Certificate.SerialNumber,
+		ThisUpdate:   now,
+		NextUpdate:   now.Add(time.Hour),
+	}, other)
+	require.NoError(t, err)
+	response.Store(&forged)
+	status, _, err = cli.OCSPValidation(context.Background(), client, leaf.Certificate, root.Certificate, server.URL+"/ocsp")
+	require.ErrorContains(t, err, "failed to parse OCSP")
+	assert.Equal(t, ocsp.Unknown, status)
+	response.Store(&der)
+
+	dir := t.TempDir()
+	rootFile := filepath.Join(dir, "root.pem")
+	require.NoError(t, os.WriteFile(rootFile, testca.ToPEM(root.Certificate), 0o600))
+	leafFile := filepath.Join(dir, "leaf.pem")
+	require.NoError(t, os.WriteFile(leafFile, testca.ToPEM(leaf.Certificate), 0o600))
+	responseFile := filepath.Join(dir, "response.ocsp")
+	require.NoError(t, os.WriteFile(responseFile, der, 0o600))
+
+	var out bytes.Buffer
+	ctx := (&cli.Cli{Timeout: 5}).WithWriter(&out)
+	require.NoError(t, (&cli.OCSPInfoCmd{In: responseFile, Issuer: rootFile}).Run(ctx))
+	assert.Contains(t, out.String(), "Status: good")
+
+	out.Reset()
+	require.NoError(t, (&cli.OCSPFetchCmd{Cert: leafFile, CA: rootFile, Print: true}).Run(ctx))
+	assert.Contains(t, out.String(), server.URL+"/ocsp: good")
+	assert.Contains(t, out.String(), "Status: good")
 }
 
 func TestRevocationFetchAndInfo(t *testing.T) {

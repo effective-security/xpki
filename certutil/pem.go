@@ -198,6 +198,27 @@ func JoinPEM(p1, p2 []byte) []byte {
 	return p1
 }
 
+// ParsePublicKeyFromPEM parses a PEM encoded public key in the
+// SubjectPublicKeyInfo form (RFC 5280), or a PKCS#1 RSA public key. It returns
+// what x509.ParsePKIXPublicKey does, so any type that function supports,
+// including *ecdh.PublicKey and *dsa.PublicKey, which cannot verify a modern
+// signature: a caller that needs a signature key checks the type.
+func ParsePublicKeyFromPEM(key []byte) (crypto.PublicKey, error) {
+	block, _ := pem.Decode(key)
+	if block == nil {
+		return nil, errors.New("key must be PEM encoded")
+	}
+	parsedKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		rsaKey, rsaErr := x509.ParsePKCS1PublicKey(block.Bytes)
+		if rsaErr != nil {
+			return nil, errors.WithMessage(err, "unable to parse Public Key")
+		}
+		return rsaKey, nil
+	}
+	return parsedKey, nil
+}
+
 // ParseRSAPublicKeyFromPEM parses PEM encoded RSA public key
 func ParseRSAPublicKeyFromPEM(key []byte) (*rsa.PublicKey, error) {
 	var err error

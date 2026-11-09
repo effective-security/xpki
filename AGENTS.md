@@ -89,12 +89,16 @@ Do not start by grepping the tree.
 - Use `package foo_test` for black-box tests and `package foo` only when a
   test needs unexported seams.
 - External fixtures: PKCS#11 tests need the SoftHSM token described by
-  `/tmp/xpki/softhsm_unittest.json` (`make hsmconfig`); the AWS KMS
+  `testenv.SoftHSMConfig`, `~/.xpki/softhsm_unittest.json` (`make hsmconfig`); the AWS KMS
   integration tests need the `local-kms` containers on `:14555` and
   `:14556` (`make start-local-kms`) and the dummy `AWS_*` variables exported
   by the Makefile; the AWS and GCP KMS unit tests use in-process fake KMS
   clients.
   Do not hard-code other paths; reuse the constants the packages define.
+- Opt-in fixtures skip whatever `XPKI_INTEGRATION` says, because CI does not
+  provision them: a PKCS#11 v3.2 token (`XPKI_PKCS11_V32_CONFIG`) and the real
+  AWS and GCP KMS (`XPKI_LIVE_AWS_KMS_REGION`, `XPKI_LIVE_GCP_KMS_KEYRING`;
+  `TestLiveKMSMLDSA` creates billable keys, so run it only when asked to).
 - Gate only the tests that need a fixture, with
   `internal/testenv` (for example `testenv.RequireTCP(t, "local-kms",
 "localhost:14556")`, or `testenv.RequireFile` for the SoftHSM config, as
@@ -120,6 +124,9 @@ Do not start by grepping the tree.
   at the versions pinned in `Makefile` (`*_VERSION` variables); bump a pin
   deliberately and rerun `make tools lint covtest docs`
 - `make hsmconfig` : create the SoftHSM token and test config
+- `make kryoptic-config test-kryoptic` : build Kryoptic (PKCS#11 v3.2 token with
+  ML-DSA; Rust, libclang, OpenSSL 3.5 and SQLite headers) and run the `crypto11` ML-DSA test
+  on it; opt-in, not part of `make all` or CI
 - `make start-local-kms` : start the AWS KMS emulator containers
 - `make fmt` : apply go fmt
 - `make fmt-check` : fail on unformatted files without changing them
@@ -157,7 +164,10 @@ locally.
 
 #### Track bugs and issues status
 
-- `FINDINGS.md`, `PLAN.md` and `ROADMAP.md` hold open work only. In the same
+- `FINDINGS.md`, `PLAN.md` and `ROADMAP.md` hold open work only, except that
+  `ROADMAP.md` keeps a numbered status table: a finished work item loses its
+  text but keeps its number and row as `Done`, linked to the release notes. Never
+  reuse a work item number. In the same
   change as each verified fix, remove the finding from `FINDINGS.md` and its
   batch and assessment rows from `PLAN.md` (when present, even if it is
   ignored by Git), and summarize it in the release notes of the next version,

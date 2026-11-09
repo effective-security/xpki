@@ -68,20 +68,40 @@ build: hashbin
 .PHONY: test-scripts
 test-scripts:
 	bash scripts/config-softhsm_test.sh
+	bash scripts/config-kryoptic_test.sh
+
+# Per-user locations, not the shared /tmp: these fixtures name a PKCS#11 module
+# that gets loaded. SOFTHSM_CONFIG is the path of testenv.SoftHSMConfig.
+XPKI_USER_DIR := ${HOME}/.xpki
+SOFTHSM_CONFIG := ${XPKI_USER_DIR}/softhsm_unittest.json
+KRYOPTIC_DIR ?= ${XPKI_USER_DIR}/kryoptic
 
 hsmconfig: test-scripts
 	echo "*** Running hsmconfig"
 	go build ${BUILD_FLAGS} ${LDFLAGS} -o "${PROJ_ROOT}/bin/hsm-tool" ./cmd/hsm-tool
-	mkdir -p ~/softhsm2 /tmp/xpki
+	mkdir -p ~/softhsm2 "${XPKI_USER_DIR}"
+	chmod 700 "${XPKI_USER_DIR}"
 	./scripts/config-softhsm.sh \
 		--pin-file ~/softhsm2/xpki_pin_unittest.txt \
 		--generate-pin \
 		-s xpki_unittest \
-		-o /tmp/xpki/softhsm_unittest.json \
+		-o "${SOFTHSM_CONFIG}" \
 		--delete
 	SOFTHSM2_CONF="$${SOFTHSM2_CONF_DIR:-$$HOME/.config/softhsm2}/softhsm2.conf" \
-		"${PROJ_ROOT}/bin/hsm-tool" --cfg /tmp/xpki/softhsm_unittest.json hsm list
+		"${PROJ_ROOT}/bin/hsm-tool" --cfg "${SOFTHSM_CONFIG}" hsm list
 	echo ""
+
+# PKCS#11 v3.2 token with ML-DSA for crypto11; not part of `all` or CI: it builds
+# Kryoptic from source (Rust, libclang, OpenSSL 3.5 and SQLite headers), see scripts/config-kryoptic.sh
+kryoptic-config:
+	echo "*** Running kryoptic-config"
+	./scripts/config-kryoptic.sh --dir "${KRYOPTIC_DIR}"
+
+test-kryoptic:
+	echo "*** Running ML-DSA tests on the Kryoptic token"
+	KRYOPTIC_CONF="${KRYOPTIC_DIR}/token.conf" \
+		XPKI_PKCS11_V32_CONFIG="${KRYOPTIC_DIR}/token.json" \
+		go test ./crypto11/ -run TestMLDSAOnPKCS11v32Token -count=1 -v
 
 start-local-kms:
 	echo "*** starting local-kms"

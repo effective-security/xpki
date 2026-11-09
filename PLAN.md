@@ -125,32 +125,31 @@ RACE=true`.
 ## PQC execution plan (ML-DSA)
 
 Execution plan for the roadmap item
-[Post-quantum signatures: ML-DSA (FIPS 204)](ROADMAP.md#post-quantum-signatures-ml-dsa-fips-204).
+[3. Post-quantum signatures: ML-DSA (FIPS 204)](ROADMAP.md#3-post-quantum-signatures-ml-dsa-fips-204).
 The design and the decisions D1–D7 are in
 [`Documentation/design/pqc.md`](Documentation/design/pqc.md). Batches PQ0
 (foundations), PQ1 (in-memory providers, `testca`), PQ2 (`authority`), PQ3
-(AWS KMS), PQ4 (GCP KMS) and PQ6 (CLI, printing, documentation) were
-implemented in v1.1 and are summarized in
+(AWS KMS), PQ4 (GCP KMS) and PQ6 (CLI, printing, documentation), `crypto11` on a
+PKCS#11 v3.2 token (PQ5b, roadmap 3.1), the OCSP responder (roadmap 3.3) and
+`jwt`/`jwt/dpop` (roadmap 3.4) were implemented in v1.1 and are summarized in
 [`Documentation/RELEASE_NOTES_1.1.md`](Documentation/RELEASE_NOTES_1.1.md).
-What remains is the verification half of PQ5.
+What remains is verification that needs outside infrastructure: the batch below
+has its code and tests in place and waits for a run.
 
-### Remaining batch
+### Remaining batches
 
 | Batch | Owner package(s) | Scope                                                                                                                                                                                                                                                                                                                                                      | Depends on                        | Regression risk                                   |
 | ----- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------- |
-| PQ5b  | `crypto11`       | Verify the ML-DSA code of v1.1 (`mldsa.go`: `GenerateMLDSAKey`, lookup, `PKCS11PrivateKeyMLDSA.Sign`, public key export) against a PKCS#11 v3.2 module. Provision a software token (Kryoptic: no published container image as of 2026-11-08; a Rust build against OpenSSL 3.5) in `scripts/`, the Makefile and CI; point `XPKI_PKCS11_V32_CONFIG` at its config so `TestMLDSAOnPKCS11v32Token` runs. Fix whatever the token reports (attribute templates, `CKA_PARAMETER_SET` placement, signature encoding), add the parameter set to `KeyInfo.Meta`, and decide whether `CK_SIGN_ADDITIONAL_CONTEXT` (context strings, deterministic signing) is worth building. | A v3.2 token the build can run    | Medium: untested cgo path; shared `keys.go` switches already in place |
+| PQ7   | `gcpkmscrypto` | Run `TestLiveKMSMLDSA` once against the real service with an existing key ring (`XPKI_LIVE_GCP_KMS_KEYRING=projects/<project>/locations/<location>/keyRings/<ring>`, on `go test` directly). Fix whatever the service reports and record the result. The test creates billable keys and schedules them for deletion. Done for AWS: passed for all three parameter sets on 2026-11-09. | GCP access (none as of 2026-11-09), a key ring and an owner's approval to create keys | Low: the code paths are exercised on the fake; a live difference would change only the request shape |
 
-Acceptance for PQ5b: with the fixture, generate, find by id and label,
-sign (verified with `mldsa.Verify`), export the public key and destroy for
-all three parameter sets; `make test` on a machine without the fixture still
-skips the test; CI either provisions the token or documents that it does
-not.
+Acceptance for PQ7: for all three parameter sets on GCP, a key is
+created, a message, a μ and a message with a context are signed and verified
+locally, the key reads back with its parameter set, and a CSR and a
+certificate are signed; the keys are scheduled for deletion.
 
 ### Validation protocol
 
-Write the missing assertions in `crypto11/mldsa_test.go` first and run them
-against the token; `make lint`; `make test RACE=true` for `crypto11`
-(session pool); `make covtest` stays above `MIN_TESTCOV=90`. Record in the
-PR which module and version signed, and update
-`Documentation/design/crypto11.md` and the codemap (fixture conventions,
-`Meta` contents) in the same change.
+Run `TestLiveKMSMLDSA` in `gcpkmscrypto` against the live service; `make lint`;
+`make covtest` stays above `MIN_TESTCOV=90`. Record in the PR which account and
+location signed, and update `Documentation/design/pqc.md`, the codemap and the
+status in `ROADMAP.md` in the same change.

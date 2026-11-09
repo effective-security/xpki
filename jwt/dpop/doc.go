@@ -21,6 +21,12 @@
 //	}
 //	res, err := dpop.VerifyRequestClaims(cfg, req)
 //
+// A proof can be signed with an ML-DSA key (NewSigner with any crypto.Signer
+// whose public key is an *mldsa.PublicKey): RFC 9964 algorithms are accepted,
+// and the embedded jwk is an AKP key. An ML-DSA proof carries the public key
+// and the signature, about 6 KB with ML-DSA-44, 8 KB with ML-DSA-65 and 11 KB
+// with ML-DSA-87, which can exceed the header limit of an HTTP server or proxy.
+//
 // Clients add the "ath" claim with
 // map[string]any{dpop.ClaimAccessTokenHash: dpop.AccessTokenHash(token)} as
 // the ForRequest extra claims.

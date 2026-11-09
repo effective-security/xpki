@@ -10,6 +10,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/miekg/pkcs11"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -199,6 +200,14 @@ func TestMLDSAOnPKCS11v32Token(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, certutil.KeyTypeMLDSA, ki.Type)
 			assert.Contains(t, ki.PublicKey, "PUBLIC KEY")
+			assert.Equal(t, params.String(), ki.Meta[cryptoprov.MetaParameterSet])
+
+			listed, err := lib.EnumKeys(lib.Slot.id, label)
+			require.NoError(t, err)
+			require.Len(t, listed, 1)
+			assert.Equal(t, keyID, listed[0].ID)
+			assert.Equal(t, certutil.KeyTypeMLDSA, listed[0].Type)
+			assert.Equal(t, params.String(), listed[0].Meta[cryptoprov.MetaParameterSet])
 
 			uri, _, err := lib.ExportKey(keyID)
 			require.NoError(t, err)

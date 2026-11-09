@@ -396,16 +396,19 @@ func checkProofHeaders(headers []jose.Header) (*jose.JSONWebKey, error) {
 var supportedSignatureAlgorithms = slices.Sorted(maps.Keys(supportedSignatureAlgorithm))
 
 var supportedSignatureAlgorithm = map[jose.SignatureAlgorithm]bool{
-	jose.RS256: true, // RSASSA-PKCS-v1.5 using SHA-256
-	jose.RS384: true, // RSASSA-PKCS-v1.5 using SHA-384
-	jose.RS512: true, // RSASSA-PKCS-v1.5 using SHA-512
-	jose.ES256: true, // ECDSA using P-256 and SHA-256
-	jose.ES384: true, // ECDSA using P-384 and SHA-384
-	jose.ES512: true, // ECDSA using P-521 and SHA-512
-	jose.PS256: true, // RSASSA-PSS using SHA256 and MGF1-SHA256
-	jose.PS384: true, // RSASSA-PSS using SHA384 and MGF1-SHA384
-	jose.PS512: true, // RSASSA-PSS using SHA512 and MGF1-SHA512
-	jose.EdDSA: true, // EdDSA using Ed25519
+	jose.RS256:   true, // RSASSA-PKCS-v1.5 using SHA-256
+	jose.RS384:   true, // RSASSA-PKCS-v1.5 using SHA-384
+	jose.RS512:   true, // RSASSA-PKCS-v1.5 using SHA-512
+	jose.ES256:   true, // ECDSA using P-256 and SHA-256
+	jose.ES384:   true, // ECDSA using P-384 and SHA-384
+	jose.ES512:   true, // ECDSA using P-521 and SHA-512
+	jose.PS256:   true, // RSASSA-PSS using SHA256 and MGF1-SHA256
+	jose.PS384:   true, // RSASSA-PSS using SHA384 and MGF1-SHA384
+	jose.PS512:   true, // RSASSA-PSS using SHA512 and MGF1-SHA512
+	jose.EdDSA:   true, // EdDSA using Ed25519
+	jose.MLDSA44: true, // ML-DSA-44 (FIPS 204, RFC 9964)
+	jose.MLDSA65: true, // ML-DSA-65 (FIPS 204, RFC 9964)
+	jose.MLDSA87: true, // ML-DSA-87 (FIPS 204, RFC 9964)
 }
 
 // queryString returns Query parameter

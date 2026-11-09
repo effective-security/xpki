@@ -39,7 +39,7 @@ flowchart TD
 | `Authority`             | `authority.go`  | Registry of issuers and profiles with lock-free lookups; copy-on-write under a mutex for `AddIssuer`/`AddProfile`.                                        |
 | `Issuer`                | `issuer.go`     | One signing key and chain. `sigAlgo` is fixed at construction by `csr.DefaultSigAlgo(signer)`; `keyInfo` (type, size, hash) by `certutil.NewKeyInfo`; `keyHash`/`nameHash` per hash for OCSP `CertID` matching. |
 | `Issuer.Sign`           | `issuer.go`     | The issuance pipeline: parse and verify CSR, copy permitted fields, merge RA subject, regex checks, extension precedence (profile > RA > CSR), `fillTemplate`, `x509.CreateCertificate`. |
-| OCSP responders         | `ocsp.go`       | `caResponder` (immutable) and a delegated responder (atomic snapshot, renewed under `renewLock`, in-memory P-256 key issued by `Sign` with the delegated profile). `SignOCSP` builds the response with `golang.org/x/crypto/ocsp`. |
+| OCSP responders         | `ocsp.go`       | `caResponder` (immutable) and a delegated responder (atomic snapshot, renewed under `renewLock`, in-memory key, P-256 by default, issued by `Sign` with the delegated profile). `SignOCSP` builds the response with `certutil.CreateOCSPResponse`. |
 | `NewRoot`, `Issuer.GenCert` | `root.go`, `util.go` | Bootstrap: generate a key through a `cryptoprov.Provider`, build a CSR with `csr`, self-sign (root) or sign with an issuer (GenCert), write files (`.key` 0600, existing files renamed `.bak`). |
 
 ## Main flow: issuing a certificate
@@ -123,20 +123,26 @@ Implemented in v1.1:
 - `SignProof` signs the data itself with an ML-DSA key (nil options) and
   `VerifyProof` switches on the public key type (`mldsa.Verify`), so an
   unknown key type is an error instead of a type-assertion panic.
-- OCSP (decision D5): `golang.org/x/crypto/ocsp` signs with RSA and ECDSA
-  keys only. `CreateIssuer` rejects an ML-DSA signer whose `aia.ocsp_url`
-  is set without `aia.delegated_ocsp_profile`; with no OCSP URL the issuer
-  is accepted, and `SignOCSP` refuses to sign with the CA key. The
-  delegated responder keeps its in-memory P-256 key and is certified by the
-  ML-DSA CA, so responses parse with `ocsp.ParseResponse` against the
-  ML-DSA issuer certificate.
+- OCSP (decision D5): `SignOCSP` signs with an ML-DSA CA key or
+  responder through `certutil.CreateOCSPResponse`. The delegated responder key
+  is P-256 by default, certified by whatever the CA key is, because
+  `golang.org/x/crypto/ocsp` cannot verify an ML-DSA response signature. It
+  still needs ML-DSA for the responder's certificate under an ML-DSA CA, which
+  Go 1.27's `crypto/x509` provides, so a client with no ML-DSA at all cannot
+  validate either form. `aia.delegated_ocsp_key_algo` and
+  `aia.delegated_ocsp_key_size` select another key. `CreateIssuer` validates them,
+  and rejects a delegated profile whose `allowed_key_algorithms` excludes the
+  responder key. Relying parties read ML-DSA responses with
+  `certutil.ParseOCSPResponse` or OpenSSL 3.5.
 - `CertProfile.AllowedKeyAlgorithms` (`allowed_key_algorithms`: `rsa`,
   `ecdsa`, `ed25519`, `ml-dsa`; decision D7) restricts the public key
   algorithm of a CSR; empty keeps every key x509 can certify. `Validate`
   rejects unknown names and `Sign` fails with `public key algorithm X is
   not allowed by profile P`.
+- `signWithProfile` rejects an ML-DSA certificate that would carry a key usage
+  RFC 9881 §5 forbids (`key encipherment`, `data encipherment`, `key agreement`,
+  `encipher only`, `decipher only`). It checks the final template, where a raw
+  key usage extension from the profile or the `SignRequest` overrides `usages`.
+  `validateDelegatedOCSPProfile` applies the rule to an ML-DSA responder.
 - `testdata/csrprofiles/mldsa_server.yaml` is the ML-DSA request sample.
 
-Remaining: an ML-DSA OCSP responder needs responses built locally (or
-upstream support in `x/crypto/ocsp`); the delegated responder key algorithm
-is not configurable.

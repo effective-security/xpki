@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"strings"
 
 	"slices"
 
@@ -39,6 +40,61 @@ func isOCSPSigningTemplate(template *x509.Certificate) (bool, error) {
 		return ekuHasOCSPSigning(ext.Value)
 	}
 	return certutil.IsOCSPSigner(template), nil
+}
+
+// mldsaForbiddenKeyUsage holds the key usages RFC 9881 section 5 forbids for an
+// ML-DSA key, a signature scheme.
+const mldsaForbiddenKeyUsage = x509.KeyUsageKeyEncipherment |
+	x509.KeyUsageDataEncipherment |
+	x509.KeyUsageKeyAgreement |
+	x509.KeyUsageEncipherOnly |
+	x509.KeyUsageDecipherOnly
+
+// keyUsageBits is the number of key usage bits RFC 5280 4.2.1.3 defines.
+const keyUsageBits = 9
+
+// parseKeyUsage decodes the DER value of a key usage extension.
+func parseKeyUsage(der []byte) (x509.KeyUsage, error) {
+	var bits asn1.BitString
+	rest, err := asn1.Unmarshal(der, &bits)
+	if err != nil {
+		return 0, errors.Wrap(err, "invalid key usage extension")
+	}
+	if len(rest) > 0 {
+		return 0, errors.New("invalid key usage extension: trailing data")
+	}
+	var ku x509.KeyUsage
+	for i := range keyUsageBits {
+		if bits.At(i) != 0 {
+			ku |= 1 << i
+		}
+	}
+	return ku, nil
+}
+
+// rejectMLDSAKeyUsage returns an error naming the usages in ku that an ML-DSA
+// key must not have.
+func rejectMLDSAKeyUsage(ku x509.KeyUsage) error {
+	if forbidden := ku & mldsaForbiddenKeyUsage; forbidden != 0 {
+		return errors.Errorf("key usage not allowed for an ML-DSA key: %s",
+			strings.Join(oid.KeyUsages(forbidden), ", "))
+	}
+	return nil
+}
+
+// checkMLDSATemplate rejects an ML-DSA certificate template with a forbidden key
+// usage. A raw key usage extension in ExtraExtensions overrides
+// template.KeyUsage in x509.CreateCertificate.
+func checkMLDSATemplate(template *x509.Certificate) error {
+	ku := template.KeyUsage
+	if ext := certutil.FindExtension(template.ExtraExtensions, oid.ExtensionKeyUsage); ext != nil {
+		var err error
+		ku, err = parseKeyUsage(ext.Value)
+		if err != nil {
+			return err
+		}
+	}
+	return rejectMLDSAKeyUsage(ku)
 }
 
 type policyInformation struct {

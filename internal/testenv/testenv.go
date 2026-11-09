@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -17,7 +18,19 @@ const (
 	Required = "required"
 
 	dialTimeout = time.Second
+
+	userDirName       = ".xpki"
+	softHSMConfigName = "softhsm_unittest.json"
 )
+
+// SoftHSMConfig returns the path of the SoftHSM token configuration that `make
+// hsmconfig` writes. It is under the home directory and not the shared /tmp,
+// because it names the PKCS#11 module the tests load (XPKI-128).
+func SoftHSMConfig() string {
+	// With no home directory the path is relative, and RequireFile reports it.
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, userDirName, softHSMConfigName)
+}
 
 // IntegrationRequired reports whether a missing fixture must fail the test.
 func IntegrationRequired() bool {

@@ -15,8 +15,12 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 )
 
-// Thumbprint returns key thumbprint
+// Thumbprint returns key thumbprint. An invalid key, such as an uninitialized
+// ML-DSA key, on which go-jose panics, is an error.
 func Thumbprint(k *jose.JSONWebKey) (string, error) {
+	if k == nil || !k.Valid() {
+		return "", errors.Errorf("dpop: unable to get thumbprint")
+	}
 	tb, err := k.Thumbprint(crypto.SHA256)
 	if err != nil {
 		return "", errors.Errorf("dpop: unable to get thumbprint")

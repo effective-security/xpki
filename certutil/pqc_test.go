@@ -2,12 +2,15 @@ package certutil_test
 
 import (
 	"crypto"
+	"crypto/ecdh"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -198,4 +201,44 @@ func TestPQCVectors(t *testing.T) {
 	_, err = cryptoprov.ParsePrivateKeyPEM(both)
 	require.ErrorContains(t, err, "failed to parse key: ")
 	require.ErrorContains(t, err, "seed-only")
+}
+
+// TestParsePublicKeyFromPEM reads every supported key type.
+func TestParsePublicKeyFromPEM(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{44, 65, 87} {
+		key, err := certutil.ParsePublicKeyFromPEM(pqcVector(t, size, "pub"))
+		require.NoError(t, err)
+		assert.True(t, certutil.IsPostQuantumKey(key), "%T", key)
+	}
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	edPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	xKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	// what x509.ParsePKIXPublicKey returns, including a key that cannot sign
+	for _, pub := range []crypto.PublicKey{&rsaKey.PublicKey, &ecKey.PublicKey, edPub, xKey.PublicKey()} {
+		encoded, err := certutil.EncodePublicKeyToPEM(pub)
+		require.NoError(t, err)
+		key, err := certutil.ParsePublicKeyFromPEM(encoded)
+		require.NoError(t, err)
+		assert.IsType(t, pub, key)
+	}
+
+	pkcs1 := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(&rsaKey.PublicKey),
+	})
+	key, err := certutil.ParsePublicKeyFromPEM(pkcs1)
+	require.NoError(t, err)
+	assert.True(t, rsaKey.PublicKey.Equal(key))
+
+	_, err = certutil.ParsePublicKeyFromPEM(nil)
+	require.EqualError(t, err, "key must be PEM encoded")
+	_, err = certutil.ParsePublicKeyFromPEM(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: []byte{1, 2, 3}}))
+	require.ErrorContains(t, err, "unable to parse Public Key")
 }

@@ -20,6 +20,8 @@ cfg := dpop.VerifyConfig{
 res, err := dpop.VerifyRequestClaims(cfg, req)
 ```
 
+A proof can be signed with an ML\-DSA key \(NewSigner with any crypto.Signer whose public key is an \*mldsa.PublicKey\): RFC 9964 algorithms are accepted, and the embedded jwk is an AKP key. An ML\-DSA proof carries the public key and the signature, about 6 KB with ML\-DSA\-44, 8 KB with ML\-DSA\-65 and 11 KB with ML\-DSA\-87, which can exceed the header limit of an HTTP server or proxy.
+
 Clients add the "ath" claim with map\[string\]any\{dpop.ClaimAccessTokenHash: dpop.AccessTokenHash\(token\)\} as the ForRequest extra claims.
 
 ## Index
@@ -132,7 +134,7 @@ func ForRequest(p Signer, r *http.Request, extraClaims any) (string, error)
 ForRequest creates a DPoP proof for the request method and URL and sets it as the DPoP header; the proof is also returned.
 
 <a name="GenerateKey"></a>
-## func [GenerateKey](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L75>)
+## func [GenerateKey](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L79>)
 
 ```go
 func GenerateKey(label string) (*jose.JSONWebKey, error)
@@ -150,7 +152,7 @@ func GetCnfClaim(claims map[string]any) (string, error)
 GetCnfClaim gets DPoP \`cnf\` claim
 
 <a name="LoadKey"></a>
-## func [LoadKey](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L28>)
+## func [LoadKey](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L32>)
 
 ```go
 func LoadKey(path string) (*jose.JSONWebKey, string, error)
@@ -159,7 +161,7 @@ func LoadKey(path string) (*jose.JSONWebKey, string, error)
 LoadKey returns \*jose.JSONWebKey
 
 <a name="SaveKey"></a>
-## func [SaveKey](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L47>)
+## func [SaveKey](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L51>)
 
 ```go
 func SaveKey(folder string, k *jose.JSONWebKey) (string, error)
@@ -177,13 +179,13 @@ func SetCnfClaim(claims map[string]any, thumbprint string)
 SetCnfClaim sets DPoP \`cnf\` claim
 
 <a name="Thumbprint"></a>
-## func [Thumbprint](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L19>)
+## func [Thumbprint](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/keys.go#L20>)
 
 ```go
 func Thumbprint(k *jose.JSONWebKey) (string, error)
 ```
 
-Thumbprint returns key thumbprint
+Thumbprint returns key thumbprint. An invalid key, such as an uninitialized ML\-DSA key, on which go\-jose panics, is an error.
 
 <a name="MemoryReplayCache"></a>
 ## type [MemoryReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L63-L68>)
@@ -368,7 +370,7 @@ func NewSigner(s crypto.Signer) (Signer, error)
 NewSigner creates a DPoP signer that can generate DPoP headers for a request.
 
 <a name="TokenInfo"></a>
-## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L421-L429>)
+## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L424-L432>)
 
 TokenInfo is returned from GetTokenInfo
 
@@ -385,7 +387,7 @@ type TokenInfo struct {
 ```
 
 <a name="GetTokenInfo"></a>
-### func [GetTokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L432>)
+### func [GetTokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L435>)
 
 ```go
 func GetTokenInfo(t string) *TokenInfo

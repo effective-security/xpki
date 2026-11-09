@@ -2,6 +2,9 @@ package oauth2client
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"net/http"
 	"net/url"
@@ -27,11 +30,12 @@ type Client struct {
 	// cfg is the client's own copy. Only ClientSecret changes after New,
 	// under mu; Provider reads the other fields without it.
 	cfg       *ClientConfig
-	verifyKey *rsa.PublicKey
+	verifyKey crypto.PublicKey
 }
 
 // New returns a Client for a copy of cfg. A PubKey that is not a PEM-encoded
-// RSA public key is an error.
+// RSA, ECDSA or ML-DSA public key, the types package jwt verifies with, is an
+// error.
 func New(cfg *ClientConfig) (*Client, error) {
 	if cfg == nil {
 		return nil, errors.New("client config is nil")
@@ -43,11 +47,16 @@ func New(cfg *ClientConfig) (*Client, error) {
 
 	if cfg.PubKey != "" {
 		key := strings.TrimSpace(cfg.PubKey)
-		verifyKey, err := certutil.ParseRSAPublicKeyFromPEM([]byte(key))
+		verifyKey, err := certutil.ParsePublicKeyFromPEM([]byte(key))
 		if err != nil {
 			return nil, errors.WithMessagef(err, "unable to parse Public Key: %q", key)
 		}
-		p.verifyKey = verifyKey
+		switch verifyKey.(type) {
+		case *rsa.PublicKey, *ecdsa.PublicKey, *mldsa.PublicKey:
+			p.verifyKey = verifyKey
+		default:
+			return nil, errors.Errorf("unsupported Public Key type: %T", verifyKey)
+		}
 	}
 
 	logger.KV(xlog.DEBUG, "sts", cfg.ProviderID, "audience", cfg.Audience, "issuer", cfg.Issuer)
@@ -64,17 +73,19 @@ func (p *Client) Config() *ClientConfig {
 }
 
 // PublicKey returns the JWT issuer public key parsed from the PubKey setting
-// or given to SetPubKey, or nil. This package does not verify tokens with it;
-// pass it to a verifier, for example in jwt.StaticKeySet.PublicKeys.
-func (p *Client) PublicKey() *rsa.PublicKey {
+// or given to SetPubKey, or nil: an *rsa.PublicKey, *ecdsa.PublicKey or
+// *mldsa.PublicKey from the setting. This package does not verify tokens with
+// it; pass it to a verifier, for example in jwt.StaticKeySet.PublicKeys.
+func (p *Client) PublicKey() crypto.PublicKey {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.verifyKey
 }
 
-// SetPubKey replaces the JWT issuer public key returned by PublicKey.
+// SetPubKey replaces the JWT issuer public key returned by PublicKey. The type
+// is not checked; a verifier rejects one it does not support.
 // During normal operation, identity provider's public key is read from config on start-up.
-func (p *Client) SetPubKey(newPubKey *rsa.PublicKey) {
+func (p *Client) SetPubKey(newPubKey crypto.PublicKey) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.verifyKey = newPubKey

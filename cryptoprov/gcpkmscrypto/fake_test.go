@@ -21,9 +21,11 @@ type fakeKMS struct {
 	getCryptoKeyVersion     func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error)
 	getPublicKey            func(*kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error)
 	destroyCryptoKeyVersion func(*kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error)
-	asymmetricSign          func(*kmspb.AsymmetricSignRequest) (*kmspb.AsymmetricSignResponse, error)
-	createCryptoKey         func(*kmspb.CreateCryptoKeyRequest) (*kmspb.CryptoKey, error)
-	close                   func() error
+	// destroyCtx, when set, sees the context of DestroyCryptoKeyVersion.
+	destroyCtx      func(context.Context)
+	asymmetricSign  func(*kmspb.AsymmetricSignRequest) (*kmspb.AsymmetricSignResponse, error)
+	createCryptoKey func(*kmspb.CreateCryptoKeyRequest) (*kmspb.CryptoKey, error)
+	close           func() error
 
 	mu    sync.Mutex
 	calls []string
@@ -96,8 +98,11 @@ func (f *fakeKMS) GetCryptoKeyVersion(_ context.Context, req *kmspb.GetCryptoKey
 	return f.getCryptoKeyVersion(req)
 }
 
-func (f *fakeKMS) DestroyCryptoKeyVersion(_ context.Context, req *kmspb.DestroyCryptoKeyVersionRequest, _ ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+func (f *fakeKMS) DestroyCryptoKeyVersion(ctx context.Context, req *kmspb.DestroyCryptoKeyVersionRequest, _ ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
 	f.record("DestroyCryptoKeyVersion")
+	if f.destroyCtx != nil {
+		f.destroyCtx(ctx)
+	}
 	if f.destroyCryptoKeyVersion == nil {
 		return nil, errors.WithStack(errUnexpectedCall)
 	}
