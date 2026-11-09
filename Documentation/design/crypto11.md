@@ -126,7 +126,7 @@ orphan or duplicates a caller-supplied id.
 
 ## Testing
 
-`TestMain` loads `/tmp/xpki/softhsm_unittest.json` when present (`make
+`TestMain` loads `~/.xpki/softhsm_unittest.json` when present (`make
 hsmconfig`); SoftHSM tests call `requireP11` (`testenv.RequireFile`). Pool,
 re-login, lifecycle and `Close` semantics are tested without a token
 through `sessionOps`; module sharing, finalize and bare-name aliasing
@@ -142,7 +142,7 @@ parameter, `CKM_HASH_ML_DSA` for the pre-hash variant).
 `github.com/miekg/pkcs11` v1.1.2 defines none of these constants, and
 SoftHSM 2.6.1 (the test fixture) does not implement them.
 
-Implemented in v1.1 (`mldsa.go`), **not yet exercised against a token**:
+Implemented in v1.1 (`mldsa.go`), and run against a Kryoptic 1.5.4 token:
 
 - The v3.2 constants are declared locally (unexported), `KeyTypeNames` maps
   `CKK_ML_DSA` to `ML-DSA`, and `findKeyPairOnSession`, `ConvertToPublic`
@@ -157,14 +157,20 @@ Implemented in v1.1 (`mldsa.go`), **not yet exercised against a token**:
   `CKM_ML_DSA` and no mechanism parameter (hedged signing, empty context,
   as X.509 needs). A μ (`crypto.MLDSAMu`) and a context string are errors:
   PKCS#11 v3.2 has no external-μ mechanism and this package does not build
-  the `CK_SIGN_ADDITIONAL_CONTEXT` parameter.
+  the `CK_SIGN_ADDITIONAL_CONTEXT` parameter. That is a decision, not a
+  gap: X.509, OCSP and JOSE need an empty context and hedged signing (D6),
+  and the parameter is a C struct holding a pointer, which would need C memory
+  to pass through cgo for a feature no caller here uses.
+- `EnumKeys` and `KeyInfo` report the parameter set in
+  `Meta[cryptoprov.MetaParameterSet]`, from `CKA_PARAMETER_SET` of the private
+  key.
 
 Verification status: the pure helpers (parameter-set mapping, public key
 decoding, option validation) and the SoftHSM failure path (the mechanism is
 rejected, no orphan key) are unit-tested; the generate/find/sign/export
 path runs only in `TestMLDSAOnPKCS11v32Token`, which needs the token config
-of a v3.2 module in `XPKI_PKCS11_V32_CONFIG` and skips otherwise. No such
-module was available when v1.1 was built (Kryoptic has no published
-container image and could not be built in the development environment), so
-that path is unverified; CI does not provision one. `KeyInfo.Meta` does not
-carry the parameter set for PKCS#11 keys yet.
+of a v3.2 module in `XPKI_PKCS11_V32_CONFIG` and skips otherwise.
+`make kryoptic-config test-kryoptic` provisions Kryoptic 1.5.4 and runs it, which
+passed for all three parameter sets on 2026-11-09. Kryoptic has no published
+container image, and SoftHSM 2.6.1 and the NSS 3.120 softoken have no ML-DSA
+mechanisms, so CI does not provision a token and the test does not run there.

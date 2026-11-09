@@ -11,7 +11,7 @@ import (
 )
 
 // SoftHSMConfig provides location for PKCS11 config
-const SoftHSMConfig = "/tmp/xpki/softhsm_unittest.json"
+var SoftHSMConfig = testenv.SoftHSMConfig()
 
 // childEnv marks a re-executed test binary that must start without a
 // loaded module; see runChild.

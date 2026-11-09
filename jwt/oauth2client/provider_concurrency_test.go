@@ -1,6 +1,13 @@
 package oauth2client_test
 
 import (
+	"context"
+	"crypto"
+	"crypto/ecdh"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
@@ -13,6 +20,7 @@ import (
 	"time"
 
 	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/jwt"
 	"github.com/effective-security/xpki/jwt/oauth2client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -284,6 +292,64 @@ func TestClientConfigOwnership(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &oauth2client.ClientConfig{ProviderID: "plain"}, plain.Config())
 	assert.Nil(t, plain.PublicKey())
+}
+
+// TestClientPublicKeyTypes loads issuer public keys of every type package jwt
+// verifies with, and rejects the others at New, not at the first verification.
+func TestClientPublicKeyTypes(t *testing.T) {
+	t.Parallel()
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	mlKey, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	for name, pub := range map[string]crypto.PublicKey{
+		"RSA":    &rsaKey.PublicKey,
+		"ECDSA":  &ecKey.PublicKey,
+		"ML-DSA": mlKey.PublicKey(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pemKey, err := certutil.EncodePublicKeyToPEM(pub)
+			require.NoError(t, err)
+			client, err := oauth2client.New(&oauth2client.ClientConfig{PubKey: string(pemKey)})
+			require.NoError(t, err)
+			got, ok := client.PublicKey().(interface {
+				Equal(crypto.PublicKey) bool
+			})
+			require.True(t, ok, "%T", client.PublicKey())
+			assert.True(t, got.Equal(pub))
+
+			// ready for a verifier
+			set := &jwt.StaticKeySet{PublicKeys: []crypto.PublicKey{client.PublicKey()}}
+			key, err := set.GetKey(context.Background(), "")
+			require.NoError(t, err)
+			assert.True(t, got.Equal(key))
+		})
+	}
+
+	edPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	xKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		pub  crypto.PublicKey
+		text string
+	}{
+		{pub: edPub, text: "unsupported Public Key type: ed25519.PublicKey"},
+		{pub: xKey.PublicKey(), text: "unsupported Public Key type: *ecdh.PublicKey"},
+	} {
+		pemKey, err := certutil.EncodePublicKeyToPEM(tc.pub)
+		require.NoError(t, err)
+		_, err = oauth2client.New(&oauth2client.ClientConfig{PubKey: string(pemKey)})
+		require.EqualError(t, err, tc.text)
+	}
+
+	client, err := oauth2client.New(&oauth2client.ClientConfig{ProviderID: "set"})
+	require.NoError(t, err)
+	client.SetPubKey(mlKey.PublicKey())
+	assert.Equal(t, mlKey.PublicKey(), client.PublicKey())
 }
 
 // TestClientConcurrentSecretRotation rotates the client secret while token

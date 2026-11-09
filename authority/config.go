@@ -113,6 +113,16 @@ type AIAConfig struct {
 
 	// DelegatedOCSPProfile specifies to use delegated OCSP responder
 	DelegatedOCSPProfile string `json:"delegated_ocsp_profile,omitempty" yaml:"delegated_ocsp_profile,omitempty"`
+
+	// DelegatedOCSPKeyAlgo specifies the key algorithm of the delegated OCSP
+	// responder: RSA, ECDSA or ML-DSA (case-insensitive). If empty, the
+	// responder gets an ECDSA P-256 key.
+	DelegatedOCSPKeyAlgo string `json:"delegated_ocsp_key_algo,omitempty" yaml:"delegated_ocsp_key_algo,omitempty"`
+
+	// DelegatedOCSPKeySize specifies the size of the delegated OCSP responder
+	// key: bits for RSA, the curve size for ECDSA, or the parameter set for
+	// ML-DSA (44, 65 or 87). It requires DelegatedOCSPKeyAlgo.
+	DelegatedOCSPKeySize int `json:"delegated_ocsp_key_size,omitempty" yaml:"delegated_ocsp_key_size,omitempty"`
 }
 
 // Copy returns new copy
@@ -139,7 +149,18 @@ func (c *AIAConfig) Copy() *AIAConfig {
 		c.OCSPExpiry,
 		c.CRLRenewal,
 		c.DelegatedOCSPProfile,
+		c.DelegatedOCSPKeyAlgo,
+		c.DelegatedOCSPKeySize,
 	}
+}
+
+// DelegatedOCSPKey returns the algorithm and size of the key generated for
+// the delegated OCSP responder: ECDSA P-256 unless DelegatedOCSPKeyAlgo is set.
+func (c *AIAConfig) DelegatedOCSPKey() (algo string, size int) {
+	if c == nil || c.DelegatedOCSPKeyAlgo == "" {
+		return csr.AlgoECDSA, csr.CurveP256
+	}
+	return c.DelegatedOCSPKeyAlgo, c.DelegatedOCSPKeySize
 }
 
 // GetDisabled specifies if the certificate disabled to use
@@ -176,7 +197,9 @@ type CertProfile struct {
 	IssuerLabel string `json:"issuer_label" yaml:"issuer_label"`
 	Description string `json:"description" yaml:"description"`
 
-	// Usage provides a list key usages
+	// Usage provides a list key usages. A certificate for an ML-DSA key cannot
+	// have "key encipherment", "data encipherment", "key agreement",
+	// "encipher only" or "decipher only" (RFC 9881): the request fails.
 	Usage []string `json:"usages" yaml:"usages"`
 
 	CAConstraint CAConstraint `json:"ca_constraint" yaml:"ca_constraint"`
@@ -505,6 +528,24 @@ func (p *CertProfile) allowsKeyAlgorithm(algo x509.PublicKeyAlgorithm) bool {
 		allowed, ok := keyAlgorithmNames[normalizeKeyAlgorithm(name)]
 		return ok && allowed == algo
 	})
+}
+
+// checkMLDSAKeyUsage rejects a profile whose certificates would carry a key
+// usage an ML-DSA key must not have, when a request adds no extension of its
+// own. A raw key usage extension overrides the usages, as in issuance.
+func (p *CertProfile) checkMLDSAKeyUsage() error {
+	ku, _, _ := p.Usages()
+	if ext := p.FindExtension(oid.ExtensionKeyUsage); ext != nil {
+		der, err := ext.GetValue()
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		ku, err = parseKeyUsage(der)
+		if err != nil {
+			return err
+		}
+	}
+	return rejectMLDSAKeyUsage(ku)
 }
 
 // FindExtension returns extension, or nil

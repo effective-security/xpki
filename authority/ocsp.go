@@ -92,7 +92,9 @@ func OCSPReasonStringToCode(reason string) (reasonCode int, err error) {
 	return
 }
 
-// SignOCSP return an OCSP response.
+// SignOCSP returns an OCSP response signed by the CA key or the delegated
+// responder, RSA, ECDSA or ML-DSA. An ML-DSA response can be read by
+// certutil.ParseOCSPResponse; golang.org/x/crypto/ocsp cannot verify it.
 func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_ocsp")
 
@@ -156,15 +158,7 @@ func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 		)
 		template.Certificate = responder.Cert
 	}
-	// golang.org/x/crypto/ocsp signs with RSA and ECDSA keys only
-	if certutil.IsPostQuantumKey(responder.Signer) {
-		return nil, errors.New("OCSP responses cannot be signed with an ML-DSA key: configure aia.delegated_ocsp_profile")
-	}
-	res, err := ocsp.CreateResponse(issuer, responder.Cert, template, responder.Signer)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	return res, nil
+	return certutil.CreateOCSPResponse(issuer, responder.Cert, template, responder.Signer)
 }
 
 // OCSPResponder is a key and certificate that sign OCSP responses for an
@@ -322,8 +316,31 @@ func (ca *Issuer) delegatedResponder(now time.Time, useValid bool) (*OCSPRespond
 	return r, nil
 }
 
+// validateDelegatedOCSPKey checks the responder key configured in aia: it
+// needs a delegated profile, the size needs an algorithm, and both must be
+// valid for a signing key.
+func validateDelegatedOCSPKey(aia *AIAConfig) error {
+	if aia.DelegatedOCSPKeyAlgo == "" && aia.DelegatedOCSPKeySize == 0 {
+		return nil
+	}
+	if aia.DelegatedOCSPProfile == "" {
+		return errors.New("delegated_ocsp_key_algo requires delegated_ocsp_profile")
+	}
+	if aia.DelegatedOCSPKeyAlgo == "" {
+		return errors.New("delegated_ocsp_key_size requires delegated_ocsp_key_algo")
+	}
+	algo, size := aia.DelegatedOCSPKey()
+	req := csr.NewKeyRequest(nil, "", algo, size, csr.SigningKey)
+	if err := req.Validate(); err != nil {
+		return errors.WithMessage(err, "delegated_ocsp_key_algo")
+	}
+	return nil
+}
+
 // validateDelegatedOCSPProfile checks that p, the delegated_ocsp_profile
-// named name, can issue a responder: it exists, is not a CA profile, the
+// named name, can issue a responder with the key configured in aia: it exists,
+// is not a CA profile, its allowed_key_algorithms admit the responder key, its
+// key usage suits an ML-DSA responder key (RFC 9881), the
 // certificate's extended key usage includes OCSP signing (from a raw EKU
 // extension if the profile has one, since it overrides the usages, otherwise
 // from the usages), and a new responder outlives ocspExpiry, so it is not
@@ -331,12 +348,22 @@ func (ca *Issuer) delegatedResponder(now time.Time, useValid bool) (*OCSPRespond
 // profile backdate from now rounded to the minute, so the expiry must exceed
 // ocspExpiry + backdate + delegatedValidityMargin. It runs in CreateIssuer
 // and again before each issuance, on the profile snapshot that is signed with.
-func validateDelegatedOCSPProfile(p *CertProfile, name string, ocspExpiry time.Duration) error {
+func validateDelegatedOCSPProfile(p *CertProfile, name string, aia *AIAConfig, ocspExpiry time.Duration) error {
 	if p == nil {
 		return errors.Errorf("delegated_ocsp_profile %q not found", name)
 	}
 	if p.CAConstraint.IsCA {
 		return errors.Errorf("delegated_ocsp_profile %q must not be a CA profile", name)
+	}
+	algo, _ := aia.DelegatedOCSPKey()
+	keyAlgo := keyAlgorithmNames[normalizeKeyAlgorithm(algo)]
+	if !p.allowsKeyAlgorithm(keyAlgo) {
+		return errors.Errorf("delegated_ocsp_profile %q does not allow the responder key algorithm %s", name, algo)
+	}
+	if keyAlgo == x509.MLDSA {
+		if err := p.checkMLDSAKeyUsage(); err != nil {
+			return errors.WithMessagef(err, "delegated_ocsp_profile %q", name)
+		}
 	}
 	var hasOCSPSigning bool
 	if ext := p.FindExtension(oid.ExtensionExtendedKeyUsage); ext != nil {
@@ -362,22 +389,24 @@ func validateDelegatedOCSPProfile(p *CertProfile, name string, ocspExpiry time.D
 	return nil
 }
 
-// newDelegatedResponder generates a key and issues a delegated OCSP
-// signing certificate with the delegated_ocsp_profile.
+// newDelegatedResponder generates an in-memory key of the configured algorithm
+// and issues a delegated OCSP signing certificate with the
+// delegated_ocsp_profile.
 func (ca *Issuer) newDelegatedResponder() (*OCSPResponder, error) {
 	profile := ca.cfg.AIA.DelegatedOCSPProfile
 	// AddProfile may have replaced the profile since CreateIssuer validated it.
 	snapshot := ca.Profile(profile)
-	if err := validateDelegatedOCSPProfile(snapshot, profile, ca.ocspExpiry); err != nil {
+	if err := validateDelegatedOCSPProfile(snapshot, profile, ca.cfg.AIA, ca.ocspExpiry); err != nil {
 		return nil, err
 	}
+	algo, size := ca.cfg.AIA.DelegatedOCSPKey()
 	inmem := inmemcrypto.NewProvider()
 	req := &csr.CertificateRequest{
 		CommonName: "OCSP Responder",
 		KeyRequest: csr.NewKeyRequest(
 			inmem,
 			profile,
-			"ecdsa", 256,
+			algo, size,
 			csr.SigningKey,
 		),
 	}

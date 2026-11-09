@@ -2,9 +2,9 @@
 
 Cross-cutting design and code inventory for adding ML-DSA (Module-Lattice
 Digital Signature Algorithm, FIPS 204, formerly CRYSTALS-Dilithium) as a
-key type for CSRs, certificates, CRLs and proofs, and for detecting
-post-quantum keys and algorithms. The roadmap item is in
-[ROADMAP.md](../../ROADMAP.md#post-quantum-signatures-ml-dsa-fips-204) and
+key type for CSRs, certificates, CRLs, proofs, OCSP responses and JWTs, and
+for detecting post-quantum keys and algorithms. The roadmap item is in
+[ROADMAP.md](../../ROADMAP.md#3-post-quantum-signatures-ml-dsa-fips-204) and
 the execution plan in [PLAN.md](../../PLAN.md#pqc-execution-plan-ml-dsa).
 The starting point is [PR 568](https://github.com/effective-security/xpki/pull/568),
 which adds the `csr` constants, parameter validation and
@@ -16,8 +16,39 @@ implemented, which this document plans.
 Implemented in v1.1 and summarized in
 [`RELEASE_NOTES_1.1.md`](../RELEASE_NOTES_1.1.md): batches PQ0–PQ4 and PQ6
 of the plan (foundations, in-memory providers and `testca`, `authority`,
-AWS KMS, GCP KMS, CLI and documentation), with these deviations from the
-recommendations below:
+AWS KMS, GCP KMS, CLI and documentation), and these after the first tags
+(v1.1.320, v1.1.321):
+
+- **D5, phase 2**: an ML-DSA key signs OCSP responses, so `CreateIssuer` and
+  `SignOCSP` no longer refuse one. `certutil.CreateOCSPResponse` lets
+  `golang.org/x/crypto/ocsp` encode the response around a placeholder signature
+  (the empty result of `unsignedOCSPSigner`, which selects its ECDSA path) and
+  signs the `tbsResponseData` itself; nothing of the OCSP structure is
+  re-implemented. `certutil.ParseOCSPResponse[ForCert]` verifies what x/crypto
+  cannot, and hands it the response without certificates to read the fields.
+  The delegated responder key is configurable
+  (`aia.delegated_ocsp_key_algo`, `aia.delegated_ocsp_key_size`); it stays P-256
+  by default because x/crypto verifies that signature. Under an ML-DSA CA the
+  responder's certificate still carries an ML-DSA signature, so a client with no
+  ML-DSA at all cannot validate the response whichever key signs it.
+  Whether a responder is authorized is left to the service reading the
+  response, as in x/crypto
+  ([roadmap 11](../../ROADMAP.md#11-ocsp-responder-authorization)).
+- **Second milestone**: `jwt` and `jwt/dpop` sign and verify `ML-DSA-44/65/87`
+  (RFC 9964) and read `AKP` JWKs; `oauth2client.Client.PublicKey` is a
+  `crypto.PublicKey`. `dpop.GenerateKey` stays P-256: a proof that size is
+  something a caller chooses by passing an ML-DSA signer.
+- **Key usage**: `authority` rejects an ML-DSA certificate with a usage RFC 9881
+  §5 forbids, rather than dropping the bits, as it does for validity. It checks
+  the usage the certificate would carry, so a raw key usage extension counts and
+  a profile shared with RSA keys needs a separate profile for ML-DSA.
+
+Still unverified, with code and tests in place (roadmap 3.2): the GCP request
+shapes on the live service. On 2026-11-09 `crypto11` passed
+`TestMLDSAOnPKCS11v32Token` on a Kryoptic 1.5.4 token, and the AWS request shapes
+passed `TestLiveKMSMLDSA` against the live service.
+
+These deviate from the recommendations below:
 
 - **D1**: `GenerateMLDSAKey` was folded into `cryptoprov.KeyGenerator`
   directly (v1.1 permits breaking changes) instead of an optional
@@ -26,13 +57,13 @@ recommendations below:
 - **D2**: `algo: ML-DSA` and `MLDSA` (case-insensitive) are accepted; the
   `DILITHIUM` alias of PR 568 is not, since the keys are FIPS 204 ML-DSA,
   not round-3 Dilithium.
-- **D5**: `CreateIssuer` rejects an ML-DSA signer only when `aia.ocsp_url`
-  is set without `aia.delegated_ocsp_profile` (an `aia` block for CRL and
-  issuer URLs alone is fine); in addition `SignOCSP` refuses to sign with
-  an ML-DSA responder key in every configuration.
-- **PQ5** (`crypto11`): the code is in place but has not run against a
-  PKCS#11 v3.2 token (none was available; see PLAN.md PQ5b). μ and context
-  strings are rejected by that provider. The `crypto11` tables in
+- **D5**: `CreateIssuer` rejected an ML-DSA signer only when `aia.ocsp_url`
+  was set without `aia.delegated_ocsp_profile` (an `aia` block for CRL and
+  issuer URLs alone was fine), and `SignOCSP` refused to sign with an ML-DSA
+  responder key in every configuration, in v1.1.320 and v1.1.321. Phase 2
+  removed both.
+- **PQ5** (`crypto11`): μ and context strings are rejected by that provider. The
+  `crypto11` tables in
   [crypto11.md](crypto11.md#post-quantum-readiness) describe the state.
 
 The code inventory below records the v1.0 baseline the work started from
@@ -52,13 +83,13 @@ In scope for the first milestone:
   key or certificate (`certutil`).
 - CLI (`hsm-tool hsm generate --algo ML-DSA --size 65`) and documentation.
 
-Out of scope for the first milestone, each a separate roadmap item when
-wanted: hybrid or composite signatures (draft-ietf-lamps-pq-composite-sigs),
-SLH-DSA (FIPS 205), ML-KEM key encapsulation (FIPS 203, `crypto/mlkem`) for
-`dataprotection` or TLS, ML-DSA in `jwt`/`jwt/dpop` (RFC 9964 defines the
+Second milestone: ML-DSA in `jwt`/`jwt/dpop` (RFC 9964 defines the
 JOSE algorithms `ML-DSA-44/65/87` and the `AKP` key type; go-jose v4.1.9
-implements them on Go 1.27, so this is a natural second milestone), and
-OCSP responses signed directly by an ML-DSA key (library limit, see D5).
+implements them on Go 1.27) and OCSP responses signed by an ML-DSA key (D5).
+
+Out of scope, each a separate roadmap item when wanted: hybrid or composite
+signatures (draft-ietf-lamps-pq-composite-sigs), SLH-DSA (FIPS 205), and ML-KEM
+key encapsulation (FIPS 203, `crypto/mlkem`) for `dataprotection` or TLS.
 
 ## Verified baseline (2026-11-08)
 
@@ -67,10 +98,12 @@ Checked on this machine; recheck when a version changes.
 | Component                                   | Version          | ML-DSA support                                                                                                                                                                                                                             |
 | ------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Go standard library (`go.mod` targets 1.27) | go1.27.3         | `crypto/mldsa`: `GenerateKey`, `NewPrivateKey(seed)`, `NewPublicKey`, `Sign`, `SignDeterministic`, `Verify`, `Options{Context}`; `crypto.MLDSAMu` for a pre-hashed μ (64 bytes). `crypto/x509`: `PublicKeyAlgorithm` `MLDSA`, `SignatureAlgorithm` `MLDSA44/65/87`, PKCS#8 marshal/parse (seed form, 54 bytes DER), PKIX marshal/parse, `CreateCertificateRequest`/`ParseCertificateRequest`/`CheckSignature`, `CreateCertificate`/`ParseCertificate`/`Verify`, `CreateRevocationList`: all verified with a probe program for the three parameter sets. `crypto/tls` has `SignatureScheme` `MLDSA44/65/87`. Unavailable under the FIPS 140-3 Go Cryptographic Module v1.0.0 (functions return errors). |
-| `golang.org/x/crypto/ocsp`                  | v0.58.0          | **No.** `signingParamsForPublicKey` accepts RSA and ECDSA only, so `ocsp.CreateResponse` fails with an ML-DSA signer.                                                                                                                      |
+| `golang.org/x/crypto/ocsp`                  | v0.58.0          | **No.** `signingParamsForPublicKey` accepts RSA and ECDSA only, so `ocsp.CreateResponse` fails with an ML-DSA signer. `ParseResponse` maps an ML-DSA OID to `UnknownSignatureAlgorithm`, so it reads such a response only with no issuer and no embedded certificate, and cannot verify it. |
 | `github.com/miekg/pkcs11`                   | v1.1.2           | **No** PKCS#11 v3.2 constants (`CKK_ML_DSA`, `CKM_ML_DSA*`, `CKA_PARAMETER_SET`, `CKP_ML_DSA_*`); declare them locally.                                                                                                                    |
 | SoftHSM (test fixture)                      | 2.6.1            | **No** ML-DSA mechanisms. A PKCS#11 v3.2 software token (for example Kryoptic) or a vendor HSM is needed for `crypto11` tests.                                                                                                              |
-| AWS KMS SDK (`service/kms`)                 | v1.62.5          | `KeySpec` `ML_DSA_44/65/87`, `SigningAlgorithmSpec` `ML_DSA_SHAKE_256`. The service signs a `RAW` message or an `EXTERNAL_MU` 64-byte μ; the RAW message size is bounded by the API (4096 bytes), to be confirmed against the live service. |
+| Kryoptic (`scripts/config-kryoptic.sh`)     | 1.5.4            | v3.2 ML-DSA: `TestMLDSAOnPKCS11v32Token` passed on 2026-11-09. Read from its source: the same constants, `CKA_PARAMETER_SET` required on the public template and copied to the private key, `CK_SIGN_ADDITIONAL_CONTEXT` optional. The default features have no ML-DSA; build with `pqc` (OpenSSL 3.5 and SQLite headers). |
+| NSS softoken                                | 3.120            | **No** `CKM_ML_DSA*` mechanisms (checked with `C_GetMechanismList`; `C_GenerateKeyPair` fails with `CKR_ARGUMENTS_BAD`), although `libnss3` knows the ML-DSA names. |
+| AWS KMS SDK (`service/kms`)                 | v1.62.5          | `KeySpec` `ML_DSA_44/65/87`, `SigningAlgorithmSpec` `ML_DSA_SHAKE_256`. The service signs a `RAW` message or an `EXTERNAL_MU` 64-byte μ. Key creation and `EXTERNAL_MU` signing passed against the live service on 2026-11-09. The RAW message size is bounded by the API (4096 bytes), which was not run: this module does not sign `RAW`. |
 | `nsmithuk/local-kms` (test fixture)         | 3.11.7           | **No.** `CreateKey` with `KeySpec=ML_DSA_65` returns `ValidationException` listing only RSA, ECC and symmetric specs (checked against the running container).                                                                               |
 | GCP KMS SDK (`cloud.google.com/go/kms`)     | v1.36.1          | `CryptoKeyVersion` algorithms `PQ_SIGN_ML_DSA_44/65/87` and `PQ_SIGN_ML_DSA_*_EXTERNAL_MU` (plus SLH-DSA variants). PQ algorithms take the message in `AsymmetricSignRequest.data` (bounded by the API, 64 KiB), not a digest; the `EXTERNAL_MU` variants take μ. `GetPublicKey` of a PQ version requires `public_key_format=NIST_PQC` and returns the raw FIPS 204 key with a CRC32C in `public_key`, no PEM (SDK contract; not run live).           |
 | `github.com/go-jose/go-jose/v4`             | v4.1.9           | RFC 9964 ML-DSA algorithms and `AKP` JWKs on Go 1.27 (recognized but unusable on older toolchains).                                                                                                                                         |
@@ -164,12 +197,12 @@ See the table in [authority.md](authority.md#post-quantum-readiness):
 
 ### jwt (second milestone)
 
-| File / symbol                                  | Today                                              | Change (later)                                                                                           |
+| File / symbol                                  | Before                                             | Change                                                                                                   |
 | ---------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `sign.go` `NewSignerInfo`, `sign`, `VerifySignature` | RS*/ES*/HS* from key type; hash-then-sign      | `ML-DSA-44/65/87` algorithms (RFC 9964), message signing, `mldsa.Verify`                                  |
-| `jwks.go` `PublicKeys`, `keyMatchesAlg`, `selectKey` | RSA/ECDSA JWKs                               | `AKP` keys via go-jose                                                                                   |
+| `jwks.go` `PublicKeys`, `isSigningKeyFor`, `selectKey` | RSA/ECDSA JWKs                             | `AKP` keys via go-jose                                                                                   |
 | `dpop/verify.go` algorithm allow-list          | RS*, PS*, ES*, EdDSA                               | Add ML-DSA algorithms                                                                                     |
-| `oauth2client/client.go` `PublicKey`           | `*rsa.PublicKey` only                              | Widen to `crypto.PublicKey` in the next major version                                                     |
+| `oauth2client/client.go` `PublicKey`           | `*rsa.PublicKey` only                              | Widened to `crypto.PublicKey`                                                                             |
 
 ### CLIs, printing, tests (PQ6)
 
@@ -203,8 +236,9 @@ module; `crypto/x509` knows the ML-DSA OIDs), `metricskey`,
 
 - **Sizes.** ML-DSA-65 public keys are 1952 bytes and signatures 3309
   bytes (ML-DSA-87: 2592 and 4627). Certificates grow to roughly 4–8 KB;
-  the bundler's 1 MiB AIA limit is unaffected, but JWTs and DPoP proofs
-  would grow by the signature size (second milestone).
+  the bundler's 1 MiB AIA limit is unaffected. A DPoP proof carries the key
+  and the signature: 5929, 8252 and 11147 bytes for ML-DSA-44/65/87 (measured),
+  which can exceed the header limit of an HTTP server or proxy (commonly 8 KB).
 - **FIPS builds.** With `GOFIPS140` and the v1.0.0 module, `crypto/mldsa`
   returns errors; providers must surface that as a clear error, not a
   panic.
@@ -218,5 +252,5 @@ module; `crypto/x509` knows the ML-DSA OIDs), `metricskey`,
   or rejected with an error, never a panic.
 - **API drift.** The AWS and GCP request shapes for PQ algorithms (RAW vs
   EXTERNAL_MU, `data` vs `digest`) are taken from the SDK types and
-  documentation; confirm against the live services before the KMS batches
-  close, and record the result.
+  documentation. AWS passed against the live service on 2026-11-09; GCP is still
+  to confirm (roadmap 3.2).

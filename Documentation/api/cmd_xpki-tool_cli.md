@@ -43,7 +43,7 @@ Package cli implements the xpki\-tool command tree: csr\-info, cert info/validat
 
 
 <a name="CRLValidation"></a>
-## func [CRLValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L327>)
+## func [CRLValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L328>)
 
 ```go
 func CRLValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error)
@@ -303,7 +303,7 @@ func (a *CsrInfoCmd) Run(ctx *Cli) error
 Run the command
 
 <a name="OCSPCmd"></a>
-## type [OCSPCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L18-L21>)
+## type [OCSPCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L17-L20>)
 
 OCSPCmd is the parent for crl command
 
@@ -315,7 +315,7 @@ type OCSPCmd struct {
 ```
 
 <a name="OCSPFetchCmd"></a>
-## type [OCSPFetchCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L60-L66>)
+## type [OCSPFetchCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L59-L65>)
 
 OCSPFetchCmd specifies flags to fetch OCSP
 
@@ -330,7 +330,7 @@ type OCSPFetchCmd struct {
 ```
 
 <a name="OCSPFetchCmd.Run"></a>
-### func \(\*OCSPFetchCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L73>)
+### func \(\*OCSPFetchCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L72>)
 
 ```go
 func (a *OCSPFetchCmd) Run(ctx *Cli) error
@@ -339,7 +339,7 @@ func (a *OCSPFetchCmd) Run(ctx *Cli) error
 Run the command. Every OCSP endpoint of the certificate is queried and each failure is printed as \`\<url\> : ERROR: \<reason\>\`. The command succeeds when at least one endpoint returned a valid response, and fails when every endpoint failed \(XPKI\-102\). A failure to write the response file \(\-\-out\) or to parse the response for \-\-print is returned at once.
 
 <a name="OCSPInfoCmd"></a>
-## type [OCSPInfoCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L24-L27>)
+## type [OCSPInfoCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L23-L26>)
 
 OCSPInfoCmd specifies flags for OCSP info command
 
@@ -351,7 +351,7 @@ type OCSPInfoCmd struct {
 ```
 
 <a name="OCSPInfoCmd.Run"></a>
-### func \(\*OCSPInfoCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L30>)
+### func \(\*OCSPInfoCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/ocsp.go#L29>)
 
 ```go
 func (a *OCSPInfoCmd) Run(ctx *Cli) error

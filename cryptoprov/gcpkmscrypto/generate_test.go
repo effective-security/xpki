@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 const (
@@ -309,12 +312,26 @@ func TestGenerateKeyWaitCancelled(t *testing.T) {
 			t.Fatal("key generation did not stop after Close")
 		}
 		assert.Less(t, closeLatency, cancelLatency, "Close waited for the poll interval")
-		assert.Equal(t, 1, provider.KmsClient.(*fakeKMS).CallCount("GetCryptoKeyVersion"))
+		client := provider.KmsClient.(*fakeKMS)
+		assert.Equal(t, 1, client.CallCount("GetCryptoKeyVersion"))
+
+		// the key is discarded while the client is still open
+		calls := client.Calls()
+		discarded := slices.Index(calls, "DestroyCryptoKeyVersion")
+		require.GreaterOrEqual(t, discarded, 0, "%v", calls)
+		assert.Less(t, discarded, slices.Index(calls, "Close"), "%v", calls)
 	})
 
 	t.Run("context", func(t *testing.T) {
 		t.Parallel()
 		provider, polled := pollingProvider(t)
+		client := provider.KmsClient.(*fakeKMS)
+		var discardErr error
+		var discardHasDeadline bool
+		client.destroyCtx = func(ctx context.Context) {
+			discardErr = ctx.Err()
+			_, discardHasDeadline = ctx.Deadline()
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
 		go func() {
@@ -329,8 +346,172 @@ func TestGenerateKeyWaitCancelled(t *testing.T) {
 		case <-time.After(cancelLatency):
 			t.Fatal("key generation did not stop after cancellation")
 		}
+		// the cancellation that ended the wait does not stop the cleanup
+		assert.Equal(t, 1, client.CallCount("DestroyCryptoKeyVersion"))
+		assert.NoError(t, discardErr)
+		assert.True(t, discardHasDeadline, "the cleanup is bounded")
 		// the provider is not closed: it still serves requests
 		assert.NoError(t, provider.Close())
+	})
+}
+
+// recordDestroyed makes client accept a destruction, or fail it with err when
+// set, and returns the names it was asked to destroy.
+func recordDestroyed(client *fakeKMS, err error) *[]string {
+	destroyed := &[]string{}
+	client.destroyCryptoKeyVersion = func(req *kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+		*destroyed = append(*destroyed, req.GetName())
+		if err != nil {
+			return nil, err
+		}
+		return &kmspb.CryptoKeyVersion{
+			Name:  req.GetName(),
+			State: kmspb.CryptoKeyVersion_DESTROY_SCHEDULED,
+		}, nil
+	}
+	return destroyed
+}
+
+// TestGenerateKeyDiscard checks that a key whose creation does not complete is
+// scheduled for destruction, since it is billed and the caller gets no id to
+// destroy it with, and that the caller still gets the creation error.
+func TestGenerateKeyDiscard(t *testing.T) {
+	t.Parallel()
+
+	failure := errors.New("KMS unavailable")
+	for _, tc := range []struct {
+		name         string
+		pending      int
+		state        kmspb.CryptoKeyVersion_CryptoKeyVersionState
+		pollErr      error
+		publicErr    error
+		badPublicKey bool
+		destroyErr   error
+		discarded    bool
+		err          string
+	}{
+		{
+			name:  "created",
+			state: kmspb.CryptoKeyVersion_ENABLED,
+		},
+		{
+			name:      "poll error",
+			state:     kmspb.CryptoKeyVersion_ENABLED,
+			pollErr:   failure,
+			discarded: true,
+			err:       "failed to get key version " + genVersion + ": KMS unavailable",
+		},
+		{
+			name:      "still pending",
+			pending:   genAttempts,
+			state:     kmspb.CryptoKeyVersion_ENABLED,
+			discarded: true,
+			err:       "key version " + genVersion + " is still PENDING_GENERATION after 5 polls",
+		},
+		{
+			name:      "disabled",
+			state:     kmspb.CryptoKeyVersion_DISABLED,
+			discarded: true,
+			err:       "key version " + genVersionID + " is DISABLED",
+		},
+		{
+			name:  "generation failed has no key material",
+			state: kmspb.CryptoKeyVersion_GENERATION_FAILED,
+			err:   "key version " + genVersionID + " is GENERATION_FAILED: hsm error",
+		},
+		{
+			name:      "public key error",
+			state:     kmspb.CryptoKeyVersion_ENABLED,
+			publicErr: failure,
+			discarded: true,
+			err:       "failed to get public key: KMS unavailable",
+		},
+		{
+			name:         "public key does not parse",
+			state:        kmspb.CryptoKeyVersion_ENABLED,
+			badPublicKey: true,
+			discarded:    true,
+			err:          "failed to parse public key: invalid block type",
+		},
+		{
+			name:       "a failed destruction keeps the creation error",
+			state:      kmspb.CryptoKeyVersion_ENABLED,
+			publicErr:  failure,
+			destroyErr: errors.New("destruction refused"),
+			discarded:  true,
+			err:        "failed to get public key: KMS unavailable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			client := generatingKMS(tc.pending, tc.state)
+			destroyed := recordDestroyed(client, tc.destroyErr)
+			if tc.pollErr != nil {
+				client.getCryptoKeyVersion = func(*kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+					return nil, tc.pollErr
+				}
+			}
+			if tc.publicErr != nil || tc.badPublicKey {
+				client.getPublicKey = func(req *kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error) {
+					if tc.publicErr != nil {
+						return nil, tc.publicErr
+					}
+					return &kmspb.PublicKey{Name: req.GetName(), Pem: "not a key"}, nil
+				}
+			}
+			provider := newProvider(t, client)
+			var mu sync.Mutex
+			var waits []time.Duration
+			gcpkmscrypto.SetGenerationWait(provider, genInterval, genAttempts, recordingSleep(&mu, &waits))
+
+			pk, err := provider.GenerateECDSAKey("label", elliptic.P256())
+			if tc.err != "" {
+				require.EqualError(t, err, tc.err)
+				assert.Nil(t, pk)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.discarded {
+				assert.Equal(t, []string{genVersion}, *destroyed)
+			} else {
+				assert.Empty(t, *destroyed)
+			}
+		})
+	}
+
+	// no key is created, so there is nothing to discard
+	t.Run("create error", func(t *testing.T) {
+		t.Parallel()
+		client := generatingKMS(0, kmspb.CryptoKeyVersion_ENABLED, failure)
+		destroyed := recordDestroyed(client, nil)
+		_, err := newProvider(t, client).GenerateECDSAKey("label", elliptic.P256())
+		require.ErrorIs(t, err, failure)
+		assert.Empty(t, *destroyed)
+	})
+
+	// the public key of an ML-DSA version is decoded after the key exists
+	t.Run("ML-DSA public key fails its checksum", func(t *testing.T) {
+		t.Parallel()
+		client := generatingKMS(0, kmspb.CryptoKeyVersion_ENABLED)
+		destroyed := recordDestroyed(client, nil)
+		poll := client.getCryptoKeyVersion
+		client.getCryptoKeyVersion = func(req *kmspb.GetCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
+			ver, err := poll(req)
+			ver.Algorithm = kmspb.CryptoKeyVersion_PQ_SIGN_ML_DSA_65_EXTERNAL_MU
+			return ver, err
+		}
+		client.getPublicKey = func(req *kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error) {
+			return &kmspb.PublicKey{
+				Name: req.GetName(),
+				PublicKey: &kmspb.ChecksummedData{
+					Data:           []byte("public key"),
+					Crc32CChecksum: wrapperspb.Int64(1),
+				},
+			}, nil
+		}
+		_, err := newProvider(t, client).GenerateMLDSAKey("label", mldsa.MLDSA65())
+		require.EqualError(t, err, "public key corrupted in-transit")
+		assert.Equal(t, []string{genVersion}, *destroyed)
 	})
 }
 

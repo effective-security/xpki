@@ -10,15 +10,18 @@ import (
 	"encoding/pem"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/effective-security/xpki/authority"
 	"github.com/effective-security/xpki/certutil"
 	"github.com/effective-security/xpki/cryptoprov"
 	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/oid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ocsp"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -213,74 +216,320 @@ func TestClassicalIssuerSignsMLDSALeaf(t *testing.T) {
 	require.EqualError(t, err, "public key algorithm ML-DSA is not allowed by profile classical-only")
 }
 
-// TestMLDSAIssuerOCSP covers decision D5: an ML-DSA issuer that advertises
-// OCSP needs a delegated classical responder, an issuer without an OCSP URL
-// is accepted but cannot sign a response with its key, and the delegated
-// responder signs responses that parse against the ML-DSA CA.
+// ocspResponderProfile returns a valid delegated_ocsp_profile.
+func ocspResponderProfile(t *testing.T) *authority.CertProfile {
+	t.Helper()
+	profile := &authority.CertProfile{
+		Usage:       []string{"digital signature", "ocsp signing"},
+		Expiry:      csr.OneYear,
+		OCSPNoCheck: true,
+	}
+	require.NoError(t, profile.Validate())
+	return profile
+}
+
+// TestMLDSAIssuerOCSP covers OCSP on an ML-DSA issuer: the CA key signs
+// directly, and a delegated responder has a classical key by default or an
+// ML-DSA key when configured.
 func TestMLDSAIssuerOCSP(t *testing.T) {
 	t.Parallel()
 	rootPEM, signer := newRootWithKey(t, csr.AlgoMLDSA, csr.MLDSA65)
 	root, err := certutil.ParseFromPEM(rootPEM)
 	require.NoError(t, err)
-	ocspProfile := &authority.CertProfile{
-		Usage:       []string{"digital signature", "ocsp signing"},
-		Expiry:      csr.OneYear,
-		OCSPNoCheck: true,
-	}
-	require.NoError(t, ocspProfile.Validate())
-
-	_, err = authority.CreateIssuer(&authority.IssuerConfig{
-		Label: "pq",
-		AIA: &authority.AIAConfig{
-			OcspURL: "http://localhost/ocsp",
-		},
-	}, rootPEM, nil, nil, signer)
-	require.EqualError(t, err, `issuer "pq": an ML-DSA key cannot sign OCSP responses; set aia.delegated_ocsp_profile for a classical responder key or remove aia.ocsp_url`)
-
-	// no OCSP URL: accepted, but the CA key never signs a response
-	crlOnly, err := authority.CreateIssuer(&authority.IssuerConfig{
-		Label: "pq",
-		AIA: &authority.AIAConfig{
-			CrlURL: "http://localhost/crl",
-		},
-	}, rootPEM, nil, nil, signer)
-	require.NoError(t, err)
-	_, err = crlOnly.SignOCSP(&authority.OCSPSignRequest{
+	request := &authority.OCSPSignRequest{
 		SerialNumber: big.NewInt(7),
-		Status:       authority.OCSPStatusGood,
-	})
-	require.EqualError(t, err, "OCSP responses cannot be signed with an ML-DSA key: configure aia.delegated_ocsp_profile")
+		Status:       authority.OCSPStatusRevoked,
+		Reason:       ocsp.Superseded,
+		RevokedAt:    time.Now().Add(-time.Hour).Truncate(time.Second),
+	}
 
-	delegating, err := authority.CreateIssuer(&authority.IssuerConfig{
-		Label: "pq",
+	t.Run("direct", func(t *testing.T) {
+		t.Parallel()
+		direct, err := authority.CreateIssuer(&authority.IssuerConfig{
+			Label: "pq",
+			AIA: &authority.AIAConfig{
+				OcspURL: "http://localhost/ocsp",
+			},
+		}, rootPEM, nil, nil, signer)
+		require.NoError(t, err)
+
+		responder, err := direct.CreateDelegatedOCSPSigner()
+		require.NoError(t, err)
+		assert.True(t, certutil.IsPostQuantumKey(responder.Signer), "the CA key")
+
+		der, err := direct.SignOCSP(request)
+		require.NoError(t, err)
+		response, err := certutil.ParseOCSPResponse(der, root)
+		require.NoError(t, err)
+		assert.Equal(t, x509.MLDSA65, response.SignatureAlgorithm)
+		assert.Nil(t, response.Certificate, "the issuer verifies a direct response")
+		assert.Equal(t, big.NewInt(7), response.SerialNumber)
+		assert.Equal(t, ocsp.Revoked, response.Status)
+		assert.Equal(t, ocsp.Superseded, response.RevocationReason)
+		assert.True(t, request.RevokedAt.Equal(response.RevokedAt))
+
+		// golang.org/x/crypto/ocsp cannot verify it (D5)
+		_, err = ocsp.ParseResponse(der, root)
+		require.ErrorContains(t, err, "bad OCSP signature")
+	})
+
+	t.Run("classical responder by default", func(t *testing.T) {
+		t.Parallel()
+		delegating, err := authority.CreateIssuer(&authority.IssuerConfig{
+			Label: "pq",
+			AIA: &authority.AIAConfig{
+				OcspURL:              "http://localhost/ocsp",
+				DelegatedOCSPProfile: "ocsp",
+			},
+			Profiles: map[string]*authority.CertProfile{
+				"ocsp": ocspResponderProfile(t),
+			},
+		}, rootPEM, nil, nil, signer)
+		require.NoError(t, err)
+
+		responder, err := delegating.CreateDelegatedOCSPSigner()
+		require.NoError(t, err)
+		assert.Equal(t, x509.MLDSA65, responder.Cert.SignatureAlgorithm, "issued by the ML-DSA CA")
+		assert.Equal(t, x509.ECDSA, responder.Cert.PublicKeyAlgorithm, "classical responder key")
+		assert.False(t, certutil.IsPostQuantumKey(responder.Signer))
+		require.NoError(t, responder.Cert.CheckSignatureFrom(root))
+
+		der, err := delegating.SignOCSP(request)
+		require.NoError(t, err)
+		// x/crypto reads it: the response signature is classical, and Go 1.27
+		// verifies the ML-DSA signature on the responder certificate
+		response, err := ocsp.ParseResponse(der, root)
+		require.NoError(t, err)
+		require.NotNil(t, response.Certificate)
+		assert.True(t, responder.Cert.Equal(response.Certificate))
+		assert.Equal(t, big.NewInt(7), response.SerialNumber)
+		assert.Equal(t, ocsp.Revoked, response.Status)
+		_, err = certutil.ParseOCSPResponse(der, root)
+		require.NoError(t, err)
+	})
+
+	for _, tc := range []struct {
+		name string
+		size int
+		algo x509.SignatureAlgorithm
+	}{
+		{"ML-DSA-44", csr.MLDSA44, x509.MLDSA44},
+		{"ML-DSA-65", csr.MLDSA65, x509.MLDSA65},
+		{"ML-DSA-87", csr.MLDSA87, x509.MLDSA87},
+	} {
+		t.Run("ML-DSA responder "+tc.name, func(t *testing.T) {
+			t.Parallel()
+			delegating, err := authority.CreateIssuer(&authority.IssuerConfig{
+				Label: "pq",
+				AIA: &authority.AIAConfig{
+					OcspURL:              "http://localhost/ocsp",
+					DelegatedOCSPProfile: "ocsp",
+					DelegatedOCSPKeyAlgo: "ml-dsa",
+					DelegatedOCSPKeySize: tc.size,
+				},
+				Profiles: map[string]*authority.CertProfile{
+					"ocsp": ocspResponderProfile(t),
+				},
+			}, rootPEM, nil, nil, signer)
+			require.NoError(t, err)
+
+			responder, err := delegating.CreateDelegatedOCSPSigner()
+			require.NoError(t, err)
+			assert.Equal(t, x509.MLDSA, responder.Cert.PublicKeyAlgorithm)
+			assert.True(t, certutil.IsPostQuantumKey(responder.Signer))
+
+			der, err := delegating.SignOCSP(request)
+			require.NoError(t, err)
+			response, err := certutil.ParseOCSPResponse(der, root)
+			require.NoError(t, err)
+			assert.Equal(t, tc.algo, response.SignatureAlgorithm)
+			require.NotNil(t, response.Certificate)
+			assert.True(t, responder.Cert.Equal(response.Certificate))
+			assert.Equal(t, ocsp.Revoked, response.Status)
+			assert.False(t, response.NextUpdate.After(responder.Cert.NotAfter))
+		})
+	}
+}
+
+// TestClassicalIssuerMLDSAResponder certifies an ML-DSA delegated responder
+// with a classical CA key.
+func TestClassicalIssuerMLDSAResponder(t *testing.T) {
+	t.Parallel()
+	rootPEM, signer := newRootWithKey(t, csr.AlgoECDSA, csr.CurveP256)
+	root, err := certutil.ParseFromPEM(rootPEM)
+	require.NoError(t, err)
+	issuer, err := authority.CreateIssuer(&authority.IssuerConfig{
+		Label: "ec",
 		AIA: &authority.AIAConfig{
 			OcspURL:              "http://localhost/ocsp",
 			DelegatedOCSPProfile: "ocsp",
+			DelegatedOCSPKeyAlgo: csr.AlgoMLDSA,
+			DelegatedOCSPKeySize: csr.MLDSA65,
 		},
 		Profiles: map[string]*authority.CertProfile{
-			"ocsp": ocspProfile,
+			"ocsp": ocspResponderProfile(t),
 		},
 	}, rootPEM, nil, nil, signer)
 	require.NoError(t, err)
 
-	responder, err := delegating.CreateDelegatedOCSPSigner()
-	require.NoError(t, err)
-	assert.Equal(t, x509.MLDSA65, responder.Cert.SignatureAlgorithm, "issued by the ML-DSA CA")
-	assert.Equal(t, x509.ECDSA, responder.Cert.PublicKeyAlgorithm, "classical responder key")
-	assert.False(t, certutil.IsPostQuantumKey(responder.Signer))
-	require.NoError(t, responder.Cert.CheckSignatureFrom(root))
-
-	der, err := delegating.SignOCSP(&authority.OCSPSignRequest{
-		SerialNumber: big.NewInt(7),
+	der, err := issuer.SignOCSP(&authority.OCSPSignRequest{
+		SerialNumber: big.NewInt(9),
 		Status:       authority.OCSPStatusGood,
 	})
 	require.NoError(t, err)
-	response, err := ocsp.ParseResponse(der, root)
+	response, err := certutil.ParseOCSPResponse(der, root)
 	require.NoError(t, err)
+	assert.Equal(t, x509.MLDSA65, response.SignatureAlgorithm)
 	require.NotNil(t, response.Certificate)
-	assert.True(t, responder.Cert.Equal(response.Certificate))
-	assert.Equal(t, big.NewInt(7), response.SerialNumber)
+	assert.Equal(t, x509.ECDSAWithSHA256, response.Certificate.SignatureAlgorithm)
 	assert.Equal(t, ocsp.Good, response.Status)
+}
+
+// TestDelegatedOCSPKeyConfig covers the responder key settings CreateIssuer
+// rejects, and an accepted RSA key.
+func TestDelegatedOCSPKeyConfig(t *testing.T) {
+	t.Parallel()
+	rootPEM, signer := newRootWithKey(t, csr.AlgoECDSA, csr.CurveP256)
+	ecdsaOnly := ocspResponderProfile(t)
+	ecdsaOnly.AllowedKeyAlgorithms = []string{"ecdsa"}
+	pqOnly := ocspResponderProfile(t)
+	pqOnly.AllowedKeyAlgorithms = []string{"ml-dsa"}
+
+	profiles := map[string]*authority.CertProfile{
+		"ocsp":        ocspResponderProfile(t),
+		"ecdsa-only":  ecdsaOnly,
+		"ml-dsa-only": pqOnly,
+	}
+	for _, tc := range []struct {
+		name    string
+		aia     authority.AIAConfig
+		keyAlgo x509.PublicKeyAlgorithm
+		err     string
+	}{
+		{
+			name: "RSA",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeyAlgo: "RSA",
+				DelegatedOCSPKeySize: 2048,
+			},
+			keyAlgo: x509.RSA,
+		},
+		{
+			name: "ECDSA P-384",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeyAlgo: "ecdsa",
+				DelegatedOCSPKeySize: 384,
+			},
+			keyAlgo: x509.ECDSA,
+		},
+		{
+			name: "ML-DSA for a profile that lists it",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ml-dsa-only",
+				DelegatedOCSPKeyAlgo: "mldsa",
+				DelegatedOCSPKeySize: 44,
+			},
+			keyAlgo: x509.MLDSA,
+		},
+		{
+			name: "unknown algorithm",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeyAlgo: "DSA",
+				DelegatedOCSPKeySize: 2048,
+			},
+			err: `issuer "ec": delegated_ocsp_key_algo: invalid algorithm: DSA`,
+		},
+		{
+			name: "algorithm without a size",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeyAlgo: "ecdsa",
+			},
+			err: `issuer "ec": delegated_ocsp_key_algo: validate ECDSA key: invalid curve size: 0`,
+		},
+		{
+			name: "weak RSA",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeyAlgo: "rsa",
+				DelegatedOCSPKeySize: 1024,
+			},
+			err: `issuer "ec": delegated_ocsp_key_algo: validate RSA key: RSA key is too weak: 1024`,
+		},
+		{
+			name: "not a parameter set",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeyAlgo: "ml-dsa",
+				DelegatedOCSPKeySize: 66,
+			},
+			err: `issuer "ec": delegated_ocsp_key_algo: validate ML-DSA key: invalid ML-DSA parameter set (expected 44, 65 or 87): 66`,
+		},
+		{
+			name: "size without an algorithm",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeySize: 256,
+			},
+			err: `issuer "ec": delegated_ocsp_key_size requires delegated_ocsp_key_algo`,
+		},
+		{
+			name: "key without a delegated profile",
+			aia: authority.AIAConfig{
+				DelegatedOCSPKeyAlgo: "ecdsa",
+				DelegatedOCSPKeySize: 256,
+			},
+			err: `issuer "ec": delegated_ocsp_key_algo requires delegated_ocsp_profile`,
+		},
+		{
+			name: "profile does not allow the configured key",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ecdsa-only",
+				DelegatedOCSPKeyAlgo: "ml-dsa",
+				DelegatedOCSPKeySize: 65,
+			},
+			err: `issuer "ec": delegated_ocsp_profile "ecdsa-only" does not allow the responder key algorithm ml-dsa`,
+		},
+		{
+			name: "profile does not allow the default key",
+			aia: authority.AIAConfig{
+				DelegatedOCSPProfile: "ml-dsa-only",
+			},
+			err: `issuer "ec": delegated_ocsp_profile "ml-dsa-only" does not allow the responder key algorithm ECDSA`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			aia := tc.aia
+			issuer, err := authority.CreateIssuer(&authority.IssuerConfig{
+				Label:    "ec",
+				AIA:      &aia,
+				Profiles: profiles,
+			}, rootPEM, nil, nil, signer)
+			if tc.err != "" {
+				require.EqualError(t, err, tc.err)
+				return
+			}
+			require.NoError(t, err)
+			responder, err := issuer.CreateDelegatedOCSPSigner()
+			require.NoError(t, err)
+			assert.Equal(t, tc.keyAlgo, responder.Cert.PublicKeyAlgorithm)
+		})
+	}
+
+	// the keys load from a configuration file and survive a copy
+	var aia authority.AIAConfig
+	require.NoError(t, yaml.Unmarshal([]byte("delegated_ocsp_profile: ocsp\ndelegated_ocsp_key_algo: ML-DSA\ndelegated_ocsp_key_size: 65\n"), &aia))
+	algo, size := aia.Copy().DelegatedOCSPKey()
+	assert.Equal(t, csr.AlgoMLDSA, algo)
+	assert.Equal(t, csr.MLDSA65, size)
+	var none *authority.AIAConfig
+	algo, size = none.DelegatedOCSPKey()
+	assert.Equal(t, csr.AlgoECDSA, algo)
+	assert.Equal(t, csr.CurveP256, size)
 }
 
 // TestCertProfileAllowedKeyAlgorithms covers the names Validate accepts.
@@ -308,4 +557,256 @@ func TestCertProfileAllowedKeyAlgorithms(t *testing.T) {
 		}
 		require.EqualError(t, p.Validate(), "unknown key algorithm: "+name)
 	}
+}
+
+// Key usage extension values, DER BIT STRINGs in the format of
+// csr.X509Extension.
+const (
+	kuExtDigitalSignature = "hex:03020780"
+	kuExtKeyEncipherment  = "hex:03020520"
+	// a SEQUENCE where the BIT STRING belongs
+	kuExtMalformed = "hex:3000"
+	// a valid BIT STRING followed by a byte
+	kuExtTrailing = "hex:0302078000"
+	// not hexadecimal
+	kuExtNotDecodable = "hex:zz"
+)
+
+// keyUsageExtension returns a raw key usage extension with a value above.
+func keyUsageExtension(value string) csr.X509Extension {
+	return csr.X509Extension{
+		ID:    csr.OID(oid.ExtensionKeyUsage),
+		Value: value,
+	}
+}
+
+// TestMLDSAKeyUsage covers RFC 9881 section 5: a request for an ML-DSA
+// certificate with a usage for encryption or key agreement is rejected,
+// whichever way the usage reaches the certificate, and only for ML-DSA.
+func TestMLDSAKeyUsage(t *testing.T) {
+	t.Parallel()
+	rootPEM, signer := newRootWithKey(t, csr.AlgoECDSA, csr.CurveP256)
+	pqKey, err := mldsa.GenerateKey(mldsa.MLDSA44())
+	require.NoError(t, err)
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	pqCSR := csrFor(t, pqKey)
+	ecCSR := csrFor(t, ecKey)
+
+	const (
+		allowedKU = x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment |
+			x509.KeyUsageCertSign | x509.KeyUsageCRLSign
+		forbiddenMessage = "key usage not allowed for an ML-DSA key: "
+	)
+
+	for _, tc := range []struct {
+		name       string
+		usage      []string
+		profileExt []csr.X509Extension
+		requestExt []csr.X509Extension
+		wantKU     x509.KeyUsage
+		// err is the error after "profile <name>: "
+		err string
+		// the profile and request are still good for a classical key
+		classicalKU x509.KeyUsage
+	}{
+		{
+			name:   "allowed usages",
+			usage:  []string{"digital signature", "content commitment", "cert sign", "crl sign", "server auth"},
+			wantKU: allowedKU,
+		},
+		{
+			name:   "no key usage",
+			usage:  []string{"server auth"},
+			wantKU: 0,
+		},
+		{
+			name:        "key encipherment",
+			usage:       []string{"digital signature", "key encipherment", "server auth"},
+			err:         forbiddenMessage + "key encipherment",
+			classicalKU: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		},
+		{
+			name:        "data encipherment",
+			usage:       []string{"digital signature", "data encipherment"},
+			err:         forbiddenMessage + "data encipherment",
+			classicalKU: x509.KeyUsageDigitalSignature | x509.KeyUsageDataEncipherment,
+		},
+		{
+			name:        "key agreement",
+			usage:       []string{"digital signature", "key agreement"},
+			err:         forbiddenMessage + "key agreement",
+			classicalKU: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement,
+		},
+		{
+			name:        "encipher only",
+			usage:       []string{"key agreement", "encipher only"},
+			err:         forbiddenMessage + "key agreement, encipher only",
+			classicalKU: x509.KeyUsageKeyAgreement | x509.KeyUsageEncipherOnly,
+		},
+		{
+			name:        "decipher only",
+			usage:       []string{"key agreement", "decipher only"},
+			err:         forbiddenMessage + "key agreement, decipher only",
+			classicalKU: x509.KeyUsageKeyAgreement | x509.KeyUsageDecipherOnly,
+		},
+		{
+			name:       "raw profile extension",
+			usage:      []string{"digital signature"},
+			profileExt: []csr.X509Extension{keyUsageExtension(kuExtKeyEncipherment)},
+			err:        forbiddenMessage + "key encipherment",
+		},
+		{
+			name:       "raw request extension",
+			usage:      []string{"digital signature"},
+			requestExt: []csr.X509Extension{keyUsageExtension(kuExtKeyEncipherment)},
+			err:        forbiddenMessage + "key encipherment",
+		},
+		{
+			name:       "raw extension replaces the usages",
+			usage:      []string{"key encipherment", "server auth"},
+			profileExt: []csr.X509Extension{keyUsageExtension(kuExtDigitalSignature)},
+			wantKU:     x509.KeyUsageDigitalSignature,
+		},
+		{
+			name:       "malformed raw extension",
+			usage:      []string{"digital signature"},
+			profileExt: []csr.X509Extension{keyUsageExtension(kuExtMalformed)},
+			err:        "invalid key usage extension",
+		},
+		{
+			name:       "trailing data in the raw extension",
+			usage:      []string{"digital signature"},
+			profileExt: []csr.X509Extension{keyUsageExtension(kuExtTrailing)},
+			err:        "invalid key usage extension: trailing data",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			profile := &authority.CertProfile{
+				Usage:      tc.usage,
+				Expiry:     csr.OneYear,
+				Extensions: tc.profileExt,
+			}
+			require.NoError(t, profile.Validate())
+			issuer, err := authority.CreateIssuer(&authority.IssuerConfig{
+				Label:    "ec",
+				Profiles: map[string]*authority.CertProfile{tc.name: profile},
+			}, rootPEM, nil, nil, signer)
+			require.NoError(t, err)
+
+			leaf, _, err := issuer.Sign(csr.SignRequest{
+				Request:    pqCSR,
+				Profile:    tc.name,
+				Extensions: tc.requestExt,
+			})
+			if tc.err != "" {
+				require.ErrorContains(t, err, "profile "+tc.name+": "+tc.err)
+				assert.Nil(t, leaf)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, x509.MLDSA, leaf.PublicKeyAlgorithm)
+				assert.Equal(t, tc.wantKU, leaf.KeyUsage)
+			}
+
+			if tc.classicalKU != 0 {
+				ecLeaf, _, err := issuer.Sign(csr.SignRequest{
+					Request: ecCSR,
+					Profile: tc.name,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, tc.classicalKU, ecLeaf.KeyUsage)
+			}
+		})
+	}
+
+	t.Run("root", func(t *testing.T) {
+		t.Parallel()
+		const profileName = "BAD-ROOT"
+		prov := inmemcrypto.NewProvider()
+		req := csr.CertificateRequest{
+			CommonName: pqRootCN,
+			KeyRequest: csr.NewKeyRequest(prov, "root", csr.AlgoMLDSA, csr.MLDSA65, csr.SigningKey),
+		}
+		cfg := &authority.Config{
+			Profiles: map[string]*authority.CertProfile{
+				profileName: {
+					Usage:  []string{"cert sign", "crl sign", "key encipherment"},
+					Expiry: csr.OneYear,
+					CAConstraint: authority.CAConstraint{
+						IsCA:       true,
+						MaxPathLen: -1,
+					},
+				},
+			},
+		}
+		_, _, _, err := authority.NewRoot(profileName, cfg, prov, &req)
+		require.EqualError(t, err, "sign request: profile BAD-ROOT: "+forbiddenMessage+"key encipherment")
+	})
+
+	t.Run("delegated responder", func(t *testing.T) {
+		t.Parallel()
+		withUsage := ocspResponderProfile(t)
+		withUsage.Usage = append(withUsage.Usage, "key encipherment")
+		withExtension := ocspResponderProfile(t)
+		withExtension.Extensions = []csr.X509Extension{keyUsageExtension(kuExtKeyEncipherment)}
+		malformed := ocspResponderProfile(t)
+		malformed.Extensions = []csr.X509Extension{keyUsageExtension(kuExtMalformed)}
+		notDecodable := ocspResponderProfile(t)
+		notDecodable.Extensions = []csr.X509Extension{keyUsageExtension(kuExtNotDecodable)}
+		profiles := map[string]*authority.CertProfile{
+			"with-usage":     withUsage,
+			"with-extension": withExtension,
+			"malformed":      malformed,
+			"not-decodable":  notDecodable,
+		}
+		for name, wantErr := range map[string]string{
+			"with-usage":     `issuer "ec": delegated_ocsp_profile "with-usage": ` + forbiddenMessage + "key encipherment",
+			"with-extension": `issuer "ec": delegated_ocsp_profile "with-extension": ` + forbiddenMessage + "key encipherment",
+			"malformed":      `issuer "ec": delegated_ocsp_profile "malformed": invalid key usage extension`,
+			"not-decodable":  `issuer "ec": delegated_ocsp_profile "not-decodable": failed to decode extension`,
+		} {
+			_, err := authority.CreateIssuer(&authority.IssuerConfig{
+				Label: "ec",
+				AIA: &authority.AIAConfig{
+					DelegatedOCSPProfile: name,
+					DelegatedOCSPKeyAlgo: csr.AlgoMLDSA,
+					DelegatedOCSPKeySize: csr.MLDSA65,
+				},
+				Profiles: profiles,
+			}, rootPEM, nil, nil, signer)
+			require.ErrorContains(t, err, wantErr)
+		}
+
+		// the same profile issues a responder with the default classical key
+		issuer, err := authority.CreateIssuer(&authority.IssuerConfig{
+			Label: "ec",
+			AIA: &authority.AIAConfig{
+				DelegatedOCSPProfile: "with-usage",
+			},
+			Profiles: profiles,
+		}, rootPEM, nil, nil, signer)
+		require.NoError(t, err)
+		responder, err := issuer.CreateDelegatedOCSPSigner()
+		require.NoError(t, err)
+		assert.Equal(t, x509.ECDSA, responder.Cert.PublicKeyAlgorithm)
+		assert.Equal(t, x509.KeyUsageDigitalSignature|x509.KeyUsageKeyEncipherment, responder.Cert.KeyUsage)
+
+		// the check runs again on a profile replaced after CreateIssuer
+		pqIssuer, err := authority.CreateIssuer(&authority.IssuerConfig{
+			Label: "ec",
+			AIA: &authority.AIAConfig{
+				DelegatedOCSPProfile: "ocsp",
+				DelegatedOCSPKeyAlgo: csr.AlgoMLDSA,
+				DelegatedOCSPKeySize: csr.MLDSA65,
+			},
+			Profiles: map[string]*authority.CertProfile{
+				"ocsp": ocspResponderProfile(t),
+			},
+		}, rootPEM, nil, nil, signer)
+		require.NoError(t, err)
+		pqIssuer.AddProfile("ocsp", withUsage)
+		_, err = pqIssuer.CreateDelegatedOCSPSigner()
+		require.ErrorContains(t, err, forbiddenMessage+"key encipherment")
+	})
 }

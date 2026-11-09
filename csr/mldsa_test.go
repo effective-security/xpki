@@ -127,3 +127,36 @@ func parseCSR(t *testing.T, csrPEM []byte) *x509.CertificateRequest {
 func big1() *big.Int {
 	return big.NewInt(1)
 }
+
+// TestKeyRequestValidate tables the checks that run without a key being
+// generated; the request needs no provider.
+func TestKeyRequestValidate(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		algo    string
+		size    int
+		purpose csr.KeyPurpose
+		err     string
+	}{
+		{algo: "RSA", size: 2048, purpose: csr.SigningKey},
+		{algo: "rsa", size: 4096, purpose: csr.EncryptionKey},
+		{algo: "ECDSA", size: csr.CurveP256, purpose: csr.SigningKey},
+		{algo: "ecdsa", size: csr.CurveP521, purpose: csr.SigningKey},
+		{algo: "ML-DSA", size: csr.MLDSA44, purpose: csr.SigningKey},
+		{algo: "mldsa", size: csr.MLDSA87, purpose: csr.Undefined},
+		{algo: "RSA", size: 1024, err: "validate RSA key: RSA key is too weak: 1024"},
+		{algo: "RSA", size: 8192, err: "validate RSA key: RSA key size too large: 8192"},
+		{algo: "ECDSA", size: 224, err: "validate ECDSA key: invalid curve size: 224"},
+		{algo: "ML-DSA", size: 66, err: "validate ML-DSA key: invalid ML-DSA parameter set (expected 44, 65 or 87): 66"},
+		{algo: "ML-DSA", size: csr.MLDSA65, purpose: csr.EncryptionKey, err: "validate ML-DSA key: unsupported key purpose: 2, ML-DSA keys are signing keys"},
+		{algo: "DSA", size: 2048, err: "invalid algorithm: DSA"},
+		{algo: "", err: "invalid algorithm: "},
+	} {
+		err := csr.NewKeyRequest(nil, "label", tc.algo, tc.size, tc.purpose).Validate()
+		if tc.err == "" {
+			require.NoError(t, err, "%s %d", tc.algo, tc.size)
+		} else {
+			require.EqualError(t, err, tc.err)
+		}
+	}
+}

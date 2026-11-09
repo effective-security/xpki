@@ -15,7 +15,7 @@ import (
 const projFolder = "../.."
 
 // SoftHSMConfig provides location for PKCS11 config
-const SoftHSMConfig = "/tmp/xpki/softhsm_unittest.json"
+var SoftHSMConfig = testenv.SoftHSMConfig()
 
 // requireSoftHSM gates t on the SoftHSM token config (make hsmconfig).
 func requireSoftHSM(t testing.TB) {

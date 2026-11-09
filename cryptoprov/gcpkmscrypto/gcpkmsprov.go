@@ -73,6 +73,10 @@ const (
 	readyPollInterval = time.Second
 	readyPollAttempts = 60
 
+	// discardTimeout bounds the destruction of a key whose creation did not
+	// complete, which runs even when the context of the creation is done.
+	discardTimeout = 30 * time.Second
+
 	// Algorithm name prefixes of the RSA and ECDSA signing families, for
 	// KeyInfo.Type.
 	rsaSignAlgorithmPrefix = "RSA_SIGN_"
@@ -332,6 +336,8 @@ func (p *Provider) GenerateMLDSAKey(label string, params mldsa.Parameters) (cryp
 // KeyLabelAndID, waits for its first version and returns its signer. When
 // KMS reports that the key id exists, it tries new ids, createAttempts in
 // all (XPKI-022). Close waits for it, but ends its wait for key generation.
+// When the key exists but its signer cannot be returned, the key is scheduled
+// for destruction, so no billable key is left that the caller has no id for.
 func (p *Provider) genKey(ctx context.Context, name string, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm) (crypto.PrivateKey, error) {
 	if err := p.enter(); err != nil {
 		return nil, err
@@ -377,12 +383,36 @@ func (p *Provider) genKey(ctx context.Context, name string, algorithm kmspb.Cryp
 		"label", label,
 	)
 
-	ver, err := p.waitForVersion(ctx, versionName(resp.GetName(), firstVersion))
+	version := versionName(resp.GetName(), firstVersion)
+	ver, err := p.waitForVersion(ctx, version)
 	if err != nil {
+		p.discardVersion(ctx, version)
 		return nil, err
 	}
 
-	return p.signerForVersion(ctx, ver, label)
+	signer, err := p.signerForVersion(ctx, ver, label)
+	if err != nil {
+		// a version that failed to generate has no key material to destroy
+		if isDestroyable(ver.GetState()) {
+			p.discardVersion(ctx, version)
+		}
+		return nil, err
+	}
+	return signer, nil
+}
+
+// discardVersion schedules the destruction of a version whose creation did not
+// complete. ctx may be why it did not, so the request has its own deadline. A
+// failure is logged with the name for an operator, since the caller gets the
+// creation error: KMS refuses a version that is still PENDING_GENERATION.
+func (p *Provider) discardVersion(ctx context.Context, name string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discardTimeout)
+	defer cancel()
+	if err := p.destroyVersion(ctx, name); err != nil {
+		logger.KV(xlog.WARNING, "reason", "DestroyCryptoKeyVersion", "name", name, "err", err.Error())
+		return
+	}
+	logger.KV(xlog.WARNING, "reason", "incomplete key scheduled for destruction", "name", name)
 }
 
 // waitForVersion polls the version name until its state is no longer

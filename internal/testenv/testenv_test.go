@@ -126,3 +126,16 @@ func TestRequireFile(t *testing.T) {
 		})
 	}
 }
+
+// TestSoftHSMConfig checks that the SoftHSM configuration, which names a module
+// the tests load, is per user and not in the shared /tmp (XPKI-128). The HOME
+// variable keeps it from depending on the machine, so it does not run in parallel.
+func TestSoftHSMConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	assert.Equal(t, filepath.Join(home, ".xpki", "softhsm_unittest.json"), testenv.SoftHSMConfig())
+
+	// with no home directory the path is relative, and RequireFile reports it
+	t.Setenv("HOME", "")
+	assert.Equal(t, filepath.Join(".xpki", "softhsm_unittest.json"), testenv.SoftHSMConfig())
+}

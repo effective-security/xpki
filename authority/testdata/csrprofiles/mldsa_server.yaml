@@ -1,6 +1,7 @@
 ---
 # A TLS server request with a post-quantum ML-DSA-65 key (FIPS 204).
-# The signing CA may use a classical or an ML-DSA key.
+# The signing CA may use a classical or an ML-DSA key. The certificate profile
+# must not list key encipherment, which RFC 9881 forbids for an ML-DSA key.
 common_name: pq.localhost
 san:
   - pq.localhost

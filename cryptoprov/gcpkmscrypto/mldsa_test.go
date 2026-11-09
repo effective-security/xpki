@@ -197,6 +197,27 @@ func TestMLDSASignRequest(t *testing.T) {
 	})
 }
 
+// TestLiveKMSFlowOnFake runs the signer flow of TestLiveKMSMLDSA on the fake,
+// so a mistake in the flow does not first show in a run against the service.
+func TestLiveKMSFlowOnFake(t *testing.T) {
+	t.Parallel()
+	s := newFakeKMSServer()
+	provider := grpcProvider(t, s)
+	for _, tc := range mldsaAlgorithms {
+		if !tc.externalMu {
+			continue // GenerateMLDSAKey creates only the external-μ algorithms
+		}
+		name := "live-" + tc.algorithm.String()
+		s.AddKey(t, name, tc.algorithm, name)
+		priv, err := provider.GetKey(name)
+		require.NoError(t, err)
+		signer := priv.(crypto.Signer)
+		pub, ok := signer.Public().(*mldsa.PublicKey)
+		require.True(t, ok, "%T", signer.Public())
+		verifyLiveMLDSASigner(t, signer, pub)
+	}
+}
+
 // TestMLDSAKeysOnFakeKMS runs every ML-DSA algorithm against the in-process
 // gRPC KMS through the real SDK client: GetKey, KeyInfo type and parameter
 // set, signatures that verify locally, a CSR through csr.Provider and a

@@ -27,6 +27,7 @@ chain, err := b.BundleContext(ctx, []*x509.Certificate{leaf}, nil)
 - [Variables](<#variables>)
 - [func BuildBundle\(c \*Chain\) \(bundle \*Bundle, status \*BundleStatus, err error\)](<#BuildBundle>)
 - [func CreateOCSPRequest\(crt, issuer \*x509.Certificate, hash crypto.Hash\) \(\[\]byte, error\)](<#CreateOCSPRequest>)
+- [func CreateOCSPResponse\(issuer, responderCert \*x509.Certificate, template ocsp.Response, signer crypto.Signer\) \(\[\]byte, error\)](<#CreateOCSPResponse>)
 - [func CreatePoolFromPEM\(pemBytes \[\]byte\) \(\*x509.CertPool, error\)](<#CreatePoolFromPEM>)
 - [func Digest\(hash crypto.Hash, data \[\]byte\) \[\]byte](<#Digest>)
 - [func EncodePrivateKeyToPEM\(priv crypto.PrivateKey\) \(key \[\]byte, err error\)](<#EncodePrivateKeyToPEM>)
@@ -61,9 +62,12 @@ chain, err := b.BundleContext(ctx, []*x509.Certificate{leaf}, nil)
 - [func ParseChainFromPEM\(certificateChainPem \[\]byte\) \(\[\]\*x509.Certificate, error\)](<#ParseChainFromPEM>)
 - [func ParseFromPEM\(bytes \[\]byte\) \(\*x509.Certificate, error\)](<#ParseFromPEM>)
 - [func ParseHexDigestWithPrefix\(digest string\) \(hash.Hash, \[\]byte, error\)](<#ParseHexDigestWithPrefix>)
+- [func ParseOCSPResponse\(der \[\]byte, issuer \*x509.Certificate\) \(\*ocsp.Response, error\)](<#ParseOCSPResponse>)
+- [func ParseOCSPResponseForCert\(der \[\]byte, cert, issuer \*x509.Certificate\) \(\*ocsp.Response, error\)](<#ParseOCSPResponseForCert>)
 - [func ParsePrivateKeyDER\(keyDER \[\]byte\) \(key crypto.Signer, err error\)](<#ParsePrivateKeyDER>)
 - [func ParsePrivateKeyPEM\(keyPEM \[\]byte\) \(key crypto.Signer, err error\)](<#ParsePrivateKeyPEM>)
 - [func ParsePrivateKeyPEMWithPassword\(keyPEM \[\]byte, password \[\]byte\) \(key crypto.Signer, err error\)](<#ParsePrivateKeyPEMWithPassword>)
+- [func ParsePublicKeyFromPEM\(key \[\]byte\) \(crypto.PublicKey, error\)](<#ParsePublicKeyFromPEM>)
 - [func ParseRSAPublicKeyFromPEM\(key \[\]byte\) \(\*rsa.PublicKey, error\)](<#ParseRSAPublicKeyFromPEM>)
 - [func Random\(byteLength int\) \[\]byte](<#Random>)
 - [func RandomString\(length int\) string](<#RandomString>)
@@ -159,13 +163,24 @@ func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error)
 BuildBundle returns the Bundle and BundleStatus of a Chain built by a Bundler. A nil c or c.Cert returns an error; a nil c.Status is treated as an empty status, and a nil c.Root \(a Force chain\) leaves RootCert and RootCertPEM empty \(XPKI\-042\).
 
 <a name="CreateOCSPRequest"></a>
-## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L19>)
+## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L298>)
 
 ```go
 func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte, error)
 ```
 
 CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer key with hash. A nil crt or issuer or an unavailable hash returns an error before any work \(XPKI\-103\), and so does an issuer whose subject is not crt's issuer name or whose key did not sign crt \(XPKI\-121\). The signature check accepts SHA\-1 and applies no CA policy.
+
+<a name="CreateOCSPResponse"></a>
+## func [CreateOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L92>)
+
+```go
+func CreateOCSPResponse(issuer, responderCert *x509.Certificate, template ocsp.Response, signer crypto.Signer) ([]byte, error)
+```
+
+CreateOCSPResponse returns a DER encoded OCSP response signed by signer, the key of responderCert, as ocsp.CreateResponse does: template gives the content, and template.Certificate, when set, is embedded. Unlike ocsp.CreateResponse it also signs with an ML\-DSA key, from any provider: the response is encoded by golang.org/x/crypto/ocsp, and the signature over its tbsResponseData \(RFC 6960 §4.2.1\) is pure ML\-DSA with an empty context and the id\-ml\-dsa\-\* algorithm without parameters \(RFC 9881\). template.SignatureAlgorithm is ignored for an ML\-DSA key, whose parameter set fixes the algorithm. A nil issuer, responderCert or signer, or an uninitialized ML\-DSA key, is an error.
+
+An ML\-DSA response can be read by ParseOCSPResponse and by OpenSSL 3.5, but golang.org/x/crypto/ocsp cannot verify it.
 
 <a name="CreatePoolFromPEM"></a>
 ## func [CreatePoolFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L148>)
@@ -186,7 +201,7 @@ func Digest(hash crypto.Hash, data []byte) []byte
 Digest returns computed digest bytes
 
 <a name="EncodePrivateKeyToPEM"></a>
-## func [EncodePrivateKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L251>)
+## func [EncodePrivateKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L272>)
 
 ```go
 func EncodePrivateKeyToPEM(priv crypto.PrivateKey) (key []byte, err error)
@@ -195,7 +210,7 @@ func EncodePrivateKeyToPEM(priv crypto.PrivateKey) (key []byte, err error)
 EncodePrivateKeyToPEM returns the PEM encoded private key: PKCS\#1 \("RSA PRIVATE KEY"\) for RSA, SEC1 \("EC PRIVATE KEY"\) for ECDSA and PKCS\#8 \("PRIVATE KEY", seed form\) for ML\-DSA. Other key types are an error.
 
 <a name="EncodePublicKeyToPEM"></a>
-## func [EncodePublicKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L228>)
+## func [EncodePublicKeyToPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L249>)
 
 ```go
 func EncodePublicKeyToPEM(pubKey crypto.PublicKey) ([]byte, error)
@@ -276,7 +291,7 @@ func GetIssuerID(c *x509.Certificate) string
 GetIssuerID returns ID of the issuer. If present, it uses Authority Key Identifier, otherwise SHA1 of the Issuer name
 
 <a name="GetKeyDERFromPEM"></a>
-## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L319>)
+## func [GetKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L340>)
 
 ```go
 func GetKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
@@ -473,8 +488,28 @@ func ParseHexDigestWithPrefix(digest string) (hash.Hash, []byte, error)
 
 ParseHexDigestWithPrefix parses encoded digest in \{alg\}:\{hex\} format
 
+<a name="ParseOCSPResponse"></a>
+## func [ParseOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L213>)
+
+```go
+func ParseOCSPResponse(der []byte, issuer *x509.Certificate) (*ocsp.Response, error)
+```
+
+ParseOCSPResponse parses and verifies a DER encoded OCSP response that holds one status, as ParseOCSPResponseForCert with no certificate.
+
+<a name="ParseOCSPResponseForCert"></a>
+## func [ParseOCSPResponseForCert](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L234>)
+
+```go
+func ParseOCSPResponseForCert(der []byte, cert, issuer *x509.Certificate) (*ocsp.Response, error)
+```
+
+ParseOCSPResponseForCert parses a DER encoded OCSP response and returns the status of cert, as ocsp.ParseResponseForCert does, and also verifies a response signed with ML\-DSA, which that function cannot. A response with an embedded certificate is verified with that certificate's key and, when issuer is set, the certificate with the issuer's key; without one, the response is verified with the issuer's key when issuer is set. With no embedded certificate and no issuer the signature is not checked. A status other than successful is an ocsp.ResponseError in the error chain, and a signature that does not verify an ocsp.ParseError, for ML\-DSA too. Response.SignatureAlgorithm is x509.MLDSA44, MLDSA65 or MLDSA87 for an ML\-DSA response, so Response.CheckSignatureFrom works on it.
+
+Like golang.org/x/crypto/ocsp, it does not check that an embedded certificate is authorized to answer for the issuer \(the OCSP signing EKU of RFC 6960 §4.2.2.2\) or is within its validity, or that the CertID names the issuer: any certificate the issuer signed can sign an accepted response. Those checks are left to the service that relies on the result \(ROADMAP item 11\).
+
 <a name="ParsePrivateKeyDER"></a>
-## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L356>)
+## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L377>)
 
 ```go
 func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error)
@@ -483,7 +518,7 @@ func ParsePrivateKeyDER(keyDER []byte) (key crypto.Signer, err error)
 ParsePrivateKeyDER parses a PKCS \#1, PKCS \#8, ECDSA, Ed25519 or ML\-DSA DER\-encoded private key. The key must not be in PEM format. An ML\-DSA key must be in the PKCS \#8 seed form \(RFC 9881\), which x509.MarshalPKCS8PrivateKey and "openssl genpkey \-provparam ml\-dsa.output\_formats=seed\-only" write; the form holding both the seed and the expanded key is rejected.
 
 <a name="ParsePrivateKeyPEM"></a>
-## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L290>)
+## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L311>)
 
 ```go
 func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error)
@@ -492,7 +527,7 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error)
 ParsePrivateKeyPEM parses and returns a PEM\-encoded private key. The private key may be either an unencrypted PKCS\#8, PKCS\#1, or elliptic private key.
 
 <a name="ParsePrivateKeyPEMWithPassword"></a>
-## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L301>)
+## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L322>)
 
 ```go
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.Signer, err error)
@@ -500,8 +535,17 @@ func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.
 
 ParsePrivateKeyPEMWithPassword parses and returns a PEM\-encoded private key. The private key may be an unencrypted PKCS\#8, PKCS\#1, or SEC1 key, a legacy PEM block encrypted per RFC 1423 \(Proc\-Type: 4,ENCRYPTED\), or an encrypted PKCS\#8 key \(ENCRYPTED PRIVATE KEY\) as described by GetKeyDERFromPEM. The key may be RSA, ECDSA, Ed25519 or ML\-DSA \(the last two PKCS\#8 only\). A nil password fails for an encrypted key; a wrong password returns an error that matches x509.IncorrectPasswordError.
 
+<a name="ParsePublicKeyFromPEM"></a>
+## func [ParsePublicKeyFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L206>)
+
+```go
+func ParsePublicKeyFromPEM(key []byte) (crypto.PublicKey, error)
+```
+
+ParsePublicKeyFromPEM parses a PEM encoded public key in the SubjectPublicKeyInfo form \(RFC 5280\), or a PKCS\#1 RSA public key. It returns what x509.ParsePKIXPublicKey does, so any type that function supports, including \*ecdh.PublicKey and \*dsa.PublicKey, which cannot verify a modern signature: a caller that needs a signature key checks the type.
+
 <a name="ParseRSAPublicKeyFromPEM"></a>
-## func [ParseRSAPublicKeyFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L202>)
+## func [ParseRSAPublicKeyFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L223>)
 
 ```go
 func ParseRSAPublicKeyFromPEM(key []byte) (*rsa.PublicKey, error)

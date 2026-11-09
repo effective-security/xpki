@@ -154,4 +154,4 @@ Implemented in v1.1 (see [pqc.md](pqc.md) for the cross-cutting design):
   default is rejected by the standard library.
 
 Remaining: the `Provider` interfaces still take no `context.Context`
-(ROADMAP), and `jwt` does not sign with ML-DSA keys.
+(ROADMAP item 1).

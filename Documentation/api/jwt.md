@@ -10,9 +10,9 @@ Package jwt provides JSON Web Token \(JWT\) signing, verification, and parsing c
 
 This package implements JWT as defined by RFC 7519, with support for:
 
-- JWT signing and verification using various algorithms \(HMAC, RSA, ECDSA\)
+- JWT signing and verification using various algorithms \(HMAC, RSA, ECDSA, and ML\-DSA per RFC 9964\)
 - JWT parsing and validation with configurable verification options
-- JWKS \(JSON Web Key Set\) for key management and distribution
+- JWKS \(JSON Web Key Set\) for key management and distribution, including RFC 9964 AKP keys
 
 Subpackages: dpop \(RFC 9449 proofs\), accesstoken \(opaque encrypted tokens\), oauth2client \(identity\-provider client registry\).
 
@@ -201,16 +201,16 @@ func SetClaimsExpiration(claims MapClaims, expiry time.Duration)
 SetClaimsExpiration sets expiration claims
 
 <a name="VerifySignature"></a>
-## func [VerifySignature](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L266>)
+## func [VerifySignature](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L318>)
 
 ```go
 func VerifySignature(algo, signingString, signature string, key any) error
 ```
 
-VerifySignature returns error if JWT signature is invalid
+VerifySignature returns error if JWT signature is invalid. key is \[\]byte for HS\*, \*rsa.PublicKey for RS\*, \*ecdsa.PublicKey of the curve for ES\*, and \*mldsa.PublicKey of the parameter set for ML\-DSA\-\*.
 
 <a name="AlgorithmKeySet"></a>
-## type [AlgorithmKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L54-L59>)
+## type [AlgorithmKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L55-L60>)
 
 AlgorithmKeySet is a KeySet that can also restrict key selection to keys compatible with the token's signing algorithm. The parser uses it when the configured KeySet implements it.
 
@@ -386,7 +386,7 @@ type Key struct {
 ```
 
 <a name="KeySet"></a>
-## type [KeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L44-L49>)
+## type [KeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L45-L50>)
 
 KeySet is an interface for verifying JWT signatures.
 
@@ -661,7 +661,7 @@ func (n *NumericDate) UnmarshalJSON(b []byte) error
 UnmarshalJSON reads a date from its JSON representation. Integer and fractional values are accepted, quoted or not; a fractional value is truncated toward zero to whole seconds.
 
 <a name="Option"></a>
-## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L464-L466>)
+## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L465-L467>)
 
 A Option modifies the default behavior of Provider.
 
@@ -672,7 +672,7 @@ type Option interface {
 ```
 
 <a name="WithHeaders"></a>
-### func [WithHeaders](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L107>)
+### func [WithHeaders](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L108>)
 
 ```go
 func WithHeaders(headers map[string]any) Option
@@ -742,7 +742,7 @@ type Provider interface {
 ```
 
 <a name="LoadProvider"></a>
-### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L157>)
+### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L158>)
 
 ```go
 func LoadProvider(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error)
@@ -751,7 +751,7 @@ func LoadProvider(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error)
 LoadProvider returns new provider
 
 <a name="MustNewProvider"></a>
-### func [MustNewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L166>)
+### func [MustNewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L167>)
 
 ```go
 func MustNewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) Provider
@@ -760,7 +760,7 @@ func MustNewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Opti
 MustNewProvider returns new provider
 
 <a name="NewProvider"></a>
-### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L175>)
+### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L176>)
 
 ```go
 func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error)
@@ -769,7 +769,7 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 NewProvider returns new provider that supports, both Signer and Parser
 
 <a name="NewProviderFromCryptoSigner"></a>
-### func [NewProviderFromCryptoSigner](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L258>)
+### func [NewProviderFromCryptoSigner](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L259>)
 
 ```go
 func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error)
@@ -778,7 +778,7 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 NewProviderFromCryptoSigner returns new from Signer
 
 <a name="NewProviderWithSymmetricKey"></a>
-### func [NewProviderWithSymmetricKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L292>)
+### func [NewProviderWithSymmetricKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L293>)
 
 ```go
 func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error)
@@ -789,7 +789,7 @@ NewProviderWithSymmetricKey returns a provider that signs HS256 tokens with key 
 Tokens carry no kid header unless WithHeaders sets one, which must be a nonempty string. ParseToken accepts only HS256 tokens signed with key that have no kid or that kid; any other kid, including an empty or non\-string one, is rejected \(XPKI\-066, XPKI\-104\).
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L85-L99>)
+## type [ProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L85-L100>)
 
 ProviderConfig provides OAuth2 configuration
 
@@ -803,7 +803,8 @@ type ProviderConfig struct {
     Keys []*Key `json:"keys" yaml:"keys"`
 
     // PrivateKey is a PEM-encoded key or a pkcs11: URI resolved through cryptoprov;
-    // when set, the provider signs with RS*/ES* instead of HS256 keys
+    // when set, the provider signs with RS*, ES* or ML-DSA-*, by the key,
+    // instead of HS256 keys
     PrivateKey string `json:"private_key" yaml:"private_key"`
 
     // TokenExpiry specifies token expiration period
@@ -812,7 +813,7 @@ type ProviderConfig struct {
 ```
 
 <a name="LoadProviderConfig"></a>
-### func [LoadProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L134>)
+### func [LoadProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L135>)
 
 ```go
 func LoadProviderConfig(file string) (*ProviderConfig, error)
@@ -821,7 +822,7 @@ func LoadProviderConfig(file string) (*ProviderConfig, error)
 LoadProviderConfig returns provider configuration loaded from a file
 
 <a name="RemoteKeySet"></a>
-## type [RemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L258-L282>)
+## type [RemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L267-L291>)
 
 RemoteKeySet is a KeySet implementation that validates JSON web tokens against a jwks\_uri endpoint. Key selection follows the StaticKeySet rules for KeySet entries. Create it with NewRemoteKeySet.
 
@@ -832,7 +833,7 @@ type RemoteKeySet struct {
 ```
 
 <a name="NewRemoteKeySet"></a>
-### func [NewRemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L230>)
+### func [NewRemoteKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L239>)
 
 ```go
 func NewRemoteKeySet(ctx context.Context, jwksURL string, opts ...RemoteKeySetOption) *RemoteKeySet
@@ -841,7 +842,7 @@ func NewRemoteKeySet(ctx context.Context, jwksURL string, opts ...RemoteKeySetOp
 NewRemoteKeySet returns a KeySet that fetches a JWKS document from jwksURL over HTTP. NewParser uses it when ParserConfig.JWKSURL is set. Keys are fetched lazily on the first lookup and re\-fetched when no cached key fits the lookup; concurrent refreshes are coalesced, and a refresh starts at most once per refresh cooldown. ctx bounds the lifetime of every fetch; each fetch is also bounded by the fetch timeout and response size limit. Reuse one RemoteKeySet per URL rather than creating new ones.
 
 <a name="RemoteKeySet.GetKey"></a>
-### func \(\*RemoteKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L317>)
+### func \(\*RemoteKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L326>)
 
 ```go
 func (r *RemoteKeySet) GetKey(ctx context.Context, keyID string) (any, error)
@@ -850,7 +851,7 @@ func (r *RemoteKeySet) GetKey(ctx context.Context, keyID string) (any, error)
 GetKey returns the public key for the given kid.
 
 <a name="RemoteKeySet.GetKeyForAlgorithm"></a>
-### func \(\*RemoteKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L322>)
+### func \(\*RemoteKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L331>)
 
 ```go
 func (r *RemoteKeySet) GetKeyForAlgorithm(ctx context.Context, keyID, alg string) (any, error)
@@ -859,7 +860,7 @@ func (r *RemoteKeySet) GetKeyForAlgorithm(ctx context.Context, keyID, alg string
 GetKeyForAlgorithm returns the public key for the given kid and alg.
 
 <a name="RemoteKeySetOption"></a>
-## type [RemoteKeySetOption](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L181>)
+## type [RemoteKeySetOption](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L190>)
 
 RemoteKeySetOption configures a RemoteKeySet.
 
@@ -868,7 +869,7 @@ type RemoteKeySetOption func(*RemoteKeySet)
 ```
 
 <a name="WithFetchTimeout"></a>
-### func [WithFetchTimeout](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L205>)
+### func [WithFetchTimeout](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L214>)
 
 ```go
 func WithFetchTimeout(d time.Duration) RemoteKeySetOption
@@ -877,7 +878,7 @@ func WithFetchTimeout(d time.Duration) RemoteKeySetOption
 WithFetchTimeout bounds each fetch, including reading the body. Zero or negative keeps DefaultJWKSFetchTimeout.
 
 <a name="WithHTTPClient"></a>
-### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L185>)
+### func [WithHTTPClient](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L194>)
 
 ```go
 func WithHTTPClient(client *http.Client) RemoteKeySetOption
@@ -886,7 +887,7 @@ func WithHTTPClient(client *http.Client) RemoteKeySetOption
 WithHTTPClient sets the client used to fetch the JWKS document. The fetch timeout still applies to each request. A nil client keeps the default.
 
 <a name="WithMaxResponseSize"></a>
-### func [WithMaxResponseSize](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L215>)
+### func [WithMaxResponseSize](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L224>)
 
 ```go
 func WithMaxResponseSize(n int64) RemoteKeySetOption
@@ -895,7 +896,7 @@ func WithMaxResponseSize(n int64) RemoteKeySetOption
 WithMaxResponseSize sets the largest accepted JWKS document in bytes. Zero or negative keeps DefaultJWKSMaxResponseSize.
 
 <a name="WithRefreshCooldown"></a>
-### func [WithRefreshCooldown](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L197>)
+### func [WithRefreshCooldown](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L206>)
 
 ```go
 func WithRefreshCooldown(d time.Duration) RemoteKeySetOption
@@ -941,7 +942,7 @@ type Signer interface {
 ```
 
 <a name="SignerInfo"></a>
-## type [SignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L110-L115>)
+## type [SignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L135-L140>)
 
 SignerInfo represents JWT signer
 
@@ -952,16 +953,16 @@ type SignerInfo struct {
 ```
 
 <a name="NewSignerInfo"></a>
-### func [NewSignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L118>)
+### func [NewSignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L146>)
 
 ```go
 func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error)
 ```
 
-NewSignerInfo returns \*SignerInfo
+NewSignerInfo returns the \*SignerInfo of signer, which selects the algorithm from the key: RS\* by RSA key size, ES\* by curve, HS\* for a symmetric signer, and for an ML\-DSA key the RFC 9964 algorithm of its parameter set, ML\-DSA\-44, ML\-DSA\-65 or ML\-DSA\-87.
 
 <a name="StaticKeySet"></a>
-## type [StaticKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L69-L75>)
+## type [StaticKeySet](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L70-L77>)
 
 StaticKeySet is a verifier that validates JWT against a static set of public keys.
 
@@ -970,15 +971,16 @@ A key is eligible when its JWK "use" is empty or "sig" and, when the token algor
 ```go
 type StaticKeySet struct {
     // PublicKeys used to verify the JWT. They have no kid, see StaticKeySet.
-    // Supported types are *rsa.PublicKey and *ecdsa.PublicKey; any other
-    // entry makes GetKey fail.
+    // Supported types are *rsa.PublicKey, *ecdsa.PublicKey and
+    // *mldsa.PublicKey; any other entry, or an uninitialized ML-DSA key, makes
+    // GetKey fail.
     PublicKeys []crypto.PublicKey
     KeySet     []jose.JSONWebKey
 }
 ```
 
 <a name="StaticKeySet.GetKey"></a>
-### func \(\*StaticKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L78>)
+### func \(\*StaticKeySet\) [GetKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L80>)
 
 ```go
 func (s *StaticKeySet) GetKey(ctx context.Context, keyID string) (any, error)
@@ -987,7 +989,7 @@ func (s *StaticKeySet) GetKey(ctx context.Context, keyID string) (any, error)
 GetKey returns the public key for the given kid.
 
 <a name="StaticKeySet.GetKeyForAlgorithm"></a>
-### func \(\*StaticKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L83>)
+### func \(\*StaticKeySet\) [GetKeyForAlgorithm](<https://github.com/effective-security/xpki/blob/main/jwt/jwks.go#L85>)
 
 ```go
 func (s *StaticKeySet) GetKeyForAlgorithm(_ context.Context, keyID, alg string) (any, error)

@@ -14,7 +14,7 @@ import (
 	_ "github.com/effective-security/xpki/crypto11"
 )
 
-const softHSMConfig = "/tmp/xpki/softhsm_unittest.json"
+var softHSMConfig = testenv.SoftHSMConfig()
 
 // loadProvider returns the SoftHSM provider. It skips the test when the
 // SoftHSM config is missing, or fails it with XPKI_INTEGRATION=required

@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -60,6 +61,13 @@ func signProof(t testing.TB, alg jose.SignatureAlgorithm, key crypto.Signer, cla
 func newECKey(t testing.TB) *ecdsa.PrivateKey {
 	t.Helper()
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	return k
+}
+
+func newMLDSAKey(t testing.TB, params mldsa.Parameters) *mldsa.PrivateKey {
+	t.Helper()
+	k, err := mldsa.GenerateKey(params)
 	require.NoError(t, err)
 	return k
 }
@@ -562,6 +570,9 @@ func TestVerifyClaims_Algorithms(t *testing.T) {
 		{jose.ES384, p384},
 		{jose.ES512, p521},
 		{jose.EdDSA, edKey},
+		{jose.MLDSA44, newMLDSAKey(t, mldsa.MLDSA44())},
+		{jose.MLDSA65, newMLDSAKey(t, mldsa.MLDSA65())},
+		{jose.MLDSA87, newMLDSAKey(t, mldsa.MLDSA87())},
 	}
 	for _, tc := range tcases {
 		t.Run(string(tc.alg), func(t *testing.T) {
@@ -593,6 +604,26 @@ func TestVerifyClaims_Algorithms(t *testing.T) {
 	t.Run("EdDSA header with RSA jwk", func(t *testing.T) {
 		t.Parallel()
 		proof := withHeader(t, signProof(t, jose.EdDSA, edKey, nil), jose.EdDSA, rsaKey.Public())
+		_, err := dpop.VerifyClaims(dpop.VerifyConfig{}, proof, testMethod, testHTU)
+		assert.ErrorContains(t, err, "dpop: unable to verify token")
+	})
+	t.Run("ML-DSA-44 header with ML-DSA-65 jwk", func(t *testing.T) {
+		t.Parallel()
+		key := newMLDSAKey(t, mldsa.MLDSA65())
+		proof := withHeader(t, signProof(t, jose.MLDSA65, key, nil), jose.MLDSA44, key.Public())
+		_, err := dpop.VerifyClaims(dpop.VerifyConfig{}, proof, testMethod, testHTU)
+		assert.ErrorContains(t, err, "dpop: unable to verify token")
+	})
+	t.Run("ML-DSA-65 header with EC jwk", func(t *testing.T) {
+		t.Parallel()
+		proof := withHeader(t, signProof(t, jose.MLDSA65, newMLDSAKey(t, mldsa.MLDSA65()), nil), jose.MLDSA65, p256.Public())
+		_, err := dpop.VerifyClaims(dpop.VerifyConfig{}, proof, testMethod, testHTU)
+		assert.ErrorContains(t, err, "dpop: unable to verify token")
+	})
+	t.Run("ML-DSA signature by another key", func(t *testing.T) {
+		t.Parallel()
+		proof := withHeader(t, signProof(t, jose.MLDSA65, newMLDSAKey(t, mldsa.MLDSA65()), nil),
+			jose.MLDSA65, newMLDSAKey(t, mldsa.MLDSA65()).Public())
 		_, err := dpop.VerifyClaims(dpop.VerifyConfig{}, proof, testMethod, testHTU)
 		assert.ErrorContains(t, err, "dpop: unable to verify token")
 	})

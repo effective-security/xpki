@@ -274,6 +274,18 @@ func TestMLDSACSRAndCertificate(t *testing.T) {
 	}
 }
 
+// TestLiveKMSFlowOnFake runs the signer flow of TestLiveKMSMLDSA on the fake,
+// so a mistake in the flow does not first show in a run against the service.
+func TestLiveKMSFlowOnFake(t *testing.T) {
+	t.Parallel()
+	client := newFakeKMS()
+	provider := newProvider(t, client)
+	for _, tc := range mldsaSpecs {
+		signer, pub, _ := mldsaSignerFor(t, client, provider, tc.spec)
+		verifyLiveMLDSASigner(t, signer, pub)
+	}
+}
+
 // TestKmsProviderMLDSA is the gated integration test: it needs the KMS the
 // test config points to (local-kms on :14556 by default). local-kms 3.11.7
 // rejects the ML_DSA key specs with a ValidationException, in which case

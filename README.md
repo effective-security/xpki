@@ -21,8 +21,8 @@ The module is `github.com/effective-security/xpki` and targets Go 1.27.
 | `cryptoprov/inmemcrypto`  | In-memory provider for tests and development                                                     |
 | `csr`                     | CSR generation and parsing, key requests (RSA, ECDSA, ML-DSA), SAN and CRL distribution point encoding |
 | `authority`               | Certificate Authority: issuers, certificate profiles, `Sign`, OCSP and CRL signing               |
-| `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP request creation                        |
-| `jwt`                     | JWT signing and verification, claims, static and remote JWKS key sets                            |
+| `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP requests, ML-DSA OCSP responses         |
+| `jwt`                     | JWT signing and verification (HMAC, RSA, ECDSA, ML-DSA), claims, static and remote JWKS key sets |
 | `jwt/dpop`                | DPoP proof creation and verification (RFC 9449)                                                  |
 | `jwt/accesstoken`         | Opaque access-token helpers on top of `jwt`                                                      |
 | `jwt/oauth2client`        | OAuth2 client for token endpoints                                                                |
@@ -205,15 +205,25 @@ or, in a CSR profile, `key: {algo: ML-DSA, size: 65}`. The CSR and the
 certificates issued for it carry `x509.MLDSA65`; `certutil.IsPostQuantumKey`
 and `certutil.IsPostQuantumCertificate` detect such keys and certificates,
 and a profile can require or forbid them with
-`allowed_key_algorithms: [ml-dsa]`. An ML-DSA signer signs the message, not
+`allowed_key_algorithms: [ml-dsa]`. A certificate for an ML-DSA key cannot have
+`key encipherment`, `data encipherment`, `key agreement`, `encipher only` or
+`decipher only` (RFC 9881): the request fails, so the `server` profile above
+issues only to classical keys. An ML-DSA signer signs the message, not
 a digest: pass the message with nil options (or `*mldsa.Options`), or a
-64-byte μ with `crypto.MLDSAMu`; a digest hash is an error. An ML-DSA
-issuer that advertises OCSP needs `aia.delegated_ocsp_profile`, since
-`golang.org/x/crypto/ocsp` signs with RSA and ECDSA keys only. Private keys
+64-byte μ with `crypto.MLDSAMu`; a digest hash is an error. Private keys
 are exported as PKCS#8 (seed form); `hsm-tool hsm generate --algo ML-DSA
---size 65` prints one. The `crypto11` support needs a PKCS#11 v3.2 token
-and is not yet verified against one; see
-[`Documentation/design/pqc.md`](Documentation/design/pqc.md).
+--size 65` prints one.
+
+An ML-DSA key also signs OCSP responses and JWTs. `certutil.CreateOCSPResponse`
+and `certutil.ParseOCSPResponse` cover what `golang.org/x/crypto/ocsp` cannot; a
+delegated responder keeps a P-256 key, whose signature that package verifies,
+unless `aia.delegated_ocsp_key_algo` says otherwise. `jwt` and `jwt/dpop` use the RFC
+9964 algorithms and `AKP` JWKs: a provider or `dpop.NewSigner` picks them from the
+key, about 6 to 11 KB per proof, so check the header limits on the way.
+
+The `crypto11` support needs a PKCS#11 v3.2 token and has run on Kryoptic 1.5.4.
+The AWS KMS request shapes are verified against the live service, and the GCP KMS
+ones not yet; see [`Documentation/design/pqc.md`](Documentation/design/pqc.md).
 
 ### Run a CA
 
@@ -284,7 +294,7 @@ at most once per 10s, with a 10s fetch timeout and a 1 MiB response limit
   CSRs, CRLs and OCSP responses.
 
 ```sh
-hsm-tool --cfg /tmp/xpki/softhsm_unittest.json hsm list
+hsm-tool --cfg ~/.xpki/softhsm_unittest.json hsm list
 xpki-tool cert info server.pem
 ```
 
@@ -296,13 +306,13 @@ Generating a new test PIN also requires `openssl`.
 
 `make hsmconfig` builds `bin/hsm-tool`, initializes the test token using
 `softhsm2-util`, then verifies the generated configuration and PIN with
-`bin/hsm-tool --cfg /tmp/xpki/softhsm_unittest.json hsm list`.
+`bin/hsm-tool --cfg ~/.xpki/softhsm_unittest.json hsm list`.
 OpenSC (`pkcs11-tool`) is optional: it is needed only when invoking
 `scripts/config-softhsm.sh` directly with `--list-slots` or `--list-object`.
 
 ```sh
 make tools            # golangci-lint, cov-report, govulncheck, gomarkdoc (pinned versions)
-make hsmconfig        # create the SoftHSM token and /tmp/xpki/softhsm_unittest.json
+make hsmconfig        # create the SoftHSM token and ~/.xpki/softhsm_unittest.json
 make start-local-kms  # start two local-kms containers on :14555 and :14556
 make test             # full test suite (needs the two steps above)
 make test RACE=true   # under the race detector

@@ -310,7 +310,8 @@ func OCSPValidation(ctx context.Context, client *http.Client, crt *x509.Certific
 		return ocsp.Unknown, nil, err
 	}
 
-	res, err := ocsp.ParseResponseForCert(der, crt, issuer)
+	// the responder's authorization is not checked (ROADMAP item 11)
+	res, err := certutil.ParseOCSPResponseForCert(der, crt, issuer)
 	if err != nil {
 		logger.KV(xlog.DEBUG, "ocsp", string(der))
 		return ocsp.Unknown, der, errors.WithMessagef(err, "failed to parse OCSP")

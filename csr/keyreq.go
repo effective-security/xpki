@@ -107,28 +107,48 @@ func (kr *KeyRequest) SigAlgo() x509.SignatureAlgorithm {
 	return SigAlgo(kr.Algo(), kr.Size())
 }
 
-// Generate generates a key as specified in the request: RSA, ECDSA or
-// ML-DSA (through cryptoprov.KeyGenerator.GenerateMLDSAKey; a provider
-// whose backend lacks ML-DSA returns its own error). ML-DSA is a signature
+// Validate reports whether the request names a known algorithm with a size
+// and purpose it supports, without generating a key, so a configuration can
+// be rejected before the first use. Generate calls it. ML-DSA is a signature
 // scheme, so an EncryptionKey purpose is rejected for it.
-func (kr *KeyRequest) Generate() (crypto.PrivateKey, error) {
+func (kr *KeyRequest) Validate() error {
 	switch algo := kr.Algo(); normalizeAlgo(algo) {
 	case AlgoRSA:
-		err := validateRSAKeyPairInfoHandler(kr.Size())
-		if err != nil {
-			return nil, errors.WithMessage(err, "validate RSA key")
+		if err := validateRSAKeyPairInfoHandler(kr.Size()); err != nil {
+			return errors.WithMessage(err, "validate RSA key")
 		}
+	case AlgoECDSA:
+		if err := validateECDSAKeyPairCurveInfoHandler(kr.Size()); err != nil {
+			return errors.WithMessage(err, "validate ECDSA key")
+		}
+	case AlgoMLDSA:
+		if kr.Purpose() == int(EncryptionKey) {
+			return errors.Errorf("validate ML-DSA key: unsupported key purpose: %d, ML-DSA keys are signing keys", kr.Purpose())
+		}
+		if _, err := cryptoprov.MLDSAParameters(kr.Size()); err != nil {
+			return errors.WithMessage(err, "validate ML-DSA key")
+		}
+	default:
+		return errors.Errorf("invalid algorithm: %s", algo)
+	}
+	return nil
+}
+
+// Generate generates a key as specified in the request (see Validate): RSA,
+// ECDSA or ML-DSA (through cryptoprov.KeyGenerator.GenerateMLDSAKey; a
+// provider whose backend lacks ML-DSA returns its own error).
+func (kr *KeyRequest) Generate() (crypto.PrivateKey, error) {
+	if err := kr.Validate(); err != nil {
+		return nil, err
+	}
+	switch normalizeAlgo(kr.Algo()) {
+	case AlgoRSA:
 		pk, err := kr.prov.GenerateRSAKey(kr.Label(), kr.Size(), kr.Purpose())
 		if err != nil {
 			return nil, errors.WithMessage(err, "generate RSA key")
 		}
 		return pk, nil
 	case AlgoECDSA:
-		err := validateECDSAKeyPairCurveInfoHandler(kr.Size())
-		if err != nil {
-			return nil, errors.WithMessage(err, "validate ECDSA key")
-		}
-
 		var curve elliptic.Curve
 		switch kr.Size() {
 		case CurveP256:
@@ -145,10 +165,7 @@ func (kr *KeyRequest) Generate() (crypto.PrivateKey, error) {
 			return nil, errors.WithMessage(err, "generate ECDSA key")
 		}
 		return pk, nil
-	case AlgoMLDSA:
-		if kr.Purpose() == int(EncryptionKey) {
-			return nil, errors.Errorf("validate ML-DSA key: unsupported key purpose: %d, ML-DSA keys are signing keys", kr.Purpose())
-		}
+	default: // AlgoMLDSA, the only other algorithm Validate accepts
 		params, err := cryptoprov.MLDSAParameters(kr.Size())
 		if err != nil {
 			return nil, errors.WithMessage(err, "validate ML-DSA key")
@@ -158,8 +175,6 @@ func (kr *KeyRequest) Generate() (crypto.PrivateKey, error) {
 			return nil, errors.WithMessage(err, "generate ML-DSA key")
 		}
 		return pk, nil
-	default:
-		return nil, errors.Errorf("invalid algorithm: %s", algo)
 	}
 }
 

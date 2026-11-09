@@ -261,10 +261,7 @@ func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, roo
 
 // CreateIssuer returns Issuer created directly from crypto.Signer,
 // this method is mostly used for testing. The signer may be an RSA, ECDSA
-// or ML-DSA key; an ML-DSA key cannot sign OCSP responses
-// (golang.org/x/crypto/ocsp supports RSA and ECDSA only), so an issuer
-// with an aia.ocsp_url must also set aia.delegated_ocsp_profile, whose
-// responder key is classical.
+// or ML-DSA key.
 func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, signer crypto.Signer) (*Issuer, error) {
 	cfg = cfg.Copy()
 	if cfg.Profiles == nil {
@@ -277,9 +274,6 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 	}
 
 	label := cfg.Label
-	if certutil.IsPostQuantumKey(signer) && cfg.AIA != nil && cfg.AIA.OcspURL != "" && cfg.AIA.DelegatedOCSPProfile == "" {
-		return nil, errors.Errorf("issuer %q: an ML-DSA key cannot sign OCSP responses; set aia.delegated_ocsp_profile for a classical responder key or remove aia.ocsp_url", label)
-	}
 	bundle, status, err := certutil.VerifyBundleFromPEM(certBytes, intCAbytes, rootBytes)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to create signing CA cert bundle")
@@ -312,8 +306,11 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 		crlRenewal = cfg.AIA.GetCRLRenewal()
 		crlExpiry = cfg.AIA.GetCRLExpiry()
 		ocspExpiry = cfg.AIA.GetOCSPExpiry()
+		if err := validateDelegatedOCSPKey(cfg.AIA); err != nil {
+			return nil, errors.WithMessagef(err, "issuer %q", label)
+		}
 		if name := cfg.AIA.DelegatedOCSPProfile; name != "" {
-			if err := validateDelegatedOCSPProfile(cfg.Profiles[name], name, ocspExpiry); err != nil {
+			if err := validateDelegatedOCSPProfile(cfg.Profiles[name], name, cfg.AIA, ocspExpiry); err != nil {
 				return nil, errors.WithMessagef(err, "issuer %q", label)
 			}
 		}
@@ -694,6 +691,14 @@ func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, pro
 			continue
 		}
 		safeTemplate.ExtraExtensions = append(safeTemplate.ExtraExtensions, ext)
+	}
+
+	// Rejected, not adjusted, as the validity rules are. This is the final
+	// template, so it covers a raw extension from the profile or the RA.
+	if safeTemplate.PublicKeyAlgorithm == x509.MLDSA {
+		if err := checkMLDSATemplate(&safeTemplate); err != nil {
+			return nil, nil, errors.WithMessagef(err, "profile %s", profileName)
+		}
 	}
 
 	var certTBS = safeTemplate

@@ -30,6 +30,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -53,7 +54,31 @@ const (
 	algES256 = "ES256"
 	algES384 = "ES384"
 	algES512 = "ES512"
+	// RFC 9964 ML-DSA algorithms, the names of the FIPS 204 parameter sets
+	algMLDSA44 = "ML-DSA-44"
+	algMLDSA65 = "ML-DSA-65"
+	algMLDSA87 = "ML-DSA-87"
 )
+
+// mldsaParameterSets maps the RFC 9964 algorithms to their parameter sets.
+var mldsaParameterSets = map[string]mldsa.Parameters{
+	algMLDSA44: mldsa.MLDSA44(),
+	algMLDSA65: mldsa.MLDSA65(),
+	algMLDSA87: mldsa.MLDSA87(),
+}
+
+// validMLDSAKey reports whether pub is an initialized ML-DSA key;
+// crypto/mldsa panics on a nil or zero key.
+func validMLDSAKey(pub *mldsa.PublicKey) bool {
+	return pub != nil && *pub != (mldsa.PublicKey{})
+}
+
+// mldsaKeyFits reports whether key is an initialized ML-DSA public key of the
+// parameter set of alg.
+func mldsaKeyFits(key any, alg string) bool {
+	pub, ok := key.(*mldsa.PublicKey)
+	return ok && validMLDSAKey(pub) && pub.Parameters() == mldsaParameterSets[alg]
+}
 
 type symSigner struct {
 	hash crypto.Hash
@@ -114,8 +139,15 @@ type SignerInfo struct {
 	signer  crypto.Signer
 }
 
-// NewSignerInfo returns *SignerInfo
+// NewSignerInfo returns the *SignerInfo of signer, which selects the
+// algorithm from the key: RS* by RSA key size, ES* by curve, HS* for a
+// symmetric signer, and for an ML-DSA key the RFC 9964 algorithm of its
+// parameter set, ML-DSA-44, ML-DSA-65 or ML-DSA-87.
 func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error) {
+	// crypto/mldsa panics in Public on a nil or zero key
+	if key, ok := signer.(*mldsa.PrivateKey); ok && (key == nil || *key == (mldsa.PrivateKey{})) {
+		return nil, errors.New("invalid ML-DSA private key")
+	}
 	si := &SignerInfo{
 		signer: signer,
 	}
@@ -151,6 +183,14 @@ func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error) {
 			si.hasher.hash = crypto.SHA256
 		}
 		si.keySize = typ.Curve.Params().BitSize
+	case *mldsa.PublicKey:
+		if !validMLDSAKey(typ) {
+			return nil, errors.New("invalid ML-DSA public key")
+		}
+		si.algo = typ.Parameters().String()
+		if _, ok := mldsaParameterSets[si.algo]; !ok {
+			return nil, errors.Errorf("unsupported ML-DSA parameter set: %q", si.algo)
+		}
 	default:
 		return nil, errors.Errorf("public key not supported: %T", typ)
 	}
@@ -171,6 +211,16 @@ func (si *SignerInfo) sign(signingString string) ([]byte, error) {
 		sig, err := si.signer.Sign(nil, []byte(signingString), nil)
 		if err != nil {
 			return nil, err
+		}
+		return sig, nil
+	}
+
+	if _, ok := mldsaParameterSets[si.algo]; ok {
+		// RFC 9964: pure ML-DSA over the JWS signing input with an empty
+		// context; nil options are the signer contract of every provider
+		sig, err := si.signer.Sign(rand.Reader, []byte(signingString), nil)
+		if err != nil {
+			return nil, errors.WithStack(err)
 		}
 		return sig, nil
 	}
@@ -262,7 +312,9 @@ var curveMap = map[string]elliptic.Curve{
 	algES512: elliptic.P521(),
 }
 
-// VerifySignature returns error if JWT signature is invalid
+// VerifySignature returns error if JWT signature is invalid. key is []byte for
+// HS*, *rsa.PublicKey for RS*, *ecdsa.PublicKey of the curve for ES*, and
+// *mldsa.PublicKey of the parameter set for ML-DSA-*.
 func VerifySignature(algo, signingString, signature string, key any) error {
 	if strings.HasPrefix(algo, "HS") {
 		bytes, ok := key.([]byte)
@@ -290,6 +342,17 @@ func VerifySignature(algo, signingString, signature string, key any) error {
 	var err error
 	if sig, err = DecodeSegment(signature); err != nil {
 		return errors.Errorf("invalid signature")
+	}
+
+	if _, ok := mldsaParameterSets[algo]; ok {
+		if !mldsaKeyFits(key, algo) {
+			return errors.Errorf("invalid key for %s signature: %T", algo, key)
+		}
+		// RFC 9964: an empty context, which nil options select
+		if err := mldsa.Verify(key.(*mldsa.PublicKey), []byte(signingString), sig, nil); err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
 	}
 
 	h := hashMap[algo]
