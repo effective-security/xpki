@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/testca"
 )
 
 // BenchmarkSignOCSP measures OCSP signing and responder lookup with a warm

@@ -3,7 +3,7 @@
 # csr
 
 ```go
-import "github.com/effective-security/xpki/csr"
+import "github.com/effective-security/xpki/v2/csr"
 ```
 
 Package csr provides utilities for creating, parsing, and validating Certificate Signing Requests \(CSRs\) as defined by RFC 2986.
@@ -31,7 +31,6 @@ The package integrates with the cryptoprov package to support hardware\-backed p
 - [func Parse\(csrBytes \[\]byte\) \(\*x509.Certificate, error\)](<#Parse>)
 - [func ParsePEM\(csrPEM \[\]byte\) \(\*x509.Certificate, error\)](<#ParsePEM>)
 - [func PopulateName\(raSubject \*X509Subject, csrSubject pkix.Name\) pkix.Name](<#PopulateName>)
-- [func SetSAN\(template \*x509.Certificate, names \[\]string\)](<#SetSAN>)
 - [func SigAlgo\(algo string, size int\) x509.SignatureAlgorithm](<#SigAlgo>)
 - [type AllowedFields](<#AllowedFields>)
 - [type BasicConstraints](<#BasicConstraints>)
@@ -56,7 +55,7 @@ The package integrates with the cryptoprov package to support hardware\-backed p
 - [type KeyRequest](<#KeyRequest>)
   - [func NewKeyRequest\(prov cryptoprov.Provider, label, algo string, keySize int, purpose KeyPurpose\) \*KeyRequest](<#NewKeyRequest>)
   - [func \(kr \*KeyRequest\) Algo\(\) string](<#KeyRequest.Algo>)
-  - [func \(kr \*KeyRequest\) Generate\(\) \(crypto.PrivateKey, error\)](<#KeyRequest.Generate>)
+  - [func \(kr \*KeyRequest\) Generate\(ctx context.Context\) \(crypto.PrivateKey, error\)](<#KeyRequest.Generate>)
   - [func \(kr \*KeyRequest\) Label\(\) string](<#KeyRequest.Label>)
   - [func \(kr \*KeyRequest\) Purpose\(\) int](<#KeyRequest.Purpose>)
   - [func \(kr \*KeyRequest\) SigAlgo\(\) x509.SignatureAlgorithm](<#KeyRequest.SigAlgo>)
@@ -72,8 +71,8 @@ The package integrates with the cryptoprov package to support hardware\-backed p
   - [func \(oid \*OID\) UnmarshalYAML\(unmarshal func\(any\) error\) error](<#OID.UnmarshalYAML>)
 - [type Provider](<#Provider>)
   - [func NewProvider\(provider cryptoprov.Provider\) \*Provider](<#NewProvider>)
-  - [func \(c \*Provider\) CreateRequestAndExportKey\(req \*CertificateRequest\) \(csrPEM, key \[\]byte, keyID string, pub crypto.PublicKey, err error\)](<#Provider.CreateRequestAndExportKey>)
-  - [func \(c \*Provider\) GenerateKeyAndRequest\(req \*CertificateRequest\) \(csrPEM \[\]byte, priv crypto.PrivateKey, keyID string, err error\)](<#Provider.GenerateKeyAndRequest>)
+  - [func \(c \*Provider\) CreateRequestAndExportKey\(ctx context.Context, req \*CertificateRequest\) \(csrPEM, key \[\]byte, keyID string, pub crypto.PublicKey, err error\)](<#Provider.CreateRequestAndExportKey>)
+  - [func \(c \*Provider\) GenerateKeyAndRequest\(ctx context.Context, req \*CertificateRequest\) \(csrPEM \[\]byte, priv crypto.PrivateKey, keyID string, err error\)](<#Provider.GenerateKeyAndRequest>)
   - [func \(c \*Provider\) NewKeyRequest\(label, algo string, keySize int, purpose KeyPurpose\) \*KeyRequest](<#Provider.NewKeyRequest>)
   - [func \(c \*Provider\) NewSigningCertificateRequest\(keyLabel, algo string, keySize int, CN string, names \[\]X509Name, san \[\]string\) \*CertificateRequest](<#Provider.NewSigningCertificateRequest>)
   - [func \(c \*Provider\) SignRequest\(priv crypto.PrivateKey, req \*CertificateRequest\) \(csrPEM \[\]byte, err error\)](<#Provider.SignRequest>)
@@ -149,7 +148,7 @@ const (
 ```
 
 <a name="ApplySAN"></a>
-## func [ApplySAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L82>)
+## func [ApplySAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L81>)
 
 ```go
 func ApplySAN(template *x509.Certificate, names []string) error
@@ -167,7 +166,7 @@ func DecodeCDP(val []byte) ([]string, error)
 DecodeCDP returns list of CDP
 
 <a name="DefaultSigAlgo"></a>
-## func [DefaultSigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L218>)
+## func [DefaultSigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L222>)
 
 ```go
 func DefaultSigAlgo(priv crypto.Signer) x509.SignatureAlgorithm
@@ -203,7 +202,7 @@ func FindAttr(attrs []pkix.AttributeTypeAndValue, id asn1.ObjectIdentifier) *pki
 FindAttr returns attribute
 
 <a name="IsPostQuantumAlgo"></a>
-## func [IsPostQuantumAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L194>)
+## func [IsPostQuantumAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L178>)
 
 ```go
 func IsPostQuantumAlgo(algo string) bool
@@ -238,19 +237,8 @@ func PopulateName(raSubject *X509Subject, csrSubject pkix.Name) pkix.Name
 
 PopulateName has functionality similar to Name, except it fills the fields of the resulting pkix.Name with req's if the subject's corresponding fields are empty
 
-<a name="SetSAN"></a>
-## func [SetSAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L102>)
-
-```go
-func SetSAN(template *x509.Certificate, names []string)
-```
-
-SetSAN is ApplySAN without an error: a name ParseSAN rejects is skipped with an error log and the valid names are applied. A nil names leaves template unchanged; a non\-nil empty slice clears the names.
-
-Deprecated: use ApplySAN, which reports the invalid names.
-
 <a name="SigAlgo"></a>
-## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L247>)
+## func [SigAlgo](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L231>)
 
 ```go
 func SigAlgo(algo string, size int) x509.SignatureAlgorithm
@@ -532,7 +520,7 @@ type KeyRequest struct {
 ```
 
 <a name="NewKeyRequest"></a>
-### func [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L210>)
+### func [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L194>)
 
 ```go
 func NewKeyRequest(prov cryptoprov.Provider, label, algo string, keySize int, purpose KeyPurpose) *KeyRequest
@@ -550,13 +538,13 @@ func (kr *KeyRequest) Algo() string
 Algo returns the requested key algorithm represented as a string.
 
 <a name="KeyRequest.Generate"></a>
-### func \(\*KeyRequest\) [Generate](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L140>)
+### func \(\*KeyRequest\) [Generate](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L143>)
 
 ```go
-func (kr *KeyRequest) Generate() (crypto.PrivateKey, error)
+func (kr *KeyRequest) Generate(ctx context.Context) (crypto.PrivateKey, error)
 ```
 
-Generate generates a key as specified in the request \(see Validate\): RSA, ECDSA or ML\-DSA \(through cryptoprov.KeyGenerator.GenerateMLDSAKey; a provider whose backend lacks ML\-DSA returns its own error\).
+Generate generates a key as specified in the request \(see Validate\) through cryptoprov.KeyGenerator.GenerateKey of its provider, with ctx. The purpose selects the usage of an RSA key \(Undefined is a signing key\); an ECDSA or ML\-DSA key is always a signing key. A provider whose backend lacks the algorithm, the size or the usage returns an error that wraps cryptoprov.ErrNotSupported.
 
 <a name="KeyRequest.Label"></a>
 ### func \(\*KeyRequest\) [Label](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L85>)
@@ -613,7 +601,7 @@ type KeyRequestGen interface {
     Algo() string
     Label() string
     Size() int
-    Generate() (crypto.PrivateKey, error)
+    Generate(ctx context.Context) (crypto.PrivateKey, error)
     SigAlgo() x509.SignatureAlgorithm
     Purpose() int
 }
@@ -683,7 +671,7 @@ func (oid *OID) UnmarshalYAML(unmarshal func(any) error) error
 UnmarshalYAML unmarshals a YAML string into an OID.
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L24-L26>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L25-L27>)
 
 Provider extends cryptoprov.Crypto functionality to support CSP processing and certificate signing
 
@@ -694,7 +682,7 @@ type Provider struct {
 ```
 
 <a name="NewProvider"></a>
-### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L29>)
+### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L30>)
 
 ```go
 func NewProvider(provider cryptoprov.Provider) *Provider
@@ -703,25 +691,25 @@ func NewProvider(provider cryptoprov.Provider) *Provider
 NewProvider returns an instance of CSR provider
 
 <a name="Provider.CreateRequestAndExportKey"></a>
-### func \(\*Provider\) [CreateRequestAndExportKey](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L52>)
+### func \(\*Provider\) [CreateRequestAndExportKey](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L55>)
 
 ```go
-func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, key []byte, keyID string, pub crypto.PublicKey, err error)
+func (c *Provider) CreateRequestAndExportKey(ctx context.Context, req *CertificateRequest) (csrPEM, key []byte, keyID string, pub crypto.PublicKey, err error)
 ```
 
-CreateRequestAndExportKey takes a certificate request and generates a key and CSR from it.
+CreateRequestAndExportKey takes a certificate request and generates a key and CSR from it. key is what loads the key again: its PEM encoding from a provider with exportable keys, otherwise its pkcs11: URI. ctx is for the provider that generates and exports the key.
 
 <a name="Provider.GenerateKeyAndRequest"></a>
-### func \(\*Provider\) [GenerateKeyAndRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L93>)
+### func \(\*Provider\) [GenerateKeyAndRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L97>)
 
 ```go
-func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte, priv crypto.PrivateKey, keyID string, err error)
+func (c *Provider) GenerateKeyAndRequest(ctx context.Context, req *CertificateRequest) (csrPEM []byte, priv crypto.PrivateKey, keyID string, err error)
 ```
 
-GenerateKeyAndRequest takes a certificate request and generates a key and CSR from it.
+GenerateKeyAndRequest takes a certificate request and generates a key and CSR from it. ctx is for the provider that generates the key; the CSR is signed through crypto.Signer, which has no context.
 
 <a name="Provider.NewKeyRequest"></a>
-### func \(\*Provider\) [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L199>)
+### func \(\*Provider\) [NewKeyRequest](<https://github.com/effective-security/xpki/blob/main/csr/keyreq.go#L183>)
 
 ```go
 func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPurpose) *KeyRequest
@@ -730,7 +718,7 @@ func (c *Provider) NewKeyRequest(label, algo string, keySize int, purpose KeyPur
 NewKeyRequest returns KeyRequest from given parameters
 
 <a name="Provider.NewSigningCertificateRequest"></a>
-### func \(\*Provider\) [NewSigningCertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L36-L41>)
+### func \(\*Provider\) [NewSigningCertificateRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L37-L42>)
 
 ```go
 func (c *Provider) NewSigningCertificateRequest(keyLabel, algo string, keySize int, CN string, names []X509Name, san []string) *CertificateRequest
@@ -739,7 +727,7 @@ func (c *Provider) NewSigningCertificateRequest(keyLabel, algo string, keySize i
 NewSigningCertificateRequest creates new request for signing certificate
 
 <a name="Provider.SignRequest"></a>
-### func \(\*Provider\) [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L132>)
+### func \(\*Provider\) [SignRequest](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L136>)
 
 ```go
 func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) (csrPEM []byte, err error)
@@ -748,7 +736,7 @@ func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) 
 SignRequest signs a certificate request with priv. req.SAN is parsed by ParseSAN, so an invalid name fails the request instead of being skipped and duplicates are dropped \(XPKI\-059\); the signature algorithm is DefaultSigAlgo\(priv\).
 
 <a name="SAN"></a>
-## type [SAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L21-L26>)
+## type [SAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L20-L25>)
 
 SAN holds subject alternative names classified by type, as ParseSAN returns them. Each list keeps the input order without duplicates; a type with no names is nil.
 
@@ -762,7 +750,7 @@ type SAN struct {
 ```
 
 <a name="ParseSAN"></a>
-### func [ParseSAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L61>)
+### func [ParseSAN](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L60>)
 
 ```go
 func ParseSAN(names []string) (*SAN, error)
@@ -775,7 +763,7 @@ Duplicates are dropped and the first occurrence is kept: DNS names and email add
 Every invalid name is reported; the returned error joins them as \`invalid SAN "name": reason\`.
 
 <a name="SAN.Validate"></a>
-### func \(\*SAN\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L144>)
+### func \(\*SAN\) [Validate](<https://github.com/effective-security/xpki/blob/main/csr/san.go#L125>)
 
 ```go
 func (s *SAN) Validate() error
@@ -832,7 +820,7 @@ func (r *SignRequest) SubjectCommonName() string
 SubjectCommonName returns CN in the request
 
 <a name="SignatureAlgorithmer"></a>
-## type [SignatureAlgorithmer](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L205-L207>)
+## type [SignatureAlgorithmer](<https://github.com/effective-security/xpki/blob/main/csr/csrprov.go#L209-L211>)
 
 SignatureAlgorithmer is implemented by a crypto.Signer whose key accepts a single X.509 signature algorithm, such as a KMS key whose algorithm fixes the hash and padding. DefaultSigAlgo returns that algorithm when it is not x509.UnknownSignatureAlgorithm.
 

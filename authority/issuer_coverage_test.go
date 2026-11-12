@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

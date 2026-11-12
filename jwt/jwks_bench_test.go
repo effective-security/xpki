@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/jwt"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
 )

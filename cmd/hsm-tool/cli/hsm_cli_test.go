@@ -11,7 +11,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/x/ctl"
-	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/v2/certutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,7 +170,7 @@ func TestCryptoProv(t *testing.T) {
 }
 
 // TestGenerateMLDSAKeyInmem is the CLI acceptance check for post-quantum
-// keys: "hsm generate --algo ML-DSA --size 65" on the in-memory provider
+// keys: "hsm key generate --algo ML-DSA --size 65" on the in-memory provider
 // prints a PKCS#8 key that parses as ML-DSA-65, and an invalid parameter
 // set is rejected.
 func TestGenerateMLDSAKeyInmem(t *testing.T) {

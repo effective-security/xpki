@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/authority"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/authority"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/oid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ocsp"
@@ -39,13 +39,13 @@ func newRootWithKey(t *testing.T, algo string, size int) (certPEM []byte, signer
 		CommonName: pqRootCN,
 		KeyRequest: csr.NewKeyRequest(prov, "root-"+algo, algo, size, csr.SigningKey),
 	}
-	certPEM, csrPEM, keyPEM, err := authority.NewRoot("ROOT", rootCfg, prov, &req)
+	certPEM, csrPEM, keyPEM, err := authority.NewRoot(t.Context(), "ROOT", rootCfg, prov, &req)
 	require.NoError(t, err)
 	assert.NotEmpty(t, csrPEM)
 
 	providers, err := cryptoprov.New(prov, nil)
 	require.NoError(t, err)
-	signer, err = providers.NewSignerFromPEM(keyPEM)
+	signer, err = providers.NewSignerFromPEM(t.Context(), keyPEM)
 	require.NoError(t, err)
 	return certPEM, signer
 }
@@ -740,7 +740,7 @@ func TestMLDSAKeyUsage(t *testing.T) {
 				},
 			},
 		}
-		_, _, _, err := authority.NewRoot(profileName, cfg, prov, &req)
+		_, _, _, err := authority.NewRoot(t.Context(), profileName, cfg, prov, &req)
 		require.EqualError(t, err, "sign request: profile BAD-ROOT: "+forbiddenMessage+"key encipherment")
 	})
 

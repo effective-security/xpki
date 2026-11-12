@@ -7,10 +7,10 @@ import (
 
 	"uuid"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/oid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -154,16 +154,16 @@ Ewp0cnVzdHkuY29tMRIwEAYDVQQDEwlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEB
 	assert.Equal(t, "unsupported type in PEM: CERTIFICATE", err.Error())
 }
 
-func TestSetSAN(t *testing.T) {
+func TestApplySAN_Kinds(t *testing.T) {
 	template := x509.Certificate{}
 
-	csr.SetSAN(&template, []string{
+	require.NoError(t, csr.ApplySAN(&template, []string{
 		"ekspand.com",
 		"localhost",
 		"127.0.0.1",
 		"::0",
 		"ca@trusty.com",
-	})
+	}))
 	assert.Len(t, template.DNSNames, 2)
 	assert.Len(t, template.EmailAddresses, 1)
 	assert.Len(t, template.IPAddresses, 2)
@@ -210,7 +210,7 @@ func TestCSR(t *testing.T) {
 		KeyRequest: kr,
 	}
 
-	csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+	csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(t.Context(), &req)
 	require.NoError(t, err)
 
 	crt, err := csr.ParsePEM(csrPEM)

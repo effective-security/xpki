@@ -12,9 +12,9 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/go-jose/go-jose/v4"
 )
 
@@ -154,26 +154,30 @@ func LoadProviderConfig(file string) (*ProviderConfig, error) {
 	return &config, nil
 }
 
-// LoadProvider returns new provider
-func LoadProvider(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error) {
+// LoadProvider returns new provider from the configuration in cfgfile, see
+// NewProvider.
+func LoadProvider(ctx context.Context, cfgfile string, crypto *cryptoprov.Crypto) (Provider, error) {
 	cfg, err := LoadProviderConfig(cfgfile)
 	if err != nil {
 		return nil, err
 	}
-	return NewProvider(cfg, crypto)
+	return NewProvider(ctx, cfg, crypto)
 }
 
-// MustNewProvider returns new provider
-func MustNewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) Provider {
-	p, err := NewProvider(cfg, crypto, ops...)
+// MustNewProvider returns new provider, see NewProvider, and panics when it
+// cannot be created.
+func MustNewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) Provider {
+	p, err := NewProvider(ctx, cfg, crypto, ops...)
 	if err != nil {
 		logger.Panicf("unable to create provider: %+v", err)
 	}
 	return p
 }
 
-// NewProvider returns new provider that supports, both Signer and Parser
-func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error) {
+// NewProvider returns new provider that supports, both Signer and Parser.
+// ctx is for the crypto provider that resolves a pkcs11: URI in
+// cfg.PrivateKey (cryptoprov.Crypto.LoadPrivateKey); it is not kept.
+func NewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error) {
 	p := &provider{
 		issuer:      cfg.Issuer,
 		kid:         cfg.KeyID,
@@ -195,7 +199,7 @@ func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) 
 		if crypto == nil {
 			return nil, errors.Errorf("Crypto provider not provided to load private key")
 		}
-		signer, err := crypto.NewSignerFromPEM([]byte(cfg.PrivateKey))
+		signer, err := crypto.NewSignerFromPEM(ctx, []byte(cfg.PrivateKey))
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to load private key")
 		}

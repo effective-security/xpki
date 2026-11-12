@@ -3,7 +3,6 @@ package inmemcrypto_test
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
@@ -14,7 +13,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,11 +31,24 @@ const (
 
 func TestConcurrentKeyOperations(t *testing.T) {
 	p := inmemcrypto.NewProvider()
-	existingEC, err := p.GenerateECDSAKey("existing-ec", elliptic.P256())
+	existingEC, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "existing-ec",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(t, err)
-	existingRSA, err := p.GenerateRSAKey("existing-rsa", rsaKeyBits, signPurpose)
+	existingRSA, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "existing-rsa",
+		Type:  certutil.KeyTypeRSA,
+		Size:  rsaKeyBits,
+		Usage: cryptoprov.KeyUsage(signPurpose),
+	})
 	require.NoError(t, err)
-	existingMLDSA, err := p.GenerateMLDSAKey("existing-mldsa", mldsa.MLDSA65())
+	existingMLDSA, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "existing-mldsa",
+		Type:  certutil.KeyTypeMLDSA,
+		Size:  cryptoprov.MLDSA65,
+	})
 	require.NoError(t, err)
 
 	type generatedKey struct {
@@ -58,10 +72,10 @@ func TestConcurrentKeyOperations(t *testing.T) {
 				checkStoredKey(t, p, existingEC, "existing-ec")
 				checkStoredKey(t, p, existingRSA, "existing-rsa")
 				checkStoredKey(t, p, existingMLDSA, "existing-mldsa")
-				key, err := p.GetKey(missingKeyID)
+				key, err := p.GetKey(t.Context(), missingKeyID)
 				assert.EqualError(t, err, "key not found: missing-key: key not found: missing-key")
 				assert.True(t, key == nil, "missing key must return nil")
-				uri, keyBytes, err := p.ExportKey(missingKeyID)
+				uri, keyBytes, err := p.ExportKey(t.Context(), missingKeyID)
 				assert.EqualError(t, err, "unable to get key: missing-key: key not found: missing-key")
 				assert.Empty(t, uri)
 				assert.True(t, keyBytes == nil, "missing key must not export bytes")
@@ -83,11 +97,24 @@ func TestConcurrentKeyOperations(t *testing.T) {
 				result.label = fmt.Sprintf("worker-%d-key-%d", worker, i)
 				switch worker {
 				case 0:
-					result.key, result.err = p.GenerateRSAKey(result.label, rsaKeyBits, signPurpose)
+					result.key, result.err = p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+						Label: result.label,
+						Type:  certutil.KeyTypeRSA,
+						Size:  rsaKeyBits,
+						Usage: cryptoprov.KeyUsage(signPurpose),
+					})
 				case 1:
-					result.key, result.err = p.GenerateMLDSAKey(result.label, mldsa.MLDSA44())
+					result.key, result.err = p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+						Label: result.label,
+						Type:  certutil.KeyTypeMLDSA,
+						Size:  cryptoprov.MLDSA44,
+					})
 				default:
-					result.key, result.err = p.GenerateECDSAKey(result.label, elliptic.P256())
+					result.key, result.err = p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+						Label: result.label,
+						Type:  certutil.KeyTypeECDSA,
+						Size:  256,
+					})
 				}
 				if assert.NoError(t, result.err) {
 					checkStoredKey(t, p, result.key, result.label)
@@ -106,7 +133,7 @@ func TestConcurrentKeyOperations(t *testing.T) {
 		require.NoError(t, result.err)
 		exported := checkStoredKey(t, p, result.key, result.label)
 		require.NotNil(t, exported)
-		id, _, err := p.IdentifyKey(result.key)
+		id, _, err := p.IdentifyKey(t.Context(), result.key)
 		require.NoError(t, err)
 		assert.NotContains(t, ids, id, "generated key ID must be unique")
 		ids[id] = struct{}{}
@@ -122,18 +149,18 @@ func TestConcurrentKeyOperations(t *testing.T) {
 // Private key bytes are never included in failure messages.
 func checkStoredKey(t *testing.T, p *inmemcrypto.Provider, key crypto.PrivateKey, label string) crypto.Signer {
 	t.Helper()
-	id, actualLabel, err := p.IdentifyKey(key)
+	id, actualLabel, err := p.IdentifyKey(t.Context(), key)
 	if !assert.NoError(t, err) {
 		return nil
 	}
 	assert.NotEmpty(t, id)
 	assert.Equal(t, label, actualLabel)
-	stored, err := p.GetKey(id)
+	stored, err := p.GetKey(t.Context(), id)
 	if !assert.NoError(t, err) {
 		return nil
 	}
 	assert.True(t, key == stored, "lookup must return the registered signer")
-	uri, keyBytes, err := p.ExportKey(id)
+	uri, keyBytes, err := p.ExportKey(t.Context(), id)
 	if !assert.NoError(t, err) {
 		return nil
 	}
@@ -212,14 +239,18 @@ func checkSignature(t *testing.T, signer crypto.Signer, publicKey crypto.PublicK
 
 func BenchmarkGetKey(b *testing.B) {
 	p := inmemcrypto.NewProvider()
-	key, err := p.GenerateECDSAKey("benchmark", elliptic.P256())
+	key, err := p.GenerateKey(b.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "benchmark",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(b, err)
-	id, _, err := p.IdentifyKey(key)
+	id, _, err := p.IdentifyKey(b.Context(), key)
 	require.NoError(b, err)
 	b.Run("hit", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			stored, err := p.GetKey(id)
+			stored, err := p.GetKey(b.Context(), id)
 			if err != nil || stored != key {
 				b.Fatal("lookup did not return the registered signer")
 			}
@@ -228,7 +259,7 @@ func BenchmarkGetKey(b *testing.B) {
 	b.Run("miss", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			stored, err := p.GetKey(missingKeyID)
+			stored, err := p.GetKey(b.Context(), missingKeyID)
 			if err == nil || stored != nil {
 				b.Fatal("missing-key lookup must return an error and no key")
 			}

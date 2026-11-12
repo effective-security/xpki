@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/authority"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/authority"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ocsp"
@@ -29,7 +29,7 @@ func (s *testSuite) TestNewIssuer() {
 			continue
 		}
 
-		issuer, err := authority.NewIssuer(&isscfg, s.crypto)
+		issuer, err := authority.NewIssuer(s.T().Context(), &isscfg, s.crypto)
 		s.Require().NoError(err)
 
 		s.NotNil(issuer.Bundle())
@@ -57,14 +57,14 @@ func (s *testSuite) TestNewIssuerErrors() {
 		KeyFile: "not_found",
 		AIA:     aia,
 	}
-	_, err := authority.NewIssuer(cfg, s.crypto)
+	_, err := authority.NewIssuer(s.T().Context(), cfg, s.crypto)
 	s.EqualError(err, `unable to create signer: load key file: open not_found: no such file or directory`)
 
 	cfg = &authority.IssuerConfig{
 		KeyFile:  ca2KeyFile,
 		CertFile: "not_found",
 	}
-	_, err = authority.NewIssuer(cfg, s.crypto)
+	_, err = authority.NewIssuer(s.T().Context(), cfg, s.crypto)
 	s.EqualError(err, `failed to load cert: open not_found: no such file or directory`)
 
 	cfg = &authority.IssuerConfig{
@@ -73,7 +73,7 @@ func (s *testSuite) TestNewIssuerErrors() {
 		CABundleFile:   ca1CertFile,
 		RootBundleFile: "not_found",
 	}
-	_, err = authority.NewIssuer(cfg, s.crypto)
+	_, err = authority.NewIssuer(s.T().Context(), cfg, s.crypto)
 	s.EqualError(err, `failed to load root-bundle: open not_found: no such file or directory`)
 
 	cfg = &authority.IssuerConfig{
@@ -82,7 +82,7 @@ func (s *testSuite) TestNewIssuerErrors() {
 		CABundleFile:   "not_found",
 		RootBundleFile: rootBundleFile,
 	}
-	_, err = authority.NewIssuer(cfg, s.crypto)
+	_, err = authority.NewIssuer(s.T().Context(), cfg, s.crypto)
 	s.EqualError(err, `failed to load ca-bundle: open not_found: no such file or directory`)
 }
 
@@ -125,7 +125,7 @@ func TestNewIssuerDelegatedOCSP(t *testing.T) {
 	var issuer *authority.Issuer
 	go func() {
 		defer close(done)
-		issuer, err = authority.NewIssuer(cfg, prov)
+		issuer, err = authority.NewIssuer(t.Context(), cfg, prov)
 	}()
 	select {
 	case <-done:

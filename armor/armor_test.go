@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/effective-security/xpki/armor"
+	"github.com/effective-security/xpki/v2/armor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

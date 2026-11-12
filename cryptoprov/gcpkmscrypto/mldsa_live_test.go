@@ -1,6 +1,7 @@
 package gcpkmscrypto_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/mldsa"
 	"crypto/rand"
@@ -12,9 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,12 +52,21 @@ func TestLiveKMSMLDSA(t *testing.T) {
 	for _, params := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		t.Run(params.String(), func(t *testing.T) {
 			label := "xpki-live-" + strings.ToLower(params.String())
-			priv, err := provider.GenerateMLDSAKey(label, params)
+			priv, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: label,
+				Type:  certutil.KeyTypeMLDSA,
+				Size:  cryptoprov.MLDSASize(params),
+			})
+			if errors.Is(err, cryptoprov.ErrNotSupported) {
+				// as on 2026-11-12: no ML-DSA algorithm at the HSM
+				// protection level, which is the one genKey asks for
+				t.Skipf("Cloud KMS does not offer %s for HSM keys in this key ring: %v", params, err)
+			}
 			require.NoError(t, err)
-			keyID, _, err := provider.IdentifyKey(priv)
+			keyID, _, err := provider.IdentifyKey(t.Context(), priv)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				assert.NoError(t, manager.DestroyKeyPairOnSlot(manager.CurrentSlotID(), keyID),
+				assert.NoError(t, manager.DestroyKey(context.Background(), keyID),
 					"key %s is left in the key ring", keyID)
 			})
 
@@ -65,7 +76,7 @@ func TestLiveKMSMLDSA(t *testing.T) {
 			assert.Equal(t, params, pub.Parameters())
 			verifyLiveMLDSASigner(t, signer, pub)
 
-			loaded, err := provider.GetKey(keyID)
+			loaded, err := provider.GetKey(t.Context(), keyID)
 			require.NoError(t, err)
 			loadedSigner := loaded.(crypto.Signer)
 			assert.True(t, pub.Equal(loadedSigner.Public()))
@@ -73,7 +84,7 @@ func TestLiveKMSMLDSA(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, mldsa.Verify(pub, []byte(label), sig, nil))
 
-			info, err := manager.KeyInfo(manager.CurrentSlotID(), keyID, true)
+			info, err := manager.KeyInfo(t.Context(), keyID, keyFieldsPublic)
 			require.NoError(t, err)
 			assert.Equal(t, certutil.KeyTypeMLDSA, info.Type)
 			assert.Equal(t, params.String(), info.Meta[cryptoprov.MetaParameterSet])

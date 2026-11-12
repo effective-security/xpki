@@ -3,7 +3,7 @@
 # oauth2client
 
 ```go
-import "github.com/effective-security/xpki/jwt/oauth2client"
+import "github.com/effective-security/xpki/v2/jwt/oauth2client"
 ```
 
 Package oauth2client holds the configuration model and registry for OAuth2 and OpenID Connect identity\-provider clients, looked up by provider id, email or email domain, and a helper to build token\-endpoint requests. It does not run the authorization\-code flow itself.

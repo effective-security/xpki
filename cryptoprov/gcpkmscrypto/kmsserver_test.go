@@ -10,6 +10,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"maps"
 	"net"
 	"regexp"
 	"slices"
@@ -20,7 +21,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
@@ -40,6 +41,8 @@ const (
 	// fakeVersionPageSize caps a ListCryptoKeyVersions page, so a client that
 	// leaves PageSize at zero must follow page tokens.
 	fakeVersionPageSize = 2
+	// fakeKeyPageSize is the ListCryptoKeys page size without PageSize.
+	fakeKeyPageSize = 100
 )
 
 // KMS limits on a CryptoKey id and a label key or value.
@@ -81,6 +84,11 @@ type fakeKMSServer struct {
 
 	calls     []string
 	createIDs []string
+	// listRequests are the ListCryptoKeys requests so far.
+	listRequests []*kmspb.ListCryptoKeysRequest
+	// versionListErrors are returned by ListCryptoKeyVersions for the key
+	// resource names they are keyed by.
+	versionListErrors map[string]error
 }
 
 func newFakeKMSServer() *fakeKMSServer {
@@ -375,21 +383,174 @@ func (s *fakeKMSServer) GetCryptoKey(_ context.Context, req *kmspb.GetCryptoKeyR
 	return proto.Clone(key).(*kmspb.CryptoKey), nil
 }
 
+// FailCreate makes the next CreateCryptoKey calls fail with errs, in order.
+func (s *fakeKMSServer) FailCreate(errs ...error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.createErrors = append(s.createErrors, errs...)
+}
+
+// FailVersionListing makes ListCryptoKeyVersions of the key resource name
+// fail with err.
+func (s *fakeKMSServer) FailVersionListing(name string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.versionListErrors == nil {
+		s.versionListErrors = map[string]error{}
+	}
+	s.versionListErrors[name] = err
+}
+
+// ListRequests returns the ListCryptoKeys requests so far.
+func (s *fakeKMSServer) ListRequests() []*kmspb.ListCryptoKeysRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.listRequests)
+}
+
+// SetLabels replaces the labels of the key resource name.
+func (s *fakeKMSServer) SetLabels(t *testing.T, name string, labels map[string]string) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	require.Contains(t, s.keys, name)
+	s.keys[name].Labels = labels
+}
+
+// AddSymmetricKey creates the ENCRYPT_DECRYPT key id in testKeyring, whose
+// primary version is in state, and returns the key's resource name.
+func (s *fakeKMSServer) AddSymmetricKey(t *testing.T, id, label string, state kmspb.CryptoKeyVersion_CryptoKeyVersionState) string {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name := testKeyring + cryptoKeysPath + id
+	require.NotContains(t, s.keys, name)
+	s.keys[name] = &kmspb.CryptoKey{
+		Name:       name,
+		Purpose:    kmspb.CryptoKey_ENCRYPT_DECRYPT,
+		CreateTime: timestamppb.Now(),
+		VersionTemplate: &kmspb.CryptoKeyVersionTemplate{
+			Algorithm:       kmspb.CryptoKeyVersion_GOOGLE_SYMMETRIC_ENCRYPTION,
+			ProtectionLevel: kmspb.ProtectionLevel_SOFTWARE,
+		},
+		Labels: map[string]string{
+			"label": label,
+		},
+		Primary: &kmspb.CryptoKeyVersion{
+			Name:      name + "/cryptoKeyVersions/1",
+			State:     state,
+			Algorithm: kmspb.CryptoKeyVersion_GOOGLE_SYMMETRIC_ENCRYPTION,
+		},
+	}
+	return name
+}
+
+// AddForeignKey creates the signing key id in testKeyring with one ENABLED
+// version of an algorithm the fake has no key material for, such as
+// secp256k1: it can be listed and described, not used.
+func (s *fakeKMSServer) AddForeignKey(t *testing.T, id string, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm, label string) string {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name := testKeyring + cryptoKeysPath + id
+	require.NotContains(t, s.keys, name)
+	s.keys[name] = &kmspb.CryptoKey{
+		Name:       name,
+		Purpose:    kmspb.CryptoKey_ASYMMETRIC_SIGN,
+		CreateTime: timestamppb.Now(),
+		VersionTemplate: &kmspb.CryptoKeyVersionTemplate{
+			Algorithm:       algorithm,
+			ProtectionLevel: kmspb.ProtectionLevel_HSM,
+		},
+		Labels: map[string]string{
+			"label": label,
+		},
+	}
+	s.versions[name] = append(s.versions[name], &fakeVersion{
+		pb: &kmspb.CryptoKeyVersion{
+			Name:            name + versionsPath + "1",
+			State:           kmspb.CryptoKeyVersion_ENABLED,
+			Algorithm:       algorithm,
+			ProtectionLevel: kmspb.ProtectionLevel_HSM,
+			CreateTime:      timestamppb.Now(),
+		},
+	})
+	return name
+}
+
+// matchListFilter reports whether key passes filter, in the forms the KMS
+// documentation gives for labels: "labels.k=v" for an exact value and
+// "labels.k:v" for a case-insensitive substring, joined with " AND ". Any
+// other filter is an error, so a test sees a form the provider should not
+// send.
+func matchListFilter(filter string, key *kmspb.CryptoKey) (bool, error) {
+	if filter == "" {
+		return true, nil
+	}
+	for term := range strings.SplitSeq(filter, " AND ") {
+		field, ok := strings.CutPrefix(term, "labels.")
+		if !ok {
+			return false, status.Errorf(codes.InvalidArgument, "unsupported filter %q", term)
+		}
+		if name, value, ok := strings.Cut(field, "="); ok {
+			if got, has := key.GetLabels()[name]; !has || got != value {
+				return false, nil
+			}
+			continue
+		}
+		name, value, ok := strings.Cut(field, ":")
+		if !ok {
+			return false, status.Errorf(codes.InvalidArgument, "unsupported filter %q", term)
+		}
+		if !strings.Contains(strings.ToLower(key.GetLabels()[name]), strings.ToLower(value)) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// ListCryptoKeys lists the keys of the parent in name order that pass the
+// filter (matchListFilter), PageSize at most and fakeKeyPageSize by default;
+// the page token is the index of the next key.
 func (s *fakeKMSServer) ListCryptoKeys(_ context.Context, req *kmspb.ListCryptoKeysRequest) (*kmspb.ListCryptoKeysResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.record("ListCryptoKeys")
-	resp := &kmspb.ListCryptoKeysResponse{}
-	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for name := range s.keys {
-			if !yield(name) {
-				return
-			}
+	s.listRequests = append(s.listRequests, proto.Clone(req).(*kmspb.ListCryptoKeysRequest))
+
+	var matched []*kmspb.CryptoKey
+	for _, name := range slices.Sorted(maps.Keys(s.keys)) {
+		if !strings.HasPrefix(name, req.GetParent()+cryptoKeysPath) {
+			continue
 		}
-	}) {
-		if strings.HasPrefix(name, req.GetParent()+cryptoKeysPath) {
-			resp.CryptoKeys = append(resp.CryptoKeys, proto.Clone(s.keys[name]).(*kmspb.CryptoKey))
+		ok, err := matchListFilter(req.GetFilter(), s.keys[name])
+		if err != nil {
+			return nil, err
 		}
+		if ok {
+			matched = append(matched, s.keys[name])
+		}
+	}
+	start := 0
+	if token := req.GetPageToken(); token != "" {
+		var err error
+		if start, err = strconv.Atoi(token); err != nil || start < 0 || start > len(matched) {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid page token %q", token)
+		}
+	}
+	size := int(req.GetPageSize())
+	if size <= 0 {
+		size = fakeKeyPageSize
+	}
+	end := min(start+size, len(matched))
+	resp := &kmspb.ListCryptoKeysResponse{
+		TotalSize: int32(len(matched)),
+	}
+	for _, key := range matched[start:end] {
+		resp.CryptoKeys = append(resp.CryptoKeys, proto.Clone(key).(*kmspb.CryptoKey))
+	}
+	if end < len(matched) {
+		resp.NextPageToken = strconv.Itoa(end)
 	}
 	return resp, nil
 }
@@ -416,6 +577,9 @@ func (s *fakeKMSServer) ListCryptoKeyVersions(_ context.Context, req *kmspb.List
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.record("ListCryptoKeyVersions")
+	if err := s.versionListErrors[req.GetParent()]; err != nil {
+		return nil, err
+	}
 	if _, ok := s.keys[req.GetParent()]; !ok {
 		return nil, status.Errorf(codes.NotFound, "crypto key %q not found", req.GetParent())
 	}

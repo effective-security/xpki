@@ -11,6 +11,13 @@ which adds the `csr` constants, parameter validation and
 `IsPostQuantumAlgo`; its review notes that key generation is not
 implemented, which this document plans.
 
+> **v2 note.** This document records the v1.1 work. In v2 the three
+> generator methods of `cryptoprov.KeyGenerator`, `GenerateMLDSAKey` among
+> them, became one `GenerateKey(ctx, *GenerateKeyRequest)` with
+> `Type: certutil.KeyTypeMLDSA` and `Size: 44, 65 or 87`, and `EnumKeys`
+> became `ListKeys`; see [keymanager.md](keymanager.md). The names below are
+> the v1.1 ones.
+
 ## Status (v1.1)
 
 Implemented in v1.1 and summarized in
@@ -48,6 +55,17 @@ shapes on the live service. On 2026-11-09 `crypto11` passed
 `TestMLDSAOnPKCS11v32Token` on a Kryoptic 1.5.4 token, and the AWS request shapes
 passed `TestLiveKMSMLDSA` against the live service.
 
+Google Cloud KMS cannot be confirmed for now. `gcpkmscrypto` creates HSM keys
+only, and on 2026-11-12 the service (`us-central1`) refused all three
+`PQ_SIGN_ML_DSA_*_EXTERNAL_MU` algorithms with `INVALID_ARGUMENT`, "not
+supported for protection level: HSM" (reason
+`ALGORITHM_NOT_SUPPORTED_FOR_PROTECTION_LEVEL`); its
+[algorithms page](https://docs.cloud.google.com/kms/docs/algorithms) lists
+ML-DSA under the `software` protection level only. `GenerateKey` returns that
+refusal as `cryptoprov.ErrNotSupported` (`createKeyError`), and
+`TestLiveKMSMLDSA` skips on it. Loading and signing with an ML-DSA key that
+exists in a key ring is unchanged and runs against the in-process KMS only.
+
 These deviate from the recommendations below:
 
 - **D1**: `GenerateMLDSAKey` was folded into `cryptoprov.KeyGenerator`
@@ -81,7 +99,8 @@ In scope for the first milestone:
   detached proofs, key info and PEM round trips with ML-DSA keys.
 - Detection helpers: by algorithm name (`csr.IsPostQuantumAlgo`) and by
   key or certificate (`certutil`).
-- CLI (`hsm-tool hsm generate --algo ML-DSA --size 65`) and documentation.
+- CLI (`hsm-tool hsm key generate --algo ML-DSA --size 65`; `hsm generate`
+  before v2) and documentation.
 
 Second milestone: ML-DSA in `jwt`/`jwt/dpop` (RFC 9964 defines the
 JOSE algorithms `ML-DSA-44/65/87` and the `AKP` key type; go-jose v4.1.9
@@ -253,4 +272,5 @@ module; `crypto/x509` knows the ML-DSA OIDs), `metricskey`,
 - **API drift.** The AWS and GCP request shapes for PQ algorithms (RAW vs
   EXTERNAL_MU, `data` vs `digest`) are taken from the SDK types and
   documentation. AWS passed against the live service on 2026-11-09; GCP is still
-  to confirm (roadmap 3.2).
+  to confirm, and cannot be while Cloud KMS has no ML-DSA for HSM keys
+  (roadmap 3.2).

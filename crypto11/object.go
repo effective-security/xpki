@@ -1,6 +1,7 @@
 package crypto11
 
 import (
+	"context"
 	"slices"
 	"sync"
 
@@ -34,8 +35,8 @@ func (r *objectRef) current() pkcs11.ObjectHandle {
 // and the handle is never refreshed, when the id is empty: a lookup by
 // class alone could bind the object to another key without an id. The
 // identity is kept by the private key types (PKCS11PrivateKeyRSA,
-// PKCS11PrivateKeyECDSA), not by the exported PKCS11Object, whose shape is
-// part of the API.
+// PKCS11PrivateKeyECDSA, PKCS11PrivateKeyMLDSA) and by the object, whose
+// Handle method follows it.
 func (lib *PKCS11Lib) newPrivateKeyObject(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle, slot uint, id []byte) (PKCS11Object, *objectRef, error) {
 	if id == nil {
 		attrs, err := lib.Ctx.GetAttributeValue(session, handle, []*pkcs11.Attribute{
@@ -46,10 +47,6 @@ func (lib *PKCS11Lib) newPrivateKeyObject(session pkcs11.SessionHandle, handle p
 		}
 		id = attrs[0].Value
 	}
-	obj := PKCS11Object{
-		Handle: handle,
-		Slot:   slot,
-	}
 	var ref *objectRef
 	if len(id) > 0 {
 		ref = &objectRef{
@@ -57,6 +54,11 @@ func (lib *PKCS11Lib) newPrivateKeyObject(session pkcs11.SessionHandle, handle p
 			id:     slices.Clone(id), // the caller may reuse its slice
 			handle: handle,
 		}
+	}
+	obj := PKCS11Object{
+		handle: handle,
+		ref:    ref,
+		Slot:   slot,
 	}
 	return obj, ref, nil
 }
@@ -79,8 +81,14 @@ var staleKeyHandleErrors = []pkcs11.Error{
 // every run is a fresh single PKCS#11 operation on the key, so this is safe
 // for Sign, Decrypt and Identify.
 func (lib *PKCS11Lib) withKey(obj *PKCS11Object, ref *objectRef, f func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error) error {
-	return lib.withSession(obj.Slot, func(session pkcs11.SessionHandle) error {
-		handle := obj.Handle
+	return lib.withKeyCtx(context.Background(), obj, ref, f)
+}
+
+// withKeyCtx is withKey with the caller's context, which bounds the wait
+// for a session (withSessionCtx).
+func (lib *PKCS11Lib) withKeyCtx(ctx context.Context, obj *PKCS11Object, ref *objectRef, f func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error) error {
+	return lib.withSessionCtx(ctx, obj.Slot, func(session pkcs11.SessionHandle) error {
+		handle := obj.handle
 		if ref != nil {
 			handle = ref.current()
 		}

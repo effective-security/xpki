@@ -1,6 +1,7 @@
 package crypto11
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -33,10 +34,10 @@ func newReloginLib(t *testing.T, opts ...Option) *PKCS11Lib {
 // genReloginKey generates an ECDSA key on lib, destroyed at cleanup.
 func genReloginKey(t *testing.T, lib *PKCS11Lib) (*PKCS11PrivateKeyECDSA, string) {
 	t.Helper()
-	priv, err := lib.GenerateECDSAKeyPair(elliptic.P256())
+	priv, err := lib.GenerateECDSAKeyPair(t.Context(), elliptic.P256())
 	require.NoError(t, err)
 	keyID := string(mustKeyIDOn(t, lib, priv))
-	t.Cleanup(func() { assert.NoError(t, lib.DestroyKeyPairOnSlot(lib.Slot.id, keyID)) })
+	t.Cleanup(func() { assert.NoError(t, lib.destroyKeyOnSlot(context.Background(), lib.Slot.id, keyID)) })
 	return priv, keyID
 }
 
@@ -75,16 +76,16 @@ func TestRelogin_AfterLogout(t *testing.T) {
 	assert.Equal(t, uint(pkcs11.CKS_RW_USER_FUNCTIONS), sessionState(t, lib, lib.Session))
 }
 
-// EnumKeys lists private keys only when logged in; after a logout it logs
+// ListKeys lists private keys only when logged in; after a logout it logs
 // in again instead of returning an empty list without an error.
-func TestRelogin_EnumKeysAfterLogout(t *testing.T) {
+func TestRelogin_ListKeysAfterLogout(t *testing.T) {
 	requireP11(t)
 	lib := newReloginLib(t)
 	_, keyID := genReloginKey(t, lib)
 
 	require.NoError(t, lib.Ctx.Logout(lib.Session))
 
-	keys, err := lib.EnumKeys(lib.Slot.id, "")
+	keys, err := enumKeys(lib, lib.Slot.id, "")
 	require.NoError(t, err)
 	ids := make([]string, 0, len(keys))
 	for _, k := range keys {
@@ -150,7 +151,7 @@ func TestRelogin_WrongPINIsSticky(t *testing.T) {
 	// state is shared by the process, so the first one works again too
 	lib.Config = cfg
 	lib2 := newReloginLib(t)
-	key, err := lib2.FindKeyPair(keyID, "")
+	key, err := lib2.FindKeyPair(t.Context(), keyID, "")
 	require.NoError(t, err)
 	require.NoError(t, signAndVerify(t, key.(*PKCS11PrivateKeyECDSA), "new lib"))
 	require.NoError(t, signAndVerify(t, priv, "first lib after the other logged in"))
@@ -175,7 +176,7 @@ func TestReloginChild_CloseAllSessions(t *testing.T) {
 	cfg := loadTestConfig(t)
 	lib, err := Init(cfg, WithMaxSessions(4))
 	require.NoError(t, err)
-	priv, err := lib.GenerateECDSAKeyPair(elliptic.P256())
+	priv, err := lib.GenerateECDSAKeyPair(t.Context(), elliptic.P256())
 	require.NoError(t, err)
 	keyID := string(mustKeyIDOn(t, lib, priv))
 	require.NoError(t, signAndVerify(t, priv, "before"))
@@ -186,7 +187,7 @@ func TestReloginChild_CloseAllSessions(t *testing.T) {
 
 	require.NoError(t, signAndVerify(t, priv, "after reinsertion"))
 	assert.Equal(t, uint(pkcs11.CKS_RW_USER_FUNCTIONS), sessionState(t, lib, lib.Session))
-	keys, err := lib.EnumKeys(lib.Slot.id, "")
+	keys, err := enumKeys(lib, lib.Slot.id, "")
 	require.NoError(t, err)
 	found := false
 	for _, k := range keys {
@@ -194,6 +195,6 @@ func TestReloginChild_CloseAllSessions(t *testing.T) {
 	}
 	assert.True(t, found, "private key must be listed after re-login")
 
-	require.NoError(t, lib.DestroyKeyPairOnSlot(lib.Slot.id, keyID))
+	require.NoError(t, lib.destroyKeyOnSlot(context.Background(), lib.Slot.id, keyID))
 	require.NoError(t, lib.Close())
 }

@@ -2,13 +2,14 @@ package gcpkmscrypto_test
 
 import (
 	"context"
-	"crypto/elliptic"
 	"fmt"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 )
 
 // BenchmarkGenerateKeyWait measures key generation over a fake client whose
@@ -45,7 +46,11 @@ func BenchmarkGenerateKeyWait(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				remaining = pending
-				if _, err := provider.GenerateECDSAKey("bench", elliptic.P256()); err != nil {
+				if _, err := provider.GenerateKey(b.Context(), &cryptoprov.GenerateKeyRequest{
+					Label: "bench",
+					Type:  certutil.KeyTypeECDSA,
+					Size:  256,
+				}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -72,7 +77,11 @@ func BenchmarkGenerateKeyCloseLatency(b *testing.B) {
 		gcpkmscrypto.SetGenerationWait(provider, time.Hour, 60, nil)
 		done := make(chan error, 1)
 		go func() {
-			_, err := provider.GenerateECDSAKey("bench", elliptic.P256())
+			_, err := provider.GenerateKey(b.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "bench",
+				Type:  certutil.KeyTypeECDSA,
+				Size:  256,
+			})
 			done <- err
 		}()
 		<-polled

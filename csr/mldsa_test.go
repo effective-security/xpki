@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ func TestMLDSAKeyAndRequest(t *testing.T) {
 				[]csr.X509Name{{Organization: "xpki"}}, []string{"pq.example.com", "10.0.0.1"})
 			assert.Equal(t, tc.want, req.KeyRequest.SigAlgo())
 
-			csrPEM, keyPEM, keyID, pub, err := prov.CreateRequestAndExportKey(req)
+			csrPEM, keyPEM, keyID, pub, err := prov.CreateRequestAndExportKey(t.Context(), req)
 			require.NoError(t, err)
 			assert.NotEmpty(t, keyID)
 			mlPub, ok := pub.(*mldsa.PublicKey)
@@ -86,7 +86,7 @@ func TestMLDSAKeyAndRequest(t *testing.T) {
 			assert.True(t, certutil.IsPostQuantumCertificate(crt))
 
 			// the provider signer rejects hash-then-sign callers
-			signer, err := prov.NewKeyRequest("again", csr.AlgoMLDSA, tc.size, csr.SigningKey).Generate()
+			signer, err := prov.NewKeyRequest("again", csr.AlgoMLDSA, tc.size, csr.SigningKey).Generate(t.Context())
 			require.NoError(t, err)
 			_, err = signer.(crypto.Signer).Sign(rand.Reader, make([]byte, 32), crypto.SHA256)
 			require.EqualError(t, err, "ML-DSA signs a message, not a digest: unsupported signer options SHA-256")

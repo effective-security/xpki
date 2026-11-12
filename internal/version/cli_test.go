@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/effective-security/xpki/internal/testenv"
+	"github.com/effective-security/xpki/v2/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +35,7 @@ func TestCLIVersion(t *testing.T) {
 
 			bin := filepath.Join(dir, name+"-linker")
 			goRun(t, goBin, "build", "-ldflags",
-				"-X github.com/effective-security/xpki/internal/version.build=v1.2.3-test",
+				"-X github.com/effective-security/xpki/v2/internal/version.build=v1.2.3-test",
 				"-o", bin, pkg)
 			assert.Equal(t, "v1.2.3-test\n", goRun(t, bin, "--version"))
 

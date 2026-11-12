@@ -5,7 +5,7 @@ import (
 	"encoding/pem"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/x/print"
+	"github.com/effective-security/xpki/v2/x/print"
 )
 
 // CsrInfoCmd specifies flags for Info command

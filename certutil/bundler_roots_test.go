@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,11 +115,11 @@ func TestNewBundlerTrustRoots(t *testing.T) {
 		assert.Nil(t, b)
 	})
 
-	t.Run("RootPool cleared after construction", func(t *testing.T) {
+	t.Run("no root pool", func(t *testing.T) {
 		t.Parallel()
 		b, err := certutil.NewBundler([]*x509.Certificate{root.Certificate}, nil)
 		require.NoError(t, err)
-		b.RootPool = nil
+		certutil.ClearRoots(b)
 		chain, err := b.Bundle(input, nil)
 		require.EqualError(t, err, "no trust roots configured")
 		assert.Nil(t, chain)

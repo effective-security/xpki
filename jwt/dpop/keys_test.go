@@ -5,7 +5,7 @@ import (
 	"path"
 	"testing"
 
-	"github.com/effective-security/xpki/jwt/dpop"
+	"github.com/effective-security/xpki/v2/jwt/dpop"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

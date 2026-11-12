@@ -3,7 +3,7 @@
 # testca
 
 ```go
-import "github.com/effective-security/xpki/testca"
+import "github.com/effective-security/xpki/v2/testca"
 ```
 
 Package testca provides utilities for creating test Certificate Authorities and certificates for testing and development purposes.

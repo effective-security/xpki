@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/aws/smithy-go"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ import (
 func signerFor(t *testing.T, client *fakeKMS, spec types.KeySpec) (*awskmscrypto.Signer, string) {
 	t.Helper()
 	keyID := client.mustAddKey(t, "label", spec, types.KeyUsageTypeSignVerify)
-	priv, err := newProvider(t, client).GetKey(keyID)
+	priv, err := newProvider(t, client).GetKey(t.Context(), keyID)
 	require.NoError(t, err)
 	signer, ok := priv.(*awskmscrypto.Signer)
 	require.True(t, ok)

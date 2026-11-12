@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,7 +85,7 @@ func TestBundlerAIA(t *testing.T) {
 			assert.Equal(t, []*x509.Certificate{leaf.Certificate, intermediate.Certificate}, chain.Chain)
 			assert.Same(t, root.Certificate, chain.Root)
 			assert.ElementsMatch(t, []string{leafName, "www.example.test"}, chain.Hostnames)
-			assert.True(t, b.KnownIssuers[string(intermediate.Certificate.Signature)])
+			assert.True(t, b.IsKnownIssuer(intermediate.Certificate))
 			files, err := os.ReadDir(certutil.IntermediateStash)
 			require.NoError(t, err)
 			require.Len(t, files, 1)

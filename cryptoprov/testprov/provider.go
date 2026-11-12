@@ -1,6 +1,7 @@
 package testprov
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,43 +10,90 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"uuid"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 )
 
 // inMemProv stores keyID to signer mapping in memory. Private keys are not exportable.
 type inMemProv struct {
 	mu         sync.RWMutex
 	keyIDToPvk map[string]crypto.PrivateKey
+	// order has the key ids in the order they were registered, which is the
+	// order of a listing.
+	order []string
 }
 
 // registerKey registers key for the given id in HSM
 func (h *inMemProv) registerKey(keyID string, pvk crypto.PrivateKey) {
 	h.mu.Lock()
+	if _, ok := h.keyIDToPvk[keyID]; !ok {
+		h.order = append(h.order, keyID)
+	}
 	h.keyIDToPvk[keyID] = pvk
 	h.mu.Unlock()
 }
 
-// getKey returns the registered signer for the given key id.
+// getKey returns the registered signer for the given key id, or a wrapped
+// cryptoprov.ErrKeyNotFound.
 func (h *inMemProv) getKey(keyID string) (crypto.PrivateKey, error) {
 	h.mu.RLock()
 	pvk, ok := h.keyIDToPvk[keyID]
 	h.mu.RUnlock()
 	if !ok {
-		return nil, errors.Errorf("key not found: %s", keyID)
+		return nil, errKeyNotFound(keyID)
 	}
 	return pvk, nil
 }
 
+// errKeyNotFound returns the error for a key the provider does not have,
+// which errors.Is matches with cryptoprov.ErrKeyNotFound.
+func errKeyNotFound(keyID string) error {
+	return cryptoprov.MarkError(errors.Errorf("key not found: %s", keyID), cryptoprov.ErrKeyNotFound)
+}
+
+// removeKey forgets the key keyID and reports whether it was registered.
+func (h *inMemProv) removeKey(keyID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.keyIDToPvk[keyID]; !ok {
+		return false
+	}
+	delete(h.keyIDToPvk, keyID)
+	h.order = slices.DeleteFunc(h.order, func(id string) bool {
+		return id == keyID
+	})
+	return true
+}
+
+// keys returns the registered keys in registration order.
+func (h *inMemProv) keys() []crypto.PrivateKey {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	list := make([]crypto.PrivateKey, 0, len(h.order))
+	for _, id := range h.order {
+		list = append(list, h.keyIDToPvk[id])
+	}
+	return list
+}
+
+// provImpl is the handle of a key: its fields are set once, before the key
+// is registered.
 type provImpl struct {
-	id    string
-	label string
-	pvk   crypto.PrivateKey
+	id      string
+	label   string
+	pvk     crypto.PrivateKey
+	usage   cryptoprov.KeyUsage
+	tags    map[string]string
+	created time.Time
 }
 
 // KeyID returns key id of the signer
@@ -108,6 +156,33 @@ func (s *provImpl) Decrypt(rand io.Reader, ciphertext []byte, opts crypto.Decryp
 	}
 
 	return nil, errors.Errorf("crypto.Decrypter is not supported")
+}
+
+// info returns the description of the key, with every group a listing can
+// fill; none of them costs anything here.
+func (s *provImpl) info() cryptoprov.KeyInfo {
+	ki := cryptoprov.KeyInfo{
+		ID:    s.id,
+		Label: s.label,
+		Usage: s.usage,
+		State: cryptoprov.KeyStateEnabled,
+		Tags:  maps.Clone(s.tags),
+	}
+	if !s.created.IsZero() {
+		created := s.created
+		ki.CreationTime = &created
+	}
+	pub := s.Public()
+	if info, err := certutil.NewKeyInfo(pub); err == nil {
+		ki.Type = info.Type
+		ki.Size = info.KeySize
+	}
+	if mldsaPub, ok := pub.(*mldsa.PublicKey); ok {
+		ki.Meta = map[string]string{
+			cryptoprov.MetaParameterSet: mldsaPub.Parameters().String(),
+		}
+	}
+	return ki
 }
 
 type rsaKeyGenerator interface {
@@ -212,8 +287,12 @@ func (p *Provider) Serial() string {
 	return "20764350726"
 }
 
-// GetKey returns key for the given id
-func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
+// GetKey returns key for the given id, or a wrapped
+// cryptoprov.ErrKeyNotFound.
+func (p *Provider) GetKey(ctx context.Context, keyID string) (crypto.PrivateKey, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
 	pvk, err := p.inMemProv.getKey(keyID)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "GetKey(%s)", keyID)
@@ -221,38 +300,50 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
 	return pvk, nil
 }
 
-// GenerateRSAKey creates signer using randomly generated RSA key
-func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error) {
-	reader := rand.Reader
-	key, err := p.rsaKeyGenerator.GenerateKey(reader, bits)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "bitSize=%d", bits)
-	}
-
-	if len(label) == 0 {
-		label = uuid.NewV7().String()
-	}
-
-	id := p.Generate()
-
-	si := &provImpl{
-		id:    id,
-		label: label,
-		pvk:   key,
-	}
-	p.inMemProv.registerKey(id, si)
-	return si, nil
-
-}
-
-// GenerateECDSAKey creates signer using randomly generated ECDSA key
-func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error) {
-	reader := rand.Reader
-	key, err := p.ecdsaKeyGenerator.GenerateKey(curve, reader)
-	if err != nil {
+// GenerateKey creates a signer using a randomly generated RSA, ECDSA or
+// ML-DSA key as req describes it (cryptoprov.GenerateKeyRequest.Validate);
+// an ML-DSA signer signs messages, not digests. The usage and the tags are
+// recorded for KeyInfo and ListKeys and are not enforced. An empty label
+// gets a random one.
+func (p *Provider) GenerateKey(ctx context.Context, req *cryptoprov.GenerateKeyRequest) (crypto.PrivateKey, error) {
+	if err := req.Validate(); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
 
+	var (
+		key crypto.PrivateKey
+		err error
+	)
+	switch req.Type {
+	case certutil.KeyTypeRSA:
+		key, err = p.rsaKeyGenerator.GenerateKey(rand.Reader, req.Size)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "bitSize=%d", req.Size)
+		}
+	case certutil.KeyTypeECDSA:
+		var curve elliptic.Curve
+		if curve, err = cryptoprov.ECDSACurve(req.Size); err != nil {
+			return nil, err
+		}
+		key, err = p.ecdsaKeyGenerator.GenerateKey(curve, rand.Reader)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "curve=%d", req.Size)
+		}
+	default: // certutil.KeyTypeMLDSA, the only other type Validate accepts
+		var params mldsa.Parameters
+		if params, err = cryptoprov.MLDSAParameters(req.Size); err != nil {
+			return nil, err
+		}
+		key, err = p.mldsaKeyGenerator.GenerateKey(params)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "parameter set %s", params)
+		}
+	}
+
+	label := req.Label
 	if len(label) == 0 {
 		label = uuid.NewV7().String()
 	}
@@ -260,47 +351,85 @@ func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.
 	id := p.Generate()
 
 	si := &provImpl{
-		id:    id,
-		label: label,
-		pvk:   key,
-	}
-	p.inMemProv.registerKey(id, si)
-	return si, nil
-}
-
-// GenerateMLDSAKey creates a signer using a randomly generated ML-DSA key
-// of params; the signer signs messages, not digests.
-func (p *Provider) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error) {
-	key, err := p.mldsaKeyGenerator.GenerateKey(params)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "parameter set %s", params)
-	}
-
-	if len(label) == 0 {
-		label = uuid.NewV7().String()
-	}
-
-	id := p.Generate()
-
-	si := &provImpl{
-		id:    id,
-		label: label,
-		pvk:   key,
+		id:      id,
+		label:   label,
+		pvk:     key,
+		usage:   req.KeyUsage(),
+		tags:    maps.Clone(req.Tags),
+		created: time.Now().UTC(),
 	}
 	p.inMemProv.registerKey(id, si)
 	return si, nil
 }
 
 // IdentifyKey returns key id and label for the given private key
-func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error) {
+func (p *Provider) IdentifyKey(_ context.Context, priv crypto.PrivateKey) (keyID, label string, err error) {
 	if ki, ok := priv.(*provImpl); ok {
 		return ki.KeyID(), ki.Label(), nil
 	}
 	return "", "", errors.Errorf("unsupported key: %T", priv)
 }
 
+// ListKeys returns a page of the keys in the order they were generated; the
+// page token is an offset in that order (cryptoprov.PageKeys). Every field
+// group is filled whatever req.Fields selects, since none costs a request.
+func (p *Provider) ListKeys(ctx context.Context, req *cryptoprov.ListKeysRequest) (*cryptoprov.ListKeysResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
+	keys := p.inMemProv.keys()
+	infos := make([]cryptoprov.KeyInfo, 0, len(keys))
+	for _, key := range keys {
+		if si, ok := key.(*provImpl); ok {
+			infos = append(infos, si.info())
+		}
+	}
+	return cryptoprov.PageKeys(req, infos)
+}
+
+// KeyInfo describes the key keyID, with its PEM public key when fields has
+// cryptoprov.KeyFieldPublicKey. A key the provider does not have is a
+// wrapped cryptoprov.ErrKeyNotFound.
+func (p *Provider) KeyInfo(ctx context.Context, keyID string, fields cryptoprov.KeyFields) (*cryptoprov.KeyInfo, error) {
+	if err := fields.Validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
+	key, err := p.inMemProv.getKey(keyID)
+	if err != nil {
+		return nil, err
+	}
+	si, ok := key.(*provImpl)
+	if !ok {
+		return nil, errors.Errorf("unsupported key %T: %s", key, keyID)
+	}
+	ki := si.info()
+	if fields.Has(cryptoprov.KeyFieldPublicKey) {
+		pemKey, err := certutil.EncodePublicKeyToPEM(si.Public())
+		if err != nil {
+			return nil, errors.WithMessagef(err, "public key: %s", keyID)
+		}
+		ki.PublicKey = string(pemKey)
+	}
+	return &ki, nil
+}
+
+// DestroyKey forgets the key keyID. Handles returned earlier keep working.
+// A key the provider does not have is a wrapped cryptoprov.ErrKeyNotFound.
+func (p *Provider) DestroyKey(ctx context.Context, keyID string) error {
+	if err := ctx.Err(); err != nil {
+		return errors.WithStack(err)
+	}
+	if !p.inMemProv.removeKey(keyID) {
+		return errKeyNotFound(keyID)
+	}
+	return nil
+}
+
 // ExportKey returns pkcs11 uri for the given key id
-func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
+func (p *Provider) ExportKey(_ context.Context, keyID string) (string, []byte, error) {
 	s, err := p.inMemProv.getKey(keyID)
 	if err != nil {
 		return "", nil, errors.WithMessagef(err, "keyID=%s", keyID)
@@ -321,3 +450,7 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 
 	return uri, nil, nil
 }
+
+// Ensure compiles
+var _ cryptoprov.Provider = (*Provider)(nil)
+var _ cryptoprov.KeyManager = (*Provider)(nil)

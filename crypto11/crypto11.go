@@ -162,18 +162,32 @@ type PKCS11Lib struct {
 
 // PKCS11Object contains a reference to a loaded PKCS#11 object.
 type PKCS11Object struct {
-	// The PKCS#11 object handle at the time the object was found or
-	// generated. A logout, or a token removal, invalidates the handles of
-	// private objects; the keys this package returns remember their CKA_ID,
-	// look their object up again and keep working, while Handle keeps the
-	// original value (XPKI-110).
-	Handle pkcs11.ObjectHandle
+	// handle is the PKCS#11 object handle at the time the object was found
+	// or generated.
+	handle pkcs11.ObjectHandle
+	// ref is the identity of a private key, through which its handle is
+	// looked up again; nil for an object without a CKA_ID.
+	ref *objectRef
 
 	// The PKCS#11 slot number.
 	//
 	// This is used internally to find a session handle that can
 	// access this object.
 	Slot uint
+}
+
+// Handle returns the PKCS#11 object handle of the object as it is now. A
+// logout, or a token removal, invalidates the handles of private objects;
+// the keys this package returns remember their CKA_ID and look their object
+// up again when an operation finds the handle stale, and Handle follows that
+// refresh (XPKI-110). It does not check the handle against the token: after
+// a logout it is the stale one until the next operation on the key. An
+// object without a CKA_ID keeps the handle it was found with.
+func (o *PKCS11Object) Handle() pkcs11.ObjectHandle {
+	if o.ref != nil {
+		return o.ref.current()
+	}
+	return o.handle
 }
 
 // PKCS11PrivateKey contains a reference to a loaded PKCS#11 private key object.

@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

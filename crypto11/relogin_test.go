@@ -405,8 +405,16 @@ func TestClose_DuringRelogin(t *testing.T) {
 // which its handle can be looked up again by CKA_ID.
 func newFakeKeyObject(f *fakeSessions, id string, handle pkcs11.ObjectHandle) (*PKCS11Object, *objectRef) {
 	f.setObject(id, handle)
-	return &PKCS11Object{Handle: handle, Slot: testSlot},
-		&objectRef{class: pkcs11.CKO_PRIVATE_KEY, id: []byte(id), handle: handle}
+	ref := &objectRef{
+		class:  pkcs11.CKO_PRIVATE_KEY,
+		id:     []byte(id),
+		handle: handle,
+	}
+	return &PKCS11Object{
+		handle: handle,
+		ref:    ref,
+		Slot:   testSlot,
+	}, ref
 }
 
 // After a logout a private key handle is invalid for good: the operation
@@ -430,7 +438,8 @@ func TestWithKey_RefreshAfterLogout(t *testing.T) {
 	assert.Equal(t, []pkcs11.ObjectHandle{100, 100, 200}, handles)
 	assert.Equal(t, 1, f.loginCount())
 	assert.Equal(t, pkcs11.ObjectHandle(200), ref.current())
-	assert.Equal(t, pkcs11.ObjectHandle(100), obj.Handle, "the exported handle is not rewritten")
+	assert.Equal(t, pkcs11.ObjectHandle(200), obj.Handle(), "the accessor follows the refresh")
+	assert.Equal(t, pkcs11.ObjectHandle(100), obj.handle, "the handle the object was found with is kept")
 
 	// later operations use the new handle without another lookup
 	finds := f.findCount()
@@ -469,7 +478,8 @@ func TestWithKey_RefreshWhileLoggedIn(t *testing.T) {
 
 	// an object without identity (built outside the package, or without a
 	// CKA_ID) is not refreshed
-	plain := &PKCS11Object{Handle: 500, Slot: testSlot}
+	plain := &PKCS11Object{handle: 500, Slot: testSlot}
+	assert.Equal(t, pkcs11.ObjectHandle(500), plain.Handle())
 	finds := f.findCount()
 	err = lib.withKey(plain, nil, func(pkcs11.SessionHandle, pkcs11.ObjectHandle) error {
 		return pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID)
@@ -552,8 +562,9 @@ func TestNewPrivateKeyObject_Identity(t *testing.T) {
 	id := []byte("caller-id")
 	obj, ref, err := lib.newPrivateKeyObject(0, 7, testSlot, id)
 	require.NoError(t, err)
-	assert.Equal(t, PKCS11Object{Handle: 7, Slot: testSlot}, obj)
 	require.NotNil(t, ref)
+	assert.Equal(t, PKCS11Object{handle: 7, ref: ref, Slot: testSlot}, obj)
+	assert.Equal(t, pkcs11.ObjectHandle(7), obj.Handle())
 	id[0] = 'X'
 	assert.Equal(t, []byte("caller-id"), ref.id, "the caller's slice is copied")
 	assert.Equal(t, pkcs11.ObjectHandle(7), ref.current())

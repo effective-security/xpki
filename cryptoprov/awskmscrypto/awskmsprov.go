@@ -3,24 +3,27 @@ package awskmscrypto
 import (
 	"context"
 	"crypto"
-	"crypto/elliptic"
-	"crypto/mldsa"
 	"crypto/x509"
 	"fmt"
+	"maps"
+	"slices"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	"github.com/aws/smithy-go"
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/metricskey"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/metricskey"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "awskmscrypto")
@@ -28,21 +31,52 @@ var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "awskms
 // ProviderName specifies a provider name
 const ProviderName = "AWSKMS"
 
+// The token config Attributes of the provider, "Name=value" pairs separated
+// by commas.
 const (
-	// attrEndpoint and attrRegion are the token config Attributes.
+	// attrEndpoint is the KMS endpoint URL, for an emulator or a VPC
+	// endpoint, and attrRegion the AWS Region.
 	attrEndpoint = "Endpoint"
 	attrRegion   = "Region"
+	// attrTagSearch, "true" or "false", turns the Resource Groups Tagging
+	// API on: a tag filter is answered by GetResources, GenerateKey writes
+	// the xpki tags, and the xpki-label tag is a second label index. It
+	// needs tag:GetResources and kms:TagResource. attrTaggingEndpoint is the
+	// endpoint URL of that API.
+	attrTagSearch       = "TagSearch"
+	attrTaggingEndpoint = "TaggingEndpoint"
+	// attrLabelSearch selects how a label filter finds keys:
+	// labelSearchIndex (the default) through the alias of the label,
+	// labelSearchScan by describing every key of the account and matching
+	// its description.
+	attrLabelSearch = "LabelSearch"
+	// attrDescribeConcurrency is the number of per-key requests a listing
+	// has in flight at once, 1 to maxDescribeConcurrency.
+	attrDescribeConcurrency = "DescribeConcurrency"
+	// attrMetadataCacheSize is the number of keys whose immutable metadata
+	// the provider remembers; 0 disables the cache.
+	attrMetadataCacheSize = "MetadataCacheSize"
 
-	// purposeEncryption is the GenerateRSAKey purpose of an encryption key,
-	// which this provider does not support (XPKI-031).
-	purposeEncryption = 2
+	labelSearchIndex = "index"
+	labelSearchScan  = "scan"
+)
 
-	// listKeysLimit is the ListKeys page size, the KMS maximum.
-	listKeysLimit = 1000
-	// describeConcurrency is how many DescribeKey calls EnumKeys has in
-	// flight at once (XPKI-032). DescribeKey shares the KMS request quota
-	// with the other management operations, so it is kept small.
-	describeConcurrency = 8
+const (
+	// listKeysLimit is the ListKeys page size, the KMS maximum,
+	// listAliasesLimit the ListAliases one and resourcesPerPage the
+	// GetResources one.
+	listKeysLimit    = 1000
+	listAliasesLimit = 100
+	resourcesPerPage = 100
+	// describeConcurrency is how many per-key requests (DescribeKey,
+	// ListResourceTags) a listing has in flight at once by default
+	// (XPKI-032). They share the KMS request quota with the other management
+	// operations, so it is kept small.
+	describeConcurrency    = 8
+	maxDescribeConcurrency = 64
+	// defaultMetadataCacheSize is the default bound of the immutable
+	// metadata cache, in keys.
+	defaultMetadataCacheSize = 50000
 
 	aliasPrefix         = "alias/"
 	reservedAliasPrefix = "aws/"
@@ -51,52 +85,144 @@ const (
 	// not modelled in the KMS types.
 	accessDeniedCode = "AccessDeniedException"
 
-	// Key spec prefixes of the asymmetric key families, for KeyInfo.Type.
-	rsaKeySpecPrefix   = "RSA_"
-	eccKeySpecPrefix   = "ECC_"
-	mldsaKeySpecPrefix = "ML_DSA_"
+	// kmsKeyResourceType is the Resource Groups Tagging API resource type of
+	// a KMS key, and keyArnResource what precedes the key id in a key ARN.
+	kmsKeyResourceType = "kms:key"
+	keyArnResource     = ":key/"
+
+	// The tags GenerateKey writes with TagSearch, so that a listing from the
+	// tagging API needs no DescribeKey: the label, the cryptoprov key type,
+	// its size and its usage. reservedTagPrefix is the prefix a caller's
+	// own tags must not use.
+	reservedTagPrefix = "xpki-"
+	tagLabel          = reservedTagPrefix + "label"
+	tagType           = reservedTagPrefix + "type"
+	tagSize           = reservedTagPrefix + "size"
+	tagUsage          = reservedTagPrefix + "usage"
+
+	// maxTagValueLength is the KMS limit on a tag value, in characters, and
+	// tagValuePunctuation the characters it may have besides letters, digits
+	// and spaces.
+	maxTagValueLength   = 256
+	tagValuePunctuation = "_.:/=+-@"
+
+	// Names of the KeyInfo.Meta entries.
+	metaDescription = "description"
+	metaUsage       = "usage"
+	metaOrigin      = "origin"
+	metaManager     = "manager"
+	metaSpec        = "spec"
+	metaState       = "state"
+	metaEnabled     = "enabled"
+	metaAlgo        = "algo"
+
+	// Metric actions of GenerateKey by key type.
+	actionGenRSA   = "genkey_rsa"
+	actionGenECDSA = "genkey_ecdsa"
+	actionGenMLDSA = "genkey_mldsa"
 )
 
 // errEmptyResponse is the cause of an error for a nil KMS response.
 var errEmptyResponse = errors.New("empty response")
 
-// rsaKeySpecs maps the RSA key sizes KMS supports to their key spec.
-var rsaKeySpecs = map[int]types.KeySpec{
-	2048: types.KeySpecRsa2048,
-	3072: types.KeySpecRsa3072,
-	4096: types.KeySpecRsa4096,
+// keySpecInfo is the cryptoprov type and size of a KMS key spec.
+type keySpecInfo struct {
+	keyType string
+	size    int
 }
 
-// mldsaKeySpecs maps the ML-DSA parameter sets to their KMS key spec.
-var mldsaKeySpecs = map[mldsa.Parameters]types.KeySpec{
-	mldsa.MLDSA44(): types.KeySpecMlDsa44,
-	mldsa.MLDSA65(): types.KeySpecMlDsa65,
-	mldsa.MLDSA87(): types.KeySpecMlDsa87,
+// keySpecs maps the key specs of the key families this module uses to their
+// cryptoprov type and size. A spec that is not here (symmetric, HMAC, SM2,
+// secp256k1) has an empty KeyInfo.Type.
+var keySpecs = map[types.KeySpec]keySpecInfo{
+	types.KeySpecRsa2048: {
+		keyType: certutil.KeyTypeRSA,
+		size:    2048,
+	},
+	types.KeySpecRsa3072: {
+		keyType: certutil.KeyTypeRSA,
+		size:    3072,
+	},
+	types.KeySpecRsa4096: {
+		keyType: certutil.KeyTypeRSA,
+		size:    4096,
+	},
+	types.KeySpecEccNistP256: {
+		keyType: certutil.KeyTypeECDSA,
+		size:    256,
+	},
+	types.KeySpecEccNistP384: {
+		keyType: certutil.KeyTypeECDSA,
+		size:    384,
+	},
+	types.KeySpecEccNistP521: {
+		keyType: certutil.KeyTypeECDSA,
+		size:    521,
+	},
+	types.KeySpecMlDsa44: {
+		keyType: certutil.KeyTypeMLDSA,
+		size:    cryptoprov.MLDSA44,
+	},
+	types.KeySpecMlDsa65: {
+		keyType: certutil.KeyTypeMLDSA,
+		size:    cryptoprov.MLDSA65,
+	},
+	types.KeySpecMlDsa87: {
+		keyType: certutil.KeyTypeMLDSA,
+		size:    cryptoprov.MLDSA87,
+	},
 }
 
-// mldsaParameters returns the parameter set of an ML-DSA key spec.
-func mldsaParameters(spec types.KeySpec) (mldsa.Parameters, bool) {
-	for params, s := range mldsaKeySpecs {
-		if s == spec {
-			return params, true
+// keySpecFor returns the KMS key spec of a cryptoprov key type and size, or
+// a wrapped cryptoprov.ErrNotSupported for a size KMS does not offer.
+func keySpecFor(keyType string, size int) (types.KeySpec, error) {
+	for spec, info := range keySpecs {
+		if info.keyType == keyType && info.size == size {
+			return spec, nil
 		}
 	}
-	return mldsa.Parameters{}, false
+	return "", errors.Wrapf(cryptoprov.ErrNotSupported, "unsupported %s key size: %d", keyType, size)
 }
 
-// keyType returns the KeyInfo.Type of a key spec: RSA, ECDSA or ML-DSA, and
-// "" for a symmetric, SM2 or unknown spec.
-func keyType(spec types.KeySpec) string {
-	name := string(spec)
-	switch {
-	case strings.HasPrefix(name, rsaKeySpecPrefix):
-		return certutil.KeyTypeRSA
-	case strings.HasPrefix(name, eccKeySpecPrefix):
-		return certutil.KeyTypeECDSA
-	case strings.HasPrefix(name, mldsaKeySpecPrefix):
-		return certutil.KeyTypeMLDSA
-	default:
+// mldsaParameterSet returns the parameter set name of an ML-DSA key spec,
+// for example "ML-DSA-65", and "" for any other spec.
+func mldsaParameterSet(spec types.KeySpec) string {
+	info, ok := keySpecs[spec]
+	if !ok || info.keyType != certutil.KeyTypeMLDSA {
 		return ""
+	}
+	params, err := cryptoprov.MLDSAParameters(info.size)
+	if err != nil {
+		return ""
+	}
+	return params.String()
+}
+
+// keyUsage returns the cryptoprov usage of a KMS key usage, and zero for a
+// usage other than signing and encryption.
+func keyUsage(usage types.KeyUsageType) cryptoprov.KeyUsage {
+	switch usage {
+	case types.KeyUsageTypeSignVerify:
+		return cryptoprov.KeyUsageSign
+	case types.KeyUsageTypeEncryptDecrypt:
+		return cryptoprov.KeyUsageEncrypt
+	default:
+		return 0
+	}
+}
+
+// keyState returns the cryptoprov state of a KMS key state. A key that is
+// being updated keeps working, so it is enabled.
+func keyState(state types.KeyState) cryptoprov.KeyState {
+	switch state {
+	case types.KeyStateEnabled, types.KeyStateUpdating:
+		return cryptoprov.KeyStateEnabled
+	case types.KeyStateDisabled:
+		return cryptoprov.KeyStateDisabled
+	case types.KeyStatePendingDeletion, types.KeyStatePendingReplicaDeletion:
+		return cryptoprov.KeyStatePendingDeletion
+	default:
+		return cryptoprov.KeyStateUnavailable
 	}
 }
 
@@ -104,15 +230,23 @@ func init() {
 	_ = cryptoprov.Register(ProviderName, KmsLoader)
 }
 
-// KmsClient interface
+// KmsClient is the subset of the KMS client the provider uses.
 type KmsClient interface {
 	CreateKey(context.Context, *kms.CreateKeyInput, ...func(*kms.Options)) (*kms.CreateKeyOutput, error)
 	CreateAlias(context.Context, *kms.CreateAliasInput, ...func(*kms.Options)) (*kms.CreateAliasOutput, error)
 	ListKeys(context.Context, *kms.ListKeysInput, ...func(*kms.Options)) (*kms.ListKeysOutput, error)
+	ListAliases(context.Context, *kms.ListAliasesInput, ...func(*kms.Options)) (*kms.ListAliasesOutput, error)
+	ListResourceTags(context.Context, *kms.ListResourceTagsInput, ...func(*kms.Options)) (*kms.ListResourceTagsOutput, error)
 	ScheduleKeyDeletion(context.Context, *kms.ScheduleKeyDeletionInput, ...func(*kms.Options)) (*kms.ScheduleKeyDeletionOutput, error)
 	DescribeKey(context.Context, *kms.DescribeKeyInput, ...func(*kms.Options)) (*kms.DescribeKeyOutput, error)
 	GetPublicKey(context.Context, *kms.GetPublicKeyInput, ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error)
 	Sign(context.Context, *kms.SignInput, ...func(*kms.Options)) (*kms.SignOutput, error)
+}
+
+// TaggingClient is the subset of the Resource Groups Tagging API client the
+// provider uses when the TagSearch attribute is on.
+type TaggingClient interface {
+	GetResources(context.Context, *resourcegroupstaggingapi.GetResourcesInput, ...func(*resourcegroupstaggingapi.Options)) (*resourcegroupstaggingapi.GetResourcesOutput, error)
 }
 
 // KmsClientFactory creates the KMS client for Init; tests override it.
@@ -120,33 +254,104 @@ var KmsClientFactory = func(cfg aws.Config, optFns ...func(*kms.Options)) KmsCli
 	return kms.NewFromConfig(cfg, optFns...)
 }
 
-// Provider implements Provider interface for KMS
+// TaggingClientFactory creates the Resource Groups Tagging API client for
+// Init when the TagSearch attribute is on; tests override it.
+var TaggingClientFactory = func(cfg aws.Config, optFns ...func(*resourcegroupstaggingapi.Options)) TaggingClient {
+	return resourcegroupstaggingapi.NewFromConfig(cfg, optFns...)
+}
+
+// options are the provider settings of the token config Attributes.
+type options struct {
+	endpoint            string
+	region              string
+	taggingEndpoint     string
+	tagSearch           bool
+	labelScan           bool
+	describeConcurrency int
+	metadataCacheSize   int
+}
+
+// parseOptions reads the provider settings from the token config Attributes
+// and rejects a value it does not understand, so a mistyped setting fails
+// Init instead of being ignored.
+func parseOptions(attributes string) (*options, error) {
+	attrs := parseKmsAttributes(attributes)
+	opts := &options{
+		endpoint:            attrs[attrEndpoint],
+		region:              attrs[attrRegion],
+		taggingEndpoint:     attrs[attrTaggingEndpoint],
+		describeConcurrency: describeConcurrency,
+		metadataCacheSize:   defaultMetadataCacheSize,
+	}
+
+	var err error
+	if v, ok := attrs[attrTagSearch]; ok {
+		if opts.tagSearch, err = strconv.ParseBool(v); err != nil {
+			return nil, errors.Errorf("invalid %s attribute %q: expected true or false", attrTagSearch, v)
+		}
+	}
+	switch v := attrs[attrLabelSearch]; v {
+	case "", labelSearchIndex:
+	case labelSearchScan:
+		opts.labelScan = true
+	default:
+		return nil, errors.Errorf("invalid %s attribute %q: expected %s or %s", attrLabelSearch, v, labelSearchIndex, labelSearchScan)
+	}
+	if v, ok := attrs[attrDescribeConcurrency]; ok {
+		opts.describeConcurrency, err = strconv.Atoi(v)
+		if err != nil || opts.describeConcurrency < 1 || opts.describeConcurrency > maxDescribeConcurrency {
+			return nil, errors.Errorf("invalid %s attribute %q: expected 1 to %d", attrDescribeConcurrency, v, maxDescribeConcurrency)
+		}
+	}
+	if v, ok := attrs[attrMetadataCacheSize]; ok {
+		opts.metadataCacheSize, err = strconv.Atoi(v)
+		if err != nil || opts.metadataCacheSize < 0 {
+			return nil, errors.Errorf("invalid %s attribute %q: expected 0 or more", attrMetadataCacheSize, v)
+		}
+	}
+	return opts, nil
+}
+
+// Provider implements cryptoprov.Provider and cryptoprov.KeyManager for AWS
+// KMS: the keys of one account and Region. It is safe for concurrent use.
 type Provider struct {
 	tc        cryptoprov.TokenConfig
 	kmsClient KmsClient
+	// tagClient is nil unless the TagSearch attribute is on.
+	tagClient TaggingClient
 	endpoint  string
 	region    string
 
-	// describeConcurrency is the number of DescribeKey calls EnumKeys has in
-	// flight at once.
+	// labelScan makes a label filter describe every key instead of looking
+	// the label up through its alias (the LabelSearch=scan attribute).
+	labelScan bool
+	// describeConcurrency is the number of per-key requests a listing has
+	// in flight at once.
 	describeConcurrency int
+	// metaCache has the immutable metadata of the keys described so far;
+	// nil when the cache is disabled.
+	metaCache *metadataCache
 }
 
-// Init creates a provider for tc, whose Attributes may carry
-// "Endpoint=<url>" and "Region=<region>". Credentials, the default region
-// and retries come from the default AWS SDK chain, which reads
-// AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN before the
-// shared config, so the provider does not copy them into a static
-// provider of its own (XPKI-034). The client from KmsClientFactory makes no
-// request until a key operation.
+// Init creates a provider for tc. Its Attributes may carry "Endpoint=<url>"
+// and "Region=<region>", and the listing settings "TagSearch=true" (with
+// "TaggingEndpoint=<url>"), "LabelSearch=scan", "DescribeConcurrency=<n>"
+// and "MetadataCacheSize=<n>", which ListKeys describes; an invalid value
+// is an error. Credentials, the default region and retries come from the
+// default AWS SDK chain, which reads AWS_ACCESS_KEY_ID,
+// AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN before the shared config, so
+// the provider does not copy them into a static provider of its own
+// (XPKI-034). The clients from KmsClientFactory and TaggingClientFactory
+// make no request until a key operation.
 func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
-	kmsAttributes := parseKmsAttributes(tc.Attributes())
-	endpoint := kmsAttributes[attrEndpoint]
-	region := kmsAttributes[attrRegion]
+	opts, err := parseOptions(tc.Attributes())
+	if err != nil {
+		return nil, err
+	}
 
 	var awsops []func(*awsconfig.LoadOptions) error
-	if region != "" {
-		awsops = append(awsops, awsconfig.WithRegion(region))
+	if opts.region != "" {
+		awsops = append(awsops, awsconfig.WithRegion(opts.region))
 	}
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsops...)
 	if err != nil {
@@ -154,11 +359,11 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
 	}
 
 	var kmsops []func(*kms.Options)
-	if endpoint != "" {
+	if opts.endpoint != "" {
 		// Use service-specific endpoint resolution via BaseEndpoint.
 		// https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/endpoints/
 		kmsops = append(kmsops, func(o *kms.Options) {
-			o.BaseEndpoint = aws.String(endpoint)
+			o.BaseEndpoint = aws.String(opts.endpoint)
 		})
 	}
 
@@ -166,17 +371,34 @@ func Init(tc cryptoprov.TokenConfig) (*Provider, error) {
 	if client == nil {
 		return nil, errors.New("KMS client factory returned no client")
 	}
-	return newProvider(tc, client, endpoint, region), nil
+
+	var tagClient TaggingClient
+	if opts.tagSearch {
+		var tagops []func(*resourcegroupstaggingapi.Options)
+		if opts.taggingEndpoint != "" {
+			tagops = append(tagops, func(o *resourcegroupstaggingapi.Options) {
+				o.BaseEndpoint = aws.String(opts.taggingEndpoint)
+			})
+		}
+		if tagClient = TaggingClientFactory(cfg, tagops...); tagClient == nil {
+			return nil, errors.New("tagging client factory returned no client")
+		}
+	}
+	return newProvider(tc, client, tagClient, opts), nil
 }
 
-// newProvider returns a provider over client.
-func newProvider(tc cryptoprov.TokenConfig, client KmsClient, endpoint, region string) *Provider {
+// newProvider returns a provider over client, and over tagClient when it is
+// not nil.
+func newProvider(tc cryptoprov.TokenConfig, client KmsClient, tagClient TaggingClient, opts *options) *Provider {
 	return &Provider{
 		tc:                  tc,
 		kmsClient:           client,
-		endpoint:            endpoint,
-		region:              region,
-		describeConcurrency: describeConcurrency,
+		tagClient:           tagClient,
+		endpoint:            opts.endpoint,
+		region:              opts.region,
+		labelScan:           opts.labelScan,
+		describeConcurrency: opts.describeConcurrency,
+		metaCache:           newMetadataCache(opts.metadataCacheSize),
 	}
 }
 
@@ -204,73 +426,125 @@ func (p *Provider) Model() string {
 	return p.tc.Model()
 }
 
-// CurrentSlotID returns current slot id. For KMS only one slot is assumed to be available.
-func (p *Provider) CurrentSlotID() uint {
-	return 0
+// tagSearch reports whether the Resource Groups Tagging API is on.
+func (p *Provider) tagSearch() bool {
+	return p.tagClient != nil
 }
 
-// GenerateRSAKey creates a KMS signing key of bits (2048, 3072 or 4096) with
-// label as its description and alias, and returns its Signer. This provider
-// has no decrypter, so the encryption purpose (2) is an error before any
-// RPC (XPKI-031); any other purpose is a signing key.
-func (p *Provider) GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error) {
-	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_rsa")
+// GenerateKey creates a KMS signing key as req describes it: RSA of 2048,
+// 3072 or 4096 bits, ECDSA on P-256, P-384 or P-521, or ML-DSA-44, 65 or 87
+// (key spec ML_DSA_*), with req.Label as its description and alias and
+// req.Tags as its tags, and returns its Signer. With the TagSearch
+// attribute it also writes the xpki-label, xpki-type, xpki-size and
+// xpki-usage tags that let a listing skip DescribeKey; tags need
+// kms:TagResource, and a tag name that starts with "xpki-" is reserved.
+//
+// An ML-DSA signer signs messages through the EXTERNAL_MU operation: μ is
+// computed locally, so the message never leaves the process and the RAW
+// message size limit of KMS does not apply; see
+// cryptoprov.MLDSASignerOptions for the options it accepts. This provider
+// has no decrypter, so cryptoprov.KeyUsageEncrypt is a wrapped
+// cryptoprov.ErrNotSupported before any request (XPKI-031), as is a size
+// KMS does not offer.
+func (p *Provider) GenerateKey(ctx context.Context, req *cryptoprov.GenerateKeyRequest) (crypto.PrivateKey, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	action := actionGenRSA
+	switch req.Type {
+	case certutil.KeyTypeECDSA:
+		action = actionGenECDSA
+	case certutil.KeyTypeMLDSA:
+		action = actionGenMLDSA
+	}
+	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, action)
 
-	if purpose == purposeEncryption {
-		return nil, errors.Errorf("unsupported key purpose: %d, only signing keys are supported", purpose)
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
 	}
-	spec, ok := rsaKeySpecs[bits]
-	if !ok {
-		return nil, errors.Errorf("unsupported RSA key size: %d", bits)
+	usage := req.KeyUsage()
+	if usage != cryptoprov.KeyUsageSign {
+		return nil, errors.Wrapf(cryptoprov.ErrNotSupported, "unsupported key usage: %s, only signing keys are supported", usage)
 	}
-	return p.createSigningKey(context.Background(), label, spec)
+	spec, err := keySpecFor(req.Type, req.Size)
+	if err != nil {
+		return nil, err
+	}
+	tags, err := p.keyTags(req)
+	if err != nil {
+		return nil, err
+	}
+	return p.createSigningKey(ctx, req.Label, spec, tags)
 }
 
-// GenerateECDSAKey creates a KMS signing key on curve (P-256, P-384 or
-// P-521) with label as its description and alias, and returns its Signer.
-func (p *Provider) GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error) {
-	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_ecdsa")
-
-	var spec types.KeySpec
-	switch curve {
-	case elliptic.P256():
-		spec = types.KeySpecEccNistP256
-	case elliptic.P384():
-		spec = types.KeySpecEccNistP384
-	case elliptic.P521():
-		spec = types.KeySpecEccNistP521
-	default:
-		return nil, errors.New("unsupported curve")
+// keyTags returns the tags of the key req creates: the caller's, in name
+// order, and with TagSearch the xpki tags. The label tag is left out for a
+// label that is empty or not a valid tag value; such a key is found through
+// its alias only.
+func (p *Provider) keyTags(req *cryptoprov.GenerateKeyRequest) ([]types.Tag, error) {
+	tags := make([]types.Tag, 0, len(req.Tags)+4)
+	for _, name := range slices.Sorted(maps.Keys(req.Tags)) {
+		if strings.HasPrefix(name, reservedTagPrefix) {
+			return nil, errors.Errorf("invalid tag %q: the %q prefix is reserved", name, reservedTagPrefix)
+		}
+		tags = append(tags, types.Tag{
+			TagKey:   aws.String(name),
+			TagValue: aws.String(req.Tags[name]),
+		})
 	}
-	return p.createSigningKey(context.Background(), label, spec)
+	if !p.tagSearch() {
+		return tags, nil
+	}
+	if req.Label != "" && validTagValue(req.Label) {
+		tags = append(tags, types.Tag{
+			TagKey:   aws.String(tagLabel),
+			TagValue: aws.String(req.Label),
+		})
+	}
+	return append(tags,
+		types.Tag{
+			TagKey:   aws.String(tagType),
+			TagValue: aws.String(req.Type),
+		},
+		types.Tag{
+			TagKey:   aws.String(tagSize),
+			TagValue: aws.String(strconv.Itoa(req.Size)),
+		},
+		types.Tag{
+			TagKey:   aws.String(tagUsage),
+			TagValue: aws.String(req.KeyUsage().String()),
+		},
+	), nil
 }
 
-// GenerateMLDSAKey creates a KMS signing key of the ML-DSA parameter set
-// params (key spec ML_DSA_44, ML_DSA_65 or ML_DSA_87) with label as its
-// description and alias, and returns its Signer. The signer signs messages
-// through the EXTERNAL_MU operation: μ is computed locally, so the message
-// never leaves the process and the RAW message size limit of KMS does not
-// apply; see cryptoprov.MLDSASignerOptions for the options it accepts.
-func (p *Provider) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error) {
-	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "genkey_mldsa")
-
-	spec, ok := mldsaKeySpecs[params]
-	if !ok {
-		return nil, errors.Errorf("unsupported ML-DSA parameter set: %s", params)
+// validTagValue reports whether KMS accepts s as a tag value: at most
+// maxTagValueLength letters, digits, spaces and tagValuePunctuation.
+func validTagValue(s string) bool {
+	if utf8.RuneCountInString(s) > maxTagValueLength {
+		return false
 	}
-	return p.createSigningKey(context.Background(), label, spec)
+	for _, r := range s {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsSpace(r) && !strings.ContainsRune(tagValuePunctuation, r) {
+			return false
+		}
+	}
+	return true
 }
 
-// createSigningKey creates a SIGN_VERIFY key of spec described by label,
-// gives it the alias of label when label is not empty, and returns its
+// createSigningKey creates a SIGN_VERIFY key of spec described by label with
+// tags, gives it the alias of label when label is not empty, and returns its
 // Signer. An alias failure is logged: the key exists and is usable without
-// it. When the public key can not be fetched, the key is scheduled for
-// deletion, so no unusable key is left behind.
-func (p *Provider) createSigningKey(ctx context.Context, label string, spec types.KeySpec) (crypto.PrivateKey, error) {
+// it, but a label filter finds it only through the xpki-label tag or with
+// LabelSearch=scan. When the public key can not be fetched, the key is
+// scheduled for deletion, so no unusable key is left behind.
+func (p *Provider) createSigningKey(ctx context.Context, label string, spec types.KeySpec, tags []types.Tag) (crypto.PrivateKey, error) {
 	input := &kms.CreateKeyInput{
 		KeySpec:     spec,
 		KeyUsage:    types.KeyUsageTypeSignVerify,
 		Description: aws.String(label),
+	}
+	if len(tags) > 0 {
+		input.Tags = tags
 	}
 	resp, err := p.kmsClient.CreateKey(ctx, input)
 	if err != nil {
@@ -299,9 +573,11 @@ func (p *Provider) createSigningKey(ctx context.Context, label string, spec type
 }
 
 // discardKey schedules the deletion of a key whose creation did not
-// complete. A failure is logged: the caller gets the creation error.
+// complete. A failure is logged: the caller gets the creation error. The
+// caller's context may be why the creation failed, so the request does not
+// inherit its cancellation.
 func (p *Provider) discardKey(ctx context.Context, keyID string) {
-	_, err := p.kmsClient.ScheduleKeyDeletion(ctx, &kms.ScheduleKeyDeletionInput{
+	_, err := p.kmsClient.ScheduleKeyDeletion(context.WithoutCancel(ctx), &kms.ScheduleKeyDeletionInput{
 		KeyId: aws.String(keyID),
 	})
 	if err != nil {
@@ -316,7 +592,7 @@ func (p *Provider) discardKey(ctx context.Context, keyID string) {
 func (p *Provider) signer(ctx context.Context, keyID, label string) (crypto.PrivateKey, error) {
 	resp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: aws.String(keyID)})
 	if err != nil {
-		return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
+		return nil, kmsError(err, "failed to get public key, id=%s", keyID)
 	}
 	pub, err := parsePublicKey(resp)
 	if err != nil {
@@ -372,8 +648,9 @@ func (p *Provider) createAlias(ctx context.Context, keyID, label string) (string
 	return alias, nil
 }
 
-// IdentifyKey returns key id and label for the given private key
-func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err error) {
+// IdentifyKey returns key id and label for the given private key. It makes
+// no request.
+func (p *Provider) IdentifyKey(_ context.Context, priv crypto.PrivateKey) (keyID, label string, err error) {
 	if s, ok := priv.(*Signer); ok {
 		return s.KeyID(), s.Label(), nil
 	}
@@ -382,21 +659,25 @@ func (p *Provider) IdentifyKey(priv crypto.PrivateKey) (keyID, label string, err
 
 // GetKey returns the Signer of the KMS key keyID (a key id, ARN, alias name
 // or alias ARN), labelled with the key description. The key usage must be
-// SIGN_VERIFY and the key must not be pending deletion: neither can sign,
-// so no signer is returned for them (XPKI-031). A disabled key gets a
-// signer, since it can be enabled again; its Sign fails until then.
-func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
+// SIGN_VERIFY, otherwise the error wraps cryptoprov.ErrNotSupported, and the
+// key must not be pending deletion: neither can sign, so no signer is
+// returned for them (XPKI-031). A disabled key gets a signer, since it can
+// be enabled again; its Sign fails until then. A key KMS does not have is a
+// wrapped cryptoprov.ErrKeyNotFound.
+func (p *Provider) GetKey(ctx context.Context, keyID string) (crypto.PrivateKey, error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "getkey")
 
-	ctx := context.Background()
 	logger.KV(xlog.INFO, "api", "GetKey", "keyID", keyID)
 
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
 	meta, err := p.describeKey(ctx, keyID)
 	if err != nil {
 		return nil, err
 	}
 	if meta.KeyUsage != types.KeyUsageTypeSignVerify {
-		return nil, errors.Errorf("key %s usage %s is not valid for signing", keyID, meta.KeyUsage)
+		return nil, errors.Wrapf(cryptoprov.ErrNotSupported, "key %s usage %s is not valid for signing", keyID, meta.KeyUsage)
 	}
 	if meta.KeyState == types.KeyStatePendingDeletion {
 		return nil, errors.Errorf("key %s is pending deletion", keyID)
@@ -404,183 +685,30 @@ func (p *Provider) GetKey(keyID string) (crypto.PrivateKey, error) {
 	return p.signer(ctx, keyID, aws.ToString(meta.Description))
 }
 
-// describeKey returns the metadata of the key keyID.
+// describeKey returns the metadata of the key keyID, a key id, ARN or alias,
+// and remembers its immutable part. A key KMS does not have is a wrapped
+// cryptoprov.ErrKeyNotFound.
 func (p *Provider) describeKey(ctx context.Context, keyID string) (*types.KeyMetadata, error) {
 	resp, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: aws.String(keyID)})
 	if err != nil {
-		return nil, errors.WithMessagef(err, "failed to describe key, id=%s", keyID)
+		return nil, kmsError(err, "failed to describe key, id=%s", keyID)
 	}
 	if resp == nil || resp.KeyMetadata == nil {
 		return nil, errors.Wrapf(errEmptyResponse, "failed to describe key, id=%s", keyID)
 	}
+	p.metaCache.put(aws.ToString(resp.KeyMetadata.KeyId), immutableOf(resp.KeyMetadata))
 	return resp.KeyMetadata, nil
 }
 
-// EnumTokens lists tokens. For KMS currentSlotOnly is ignored and only one slot is assumed to be available.
-func (p *Provider) EnumTokens(currentSlotOnly bool) ([]cryptoprov.TokenInfo, error) {
-	return []cryptoprov.TokenInfo{
-		{
-			SlotID:       p.CurrentSlotID(),
-			Manufacturer: p.Manufacturer(),
-			Model:        p.Model(),
-		},
-	}, nil
-}
-
-// keyMeta returns the KeyInfo.Meta of a key; an ML-DSA key also reports its
-// parameter set under cryptoprov.MetaParameterSet.
-func keyMeta(meta *types.KeyMetadata) map[string]string {
-	m := map[string]string{
-		"description": aws.ToString(meta.Description),
-		"usage":       string(meta.KeyUsage),
-		"origin":      string(meta.Origin),
-		"state":       string(meta.KeyState),
-		"enabled":     fmt.Sprintf("%t", meta.Enabled),
-		"algo":        fmt.Sprintf("%v", meta.SigningAlgorithms),
+// kmsError wraps a KMS error with a message, and marks a NotFoundException
+// as cryptoprov.ErrKeyNotFound. errors.As still finds the service error.
+func kmsError(err error, format string, args ...any) error {
+	wrapped := errors.WithMessagef(err, format, args...)
+	var notFound *types.NotFoundException
+	if errors.As(err, &notFound) {
+		return cryptoprov.MarkError(wrapped, cryptoprov.ErrKeyNotFound)
 	}
-	if params, ok := mldsaParameters(meta.KeySpec); ok {
-		m[cryptoprov.MetaParameterSet] = params.String()
-	}
-	return m
-}
-
-// EnumKeys lists the signing keys (usage SIGN_VERIFY, not pending deletion)
-// whose label, the KMS key description, starts with prefix; an empty prefix
-// lists all of them. slotID is ignored. KMS lists key ids only, so every
-// key of the account is described (XPKI-032), describeConcurrency calls at
-// a time, with the SDK retrying throttled calls; the caller needs
-// kms:ListKeys and kms:DescribeKey. A key the caller may not describe
-// (AccessDeniedException) is not listed and is logged. Any other ListKeys
-// or DescribeKey failure ends the listing and is returned wrapped, so
-// errors.As still finds the service error; there is no partial result
-// (XPKI-033). Keys are returned in the KMS listing order.
-func (p *Provider) EnumKeys(slotID uint, prefix string) ([]cryptoprov.KeyInfo, error) {
-	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "enumkeys")
-	logger.KV(xlog.DEBUG, "endpoint", p.endpoint, "slotID", slotID, "prefix", prefix)
-
-	ctx := context.Background()
-	input := &kms.ListKeysInput{
-		Limit: aws.Int32(listKeysLimit),
-	}
-
-	totalKeys := 0
-	res := make([]cryptoprov.KeyInfo, 0)
-	for pageNumber := 1; ; pageNumber++ {
-		page, err := p.kmsClient.ListKeys(ctx, input)
-		if err != nil {
-			return nil, errors.WithMessage(err, "failed to list keys")
-		}
-		if page == nil {
-			return nil, errors.Wrap(errEmptyResponse, "failed to list keys")
-		}
-
-		totalKeys += len(page.Keys)
-		keys, err := p.describeKeys(ctx, page.Keys, prefix)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, keys...)
-
-		if !page.Truncated {
-			break
-		}
-		if page.NextMarker == nil {
-			return nil, errors.Errorf("failed to list keys: page %d is truncated without a marker", pageNumber)
-		}
-		input.Marker = page.NextMarker
-	}
-	logger.KV(xlog.DEBUG, "total_keys", totalKeys, "sign_keys", len(res))
-
-	return res, nil
-}
-
-// describeKeys describes keys, p.describeConcurrency at a time, and returns
-// in listing order the signing keys whose label starts with prefix. The
-// first failure cancels the calls in flight and is returned.
-func (p *Provider) describeKeys(ctx context.Context, keys []types.KeyListEntry, prefix string) ([]cryptoprov.KeyInfo, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var (
-		once     sync.Once
-		firstErr error
-		wg       sync.WaitGroup
-	)
-	fail := func(err error) {
-		once.Do(func() {
-			firstErr = err
-			cancel()
-		})
-	}
-
-	infos := make([]*cryptoprov.KeyInfo, len(keys))
-	sem := make(chan struct{}, max(p.describeConcurrency, 1))
-	for i, key := range keys {
-		sem <- struct{}{}
-		if ctx.Err() != nil {
-			// a describe failed while waiting for a slot
-			<-sem
-			break
-		}
-		wg.Go(func() {
-			defer func() { <-sem }()
-			if ctx.Err() != nil {
-				return
-			}
-			info, err := p.listedKey(ctx, key, prefix)
-			if err != nil {
-				fail(err)
-				return
-			}
-			infos[i] = info
-		})
-	}
-	wg.Wait()
-	if firstErr != nil {
-		return nil, firstErr
-	}
-
-	res := make([]cryptoprov.KeyInfo, 0, len(keys))
-	for _, info := range infos {
-		if info != nil {
-			res = append(res, *info)
-		}
-	}
-	return res, nil
-}
-
-// listedKey describes key and returns its KeyInfo, or nil when it is not
-// listed: not a signing key, pending deletion, a label without prefix, or
-// not describable by the caller.
-func (p *Provider) listedKey(ctx context.Context, key types.KeyListEntry, prefix string) (*cryptoprov.KeyInfo, error) {
-	keyID := aws.ToString(key.KeyId)
-	arn := aws.ToString(key.KeyArn)
-	resp, err := p.kmsClient.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: key.KeyId})
-	if err != nil {
-		if isAccessDenied(err) {
-			logger.KV(xlog.WARNING, "reason", "DescribeKey", "id", keyID, "arn", arn, "err", err.Error())
-			return nil, nil
-		}
-		return nil, errors.WithMessagef(err, "failed to describe key, id=%s, arn=%s", keyID, arn)
-	}
-	if resp == nil || resp.KeyMetadata == nil {
-		return nil, errors.Wrapf(errEmptyResponse, "failed to describe key, id=%s", keyID)
-	}
-	meta := resp.KeyMetadata
-	if meta.KeyUsage != types.KeyUsageTypeSignVerify || meta.KeyState == types.KeyStatePendingDeletion {
-		return nil, nil
-	}
-	label := aws.ToString(meta.Description)
-	if !strings.HasPrefix(label, prefix) {
-		return nil, nil
-	}
-	return &cryptoprov.KeyInfo{
-		ID:           keyID,
-		Label:        label,
-		Type:         keyType(meta.KeySpec),
-		Meta:         keyMeta(meta),
-		CreationTime: meta.CreationDate,
-	}, nil
+	return wrapped
 }
 
 // isAccessDenied reports whether err is the KMS AccessDeniedException.
@@ -589,14 +717,69 @@ func isAccessDenied(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.ErrorCode() == accessDeniedCode
 }
 
-// DestroyKeyPairOnSlot destroys key pair on slot. For KMS slotID is ignored and KMS retire API is used to destroy the key.
-func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
-	ctx := context.Background()
+// keyMeta returns the KeyInfo.Meta of a described key; an ML-DSA key also
+// reports its parameter set under cryptoprov.MetaParameterSet.
+func keyMeta(meta *types.KeyMetadata) map[string]string {
+	m := immutableOf(meta).meta()
+	m[metaDescription] = aws.ToString(meta.Description)
+	m[metaState] = string(meta.KeyState)
+	m[metaEnabled] = strconv.FormatBool(meta.Enabled)
+	m[metaAlgo] = fmt.Sprintf("%v", meta.SigningAlgorithms)
+	return m
+}
+
+// meta returns the KeyInfo.Meta entries the immutable metadata supplies.
+func (m *immutableMeta) meta() map[string]string {
+	res := map[string]string{
+		metaUsage:   string(m.usage),
+		metaOrigin:  string(m.origin),
+		metaManager: string(m.manager),
+		metaSpec:    string(m.spec),
+	}
+	if parameterSet := mldsaParameterSet(m.spec); parameterSet != "" {
+		res[cryptoprov.MetaParameterSet] = parameterSet
+	}
+	return res
+}
+
+// fill sets the KeyInfo fields the immutable metadata supplies: Name, Type,
+// Size, Usage and CreationTime.
+func (m *immutableMeta) fill(ki *cryptoprov.KeyInfo) {
+	if m.arn != "" {
+		ki.Name = m.arn
+	}
+	info := keySpecs[m.spec]
+	ki.Type = info.keyType
+	ki.Size = info.size
+	ki.Usage = keyUsage(m.usage)
+	ki.CreationTime = m.created
+}
+
+// describedKeyInfo returns the KeyInfo of a described key: every field of
+// the Metadata and State groups.
+func describedKeyInfo(meta *types.KeyMetadata) *cryptoprov.KeyInfo {
+	ki := &cryptoprov.KeyInfo{
+		ID:    aws.ToString(meta.KeyId),
+		Label: aws.ToString(meta.Description),
+		State: keyState(meta.KeyState),
+		Meta:  keyMeta(meta),
+	}
+	immutableOf(meta).fill(ki)
+	return ki
+}
+
+// DestroyKey schedules the deletion of the key keyID with the default KMS
+// waiting period, during which the deletion can be cancelled in KMS. A key
+// KMS does not have is a wrapped cryptoprov.ErrKeyNotFound.
+func (p *Provider) DestroyKey(ctx context.Context, keyID string) error {
+	if err := ctx.Err(); err != nil {
+		return errors.WithStack(err)
+	}
 	resp, err := p.kmsClient.ScheduleKeyDeletion(ctx, &kms.ScheduleKeyDeletionInput{
 		KeyId: aws.String(keyID),
 	})
 	if err != nil {
-		return errors.WithMessagef(err, "failed to schedule key deletion: %s", keyID)
+		return kmsError(err, "failed to schedule key deletion: %s", keyID)
 	}
 	if resp == nil {
 		return errors.Wrapf(errEmptyResponse, "failed to schedule key deletion: %s", keyID)
@@ -606,21 +789,36 @@ func (p *Provider) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
 	return nil
 }
 
-// KeyInfo retrieves info about key with the specified id
-func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryptoprov.KeyInfo, error) {
+// KeyInfo describes the key keyID (a key id, ARN, alias name or alias ARN)
+// with one DescribeKey, which supplies the Metadata and State groups whatever
+// fields selects. cryptoprov.KeyFieldTags adds the tags (ListResourceTags,
+// which needs kms:ListResourceTags) and cryptoprov.KeyFieldPublicKey the PEM
+// public key (GetPublicKey). A key KMS does not have is a wrapped
+// cryptoprov.ErrKeyNotFound.
+func (p *Provider) KeyInfo(ctx context.Context, keyID string, fields cryptoprov.KeyFields) (*cryptoprov.KeyInfo, error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "keyinfo")
 
-	ctx := context.Background()
+	if err := fields.Validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
 	meta, err := p.describeKey(ctx, keyID)
 	if err != nil {
 		return nil, err
 	}
+	ki := describedKeyInfo(meta)
 
-	pubKey := ""
-	if includePublic {
+	if fields.Has(cryptoprov.KeyFieldTags) {
+		if ki.Tags, err = p.resourceTags(ctx, ki.ID); err != nil {
+			return nil, err
+		}
+	}
+	if fields.Has(cryptoprov.KeyFieldPublicKey) {
 		resp, err := p.kmsClient.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: aws.String(keyID)})
 		if err != nil {
-			return nil, errors.WithMessagef(err, "failed to get public key, id=%s", keyID)
+			return nil, kmsError(err, "failed to get public key, id=%s", keyID)
 		}
 		pub, err := parsePublicKey(resp)
 		if err != nil {
@@ -630,23 +828,41 @@ func (p *Provider) KeyInfo(slotID uint, keyID string, includePublic bool) (*cryp
 		if err != nil {
 			return nil, err
 		}
-		pubKey = string(pemKey)
+		ki.PublicKey = string(pemKey)
 	}
+	return ki, nil
+}
 
-	return &cryptoprov.KeyInfo{
-		ID:           keyID,
-		Label:        aws.ToString(meta.Description),
-		Type:         keyType(meta.KeySpec),
-		PublicKey:    pubKey,
-		Meta:         keyMeta(meta),
-		CreationTime: meta.CreationDate,
-	}, nil
+// resourceTags returns the tags of the key keyID, reading every page of
+// ListResourceTags. A key without tags has an empty, non-nil map.
+func (p *Provider) resourceTags(ctx context.Context, keyID string) (map[string]string, error) {
+	tags := map[string]string{}
+	input := &kms.ListResourceTagsInput{KeyId: aws.String(keyID)}
+	for pageNumber := 1; ; pageNumber++ {
+		page, err := p.kmsClient.ListResourceTags(ctx, input)
+		if err != nil {
+			return nil, kmsError(err, "failed to list tags, id=%s", keyID)
+		}
+		if page == nil {
+			return nil, errors.Wrapf(errEmptyResponse, "failed to list tags, id=%s", keyID)
+		}
+		for _, tag := range page.Tags {
+			tags[aws.ToString(tag.TagKey)] = aws.ToString(tag.TagValue)
+		}
+		if !page.Truncated {
+			return tags, nil
+		}
+		if page.NextMarker == nil {
+			return nil, errors.Errorf("failed to list tags, id=%s: page %d is truncated without a marker", keyID, pageNumber)
+		}
+		input.Marker = page.NextMarker
+	}
 }
 
 // ExportKey returns PKCS#11 URI for specified key ID.
 // It does not return key bytes
-func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
-	meta, err := p.describeKey(context.Background(), keyID)
+func (p *Provider) ExportKey(ctx context.Context, keyID string) (string, []byte, error) {
+	meta, err := p.describeKey(ctx, keyID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -659,11 +875,6 @@ func (p *Provider) ExportKey(keyID string) (string, []byte, error) {
 	)
 
 	return uri, []byte(uri), nil
-}
-
-// FindKeyPairOnSlot retrieves a previously created asymmetric key, using a specified slot.
-func (p *Provider) FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.PrivateKey, error) {
-	return nil, errors.Errorf("unsupported command for this crypto provider")
 }
 
 // Close allocated resources and file reloader

@@ -3,7 +3,7 @@
 # testenv
 
 ```go
-import "github.com/effective-security/xpki/internal/testenv"
+import "github.com/effective-security/xpki/v2/internal/testenv"
 ```
 
 Package testenv gates tests that need external fixtures, such as the local\-kms emulator or the SoftHSM token \(XPKI\-100\).
