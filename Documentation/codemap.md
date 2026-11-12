@@ -9,11 +9,18 @@ grep for something that belongs in this map, add the row in the same change
 - Known defects and verified fixes, with IDs referenced from code comments: [FINDINGS.md](../FINDINGS.md)
 - Larger planned work: [ROADMAP.md](../ROADMAP.md)
 - High-level design per package (why it is built this way, extension points, post-quantum readiness): [design](./design/README.md)
+- The v2 key management contract (`KeyManager`, `KeyGenerator`, listing rules, what each provider does for a listing, decisions K1 to K12): [design/keymanager.md](./design/keymanager.md)
+- What changed from v1 and how a client migrates: [RELEASE_NOTES_2.0.md](./RELEASE_NOTES_2.0.md)
 - Generated API reference (`make docs`, gomarkdoc, do not edit): [api](./api)
 
 ## Module layout
 
-`github.com/effective-security/xpki`, Go 1.27. Library packages plus two CLIs.
+`github.com/effective-security/xpki/v2`, Go 1.27. Library packages plus two CLIs.
+The module is major version 2 since the key management redesign
+([RELEASE_NOTES_2.0.md](./RELEASE_NOTES_2.0.md)): import paths carry `/v2`,
+`.VERSION` is `v2.0`, the `Makefile` sets `PROJ_PACKAGE` to the `/v2` path,
+and the `xlog` logger namespace stays `github.com/effective-security/xpki`.
+v1 is maintained on the `release-v1` branch.
 
 | Path                                                             | Purpose                                                                 |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -33,6 +40,8 @@ grep for something that belongs in this map, add the row in the same change
 | `dataprotection/`                                                | AES-GCM `Provider` with HKDF key derivation                             |
 | `armor/`, `oid/`, `x/print/`, `metricskey/`, `internal/version/` | Helpers (see below)                                                     |
 | `internal/testenv/`                                              | Test-only gate for external fixtures (`XPKI_INTEGRATION`)               |
+| `internal/pagetoken/`                                            | Opaque page tokens bound to a request, used by `cryptoprov`             |
+| `internal/provtest/`                                             | Test-only conformance suite of the key management contract              |
 | `testca/`                                                        | Test-only CA and certificate generator                                  |
 | `cmd/hsm-tool/`, `cmd/xpki-tool/`                                | CLIs (kong)                                                             |
 
@@ -45,94 +54,102 @@ consumers. Nothing in the library imports `cmd/`.
 
 ## Concept index
 
-| Concept                                    | File(s)                                                                      | Entry points                                                                                                                  |
-| ------------------------------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Provider interfaces                        | `cryptoprov/provider.go`                                                     | `Provider`, `KeyGenerator` (`GenerateRSAKey`, `GenerateECDSAKey`, `GenerateMLDSAKey`), `KeyManager`, `KeyInfo`, `TokenInfo`   |
-| ML-DSA signer contract, μ, parameter sets  | `cryptoprov/mldsa.go`                                                        | `MLDSAParameters`, `MLDSASignerOptions`, `MLDSAMu`, `MLDSA44/65/87`, `MetaParameterSet`, `MLDSAMuSize`                        |
-| Provider registry / loading                | `cryptoprov/loader.go`                                                       | `Register`, `LoadProvider`, `Load`, `Registered`                                                                              |
-| Multi-provider registry                    | `cryptoprov/provider.go`, `crypto_concurrency_test.go`                       | `Crypto`, `New`, `Add`, `ByManufacturer`, `Default`, `ErrNilProvider`, `ErrDuplicateProvider`                                 |
-| Token config file (JSON/YAML, `file:` PIN) | `cryptoprov/config.go`, `crypto11/config.go`                                 | `LoadTokenConfig`, `TokenConfig`                                                                                              |
-| PKCS#11 key URI                            | `cryptoprov/uri.go`                                                          | `ParseTokenURI`, `ParsePrivateKeyURI`, `PrivateKeyURI`                                                                        |
-| Load key from PEM or URI                   | `cryptoprov/utils.go`, `cryptoprov/signer.go`                                | `Crypto.LoadPrivateKey`, `NewSignerFromPEM`, `NewSignerFromFromFile`, `LoadTLSKeyPair`                                        |
-| AES-GCM helpers                            | `cryptoprov/gcm.go`                                                          | `GcmEncrypt`, `GcmDecrypt`                                                                                                    |
-| PKCS#11 init / token select / login        | `crypto11/config.go`                                                         | `Init`, `selectToken`, `ConfigureFromFile`, `LoadTokenConfig`, `WithMaxSessions`, `DefaultMaxSessions`                        |
-| PKCS#11 module sharing / finalize          | `crypto11/module.go`, `crypto11/crypto11.go`                                 | `openModule`, `module.release`, `PKCS11Lib.Close`                                                                             |
-| PKCS#11 session pool                       | `crypto11/sessions.go`                                                       | `withSession`, `sessionPool`, `sessionUnusable`, `NewSession`                                                                 |
-| PKCS#11 key generation / lookup            | `crypto11/keys.go`, `rsa.go`, `ecdsa.go`, `mldsa.go`                         | `GenerateRSAKey`, `GenerateECDSAKey`, `GenerateMLDSAKey`, `FindKeyPair*`, `GetKey`, `ExportKey`                               |
-| PKCS#11 signing / decryption               | `crypto11/rsa.go`, `crypto11/ecdsa.go`, `crypto11/mldsa.go`                  | `PKCS11PrivateKeyRSA.Sign/Decrypt`, `PKCS11PrivateKeyECDSA.Sign`, `PKCS11PrivateKeyMLDSA.Sign` (message, PKCS#11 v3.2)        |
-| PKCS#11 token / key enumeration            | `crypto11/provider.go`, `crypto11/util.go`                                   | `EnumTokens`, `EnumKeys`, `KeyInfo`, `DestroyKeyPairOnSlot`                                                                   |
-| AWS KMS                                    | `cryptoprov/awskmscrypto/awskmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory`, `KmsClient`, `NewSigner`, `Signer.SigningAlgorithms`, `Provider.EnumKeys`           |
-| GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                         | `Init`, `KmsLoader`, `KmsClientFactory` (takes the endpoint), `KmsClient`, `KeyLabelAndID`, `NewSigner`, `Signer.Algorithm`, `Signer.SignatureAlgorithm`, `Crc32c`, `Provider.Close`, `ErrClosed` |
-| In-memory keys                             | `cryptoprov/inmemcrypto/provider.go`, `concurrency_test.go`                   | `NewProvider`, `Loader`, `ProviderName`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `GenerateMLDSAKey`, `ExportKey` |
-| Test-provider key registry                 | `cryptoprov/testprov/provider.go`, `concurrency_test.go`                     | `Init`, `Loader`, `Provider.GetKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `GenerateMLDSAKey`, `ExportKey`                    |
-| CSR request types                          | `csr/csr.go`                                                                 | `CertificateRequest`, `SignRequest`, `X509Subject`, `X509Name`, `X509Extension`, `AllowedFields`                              |
-| CSR create / sign / parse                  | `csr/csrprov.go`, `csr/csr.go`                                               | `NewProvider`, `GenerateKeyAndRequest`, `CreateRequestAndExportKey`, `SignRequest`, `Parse`, `ParsePEM`                       |
-| Key request (algo/size/purpose)            | `csr/keyreq.go`                                                              | `KeyRequest`, `KeyRequest.Validate`, `NewKeyRequest`, `KeyPurpose`, `SigAlgo`, `AlgoRSA/ECDSA/MLDSA`, `MLDSA44/65/87`, `IsPostQuantumAlgo` |
-| Subject merge, SAN classification          | `csr/csr.go`                                                                 | `PopulateName`, `SetSAN`, `FindAttr`                                                                                          |
-| CRL distribution point extension           | `csr/csr.go`                                                                 | `EncodeCDP`, `EncodeCDPFull`, `DecodeCDP`, `DecodeCDPFull`, `GeneralName`                                                     |
-| JSON/YAML OID and Duration                 | `csr/types.go`                                                               | `OID`, `Duration`, `ParseObjectIdentifier`                                                                                    |
-| CA config and profiles                     | `authority/config.go`                                                        | `Config`, `IssuerConfig`, `AIAConfig` (`DelegatedOCSPKey`), `CertProfile` (`AllowedKeyAlgorithms`), `LoadConfig`, `Validate`, `Usages` |
-| CA issuer registry                         | `authority/authority.go`                                                     | `NewAuthority`, `GetIssuerBy{Label,Profile,KeyID,KeyHash,NameHash}`                                                           |
-| Issuer construction / signing              | `authority/issuer.go`                                                        | `NewIssuer`, `NewIssuerWithBundles`, `CreateIssuer`, `Issuer.Sign`, `SignProof`, `VerifyProof`                                |
-| OCSP signing, delegated responder          | `authority/ocsp.go`                                                          | `SignOCSP`, `OCSPSignRequest`, `CreateDelegatedOCSPSigner`, `OCSPReasonStringToCode`, `validateDelegatedOCSPKey`              |
-| OCSP responder renewal / locking           | `authority/ocsp.go` (`delegatedResponder`), `authority/issuer.go` (`Issuer`) | `caResponder`, `delegated`, `renewal` (`ocspRenewal`), `renewLock`, `renewWaitHook`, `validateDelegatedOCSPProfile`, `signWithProfile` |
-| Certificate policies, SKI                  | `authority/extensions.go`                                                    | `addPolicies`, `CTPoisonOID`, `SCTListOID`                                                                                    |
-| ML-DSA key usage rule (RFC 9881)           | `authority/extensions.go`, `authority/config.go`                             | `mldsaForbiddenKeyUsage`, `checkMLDSATemplate`, `CertProfile.checkMLDSAKeyUsage`                                              |
-| Root bootstrap / cert files                | `authority/root.go`, `authority/util.go`                                     | `NewRoot`, `Issuer.GenCert`                                                                                                   |
-| PEM parse / encode                         | `certutil/pem.go`                                                            | `ParseFromPEM`, `ParseChainFromPEM`, `Load*FromPEM`, `EncodeToPEM*`, `ParsePrivateKeyPEM*`, `EncodePrivateKeyToPEM`, `ParsePublicKeyFromPEM` |
-| Chain bundling / verification              | `certutil/bundler.go`, `certutil/bundle.go`                                  | `NewBundler*`, `LoadBundler`, `Bundler.Bundle`/`BundleContext`, `VerifyBundleFromPEM`, `LoadAndVerifyBundleFromPEM`, `Bundle`, `BundleStatus` |
-| Hashes, thumbprints, IDs                   | `certutil/hash.go`, `certutil/cert_id.go`                                    | `Digest`, `SHA1*`, `SHA256*`, `NewHash`, `GetThumbprintStr`, `GetSubjectID`, `GetIssuerID`                                    |
-| Key info (type, size, hash, JWK)           | `certutil/keyinfo.go`                                                        | `NewKeyInfo`, `KeyInfo`                                                                                                       |
-| Post-quantum detection                     | `certutil/pqc.go`                                                            | `IsPostQuantumKey`, `IsPostQuantumCertificate`, `IsPostQuantumSignatureAlgorithm`, `KeyTypeRSA/ECDSA/MLDSA`                  |
-| OCSP request, extensions                   | `certutil/ocsp.go`, `certutil/extensions.go`                                 | `CreateOCSPRequest`, `FindExtension`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                        |
-| OCSP response create / verify (ML-DSA too) | `certutil/ocsp.go`                                                           | `CreateOCSPResponse`, `ParseOCSPResponse`, `ParseOCSPResponseForCert`                                                         |
-| Randomness                                 | `certutil/random.go`                                                         | `Random`, `RandomString`, `RandReader`                                                                                        |
-| JWT provider (sign + verify)               | `jwt/jwt.go`                                                                 | `ProviderConfig`, `LoadProvider`, `NewProvider`, `NewProviderFromCryptoSigner`, `NewProviderWithSymmetricKey`, `WithHeaders`  |
-| JWT signing internals                      | `jwt/sign.go`                                                                | `NewSignerInfo`, `VerifySignature`, `mldsaParameterSets`, `mldsaKeyFits`                                                      |
-| JWT parsing (third-party tokens)           | `jwt/parser.go`                                                              | `ParserConfig`, `LoadParserConfig`, `NewParser`, `TokenParser`, `Keyfunc`                                                     |
-| Claims                                     | `jwt/claims.go`                                                              | `Claims`, `MapClaims`, `NumericDate`, `Audience`, `CreateClaims`, `SetClaimsExpiration`, `TimeNowFn`                          |
-| JWKS key sets                              | `jwt/jwks.go`                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`       |
-| DPoP proof create / verify                 | `jwt/dpop/signer.go`, `jwt/dpop/verify.go`                                   | `NewSigner`, `ForRequest`, `VerifyRequestClaims`, `VerifyClaims`, `VerifyClaimsContext`, `AccessTokenHash`, `GetTokenInfo` |
-| DPoP replay cache (`jti`)                  | `jwt/dpop/replay.go`                                                         | `ReplayCache`, `NewMemoryReplayCache`, `ErrReplay`, `ErrReplayCacheFull`                                                      |
-| DPoP `htu` request URI / normalization     | `jwt/dpop/htu.go`                                                            | `VerifyConfig.ExternalURL`, `requestURI`, `normalizeHTU`                                                                      |
-| DPoP keys                                  | `jwt/dpop/keys.go`                                                           | `GenerateKey`, `LoadKey`, `SaveKey`, `Thumbprint`                                                                             |
-| Opaque access tokens                       | `jwt/accesstoken/accesstoken.go`                                             | `New`, `Provider`, `WithTokenExpiry`, `WithAllowNoExpiry`, `TokenPrefix`                                                      |
-| OAuth2 client registry                     | `jwt/oauth2client/*.go`                                                      | `LoadProvider`, `NewProvider`, `RegisterClient`, `ClientFor*`, `Client.CreateTokenRequest[WithContext]`                       |
-| Data protection                            | `dataprotection/dp.go`, `symmetric.go`                                       | `Provider`, `NewSymmetric`, `ProtectObject`, `UnprotectObject`                                                                |
-| Human-readable printing                    | `x/print/certutil.go`                                                        | `Certificate(s)`, `CertificateRequest`, `CertificateList`, `OCSPResponse`, `CertAndKey`, `JSON`                               |
-| OID / usage names                          | `oid/oidinfo.go`                                                             | `KeyUsage*`, `ExtKeyUsage*`, `DisplayName`, `KeyUsages`, `ExtKeyUsages`, `Strings`                                            |
-| ASCII armor decoding                       | `armor/armor.go`                                                             | `Decode`, `Block`                                                                                                             |
-| Metrics descriptors                        | `metricskey/metricskey.go`                                                   | `PerfCryptoOperation`, `PerfCAOperation`, `PerfCASignRequest`, `Metrics`                                                      |
-| Build version                              | `internal/version/*.go`                                                      | `Current`, `Info`, `PopulateFromBuild`                                                                                        |
-| Integration fixture gating (tests)         | `internal/testenv/testenv.go`                                                | `RequireTCP`, `RequireFile`, `SoftHSMConfig`, `IntegrationRequired`, `IntegrationEnv`, `Required`                                              |
-| SoftHSM fixture setup                      | `scripts/config-softhsm.sh`, `scripts/config-softhsm_test.sh`                | `make hsmconfig`, `make test-scripts`, setup `--help`                                                                         |
-| Kryoptic fixture setup (PKCS#11 v3.2)      | `scripts/config-kryoptic.sh`, `scripts/config-kryoptic_test.sh`, `scripts/p11-init-token.go` | `make kryoptic-config`, `make test-kryoptic`, `make test-scripts`                                               |
-| Live KMS confirmation (opt-in)             | `cryptoprov/awskmscrypto/mldsa_live_test.go`, `cryptoprov/gcpkmscrypto/mldsa_live_test.go` | `TestLiveKMSMLDSA`, `XPKI_LIVE_AWS_KMS_REGION`, `XPKI_LIVE_GCP_KMS_KEYRING`                                       |
-| Test CA fixtures                           | `testca/entity.go`, `configuration.go`, `mkcert.go`, `testca.go`, `utils.go` | `NewEntity`, options (`MLDSAKey`), `MakeSelfCert*`, `MakeValidCertsChainTSA`, `ToPEM`, `GenerateMLDSAKeyInPEM`                |
-| Concurrent test CA names / serials         | `testca/configuration.go`, `entity.go`, `concurrency_test.go`                | `NewEntity`, `Entity.Issue`, `Entity.IncrementSN`, `NextSerialNumber`                                                         |
-| CLI: HSM/KMS key management                | `cmd/hsm-tool/cli/hsm.go`, `csr.go`, `cli.go`                                | `Cli`, `HsmListCmd`… , `CsrCreateCmd`…                                                                                        |
-| CLI: PKI inspection                        | `cmd/xpki-tool/cli/certs.go`, `crl.go`, `ocsp.go`, `csr.go`                  | `CertInfoCmd`, `CertValidateCmd`, `CRL*Cmd`, `OCSP*Cmd`, `OCSPValidation`, `CRLValidation`                                    |
+| Concept                                    | File(s)                                                                                      | Entry points                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider interfaces                        | `cryptoprov/provider.go`                                                                     | `Provider`, `KeyGenerator` (`GenerateKey`, `GetKey`, `IdentifyKey`, `ExportKey`), `KeyManager` (`ListKeys`, `KeyInfo`, `DestroyKey`), `TokenManager` (`ListTokens`, `Token`); every method takes `ctx`                                                                                                                                                        |
+| Key management types, listing helpers      | `cryptoprov/keys.go`, `cryptoprov/errors.go`                                                 | `KeyInfo`, `TokenInfo`, `KeyUsage`, `KeyState`, `KeyFields`, `KeyFilter` (`Match`, `Fields`), `ListKeysRequest`/`Response`, `GenerateKeyRequest` (`Validate`), `AllKeys`, `PageKeys`, `PageCursor`, `NewPageToken`, `ParsePageToken`, `ECDSACurve`, `ParseKeyUsage`, `ParseKeyState`, `ErrKeyNotFound`, `ErrNotSupported`, `ErrInvalidPageToken`, `MarkError` |
+| Page tokens                                | `internal/pagetoken/pagetoken.go`                                                            | `Encode`, `Decode`, `Binding`, `ErrInvalid`, `MaxTokenSize`                                                                                                                                                                                                                                                                                                   |
+| Provider conformance suite                 | `internal/provtest/testsuite.go`                                                             | `Run`, `Config`; run by `inmemcrypto` (through `internal/provtest`), `testprov`, `crypto11`, `awskmscrypto`, `gcpkmscrypto`                                                                                                                                                                                                                                   |
+| ML-DSA signer contract, μ, parameter sets  | `cryptoprov/mldsa.go`                                                                        | `MLDSAParameters`, `MLDSASize`, `MLDSASignerOptions`, `MLDSAMu`, `MLDSA44/65/87`, `MetaParameterSet`, `MLDSAMuSize`                                                                                                                                                                                                                                           |
+| Provider registry / loading                | `cryptoprov/loader.go`                                                                       | `Register`, `LoadProvider`, `Load`, `Registered`                                                                                                                                                                                                                                                                                                              |
+| Multi-provider registry                    | `cryptoprov/provider.go`, `crypto_concurrency_test.go`                                       | `Crypto`, `New`, `Add`, `ByManufacturer`, `Default`, `ErrNilProvider`, `ErrDuplicateProvider`                                                                                                                                                                                                                                                                 |
+| Token config file (JSON/YAML, `file:` PIN) | `cryptoprov/config.go`, `crypto11/config.go`                                                 | `LoadTokenConfig`, `TokenConfig`                                                                                                                                                                                                                                                                                                                              |
+| PKCS#11 key URI                            | `cryptoprov/uri.go`                                                                          | `ParseTokenURI`, `ParsePrivateKeyURI`, `PrivateKeyURI`                                                                                                                                                                                                                                                                                                        |
+| Load key from PEM or URI                   | `cryptoprov/utils.go`, `cryptoprov/signer.go`                                                | `Crypto.LoadPrivateKey`, `NewSignerFromPEM`, `NewSignerFromFromFile`, `LoadTLSKeyPair`, `TLSKeyPair` (all take `ctx`)                                                                                                                                                                                                                                         |
+| AES-GCM helpers                            | `cryptoprov/gcm.go`                                                                          | `GcmEncrypt`, `GcmDecrypt`                                                                                                                                                                                                                                                                                                                                    |
+| PKCS#11 init / token select / login        | `crypto11/config.go`                                                                         | `Init`, `selectToken`, `ConfigureFromFile`, `LoadTokenConfig`, `WithMaxSessions`, `DefaultMaxSessions`                                                                                                                                                                                                                                                        |
+| PKCS#11 module sharing / finalize          | `crypto11/module.go`, `crypto11/crypto11.go`                                                 | `openModule`, `module.release`, `PKCS11Lib.Close`                                                                                                                                                                                                                                                                                                             |
+| PKCS#11 session pool                       | `crypto11/sessions.go`                                                                       | `withSession`, `withSessionCtx` (context-aware borrow), `sessionPool`, `sessionUnusable`, `NewSession`                                                                                                                                                                                                                                                        |
+| PKCS#11 key generation / lookup            | `crypto11/keys.go`, `rsa.go`, `ecdsa.go`, `mldsa.go`                                         | `GenerateKey`, `Generate{RSA,ECDSA,MLDSA}KeyPair*`, `FindKeyPair*`, `GetKey`, `ExportKey`, `IdentifyKey`, `PKCS11Object.Handle()`                                                                                                                                                                                                                             |
+| PKCS#11 signing / decryption               | `crypto11/rsa.go`, `crypto11/ecdsa.go`, `crypto11/mldsa.go`                                  | `PKCS11PrivateKeyRSA.Sign/Decrypt`, `PKCS11PrivateKeyECDSA.Sign`, `PKCS11PrivateKeyMLDSA.Sign` (message, PKCS#11 v3.2)                                                                                                                                                                                                                                        |
+| PKCS#11 token / key listing                | `crypto11/provider.go`, `crypto11/util.go`                                                   | `ListKeys`, `KeyInfo`, `DestroyKey`, `ListTokens`, `Token` (per-slot `KeyManager`), `TokensInfo`, `CurrentSlotID`, `newKeySearch`, `findObjectsWindow`                                                                                                                                                                                                        |
+| AWS KMS                                    | `cryptoprov/awskmscrypto/awskmsprov.go`, `signer.go`                                         | `Init`, `KmsLoader`, `KmsClientFactory`, `KmsClient`, `TaggingClientFactory`, `TaggingClient`, `NewSigner`, `Signer.SigningAlgorithms`, `Provider.GenerateKey`, `KeyInfo`, `DestroyKey`                                                                                                                                                                       |
+| AWS KMS listing planner                    | `cryptoprov/awskmscrypto/listkeys.go`, `metacache.go`                                        | `Provider.ListKeys`, `sources`, `listing.fetch`/`evaluate`/`resolve`, `metadataCache`, token config attributes `TagSearch`, `TaggingEndpoint`, `LabelSearch`, `DescribeConcurrency`, `MetadataCacheSize`                                                                                                                                                      |
+| GCP KMS                                    | `cryptoprov/gcpkmscrypto/gcpkmsprov.go`, `signer.go`                                         | `Init`, `KmsLoader`, `KmsClientFactory` (takes the endpoint), `KmsClient`, `KeyLabelAndID`, `NewSigner`, `Signer.Algorithm`, `Signer.SignatureAlgorithm`, `Crc32c`, `Provider.GenerateKey`, `ListKeys` (`pushdownFilter`), `KeyInfo`, `DestroyKey`, `Close`, `ErrClosed`                                                                                      |
+| In-memory keys                             | `cryptoprov/inmemcrypto/provider.go`, `concurrency_test.go`                                  | `NewProvider`, `Loader`, `ProviderName`, `Provider.GenerateKey`, `GetKey`, `ExportKey`, `ListKeys`, `KeyInfo`, `DestroyKey`                                                                                                                                                                                                                                   |
+| Test-provider key registry                 | `cryptoprov/testprov/provider.go`, `concurrency_test.go`                                     | `Init`, `Loader`, `Provider.GenerateKey`, `GetKey`, `ExportKey`, `ListKeys`, `KeyInfo`, `DestroyKey`                                                                                                                                                                                                                                                          |
+| CSR request types                          | `csr/csr.go`                                                                                 | `CertificateRequest`, `SignRequest`, `X509Subject`, `X509Name`, `X509Extension`, `AllowedFields`                                                                                                                                                                                                                                                              |
+| CSR create / sign / parse                  | `csr/csrprov.go`, `csr/csr.go`                                                               | `NewProvider`, `GenerateKeyAndRequest(ctx, …)`, `CreateRequestAndExportKey(ctx, …)`, `SignRequest`, `Parse`, `ParsePEM`                                                                                                                                                                                                                                       |
+| Key request (algo/size/purpose)            | `csr/keyreq.go`                                                                              | `KeyRequest`, `KeyRequest.Validate`, `NewKeyRequest`, `KeyPurpose`, `SigAlgo`, `AlgoRSA/ECDSA/MLDSA`, `MLDSA44/65/87`, `IsPostQuantumAlgo`                                                                                                                                                                                                                    |
+| Subject merge, SAN classification          | `csr/csr.go`, `csr/san.go`                                                                   | `PopulateName`, `ApplySAN`, `ParseSAN`, `FindAttr`                                                                                                                                                                                                                                                                                                            |
+| CRL distribution point extension           | `csr/csr.go`                                                                                 | `EncodeCDP`, `EncodeCDPFull`, `DecodeCDP`, `DecodeCDPFull`, `GeneralName`                                                                                                                                                                                                                                                                                     |
+| JSON/YAML OID and Duration                 | `csr/types.go`                                                                               | `OID`, `Duration`, `ParseObjectIdentifier`                                                                                                                                                                                                                                                                                                                    |
+| CA config and profiles                     | `authority/config.go`                                                                        | `Config`, `IssuerConfig`, `AIAConfig` (`DelegatedOCSPKey`), `CertProfile` (`AllowedKeyAlgorithms`), `LoadConfig`, `Validate`, `Usages`                                                                                                                                                                                                                        |
+| CA issuer registry                         | `authority/authority.go`                                                                     | `NewAuthority(ctx, …)`, `GetIssuerBy{Label,Profile,KeyID,KeyHash,NameHash}`                                                                                                                                                                                                                                                                                   |
+| Issuer construction / signing              | `authority/issuer.go`                                                                        | `NewIssuer(ctx, …)`, `NewIssuerWithBundles(ctx, …)`, `CreateIssuer`, `Issuer.Sign`, `SignProof`, `VerifyProof`                                                                                                                                                                                                                                                |
+| OCSP signing, delegated responder          | `authority/ocsp.go`                                                                          | `SignOCSP`, `OCSPSignRequest`, `CreateDelegatedOCSPSigner`, `OCSPReasonStringToCode`, `validateDelegatedOCSPKey`                                                                                                                                                                                                                                              |
+| OCSP responder renewal / locking           | `authority/ocsp.go` (`delegatedResponder`), `authority/issuer.go` (`Issuer`)                 | `caResponder`, `delegated`, `renewal` (`ocspRenewal`), `renewLock`, `renewWaitHook`, `validateDelegatedOCSPProfile`, `signWithProfile`                                                                                                                                                                                                                        |
+| Certificate policies, SKI                  | `authority/extensions.go`                                                                    | `addPolicies`, `CTPoisonOID`, `SCTListOID`                                                                                                                                                                                                                                                                                                                    |
+| ML-DSA key usage rule (RFC 9881)           | `authority/extensions.go`, `authority/config.go`                                             | `mldsaForbiddenKeyUsage`, `checkMLDSATemplate`, `CertProfile.checkMLDSAKeyUsage`                                                                                                                                                                                                                                                                              |
+| Root bootstrap / cert files                | `authority/root.go`, `authority/util.go`                                                     | `NewRoot(ctx, …)`, `Issuer.GenCert(ctx, …)`                                                                                                                                                                                                                                                                                                                   |
+| PEM parse / encode                         | `certutil/pem.go`                                                                            | `ParseFromPEM`, `ParseChainFromPEM`, `Load*FromPEM`, `EncodeToPEM*`, `ParsePrivateKeyPEM*`, `EncodePrivateKeyToPEM`, `ParsePublicKeyFromPEM`                                                                                                                                                                                                                  |
+| Chain bundling / verification              | `certutil/bundler.go`, `certutil/bundle.go`                                                  | `NewBundler*`, `LoadBundler`, `Bundler.Bundle`/`BundleContext`, `VerifyBundleFromPEM`, `LoadAndVerifyBundleFromPEM`, `Bundle`, `BundleStatus`                                                                                                                                                                                                                 |
+| Hashes, thumbprints, IDs                   | `certutil/hash.go`, `certutil/cert_id.go`                                                    | `Digest`, `SHA1*`, `SHA256*`, `NewHash`, `GetThumbprintStr`, `GetSubjectID`, `GetIssuerID`                                                                                                                                                                                                                                                                    |
+| Key info (type, size, hash, JWK)           | `certutil/keyinfo.go`                                                                        | `NewKeyInfo`, `KeyInfo`                                                                                                                                                                                                                                                                                                                                       |
+| Post-quantum detection                     | `certutil/pqc.go`                                                                            | `IsPostQuantumKey`, `IsPostQuantumCertificate`, `IsPostQuantumSignatureAlgorithm`, `KeyTypeRSA/ECDSA/MLDSA`                                                                                                                                                                                                                                                   |
+| OCSP request, extensions                   | `certutil/ocsp.go`, `certutil/extensions.go`                                                 | `CreateOCSPRequest`, `FindExtension`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                                                                                                                                                                                                                                                        |
+| OCSP response create / verify (ML-DSA too) | `certutil/ocsp.go`                                                                           | `CreateOCSPResponse`, `ParseOCSPResponse`, `ParseOCSPResponseForCert`                                                                                                                                                                                                                                                                                         |
+| Randomness                                 | `certutil/random.go`                                                                         | `Random`, `RandomString`, `RandReader`                                                                                                                                                                                                                                                                                                                        |
+| JWT provider (sign + verify)               | `jwt/jwt.go`                                                                                 | `ProviderConfig`, `LoadProvider(ctx, …)`, `NewProvider(ctx, …)`, `MustNewProvider(ctx, …)`, `NewProviderFromCryptoSigner`, `NewProviderWithSymmetricKey`, `WithHeaders`                                                                                                                                                                                       |
+| JWT signing internals                      | `jwt/sign.go`                                                                                | `NewSignerInfo`, `VerifySignature`, `mldsaParameterSets`, `mldsaKeyFits`                                                                                                                                                                                                                                                                                      |
+| JWT parsing (third-party tokens)           | `jwt/parser.go`                                                                              | `ParserConfig`, `LoadParserConfig`, `NewParser`, `TokenParser`, `Keyfunc`                                                                                                                                                                                                                                                                                     |
+| Claims                                     | `jwt/claims.go`                                                                              | `Claims`, `MapClaims`, `NumericDate`, `Audience`, `CreateClaims`, `SetClaimsExpiration`, `TimeNowFn`                                                                                                                                                                                                                                                          |
+| JWKS key sets                              | `jwt/jwks.go`                                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`                                                                                                                                                                                                                                       |
+| DPoP proof create / verify                 | `jwt/dpop/signer.go`, `jwt/dpop/verify.go`                                                   | `NewSigner`, `ForRequest`, `VerifyRequestClaims`, `VerifyClaims`, `VerifyClaimsContext`, `AccessTokenHash`, `GetTokenInfo`                                                                                                                                                                                                                                    |
+| DPoP replay cache (`jti`)                  | `jwt/dpop/replay.go`                                                                         | `ReplayCache`, `NewMemoryReplayCache`, `ErrReplay`, `ErrReplayCacheFull`                                                                                                                                                                                                                                                                                      |
+| DPoP `htu` request URI / normalization     | `jwt/dpop/htu.go`                                                                            | `VerifyConfig.ExternalURL`, `requestURI`, `normalizeHTU`                                                                                                                                                                                                                                                                                                      |
+| DPoP keys                                  | `jwt/dpop/keys.go`                                                                           | `GenerateKey`, `LoadKey`, `SaveKey`, `Thumbprint`                                                                                                                                                                                                                                                                                                             |
+| Opaque access tokens                       | `jwt/accesstoken/accesstoken.go`                                                             | `New`, `Provider`, `WithTokenExpiry`, `WithAllowNoExpiry`, `TokenPrefix`                                                                                                                                                                                                                                                                                      |
+| OAuth2 client registry                     | `jwt/oauth2client/*.go`                                                                      | `LoadProvider`, `NewProvider`, `RegisterClient`, `ClientFor*`, `Client.CreateTokenRequest[WithContext]`                                                                                                                                                                                                                                                       |
+| Data protection                            | `dataprotection/dp.go`, `symmetric.go`                                                       | `Provider`, `NewSymmetric`, `ProtectObject`, `UnprotectObject`                                                                                                                                                                                                                                                                                                |
+| Human-readable printing                    | `x/print/certutil.go`                                                                        | `Certificate(s)`, `CertificateRequest`, `CertificateList`, `OCSPResponse`, `CertAndKey`, `JSON`                                                                                                                                                                                                                                                               |
+| OID / usage names                          | `oid/oidinfo.go`                                                                             | `KeyUsage*`, `ExtKeyUsage*`, `DisplayName`, `KeyUsages`, `ExtKeyUsages`, `Strings`                                                                                                                                                                                                                                                                            |
+| ASCII armor decoding                       | `armor/armor.go`                                                                             | `Decode`, `Block`                                                                                                                                                                                                                                                                                                                                             |
+| Metrics descriptors                        | `metricskey/metricskey.go`                                                                   | `PerfCryptoOperation`, `PerfCAOperation`, `PerfCASignRequest`, `Metrics`                                                                                                                                                                                                                                                                                      |
+| Build version                              | `internal/version/*.go`                                                                      | `Current`, `Info`, `PopulateFromBuild`                                                                                                                                                                                                                                                                                                                        |
+| Integration fixture gating (tests)         | `internal/testenv/testenv.go`                                                                | `RequireTCP`, `RequireFile`, `SoftHSMConfig`, `IntegrationRequired`, `IntegrationEnv`, `Required`                                                                                                                                                                                                                                                             |
+| SoftHSM fixture setup                      | `scripts/config-softhsm.sh`, `scripts/config-softhsm_test.sh`                                | `make hsmconfig`, `make test-scripts`, setup `--help`                                                                                                                                                                                                                                                                                                         |
+| Kryoptic fixture setup (PKCS#11 v3.2)      | `scripts/config-kryoptic.sh`, `scripts/config-kryoptic_test.sh`, `scripts/p11-init-token.go` | `make kryoptic-config`, `make test-kryoptic`, `make test-scripts`                                                                                                                                                                                                                                                                                             |
+| Live KMS confirmation (opt-in)             | `cryptoprov/awskmscrypto/*_live_test.go`, `cryptoprov/gcpkmscrypto/*_live_test.go`           | `TestLiveKMSMLDSA`, `TestLiveKMSListKeys`, `TestLiveKMSSign` (GCP), `XPKI_LIVE_AWS_KMS_REGION`, `XPKI_LIVE_AWS_KMS_TAGSEARCH`, `XPKI_LIVE_GCP_KMS_KEYRING`                                                                                                                                                                                                    |
+| Test CA fixtures                           | `testca/entity.go`, `configuration.go`, `mkcert.go`, `testca.go`, `utils.go`                 | `NewEntity`, options (`MLDSAKey`), `MakeSelfCert*`, `MakeValidCertsChainTSA`, `ToPEM`, `GenerateMLDSAKeyInPEM`                                                                                                                                                                                                                                                |
+| Concurrent test CA names / serials         | `testca/configuration.go`, `entity.go`, `concurrency_test.go`                                | `NewEntity`, `Entity.Issue`, `Entity.IncrementSN`, `NextSerialNumber`                                                                                                                                                                                                                                                                                         |
+| CLI: HSM/KMS key management                | `cmd/hsm-tool/cli/hsm.go`, `csr.go`, `cli.go`                                                | `Cli`, `HsmListCmd`… , `CsrCreateCmd`…                                                                                                                                                                                                                                                                                                                        |
+| CLI: PKI inspection                        | `cmd/xpki-tool/cli/certs.go`, `crl.go`, `ocsp.go`, `csr.go`                                  | `CertInfoCmd`, `CertValidateCmd`, `CRL*Cmd`, `OCSP*Cmd`, `OCSPValidation`, `CRLValidation`                                                                                                                                                                                                                                                                    |
 
 ## Package cryptoprov
 
 Provider-agnostic key abstraction: `Provider` (generate/lookup/export keys +
-`Manufacturer`/`Model`), `KeyManager` (enumerate tokens and keys, key info,
-destroy), the `Crypto` registry keyed by manufacturer and model, the process-global
+`Manufacturer`/`Model`), `KeyManager` (list keys by page and filter, key info
+by field mask, destroy), `TokenManager` (the tokens of a PKCS#11 module), the
+key management types and listing helpers, the `Crypto` registry keyed by
+manufacturer and model, the process-global
 loader registry, token config loading, PKCS#11 URI parsing, PEM/DER key
 parsing, TLS key-pair loading and AES-GCM helpers.
 
 ### Files
 
-| File          | Role                                                                                                                        |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `provider.go` | Interfaces, `KeyInfo`/`TokenInfo`, `Crypto` (`New`, `Add`, `ByManufacturer`), `ErrNilProvider`, `ErrDuplicateProvider`      |
-| `loader.go`   | `loaders` map + `lockLoaders`; `Register`, `Unregister`, `Registered`, `LoadProvider`, `Load` (closes loaded providers on error) |
-| `config.go`   | `TokenConfig` interface, JSON/YAML struct, `LoadTokenConfig` with `file:` PIN resolution (absolute, cwd, config dir)        |
-| `uri.go`      | RFC 7512 parser (`parsePKCS11URI`), `ParseTokenURI`, `ParsePrivateKeyURI`, `pin-value` redaction                            |
-| `utils.go`    | `Crypto.LoadPrivateKey` (PEM or `pkcs11:` URI), `ParsePrivateKeyPEM*`, `ParsePrivateKeyDER`, `LoadTLSKeyPair`, `TLSKeyPair` |
-| `signer.go`   | `NewSignerFromFromFile`, `NewSignerFromPEM`                                                                                 |
-| `mldsa.go`    | ML-DSA (FIPS 204): `MLDSAParameters` (44/65/87), the signer contract `MLDSASignerOptions`, `MLDSAMu` (Algorithm 7), `MetaParameterSet` |
-| `gcm.go`      | `GcmEncrypt`/`GcmDecrypt` (nonce prefixed)                                                                                  |
+| File          | Role                                                                                                                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `provider.go` | Interfaces (`Provider`, `KeyGenerator`, `KeyManager`, `TokenManager`), `Crypto` (`New`, `Add`, `ByManufacturer`), `ErrNilProvider`, `ErrDuplicateProvider`                                                                                                                                             |
+| `keys.go`     | `KeyInfo`, `TokenInfo`, `KeyUsage`, `KeyState`, `KeyFields`, `KeyFilter`, `ListKeysRequest`/`ListKeysResponse`, `GenerateKeyRequest`, `PageCursor` with `NewPageToken`/`ParsePageToken`, `PageKeys`, `AllKeys`, `ECDSACurve`, the sentinels `ErrKeyNotFound`, `ErrNotSupported`, `ErrInvalidPageToken` |
+| `errors.go`   | `MarkError`: a backend error with a sentinel as a second identity                                                                                                                                                                                                                                      |
+| `loader.go`   | `loaders` map + `lockLoaders`; `Register`, `Unregister`, `Registered`, `LoadProvider`, `Load` (closes loaded providers on error)                                                                                                                                                                       |
+| `config.go`   | `TokenConfig` interface, JSON/YAML struct, `LoadTokenConfig` with `file:` PIN resolution (absolute, cwd, config dir)                                                                                                                                                                                   |
+| `uri.go`      | RFC 7512 parser (`parsePKCS11URI`), `ParseTokenURI`, `ParsePrivateKeyURI`, `pin-value` redaction                                                                                                                                                                                                       |
+| `utils.go`    | `Crypto.LoadPrivateKey` (PEM or `pkcs11:` URI), `ParsePrivateKeyPEM*`, `ParsePrivateKeyDER`, `LoadTLSKeyPair`, `TLSKeyPair`                                                                                                                                                                            |
+| `signer.go`   | `NewSignerFromFromFile`, `NewSignerFromPEM`                                                                                                                                                                                                                                                            |
+| `mldsa.go`    | ML-DSA (FIPS 204): `MLDSAParameters` (44/65/87), the signer contract `MLDSASignerOptions`, `MLDSAMu` (Algorithm 7), `MetaParameterSet`                                                                                                                                                                 |
+| `gcm.go`      | `GcmEncrypt`/`GcmDecrypt` (nonce prefixed)                                                                                                                                                                                                                                                             |
 
 ### Invariants
 
@@ -142,12 +159,36 @@ parsing, TLS key-pair loading and AES-GCM helpers.
 - Config location `""` or `"inmem"` maps to manufacturer `inmem`; `.json` suffix
   selects JSON, otherwise YAML. JSON keys: `Manufacturer, Model, Path, TokenSerial,
 TokenLabel, Pin, Attributes`; YAML keys are snake_case.
-- `Provider` does not embed `KeyManager` or `Close`; type-assert when needed.
-- `KeyGenerator.GenerateMLDSAKey(label, params)` is part of the contract since
-  v1.1 (a breaking change for external implementers; design decision D1 was
-  resolved by folding the generator into the interface). `params` is
-  `mldsa.MLDSA44()`, `MLDSA65()` or `MLDSA87()`; `MLDSAParameters(44|65|87)`
-  maps the numbers `csr.KeyRequest.Size` carries.
+- `Provider` does not embed `KeyManager`, `TokenManager` or `Close`;
+  type-assert when needed. Every provider of this module is a `KeyManager`;
+  only `crypto11` is a `TokenManager`.
+- The v2 contract ([design/keymanager.md](./design/keymanager.md)): every
+  method takes `ctx`. `GenerateKey(ctx, *GenerateKeyRequest)` creates every
+  key (`Type` is `certutil.KeyTypeRSA/ECDSA/MLDSA`, `Size` the bits, the curve
+  size or the ML-DSA parameter set, `Usage` zero means `KeyUsageSign`, `Tags`);
+  providers call `GenerateKeyRequest.Validate` first, and a valid request the
+  backend cannot serve is a wrapped `ErrNotSupported`. `MLDSAParameters` and
+  `MLDSASize` convert between the parameter set number and `mldsa.Parameters`,
+  `ECDSACurve` returns the curve of a size.
+- Listing rules: `ListKeys` returns at most `PageSize` keys (default
+  `DefaultPageSize` where the backend has no page of its own, never more than
+  `MaxPageSize`); a page may be short or empty and still have a
+  `NextPageToken`; the listing ends when it is empty (`AllKeys` hides the
+  loop and rejects a token that does not advance). A page token is opaque,
+  unauthenticated, and bound by a hash to `Filter` and `Fields`
+  (`internal/pagetoken`; the page size is not bound): another request or a
+  malformed token is a wrapped `ErrInvalidPageToken`. `KeyFieldPublicKey` in a
+  listing is an error: a public key is fetched by `KeyInfo` only. A filter
+  condition a provider cannot evaluate is `ErrNotSupported`, never an empty
+  result; there is no default state filter. `KeyFilter.Match` evaluates a
+  filter on a filled `KeyInfo` and `KeyFilter.Fields` names the groups it
+  reads; `PageKeys` answers a request from a complete in-memory list with an
+  offset token.
+- Errors: `ErrKeyNotFound` is in the chain of the error `GetKey`, `KeyInfo`,
+  `DestroyKey` (and `ExportKey` where it reads the backend) return for a
+  missing key. A provider that keeps the backend error uses `MarkError`, which
+  satisfies the standard `errors.Is` (a `cockroachdb/errors.Mark` does not)
+  while `errors.As` still finds the service error.
 - ML-DSA signer contract (D4, `MLDSASignerOptions`): every ML-DSA signer of
   the module signs the **message** with nil options, a zero `HashFunc`
   (`x509.CreateCertificate` passes `crypto.Hash(0)`) or `*mldsa.Options`
@@ -206,6 +247,10 @@ TokenLabel, Pin, Attributes`; YAML keys are snake_case.
   (`errors.Join`) under `failed to parse key`.
 - `TLSKeyPair`/`LoadTLSKeyPair` set `Certificate.Leaf` and return an error
   when the private key's public half does not `Equal` the leaf's public key.
+- `LoadPrivateKey`, `NewSignerFromPEM`, `NewSignerFromFromFile`,
+  `LoadTLSKeyPair` and `TLSKeyPair` take `ctx` (v2): it reaches
+  `Provider.GetKey` when the key is a `pkcs11:` URI and is not used for a PEM
+  key. The loaders (`Load`, `LoadProvider`, `ProviderLoader`) have no context.
 - Errors are `cockroachdb/errors`; sentinels `ErrInvalidURI`, `ErrInvalidPrivateKeyURI`.
 
 ### Test layout
@@ -224,8 +269,46 @@ fixture-free with `inmemcrypto`/`testprov`. `crypto_test.go` covers the
 `BenchmarkByManufacturer`/`BenchmarkByManufacturerWithAdd`. `mldsa_test.go`
 tables the parameter sets and the signer-option contract and proves μ
 against the standard library (a signature over the local μ verifies the
-message, with and without a context). `testdata/`
+message, with and without a context). `keys_test.go` covers the key
+management types without a provider: usage and state parsing, the field
+mask, `KeyFilter.Match`/`Fields`, request validation, `PageKeys` and its
+tokens, `AllKeys` over a paged fake (empty middle page, a token that does not
+advance, an error after a page, cancellation), `GenerateKeyRequest.Validate`
+and `MarkError` with both `errors.Is`. `testdata/`
 holds `inmem_testprov.{json,yaml}`, `inmem_pin.txt`, `test-{cert,key}.pem`.
+
+## Package internal/pagetoken
+
+`pagetoken.go`: a page token is the base64url of a JSON envelope (version,
+binding, payload). `Binding(v)` is the first 8 bytes of the SHA-256 of the
+JSON of `v`, which must marshal deterministically; `Encode(binding, payload)`
+and `Decode(binding, token, &payload)`. `Decode` fails with a wrapped
+`ErrInvalid` for a token that is not base64url or JSON, has another version,
+another binding or another payload shape, or is longer than `MaxTokenSize`
+(8 KiB). Tokens are neither secret nor authenticated. `cryptoprov` wraps it
+(`NewPageToken`, `ParsePageToken`) and maps `ErrInvalid` to
+`ErrInvalidPageToken`; providers do not import it.
+
+## Package internal/provtest
+
+`testsuite.go` (excluded from coverage by its name): the conformance suite
+of the key management contract, a `testify/suite` started with
+`provtest.Run(t, Config)`. `Config.New` returns the provider; `Tags`,
+`Encrypt`, `MLDSA`, `DestroyRemoves` declare what the backend can do (what it
+cannot is asserted as `ErrNotSupported`, not skipped); `ListedID` maps a
+signer's key ID to its listing ID (GCP lists the key and identifies a signer
+by its version); `PagingByLabel` makes the paging test give its keys one
+label and list by that exact label, for a store other tests change while the
+suite runs (the SoftHSM token, whose page token is an offset in the search
+order). The suite generates keys with a random label prefix, runs
+`TestPaging`, `TestFilters`, `TestFields`, `TestPageToken`,
+`TestInvalidRequests`, `TestNotSupported`, `TestKeyInfo`, `TestGetKey`,
+`TestKeyNotFound`, `TestCancelledContext` and `TestDestroyKey`, and destroys
+its keys in `TearDownSuite`. The filter tests read one page of
+`MaxPageSize`. Run by `internal/provtest` itself on `inmemcrypto` (both
+paging modes), and by `testprov`, `crypto11` (SoftHSM), `awskmscrypto` (fake
+KMS: alias index, `TagSearch`, `LabelSearch=scan`) and `gcpkmscrypto`
+(in-process KMS).
 
 ## Package crypto11
 
@@ -236,22 +319,22 @@ C toolchain (cgo) and dlopens the module named in the config.
 
 ### Files
 
-| File          | Role                                                                                                                                               |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `doc.go`      | Package comment                                                                                                                                    |
-| `crypto11.go` | Sentinel errors (`errClosed` after Close), `PKCS11Lib`, `PKCS11Object`, `PKCS11PrivateKey`, `Close() error`                                        |
-| `config.go`   | `TokenConfig`, `Init` (module ref, `selectToken` by every configured serial/label, login session, unwind on error), `Option`/`WithMaxSessions`, `ConfigureFromFile`, `LoadTokenConfig` |
-| `module.go`   | Process-wide module registry matched by loader handle, else `moduleID`: `openModule`, `module.release` (last ref finalizes and unloads)          |
-| `module_dl_unix.go`, `module_dl_other.go` | `loadedHandle` (cgo `dlopen`/`dlclose`, `-ldl` on Linux); 0 on non-unix                                                   |
-| `sessions.go` | `sessionPool` (bounded per slot), `withSession`, `NewSession`, lifecycle guard (`acquirePool`/`enter`/`exit`), `sessionOps` test seam              |
-| `provider.go` | `cryptoprov` glue: `init()` registration, `LoadProvider`, `EnumTokens`, `EnumKeys`, `KeyInfo`                                                      |
-| `keys.go`     | `KeyPurpose`, `findKey`, `ListKeys`, `FindKeyPair*`, `ConvertToPublic`, `GetKey`, `ExportKey`, `GenerateRSAKey`, `GenerateECDSAKey`, `IdentifyKey` |
-| `rsa.go`      | `PKCS11PrivateKeyRSA`: generate, `Sign` (PKCS#1 v1.5, PSS), `Decrypt` (PKCS#1 v1.5, OAEP), `Validate`                                              |
-| `ecdsa.go`    | `PKCS11PrivateKeyECDSA`: curve table (P-224/256/384/521), generate, `Sign` (DER r,s)                                                               |
-| `mldsa.go`    | `PKCS11PrivateKeyMLDSA` (PKCS#11 v3.2; constants declared locally since miekg/pkcs11 v1.1.2 lacks them): `GenerateMLDSAKey` (`CKM_ML_DSA_KEY_PAIR_GEN`, `CKA_PARAMETER_SET` on the public template), public key from `CKA_PARAMETER_SET` + `CKA_VALUE`, `Sign` over the message (`CKM_ML_DSA`, no parameter). Run against Kryoptic 1.5.4 |
-| `common.go`   | Attribute/class/type name maps, CK_ULONG codec (`ulongSize`, checked `bytesToUlong`, `keyTypeAndClass`, deprecated `BytesToUlong`, `UlongToBytes`), ECDSA signature DER helpers, label/ID generation on the held session |
-| `util.go`     | `CurrentSlotID`, `TokensInfo`, `DestroyKeyPairOnSlot`, `getPublicKeyPEM` (on a given session)                                                      |
-| `rand.go`     | `GenRandom`                                                                                                                                        |
+| File                                      | Role                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `doc.go`                                  | Package comment                                                                                                                                                                                                                                                                                                                                                |
+| `crypto11.go`                             | Sentinel errors (`errClosed` after Close), `PKCS11Lib`, `PKCS11Object`, `PKCS11PrivateKey`, `Close() error`                                                                                                                                                                                                                                                    |
+| `config.go`                               | `TokenConfig`, `Init` (module ref, `selectToken` by every configured serial/label, login session, unwind on error), `Option`/`WithMaxSessions`, `ConfigureFromFile`, `LoadTokenConfig`                                                                                                                                                                         |
+| `module.go`                               | Process-wide module registry matched by loader handle, else `moduleID`: `openModule`, `module.release` (last ref finalizes and unloads)                                                                                                                                                                                                                        |
+| `module_dl_unix.go`, `module_dl_other.go` | `loadedHandle` (cgo `dlopen`/`dlclose`, `-ldl` on Linux); 0 on non-unix                                                                                                                                                                                                                                                                                        |
+| `sessions.go`                             | `sessionPool` (bounded per slot), `withSession`, `withSessionCtx` (the borrow waits no longer than its context), `NewSession`, lifecycle guard (`acquirePool`/`enter`/`exit`), `sessionOps` test seam                                                                                                                                                          |
+| `provider.go`                             | `cryptoprov` glue: `init()` registration, `LoadProvider`; the `KeyManager` (`ListKeys`, `KeyInfo`, `DestroyKey`) and `TokenManager` (`ListTokens`, `Token` returning a per-slot `tokenKeyManager`); `keySearch`/`newKeySearch` (filter to search template), `findObjectsWindow`, `keyInfoOfObject`, `readKeyDetails`, the `keyAttributesRead` test hook        |
+| `keys.go`                                 | `findKey`, `FindKeyPair*`, `ConvertToPublic`, `GenerateKey`, `GetKey`, `ExportKey`, `IdentifyKey`, `Identify`, `keyError` (marks `cryptoprov.ErrKeyNotFound`)                                                                                                                                                                                                  |
+| `rsa.go`                                  | `PKCS11PrivateKeyRSA`: generate, `Sign` (PKCS#1 v1.5, PSS), `Decrypt` (PKCS#1 v1.5, OAEP), `Validate`                                                                                                                                                                                                                                                          |
+| `ecdsa.go`                                | `PKCS11PrivateKeyECDSA`: curve table (P-224/256/384/521), generate, `Sign` (DER r,s)                                                                                                                                                                                                                                                                           |
+| `mldsa.go`                                | `PKCS11PrivateKeyMLDSA` (PKCS#11 v3.2; constants declared locally since miekg/pkcs11 v1.1.2 lacks them): `GenerateMLDSAKeyPairWithLabel`/`OnSlot` (`CKM_ML_DSA_KEY_PAIR_GEN`, `CKA_PARAMETER_SET` on the public template), public key from `CKA_PARAMETER_SET` + `CKA_VALUE`, `Sign` over the message (`CKM_ML_DSA`, no parameter). Run against Kryoptic 1.5.4 |
+| `common.go`                               | Attribute/class/type name maps, CK_ULONG codec (`ulongSize`, checked `bytesToUlong`, `keyTypeAndClass`, `UlongToBytes`), ECDSA signature DER helpers, label/ID generation on the held session                                                                                                                                                                  |
+| `util.go`                                 | `CurrentSlotID`, `TokensInfo`, `destroyKeyPairOnSession`, `getPublicKeyPEM` (on a given session)                                                                                                                                                                                                                                                               |
+| `rand.go`                                 | `GenRandom`                                                                                                                                                                                                                                                                                                                                                    |
 
 ### Invariants
 
@@ -305,18 +388,19 @@ C toolchain (cgo) and dlopens the module named in the config.
   CKA_ID on `CKR_OBJECT_HANDLE_INVALID` or `CKR_KEY_HANDLE_INVALID` (the
   code C_Sign/C_Decrypt use, `staleKeyHandleErrors`) and runs the callback
   once more (so
-  up to six runs per call with the `withSession` retries). The exported
-  `PKCS11Object` keeps its two public fields, so positional literals still
-  compile; `Identify(*PKCS11Object)` uses the handle as given. A key
+  up to six runs per call with the `withSession` retries). `PKCS11Object`
+  holds the handle it was found with and the `objectRef` (both unexported
+  since v2); `PKCS11Object.Handle()` returns the current handle, which
+  follows a refresh, and `Identify(ctx, *PKCS11Object)` uses the handle as
+  given. A key
   without CKA_ID gets no `objectRef` and keeps its handle, and a lookup
   matching several objects is `errAmbiguousObject`, never a guess.
-  `PKCS11Object.Handle` keeps the original value and may be stale after a
-  logout. Key generation: once `C_GenerateKeyPair` succeeded, a failure to
+  Key generation: once `C_GenerateKeyPair` succeeded, a failure to
   read the public key or CKA_ID destroys the pair (`discardGeneratedPair`,
   best effort) and is returned wrapped by `noRetry`, which `withSession`
   returns unwrapped without running the callback again, so a retry never
   generates a second pair or duplicates a caller-supplied id; a failure of
-  `C_GenerateKeyPair` itself (nothing committed) is retried like any other. `EnumKeys` on the login slot checks the session state
+  `C_GenerateKeyPair` itself (nothing committed) is retried like any other. `ListKeys` on the login slot checks the session state
   first and re-logs in when it is public, since a logged-out token silently
   lists no private keys. `Session` is replaced by a re-login: callers must
   not cache or close it. Callbacks passed to `withSession` must be safe to
@@ -340,11 +424,11 @@ C toolchain (cgo) and dlopens the module named in the config.
   including sessions returned during `Close`), releases the module and sets
   `Ctx` to nil. Every method that touches `Ctx` goes through `withSession` or
   `enter`/`exit`, including `ExportKey` (lookup and token info in one pooled
-  operation, never a nested guarded call), `EnumTokens(true)` and the public
-  caller-session methods (`ListKeys`, `FindKeys`, `FindKeyPairOnSession`,
+  operation, never a nested guarded call), `ListTokens`, `Token` and the
+  public caller-session methods (`FindKeyPairOnSession`,
   `Generate{RSA,ECDSA}KeyPairOnSession`), which wrap unexported versions used
-  inside pooled operations. `EnumKeys` keeps its own read-only session, so
-  write-protected tokens list. Direct use of the exported `Ctx` and caller
+  inside pooled operations. `ListKeys` keeps its own read-only session, which
+  it closes before it returns, so write-protected tokens list. Direct use of the exported `Ctx` and caller
   sessions from `NewSession` are untracked; close them before `Close`, and do
   not call `Close` from inside an operation.
 - Token selection (XPKI-006, `selectToken`): a token must match every
@@ -357,10 +441,9 @@ C toolchain (cgo) and dlopens the module named in the config.
 - CK_ULONG attributes (XPKI-011): values are exactly `ulongSize` bytes
   (`C.sizeof_ulong`: 8 on LP64 unix, 4 on Windows/32-bit) in host byte order,
   decoded with `encoding/binary.NativeEndian`, no `unsafe`. Internal readers
-  (`EnumKeys`, `KeyInfo`, `FindKeyPair`/`FindKeyPairOnSession`)
-  use `bytesToUlong` and return `errMalformedUlong` for any other length. The
-  deprecated exported `BytesToUlong` returns `CK_UNAVAILABLE_INFORMATION`
-  (`^uint(0)`) instead of panicking.
+  (`ListKeys`, `KeyInfo`, `FindKeyPair`/`FindKeyPairOnSession`)
+  use `bytesToUlong` and return `errMalformedUlong` for any other length.
+  The exported `BytesToUlong` was removed in v2.
 - RSA: exponent 65537; PSS accepts `PSSSaltLengthAuto` (largest salt that
   fits, as `crypto/rsa`), `PSSSaltLengthEqualsHash` or an explicit length;
   PKCS#1 v1.5 and OAEP support SHA-1/224/256/384/512 (SoftHSM2 only does SHA-1
@@ -369,14 +452,48 @@ C toolchain (cgo) and dlopens the module named in the config.
   or `*rsa.OAEPOptions`. OAEP/PSS parameters use
   `pkcs11.NewOAEPParams`/`NewPSSParams`.
 - Public key export needs a separate `CKO_PUBLIC_KEY` object with the same ID/label.
-- `EnumKeys`/`ListKeys`/`FindKeys` drain `C_FindObjects` in batches of 100
-  (`findAllObjects`), so large tokens are not truncated.
-- `DestroyKeyPairOnSlot` returns `errKeyNotFound` when neither the private
-  nor the public object exists; `ConvertToPublic` also accepts the wrapper
-  returned by `GenerateRSAKey`/`GenerateECDSAKey`.
+- Key management (v2, [design/keymanager.md](./design/keymanager.md)):
+  `PKCS11Lib` is the `cryptoprov.KeyManager` of the token it is logged in to
+  and a `cryptoprov.TokenManager`: `ListTokens` marks that token `Current`,
+  and `Token(slotID)` returns a manager for another slot (which sees what a
+  public session sees). `ListKeys` turns the filter into the
+  `C_FindObjectsInit` template (`newKeySearch`): the private key class,
+  `CKA_KEY_TYPE` for one type, `CKA_LABEL` for the exact label, `CKA_SIGN`
+  for the signing usage, and `CKA_DECRYPT` with `CKK_RSA` for the encryption
+  usage (only an RSA key decrypts). A label prefix, several types and "either
+  usage" are checked on each candidate (`keySearch.match`); with such
+  conditions a call examines at most `max(page, 100)` candidates and may
+  return a short page. A filter on tags is `ErrNotSupported`; every key is
+  `enabled`, so states without it list nothing. The page token is the offset
+  in the token's search order (`findObjectsWindow` drains `C_FindObjects` in
+  batches of 100, skips the offset and finishes the search before any
+  attribute is read), so a key created or destroyed between two pages can be
+  repeated or missed. Attributes are read for the keys of the page only
+  (`keyInfoOfObject`: ID, label, type, class; `readKeyDetails` with
+  `KeyFieldMetadata` or the "either usage" filter: `CKA_SIGN`, `CKA_DECRYPT`
+  and the size attribute of the type, read one by one when the token refuses
+  one of them). `Usage` is what the token says, masked to signing for keys
+  that are not RSA. `ctx` is checked between search batches and between keys.
+- `GenerateKey` sets both usage permissions of an RSA key explicitly
+  (`CKA_SIGN`/`CKA_VERIFY` and `CKA_DECRYPT`/`CKA_ENCRYPT`, the one not asked
+  for to false): SoftHSM defaults both to true, which made every v1 key
+  report both usages. `Generate{RSA}KeyPair*` with a zero usage leaves them
+  to the token. `req.Tags` is `ErrNotSupported`.
+- Context (roadmap item 6): `withSessionCtx(ctx, slot, f)` bounds the wait
+  for a session (`sessionPool.get(ctx)`: an `AfterFunc` broadcast wakes the
+  wait, and a waiter that gives up passes on the wake-up it consumed) and
+  fails before borrowing when `ctx` is done. `GenerateKey`, `GetKey`,
+  `ExportKey`, `IdentifyKey`, `Identify`, `KeyInfo`, `DestroyKey`,
+  `FindKeyPair*` and `Generate*KeyPair*` (not the `*OnSession` variants) take
+  `ctx`. `withSession` is the borrow of `Sign` and `Decrypt`, which have no
+  context. A PKCS#11 call that has started is never interrupted.
+- `DestroyKey` returns an error that is both `errKeyNotFound` and
+  `cryptoprov.ErrKeyNotFound` when neither the private nor the public object
+  exists (`keyError`, also used by `GetKey`, `KeyInfo` and `ExportKey`);
+  `ConvertToPublic` also accepts the wrapper returned by `GenerateKey`.
 - ML-DSA (v1.1, `mldsa.go`): `KeyTypeNames[CKK_ML_DSA]` is `ML-DSA`, so
-  `EnumKeys`/`KeyInfo` report the type, and `mldsaKeyMeta` reads the parameter
-  set from `CKA_PARAMETER_SET` of the private key into
+  `ListKeys`/`KeyInfo` report the type, and `readKeyDetails` reads the
+  parameter set from `CKA_PARAMETER_SET` of the private key into `Size` and
   `Meta[cryptoprov.MetaParameterSet]`. `PKCS11PrivateKeyMLDSA.Sign` validates options with
   `cryptoprov.MLDSASignerOptions`, then signs the message with `CKM_ML_DSA`
   through `withKey` (handle refresh as for RSA/ECDSA); a μ
@@ -404,7 +521,7 @@ Close waiting/wakeups, concurrent pool creation vs Close) and
 errors, stale idle sessions, handle refresh, Close during a re-login)
 through the `sessionOps` seam (`open`/`close`/`login`/`state`/`find`, with
 `fakeSessions` counters, gates and `logout()`), config/DSA tests;
-`relogin_softhsm_test.go` covers a real logout, `EnumKeys` after a logout,
+`relogin_softhsm_test.go` covers a real logout, a listing after a logout,
 concurrent operations costing one login, a sticky wrong PIN, and
 `C_CloseAllSessions` in a re-executed child (`runChild`), since it
 invalidates the shared `p11lib`; `close_test.go` (errClosed from the
@@ -436,7 +553,12 @@ is opt-in through `XPKI_PKCS11_V32_CONFIG` (skips otherwise, whatever
 | `inmemcrypto`  | `inmem`      | In-process RSA/ECDSA/ML-DSA                         | PKCS#1 / SEC1 / PKCS#8 PEM bytes   | none                                                                                 |
 | `testprov`     | `testprov`   | In-process RSA/ECDSA/ML-DSA, implements `crypto.Decrypter` | `pkcs11:` URI with `token=<label>` | none                                                                                 |
 
-Invariants: KMS providers call the SDKs with `context.Background()` (ROADMAP);
+Invariants: the KMS providers pass the caller's `ctx` to every SDK request of
+`GenerateKey`, `GetKey`, `ExportKey`, `ListKeys`, `KeyInfo` and `DestroyKey`
+(v2) and check it before the first one; only `Signer.Sign` still uses
+`context.Background()` (roadmap item 1). Both are `cryptoprov.KeyManager`s
+of one store (the AWS account and Region, the GCP key ring) and no
+`TokenManager`. An encryption usage is `ErrNotSupported` (roadmap item 2).
 `KmsClientFactory` package vars are the test seams (the GCP one takes the
 `Endpoint` attribute, applied with `option.WithEndpoint`, XPKI-021); GCP
 `Close` must be called to release gRPC.
@@ -446,8 +568,9 @@ chain (`config.LoadDefaultConfig`), which reads `AWS_ACCESS_KEY_ID`,
 `Init` no longer copies them into a static provider (XPKI-034: it was
 redundant, and static environment credentials are not refreshable either
 way). The `Region` attribute overrides the SDK region; `Endpoint` sets
-`BaseEndpoint`. AWS keys are signing keys only: `GenerateRSAKey` rejects
-purpose 2 and a key size other than 2048/3072/4096 before any RPC, and
+`BaseEndpoint`. AWS keys are signing keys only: `GenerateKey` rejects
+`KeyUsageEncrypt` and a size KMS does not offer (RSA other than
+2048/3072/4096) with `ErrNotSupported` before any RPC, and
 `GetKey` returns an error for a key whose usage is not `SIGN_VERIFY` or
 that is `PendingDeletion` (XPKI-031; a `Disabled` key gets a signer, since
 it can be enabled again); a label becomes the key description and,
@@ -463,40 +586,110 @@ must have the hash length, PSS options are rejected for an ECDSA key and
 the PSS salt must be `PSSSaltLengthEqualsHash` or the hash size (KMS signs
 with the hash-length salt; local-kms uses a maximal salt); all checked
 before any RPC, and a nil or empty response is an `empty response` error.
-AWS ML-DSA (v1.1): `GenerateMLDSAKey` creates `ML_DSA_44/65/87` keys
-(`mldsaKeySpecs`); a signer whose public key is `*mldsa.PublicKey` follows
+AWS ML-DSA (v1.1): `GenerateKey` creates `ML_DSA_44/65/87` keys
+(`keySpecs`, the table of key spec to `cryptoprov` type and size); a signer whose public key is `*mldsa.PublicKey` follows
 the ML-DSA contract (`cryptoprov.MLDSASignerOptions`), computes μ locally
 (`cryptoprov.MLDSAMu`, or takes the given 64-byte μ) and calls `Sign` with
 `MessageType` `EXTERNAL_MU` and `ML_DSA_SHAKE_256`, which the key must
-report; the message itself is never sent. `KeyInfo`/`EnumKeys` set
-`Type` (`keyType` from the key spec prefix: `RSA`, `ECDSA`, `ML-DSA`) and,
-for ML-DSA, `Meta["parameter_set"]`.
-AWS `EnumKeys` (XPKI-032, XPKI-033) lists `SIGN_VERIFY` keys that are not
-`PendingDeletion` whose label (the description, also `KeyInfo.Label`)
-starts with `prefix`, in `ListKeys` order: KMS lists ids only, so every key
-of the account is described (pages of 1000, `DescribeKey` at most 8 at a
-time, the unexported `describeConcurrency`), which needs `kms:DescribeKey`
-on every key. A key the caller may not describe (`AccessDeniedException`)
+report; the message itself is never sent. `KeyInfo`/`ListKeys` set
+`Type` and `Size` from `keySpecs` (`RSA`, `ECDSA` on the NIST curves,
+`ML-DSA`; any other spec, such as symmetric, HMAC or secp256k1, has an empty
+`Type` and its spec in `Meta["spec"]`), `Usage` from the key usage, `State`
+from the key state (`Updating` is enabled) and, for ML-DSA,
+`Meta["parameter_set"]`. `KeyInfo(ctx, id, fields)` is one `DescribeKey`
+(`ID` is the key id whatever name was given, `Name` the ARN), plus
+`ListResourceTags` for `KeyFieldTags` and `GetPublicKey` for
+`KeyFieldPublicKey`. A `NotFoundException` is marked
+`cryptoprov.ErrKeyNotFound` (`kmsError`).
+AWS `ListKeys` (`listkeys.go`, design in
+[design/keymanager.md](./design/keymanager.md); XPKI-032, XPKI-033): KMS has
+no search, so `Provider.sources` picks the candidate source of a call and
+the page token names it. `tags`: `GetResources` of the Resource Groups
+Tagging API for `kms:key` with the tag filter, 100 a page, when the
+`TagSearch` attribute is on. `alias`: `DescribeKey` on `aliasFromLabel` of an
+exact label. `aliases`: a `ListAliases` sweep (100 a page) for a label
+prefix. `labeltags`: after an alias source with `TagSearch`, the keys the
+`xpki-label` tag names, minus the one the alias of their label points at
+(the alias source returned it). `keys`: `ListKeys`, 1000 ids a page (the
+caller's page size when there is no filter), for everything else and for
+label filters with `LabelSearch=scan`. The label is the description
+(decision K4): every label candidate is confirmed against a fresh
+`DescribeKey`, and an alias-sweep candidate is listed only through the alias
+its label gives it, so a key with several matching aliases is listed once
+and a key with only a matching description is found with `LabelSearch=scan`
+only. `listing.evaluate` then drops candidates on what is known (tags,
+cached metadata) and works through the rest in chunks, so a page that fills
+early costs nothing for the candidates after it: when the filter reads usage
+or type, the keys of a chunk whose spec is not known are described once
+(`filterBySpec`), and the survivors are resolved in order, never more of
+them than keys still wanted, at most `DescribeConcurrency` requests at a time
+(`Provider.forEach`; the first failure cancels the rest). A call examines
+one page of its source: a page can be short or empty with a
+`NextPageToken`, which holds the source, its marker and the offset in the
+page. Immutable metadata (spec, usage, creation date, origin, manager, ARN)
+is kept per key id in `metadataCache` (`metacache.go`, RWMutex, bounded by
+`MetadataCacheSize`, default 50000, an arbitrary entry evicted when full,
+0 disables); description, state and tags are never cached. `GenerateKey`
+passes `req.Tags` to `CreateKey` (the `xpki-` prefix is reserved) and, with
+`TagSearch`, writes `xpki-label` (when the label is a valid tag value),
+`xpki-type`, `xpki-size` and `xpki-usage`; a candidate from the tagging API
+that has them needs no `DescribeKey` for `KeyFieldMetadata` (its creation
+time is then set only when the key is in the cache). Tags a source did not
+return cost one `ListResourceTags` per key. A key the caller may not
+describe (`AccessDeniedException`) or that is gone
 is left out and logged at WARNING; any other `ListKeys` or `DescribeKey`
 failure cancels the calls in flight and is returned wrapped (`errors.As`
 finds the `smithy.APIError`), and a truncated page without a marker is
 also an error; there is no partial result.
 GCP key identity (XPKI-020): a key ID is `K` or `K/cryptoKeyVersions/N`;
-`GetKey`, `KeyInfo` and `DestroyKeyPairOnSlot` use the named version. A bare
+`GetKey`, `KeyInfo` and `DestroyKey` use the named version. A bare
 `K` is resolved at each call from `ListCryptoKeyVersions`: `GetKey` signs
 with the newest `ENABLED` version (none is an error); `KeyInfo` describes
 the newest `ENABLED`, else the newest not `DESTROYED`, else the key alone
-without version fields (`includePublic` is then an error, XPKI-117);
-`DestroyKeyPairOnSlot` schedules every `ENABLED` or `DISABLED` version,
+without version fields (`KeyFieldPublicKey` is then an error, XPKI-117);
+`DestroyKey` schedules every `ENABLED` or `DISABLED` version,
 newest first, stopping at the first error (none is an error, XPKI-116), and
-an explicit version is destroyed with one RPC. Signers from `GenerateRSAKey`,
-`GenerateECDSAKey` and `GetKey` carry `K/cryptoKeyVersions/N` as their key ID
+an explicit version is destroyed with one RPC. Signers from `GenerateKey`
+and `GetKey` carry `K/cryptoKeyVersions/N` as their key ID
 and resolve their version resource name once in `NewSigner`, so
 `ExportKey`'s URI pins the version; `ExportKey` makes no RPC and copies the
-id as given (`serial` is always `1`). `EnumKeys` does not list versions
-(`CurrentVersionID` only from a primary version). GCP keys are signing keys
-only (XPKI-019): `GenerateRSAKey` rejects purpose 2 before any RPC and treats
-every other purpose as signing, like the other providers (XPKI-118); the
+id as given (`serial` is always `1`). A gRPC `NOT_FOUND` is marked
+`cryptoprov.ErrKeyNotFound` (`kmsError`).
+GCP `KeyInfo(ctx, id, fields)` (v2): one `GetCryptoKey` supplies the Metadata
+and Tags groups (`Label` is the `label` label, `Tags` all labels, `Usage`
+from the purpose, `Type`/`Size` from the algorithm: RSA, ECDSA on P-256/P-384
+and ML-DSA, empty for symmetric, MAC, secp256k1 and Ed25519). A version is
+read only when the ID names one (`GetCryptoKeyVersion`; `ID` then keeps the
+version) or the mask has `KeyFieldState` or `KeyFieldPublicKey` (a version
+listing for a bare ID, `describedVersion`); it supplies `State`,
+`CurrentVersionID`, the algorithm and the public key. A key whose versions
+are all destroyed is `destroyed`, one without versions `unavailable`.
+GCP `ListKeys` (v2, fixes XPKI-129): one `ListCryptoKeys` request for a full
+page through the SDK pager (`iterator.NewPager`), with the caller's page
+size (default `cryptoprov.DefaultPageSize`) and the KMS page token inside
+the `cryptoprov` one. The label conditions match the `label` label and are
+sanitized as `KeyLabelAndID` does (`sanitizedFilter`). `pushdownFilter`
+sends the documented filter forms only (decision K11): `labels.label=v`,
+`labels.label:v` for a prefix (a substring match, rechecked as a prefix) and
+`labels.k=v` for tags, joined with ` AND `, and only for values that are
+plain label tokens (`isLabelToken`); every condition is checked again on the
+returned keys, and usage and type are read from the listed key. The state of
+an asymmetric key costs a `ListCryptoKeyVersions` per key
+(`listedStates`, 8 at a time): it is read only for `KeyFieldState` or a
+`States` filter; a key with a primary version (symmetric) has its state for
+free. The service accepted the pushed-down forms on 2026-11-12
+(`TestLiveKMSListKeys`, `us-central1`); `fakeKMSServer.matchListFilter`
+implements the documented forms and rejects any other.
+GCP keys are signing keys
+only (XPKI-019): `GenerateKey` rejects `KeyUsageEncrypt`, a size KMS does not
+offer (RSA other than 2048/3072/4096, P-521) with `ErrNotSupported`, and the
+reserved tag name `label`, before any RPC; it creates HSM keys only, and an
+algorithm KMS refuses at that protection level (`createKeyError`:
+`INVALID_ARGUMENT` with the reason
+`ALGORITHM_NOT_SUPPORTED_FOR_PROTECTION_LEVEL`) is `ErrNotSupported` too, with
+the KMS status kept: on 2026-11-12 that was every ML-DSA algorithm, which
+Cloud KMS lists for software keys only; no usage is a signing key, like
+the other providers (XPKI-118); `req.Tags` become labels beside `label`; the
 algorithm is PKCS#1 v1.5 SHA-256 (2048/3072) or SHA-512 (4096), P-256/SHA-256,
 P-384/SHA-384. `Signer.SignatureAlgorithm()` implements
 `csr.SignatureAlgorithmer` from the KMS algorithm (`x509SignatureAlgorithms`:
@@ -535,14 +728,16 @@ because KMS cannot produce a maximal salt, XPKI-124) exactly for PSS algorithms,
 checked before any RPC; (XPKI-023) it accepts a response only with
 `VerifiedDigestCrc32C` and a present, matching `SignatureCrc32C`. Nil KMS
 responses are `empty response` errors; missing optional metadata
-(`VersionTemplate`, `CreateTime`) is omitted from `KeyInfo` (no
-`protection`/`algo` Meta, nil `CreationTime`), the selected version supplies
-`CurrentVersionID`, `state` and, when set, `algo`/`protection`, and GCP key
-labels are sorted by name.
+(`VersionTemplate`, `CreateTime`) is omitted from `KeyInfo` (no `Type`,
+`Size` or `protection`/`algo` Meta, nil `CreationTime`), and the selected
+version supplies `CurrentVersionID`, `State`, `state` and, when set,
+`algo`/`protection`.
 GCP ML-DSA (v1.1): `mldsaSchemes` lists `PQ_SIGN_ML_DSA_44/65/87` and the
 `_EXTERNAL_MU` variants (parameter set, whether KMS takes μ or the message);
 `supportsAlgorithm` (digest or ML-DSA scheme) gates `GetKey` and
-`signerForVersion`. `GenerateMLDSAKey` creates the `_EXTERNAL_MU` variant.
+`signerForVersion`. `GenerateKey` asks for the `_EXTERNAL_MU` variant
+(`mldsaAlgorithms`) as an HSM key, which Cloud KMS refused on 2026-11-12
+(`ErrNotSupported`, see above), so an ML-DSA key has to exist already.
 `Signer.Sign` on an ML-DSA algorithm validates the options with
 `cryptoprov.MLDSASignerOptions`, checks the public key type and parameter
 set against the algorithm, sends `data` (μ computed locally or given, or
@@ -564,8 +759,16 @@ decryption, and export serialization/formatting run outside the map lock.
 Lookups retain signer identity. `inmemcrypto` exports caller-owned PKCS#1
 (RSA), SEC1 (ECDSA) or PKCS#8 seed-form (ML-DSA) PEM bytes with an empty
 URI, and returns an error for a key type no generator produces (it used to
-panic); `testprov` exports a PKCS#11 URI with nil key bytes. Both
-`GenerateMLDSAKey` through a `mldsaKeyGenerator` seam (`mldsa.GenerateKey`);
+panic); `testprov` exports a PKCS#11 URI with nil key bytes. Both generate
+through `GenerateKey`, with `rsaKeyGenerator`, `ecdsaKeyGenerator` and
+`mldsaKeyGenerator` seams, and are `cryptoprov.KeyManager`s (v2) over their
+key map: keys are listed in the order they were generated
+(`inMemProv.order`) by `cryptoprov.PageKeys` with an offset token, every
+field group is always filled (usage, tags and creation time are recorded at
+generation and not enforced), `DestroyKey` forgets the key (handles returned
+earlier keep working), and a missing key is `cryptoprov.ErrKeyNotFound` with
+the v1 message. `inmemcrypto`'s handle implements `crypto.Decrypter` too
+since v2. They are the reference implementation of the conformance suite;
 their `Sign` defaults nil options to SHA-256 for RSA/ECDSA keys only and
 applies the ML-DSA contract (`cryptoprov.MLDSASignerOptions`) for ML-DSA
 keys. Token configuration passed to `Loader` must
@@ -579,11 +782,14 @@ lists the keys of its run by a unique prefix. The other AWS tests use
 pairs (one cached per spec), KMS-shaped errors (`types.*Exception`,
 `smithy.GenericAPIError`), paging, call counts, per-method overrides and
 `DescribeKey` latency/failure hooks with peak-concurrency tracking;
-`export_test.go` has `NewTestProvider` and `SetDescribeConcurrency`.
+`fakeKMS` also has aliases and tags (`ListAliases`, `ListResourceTags`), and
+`fakeTagging` is a `TaggingClient` over its tagged keys that records its
+requests; `export_test.go` has `NewTestProvider`, `NewTaggingTestProvider`,
+`SetDescribeConcurrency` and `MetadataCacheLen`.
 `signer_test.go` covers local option rejection without RPC and signature
 verification per algorithm; `mldsa_test.go` the ML-DSA specs (`fake_test.go`
 holds real ML-DSA keys and signs RAW or EXTERNAL_MU messages): generation,
-`KeyInfo`/`EnumKeys` type and parameter set, the EXTERNAL_MU request shape
+`KeyInfo`/`ListKeys` type, size and parameter set, the EXTERNAL_MU request shape
 for every option form with local verification, local rejection, KMS
 failures, a CSR and certificate through `csr.Provider`, and
 `TestKmsProviderMLDSA`, gated on local-kms, which skips with the
@@ -592,12 +798,30 @@ runs the full flow against a KMS that has them; `mldsa_live_test.go`
 `TestLiveKMSMLDSA` runs the flow against the real service when
 `XPKI_LIVE_AWS_KMS_REGION` is set (billable keys, opt-in; passed on 2026-11-09), and
 `TestLiveKMSFlowOnFake` runs its signer flow on the fake; `generate_test.go` purpose/size rejection,
-aliases, `GetKey` usage and empty responses; `enum_test.go` prefix
-contents, paging, failures at every position with no partial result and
-kept error identity, and bounded concurrency; `enum_bench_test.go`
-`BenchmarkEnumKeys` (calls, listed keys and peak concurrency per listing);
-`init_test.go` the SDK credential chain, region/endpoint attributes and
-`Init` errors (it swaps the global factory and the environment, so it is not
+aliases, `GetKey` usage and empty responses, `KeyInfo` fields, states and
+tags; `listkeys_test.go` the listing: ids without `DescribeKey`
+(`TestListKeysIDsOnly`), the request counts PLAN.md gave as acceptance on
+5000 keys (`TestListKeysRequestCounts`), the filters on a scan
+(`TestListKeysScan`, the v1 listing as a filter), the alias index and its
+K4 semantics (`TestListKeysLabelIndex`), the tagging API, the xpki tags and
+the label tag index (`TestListKeysTagSearch`, on `fakeTagging`), page tokens
+that resume inside a page or name another source, failures at every
+position with no partial page and kept error identity, bounded concurrency,
+`TestMetadataCache` (bound, disabled, and concurrent listings that share
+and evict it: run with `-race`) and `TestConformance` (index, `TagSearch`
+and scan modes); `listkeys_live_test.go` `TestLiveKMSListKeys` runs
+`liveListFlow` against the real service when `XPKI_LIVE_AWS_KMS_REGION` is
+set (ids, exact label, label prefix, usage, `KeyInfo` with tags, pending
+deletion; billable keys, opt-in; passed in `us-west-1` on 2026-11-12) and its
+tag search part with `XPKI_LIVE_AWS_KMS_TAGSEARCH=true` (the Resource Groups
+Tagging API, not yet run on the service; the tag of its keys is
+`liveTagName`, which must not use the reserved `xpki-` prefix), and
+`TestLiveKMSListKeysOnFake` runs the same flow with tag search on the fakes;
+`listkeys_bench_test.go`
+`BenchmarkListKeys` (calls, listed keys and peak concurrency per listing, for
+ids, the usage filter, the alias index, one label and a scan);
+`init_test.go` the SDK credential chain, region/endpoint attributes, the
+listing attributes with `TaggingClientFactory`, and `Init` errors (it swaps the global factory and the environment, so it is not
 parallel). GCP tests need no fixture and no
 testify mock. `gcpkmscrypto/kmsserver_test.go` is an in-process gRPC KMS
 (`fakeKMSServer`: keys and versions with real local keys, id/label/state/digest
@@ -619,9 +843,24 @@ states and cancellation by `Close`/context; `mldsa_test.go` the six ML-DSA algor
 the message otherwise, checksum and digest rejection): X.509 mapping, local
 rejection, the `data`/`data_crc32c` request shape and response integrity
 (`dataSignResponse`), signatures verified locally, CSRs, `KeyInfo` and
-`GenerateMLDSAKey`; `mldsa_live_test.go` `TestLiveKMSMLDSA` the flow against the
-real service when `XPKI_LIVE_GCP_KMS_KEYRING` is set (billable keys, opt-in; not
-yet completed, ROADMAP 3.2), and `TestLiveKMSFlowOnFake` its signer flow on the fake;
+`GenerateKey`; `listkeys_test.go` the listing on `fakeKMSServer`
+(`TestListKeysPages`: ⌈n/p⌉ `ListCryptoKeys` and nothing else, `KeyInfo`
+with the Metadata group without a version listing, a foreign page token;
+`TestListKeysFilters`: every condition, the filter sent to KMS and whether
+versions are read; `TestConformance`; `TestGenerateKeyAlgorithmNotOffered`:
+the refusal of an algorithm at the HSM level is `ErrNotSupported`, another
+`INVALID_ARGUMENT` is not); `mldsa_live_test.go` `TestLiveKMSMLDSA` the flow against the
+real service when `XPKI_LIVE_GCP_KMS_KEYRING` is set (billable keys, opt-in; it
+skips while Cloud KMS refuses ML-DSA for HSM keys, as on 2026-11-12, ROADMAP
+3.2), and `TestLiveKMSFlowOnFake` its signer flow on the fake;
+`listkeys_live_test.go` `TestLiveKMSListKeys` the listing, its filters and
+`KeyInfo` on the service (`liveListFlow`; passed in `us-central1` on
+2026-11-12) and `TestLiveKMSListKeysOnFake` the same flow on the fake;
+`sign_live_test.go` `TestLiveKMSSign` the RSA and ECDSA key flow on the
+service (`liveSignFlow`: generation of every size `GenerateKey` creates,
+signatures, loading by version, bare id and URI, `KeyInfo`, a CSR and a
+certificate, the listing, destruction; five billable HSM keys, not yet run
+on the service) and `TestLiveKMSSignOnFake` the same flow on the fake;
 `gen_bench_test.go` the wait and
 Close-latency benchmarks; `endpoint_test.go` `Init`-to-factory endpoint wiring
 and the SDK path against the local server; `coverage_test.go` real SDK
@@ -650,13 +889,13 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
 
 ### Files
 
-| File         | Role                                                                                                                                                                                          |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `csr.go`     | `CertificateRequest`, `SignRequest`, `X509Subject/Name/Extension`, `AllowedFields`, `Parse`/`ParsePEM` (verifies CSR signature), `PopulateName`, `Encode/DecodeCDP*`, `GeneralName`           |
-| `san.go`     | `SAN`, `ParseSAN`, `ApplySAN`, deprecated `SetSAN`; DNS and IDNA validation                                                                                                                   |
-| `csrprov.go` | `Provider` over one `cryptoprov.Provider`: `GenerateKeyAndRequest`, `CreateRequestAndExportKey`, `SignRequest`, `DefaultSigAlgo`, `SignatureAlgorithmer`                                      |
-| `keyreq.go`  | `KeyRequest` (RSA 2048–4096, ECDSA 256/384/521, ML-DSA 44/65/87, `KeyPurpose`), `Generate`, `SigAlgo`, `NewKeyRequest`, `AlgoRSA/ECDSA/MLDSA`, `IsPostQuantumAlgo`                              |
-| `types.go`   | `OID`, `Duration` (JSON number = seconds, string = Go duration; YAML string only), `BasicConstraints`, policy qualifier constants                                                             |
+| File         | Role                                                                                                                                                                                |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `csr.go`     | `CertificateRequest`, `SignRequest`, `X509Subject/Name/Extension`, `AllowedFields`, `Parse`/`ParsePEM` (verifies CSR signature), `PopulateName`, `Encode/DecodeCDP*`, `GeneralName` |
+| `san.go`     | `SAN`, `ParseSAN`, `ApplySAN`; DNS and IDNA validation                                                                                                                              |
+| `csrprov.go` | `Provider` over one `cryptoprov.Provider`: `GenerateKeyAndRequest`, `CreateRequestAndExportKey`, `SignRequest`, `DefaultSigAlgo`, `SignatureAlgorithmer`                            |
+| `keyreq.go`  | `KeyRequest` (RSA 2048–4096, ECDSA 256/384/521, ML-DSA 44/65/87, `KeyPurpose`), `Generate`, `SigAlgo`, `NewKeyRequest`, `AlgoRSA/ECDSA/MLDSA`, `IsPostQuantumAlgo`                  |
+| `types.go`   | `OID`, `Duration` (JSON number = seconds, string = Go duration; YAML string only), `BasicConstraints`, policy qualifier constants                                                   |
 
 ### Invariants
 
@@ -675,9 +914,8 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
   `ApplySAN(t, []string{})` clears; a non-nil list replaces the four name
   lists (nil when empty) and removes every raw SAN extension from a clone of
   `ExtraExtensions`, order kept; on error the template is unchanged.
-  `SetSAN` is deprecated: same nil/empty semantics, invalid names are skipped
-  with an error log; `ApplySAN(nil, …)` is an error and `SetSAN(nil, …)` a
-  no-op. `SAN.Validate` applies the rules and deduplication to already
+  `ApplySAN(nil, …)` is an error; the lenient `SetSAN` was removed in v2.
+  `SAN.Validate` applies the rules and deduplication to already
   classified names in place (unchanged on error); an email must be a bare
   address `mail.ParseAddress` accepts, since a CSR can carry any IA5 string
   there. A URI given as a string must contain `://` (`urn:` values are
@@ -704,10 +942,13 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
   fixes the algorithm; any other size is `UnknownSignatureAlgorithm`).
   Algorithm names are matched by `normalizeAlgo`: case-insensitive, trimmed,
   `MLDSA` folds to `ML-DSA`; there is no `DILITHIUM` alias (D2).
-  `KeyRequest.Generate` validates the parameter set
-  (`cryptoprov.MLDSAParameters`), rejects the `EncryptionKey` purpose for
-  ML-DSA and calls `GenerateMLDSAKey`. `KeyRequest.Validate` makes those checks
-  without a provider or a key, and `Generate` calls it.
+  `KeyRequest.Generate(ctx)` calls `Validate` (the parameter set through
+  `cryptoprov.MLDSAParameters`, no `EncryptionKey` purpose for ML-DSA) and
+  then `Provider.GenerateKey` once: the normalized algorithm name is the
+  `cryptoprov` key type, the size is passed as is, and the purpose becomes
+  the usage of an RSA key only (an ECDSA or ML-DSA key is always a signing
+  key, as in v1). `KeyRequest.Validate` makes its checks
+  without a provider or a key.
 - `ParseObjectIdentifier` requires the whole string to be dotted decimals
   (`^\d+(\.\d+)*$`).
 - `Signer` and `KeyRequestGen` interfaces are unused.
@@ -844,6 +1085,11 @@ and `CreateIssuer` validates them (`validateDelegatedOCSPKey`).
   `profile P: key usage not allowed for an ML-DSA key: ...`), rejected and not
   adjusted. `checkMLDSATemplate` reads the final template, so a raw key usage
   extension from the profile or the `SignRequest` counts and replaces `usages`.
+- Context (v2): `NewAuthority`, `NewIssuer`, `NewIssuerWithBundles`, `NewRoot`
+  and `Issuer.GenCert` take `ctx` for the provider that loads, generates or
+  exports the key. Signing (`Issuer.Sign`, the CRL and OCSP signers) goes
+  through `crypto.Signer` and has none (roadmap item 1); the delegated OCSP
+  responder key is generated in memory with a background context.
 - Profiles must be `Validate()`d before use (compiles regexes; `LoadConfig` does).
 - `Copy()` methods are shallow for `*CertProfile`.
 - Metrics: `metricskey.PerfCAOperation`, `PerfCASignRequest`.
@@ -923,8 +1169,8 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   `CreateOCSPResponse` returns an error for a nil or typed
   nil signer and an uninitialized ML-DSA key.
 - Chain building: `certs[0]` is the leaf; `Force` only checks each cert is
-  signed by the next; `Optimal` runs `x509.Verify` against `RootPool` and
-  `IntermediatePool`, fetches AIA intermediates on unknown authority when
+  signed by the next; `Optimal` runs `x509.Verify` against the root and
+  intermediate pools, fetches AIA intermediates on unknown authority when
   `WithAIA(true)`, ranks chains shortest-then-longest-expiring, and strips the
   root unless the leaf has OCSP servers and the chain is ≤ 2. "Expiring" is
   less than 720h left.
@@ -933,8 +1179,8 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   last `WithBundleFlavor` wins. `NewBundler` rejects `Optimal` without trust
   roots and unknown flavors. System roots are trusted only through
   `WithSystemRoots`, which adds explicit roots to `x509.SystemCertPool()`.
-  `VerifyOptions().Roots` is never nil, and an `Optimal` `Bundle` with a nil
-  `RootPool` fails, so no path verifies against ambient system trust.
+  `VerifyOptions().Roots` is never nil, and an `Optimal` `Bundle` without a
+  root pool fails, so no path verifies against ambient system trust.
 - AIA fetch (XPKI-037, XPKI-039): each request uses `NewRequestWithContext`
   with the `BundleContext` context and a deadline of the client `Timeout`, or
   3s when it is zero. Only a 200 response of at most 1 MiB is parsed, and the
@@ -942,15 +1188,15 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   including failures; the next call retries. A done context stops the
   traversal and the returned error matches `ctx.Err()`.
 - Concurrency (XPKI-035): a `Bundler` is safe for concurrent `Bundle`,
-  `ChainFromPEM` and `VerifyOptions` calls. `mu` (RWMutex) guards `RootPool`,
-  `IntermediatePool` and `KnownIssuers` once in use. Each call reads a
+  `ChainFromPEM` and `VerifyOptions` calls. `mu` (RWMutex) guards the root
+  pool, the intermediate pool and the known issuers. Each call reads a
   `snapshot` and verifies without the lock. `verifyChain` adds intermediates it
   verified to a private clone and publishes them once with `learn`, which
   copies the map and installs the clone, or merges into a copy of the current
   pool when another call published first. A pool or map once read is never
-  modified, so `VerifyOptions` returns a snapshot. The exported fields are
-  set-up state: set them before first use, then read the pools through
-  `VerifyOptions`. Learning costs one pool clone per newly learned
+  modified, so `VerifyOptions` returns a snapshot. The pools are unexported
+  since v2: `RootPool()` and `IntermediatePool()` return copies of the
+  current ones and `IsKnownIssuer(cert)` reads the known issuers. Learning costs one pool clone per newly learned
   intermediate (O(pool)); warm calls take only the read lock. Concurrent
   misses on one issuer each fetch its URL, at most once per call, with no
   cross-call coalescing. RSA, ECDSA and ML-DSA leaf keys are accepted
@@ -975,8 +1221,8 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   `x509.IncorrectPasswordError`; the key inside is parsed afterwards by
   `ParsePrivateKeyDER`.
 - Process-global: `IntermediateStash` (fetched intermediates written `0644`),
-  `RandReader`. `HTTPClient` is deprecated and never read (XPKI-044); use
-  `WithHTTPClient`. Default AIA client timeout 3s.
+  `RandReader`. The `HTTPClient` variable, never read since XPKI-044, was
+  removed in v2; use `WithHTTPClient`. Default AIA client timeout 3s.
 - `ParseChainFromPEM` returns the parsed prefix and an error on trailing garbage.
 
 Tests: `testdata/` holds a Mozilla root bundle, 229 intermediates, test server
@@ -1118,6 +1364,9 @@ ML-DSA-44/65/87 (RFC 9964).
   with exact arithmetic (`parseNumericDate`), so a fractional `exp` is
   still validated.
 - `MustNewProvider` panics; `TimeNowFn` is a mutable global used by tests.
+- `NewProvider`, `LoadProvider` and `MustNewProvider` take `ctx` (v2) for
+  `Crypto.NewSignerFromPEM`, which resolves a `pkcs11:` URI in
+  `ProviderConfig.PrivateKey`; the context is not kept.
 - go-jose v4 is used only for `JSONWebKey`/`JSONWebKeySet` types.
 
 Tests: `testdata/jwtprov*`, `oidc_parser*` (Google/Cognito JWKS snapshots),
@@ -1290,13 +1539,26 @@ conflicts/overrides; it makes no network requests.
 ## CLIs
 
 - **hsm-tool** (`cmd/hsm-tool`): `--cfg` provider config (or `inmem`/`plain`),
-  `--crypto` extra providers, `--plain-key`, `-D`, `-l`. Commands: `hsm list`,
-  `hsm info <id>`, `hsm generate` (`--algo RSA|ECDSA|ML-DSA`; `--size` is
+  `--crypto` extra providers, `--plain-key`, `-D`, `-l`. The key commands
+  are under `hsm key` (`KeysCmd`; v1 had them directly under `hsm`):
+  `hsm key list`,
+  `hsm key info <id>`, `hsm key generate` (`--algo RSA|ECDSA|ML-DSA`; `--size` is
   the key size in bits or the ML-DSA parameter set 44/65/87, the exported
-  ML-DSA key is PKCS#8), `hsm remove <id>`, `csr create`,
-  `csr gen-cert`, `csr sign <csr>`. `hsm list/info/remove` select a token by
-  `--serial` or `--token` label (`tokenFilter`); `info` and `remove` fail with
-  `token not found` when a filter matches nothing. Output is JSON on stdout (`print.CertAndKey`);
+  ML-DSA key is PKCS#8), `hsm key remove <id>`; then `csr create`,
+  `csr gen-cert`, `csr sign <csr>`. `hsm key list/info/remove` select a token by
+  `--serial` or `--token` label (`tokenFilter`, `selectTokens`): a provider
+  that is a `cryptoprov.TokenManager` lists its tokens and the default is the
+  current one; any other provider is one token without serial or label.
+  `info` and `remove` fail with `token not found` when a filter matches
+  nothing. `hsm key list` (v2) pages with `cryptoprov.AllKeys` and filters with
+  `--prefix`, `--label`, `--usage sign,encrypt`, `--type RSA,ECDSA,ML-DSA`,
+  `--tag name=value`, `--state` and `--limit`; without `--type` or `--all` it
+  lists the three PKI key types, and without `--state` the enabled and
+  disabled keys (`--state all` drops the state filter and the per-key state
+  request of the KMS providers). It prints the typed fields (`Size`, `Usage`,
+  `State`, `Name`), the tags and the provider details in name order (`printKey`).
+  `hsm key info` reads the Metadata and State groups, `--public` the public key
+  and `--tags` the tags. Commands use the `Cli.Context()`. Output is JSON on stdout (`print.CertAndKey`);
   `--output PREFIX` writes `.pem/.csr/.key` (`.key` is 0600). Providers are
   blank-imported in `cli/cli.go` and loaded lazily by `CryptoProv()`, whose
   error (empty or bad `--cfg`) fails the command with exit status 1 (XPKI-084).
@@ -1330,7 +1592,7 @@ conflicts/overrides; it makes no network requests.
 | `~/.xpki/softhsm_unittest.json` (`testenv.SoftHSMConfig`), token `xpki_unittest`, PIN `~/softhsm2/xpki_pin_unittest.txt` | `make hsmconfig` (`scripts/config-softhsm.sh`) | `crypto11`, `cryptoprov` (four gated tests), `csr` (`csrprov_test.go`, gated)                         |
 | `local-kms` on `:14555` and `:14556`                                                             | `make start-local-kms` (`docker-compose.yml`)  | `awskmscrypto` (`Test_KmsProvider` and `TestKmsProviderMLDSA`, gated; the latter skips when the emulator rejects ML-DSA key specs, as 3.11.7 does), `authority` (`TestNewRoot` only), `jwt` (`Test_SignPrivateKMS` only), `certutil` (`TestKeyInfoKMS` only, gated), `cmd/hsm-tool/cli` (`TestCsrSuite`, gated) |
 | `XPKI_PKCS11_V32_CONFIG=<token config>` and `KRYOPTIC_CONF` of a PKCS#11 v3.2 module with ML-DSA | `make kryoptic-config` (`scripts/config-kryoptic.sh`); opt-in | `crypto11` (`TestMLDSAOnPKCS11v32Token`, skipped unless set; `make test-kryoptic`)                    |
-| `XPKI_LIVE_AWS_KMS_REGION`, `XPKI_LIVE_GCP_KMS_KEYRING`; real credentials                        | the operator; opt-in, billable keys            | `awskmscrypto`, `gcpkmscrypto` (`TestLiveKMSMLDSA`, skipped unless set)                               |
+| `XPKI_LIVE_AWS_KMS_REGION` (and `XPKI_LIVE_AWS_KMS_TAGSEARCH=true`), `XPKI_LIVE_GCP_KMS_KEYRING`; real credentials | the operator; opt-in, billable keys            | `awskmscrypto`, `gcpkmscrypto` (`TestLiveKMSMLDSA`, `TestLiveKMSListKeys`, `TestLiveKMSSign`, skipped unless set) |
 | `AWS_ACCESS_KEY_ID` etc. dummy values                                                            | `Makefile` exports                             | AWS SDK                                                                                               |
 | `/tmp/xpki/certs/*`                                                                              | `authority_test.go` via `testca`               | `authority/testdata/ca-config.dev.yaml`                                                               |
 
@@ -1344,8 +1606,11 @@ fixture-dependent test in `authority`, `crypto11`, `jwt`, `cryptoprov`,
 hard when a fixture is missing unless `XPKI_INTEGRATION=required`
 (XPKI-100, fixed). The exceptions are the opt-in PKCS#11 v3.2 token
 (`XPKI_PKCS11_V32_CONFIG`) and live KMS (`XPKI_LIVE_*`): CI provisions neither, so
-`TestMLDSAOnPKCS11v32Token` and `TestLiveKMSMLDSA` skip whatever
-`XPKI_INTEGRATION` says.
+`TestMLDSAOnPKCS11v32Token` and the `TestLiveKMS*` tests skip whatever
+`XPKI_INTEGRATION` says. Each live flow also runs on the provider's fake
+(`TestLiveKMSFlowOnFake` for ML-DSA, `TestLiveKMSListKeysOnFake`, and
+`TestLiveKMSSignOnFake` on GCP), so that a mistake in the test shows up
+before it creates billable keys.
 
 `cmd/xpki-tool/cli/coverage_test.go` uses generated certificates and local HTTP
 servers to cover certificate filters, trust validation, concurrent revocation
@@ -1407,7 +1672,7 @@ and log output paths.
   them. The shell tests need Bash and ordinary Unix utilities, with no HSM,
   OpenSC, Homebrew, Python, or network dependency.
 - `make hsmconfig` builds `bin/hsm-tool` before changing the fixture, uses
-  `softhsm2-util` for token deletion/initialization, then runs `hsm list` with
+  `softhsm2-util` for token deletion/initialization, then runs `hsm key list` with
   the generated JSON and the same `SOFTHSM2_CONF` as the setup script. This
   verifies provider loading, PIN login and token/key enumeration through our
   CLI; it requires Go/cgo but no OpenSC. The CLI manages keys, not token

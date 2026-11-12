@@ -25,14 +25,14 @@ flowchart TD
     keys -->|"Sign / Decrypt via withKey → withSession"| pool
 ```
 
-| Abstraction             | File(s)                       | Role                                                                                                                                                        |
-| ----------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `module`                | `module.go`, `module_dl_*.go` | Process-wide registry keyed by the dynamic-loader handle (unix) or path identity. Several `PKCS11Lib`s on one library share one `*pkcs11.Ctx`; the module is finalized only by the last `Close`, and never when it was initialized outside this package (XPKI-001/007). |
-| `PKCS11Lib`             | `crypto11.go`, `config.go`    | The provider instance: selected slot, login session, pools, `Close()`. `Init` selects the token by every configured field (serial and label), logs in once and keeps that session open so pooled sessions inherit the login. |
-| `sessionPool`           | `sessions.go`                 | Bounded pool per slot; `withSession` borrows, runs a callback, and recovers from stale sessions and logouts (`relogin`, XPKI-110) at most once each per call. Sessions that failed with device or handle errors are discarded, never reused. |
-| Key objects             | `rsa.go`, `ecdsa.go`, `keys.go` | `PKCS11PrivateKeyRSA`/`PKCS11PrivateKeyECDSA` hold the object handle, slot and public key. `withKey` re-finds the object by `CKA_ID` when a handle was invalidated by a logout. `privateKeyGen` wraps a generated key with its id and label so `IdentifyKey` is cheap. |
-| Attribute codec         | `common.go`                   | `CK_ULONG` encode/decode at the platform width (XPKI-011), key type and class name maps, ECDSA signature DER helpers, label and id generation from token randomness. |
-| `cryptoprov` glue       | `provider.go`                 | `LoadProvider`, `EnumTokens`, `EnumKeys` (own read-only session, re-login check), `KeyInfo`.                                                              |
+| Abstraction       | File(s)                         | Role                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `module`          | `module.go`, `module_dl_*.go`   | Process-wide registry keyed by the dynamic-loader handle (unix) or path identity. Several `PKCS11Lib`s on one library share one `*pkcs11.Ctx`; the module is finalized only by the last `Close`, and never when it was initialized outside this package (XPKI-001/007).                                                                                                                          |
+| `PKCS11Lib`       | `crypto11.go`, `config.go`      | The provider instance: selected slot, login session, pools, `Close()`. `Init` selects the token by every configured field (serial and label), logs in once and keeps that session open so pooled sessions inherit the login.                                                                                                                                                                     |
+| `sessionPool`     | `sessions.go`                   | Bounded pool per slot; `withSession` borrows, runs a callback, and recovers from stale sessions and logouts (`relogin`, XPKI-110) at most once each per call. Sessions that failed with device or handle errors are discarded, never reused.                                                                                                                                                     |
+| Key objects       | `rsa.go`, `ecdsa.go`, `keys.go` | `PKCS11PrivateKeyRSA`/`PKCS11PrivateKeyECDSA` hold the object handle, slot and public key. `withKey` re-finds the object by `CKA_ID` when a handle was invalidated by a logout. `privateKeyGen` wraps a generated key with its id and label so `IdentifyKey` is cheap.                                                                                                                           |
+| Attribute codec   | `common.go`                     | `CK_ULONG` encode/decode at the platform width (XPKI-011), key type and class name maps, ECDSA signature DER helpers, label and id generation from token randomness.                                                                                                                                                                                                                             |
+| `cryptoprov` glue | `provider.go`                   | `LoadProvider`; the `KeyManager` of the token the library is logged in to (`ListKeys` on its own read-only session with the re-login check, `KeyInfo`, `DestroyKey`) and the `TokenManager` (`ListTokens`, `Token` for another slot). The filter of a listing becomes the search template (`newKeySearch`); the page token is an offset in the search order. See [keymanager.md](keymanager.md). |
 
 ## Main flows
 
@@ -69,10 +69,13 @@ sequenceDiagram
     K-->>C: DER (r,s) for ECDSA; PKCS#1 v1.5 or PSS for RSA
 ```
 
-Key generation (`GenerateRSAKey`, `GenerateECDSAKey`): one
+Key generation (`GenerateKey`, which calls `Generate{RSA,ECDSA,MLDSA}KeyPairWithLabel`): one
 `C_GenerateKeyPair` with public and private templates (`CKA_TOKEN`,
 `CKA_PRIVATE`, `CKA_SENSITIVE`, `CKA_EXTRACTABLE=false`, usage flags from
-the purpose, label and id generated from token randomness when empty). Once
+the usage, label and id generated from token randomness when empty). An RSA
+key gets both permissions explicitly, the one that was not asked for as
+false, because a token's defaults would grant it (SoftHSM defaults
+`CKA_SIGN` and `CKA_DECRYPT` to true). Once
 the pair exists, a failure to read the public key or the id destroys the
 pair and is returned wrapped in `noRetry`, so a retry never leaves an
 orphan or duplicates a caller-supplied id.
@@ -94,8 +97,14 @@ orphan or duplicates a caller-supplied id.
   cannot make a `Sign` loop. A PIN failure is sticky to avoid locking the
   token (XPKI-110).
 - **Keys remember their identity, not their handle.** Handles die with a
-  logout; `CKA_ID` does not. The exported `PKCS11Object.Handle` is kept
-  for compatibility and may be stale.
+  logout; `CKA_ID` does not. `PKCS11Object.Handle()` returns the current
+  handle, which follows a refresh (a field that could be stale in v1).
+- **A context bounds the wait, not the call.** PKCS#11 calls cannot be
+  cancelled. `withSessionCtx` fails before it borrows when the context is
+  done and gives up the wait for a session when it ends; a waiter that gives
+  up passes on the wake-up it consumed, so a returned session is not lost.
+  The key generation, lookup and management methods use it; `Sign` and
+  `Decrypt`, which have no context, borrow with `withSession`.
 - **Digest-in signing.** `Sign` receives a digest and `opts.HashFunc()`:
   RSA PKCS#1 v1.5 wraps the `DigestInfo` itself (`CKM_RSA_PKCS`), PSS and
   OAEP pass parameters (`CKM_RSA_PKCS_PSS`, `CKM_RSA_PKCS_OAEP`), ECDSA
@@ -115,8 +124,9 @@ orphan or duplicates a caller-supplied id.
   with `Sign` (and `Decrypt`) built on `withKey`, a generator on
   `PKCS11Lib` with templates and the `CKM_*_KEY_PAIR_GEN` mechanism, public
   key export from the public object's attributes, a case in
-  `ConvertToPublic` and `IdentifyKey`, and `getPublicKeyPEM` support for
-  `KeyInfo(includePublic)`.
+  `ConvertToPublic`, `IdentifyKey` and `GenerateKey`, an entry in `keyTypes`
+  and a size attribute in `readKeyDetails` for listings, and
+  `getPublicKeyPEM` support for `KeyInfo` with `KeyFieldPublicKey`.
 - **Mechanism constants** come from `miekg/pkcs11`; constants the binding
   does not define (newer PKCS#11 versions) can be declared locally with the
   values from the specification header.
@@ -149,7 +159,7 @@ Implemented in v1.1 (`mldsa.go`), and run against a Kryoptic 1.5.4 token:
   and `IdentifyKey` know the new `PKCS11PrivateKeyMLDSA` type. The public
   key is decoded from `CKA_PARAMETER_SET` and `CKA_VALUE`
   (`mldsa.NewPublicKey`).
-- `GenerateMLDSAKey` generates the pair with `CKM_ML_DSA_KEY_PAIR_GEN` and
+- `GenerateKey` with the ML-DSA type (`GenerateMLDSAKeyPairOnSlot`) generates the pair with `CKM_ML_DSA_KEY_PAIR_GEN` and
   `CKA_PARAMETER_SET` on the public template, with the same orphan cleanup
   as the ECDSA path.
 - `PKCS11PrivateKeyMLDSA.Sign` validates the options with
@@ -161,7 +171,7 @@ Implemented in v1.1 (`mldsa.go`), and run against a Kryoptic 1.5.4 token:
   gap: X.509, OCSP and JOSE need an empty context and hedged signing (D6),
   and the parameter is a C struct holding a pointer, which would need C memory
   to pass through cgo for a feature no caller here uses.
-- `EnumKeys` and `KeyInfo` report the parameter set in
+- `ListKeys` and `KeyInfo` report the parameter set in `Size` and
   `Meta[cryptoprov.MetaParameterSet]`, from `CKA_PARAMETER_SET` of the private
   key.
 

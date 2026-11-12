@@ -6,7 +6,8 @@ import (
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -58,7 +59,7 @@ func TestInitEndpoint(t *testing.T) {
 				return
 			}
 			calls := s.CallCount("GetCryptoKey")
-			ki, err := provider.KeyInfo(0, "ep", false)
+			ki, err := provider.KeyInfo(t.Context(), "ep", keyFields)
 			require.NoError(t, err)
 			assert.Equal(t, "ep", ki.ID)
 			assert.Equal(t, calls+1, s.CallCount("GetCryptoKey"))
@@ -95,10 +96,10 @@ func TestNewKmsClientEndpoint(t *testing.T) {
 
 	client := grpcClient(t, addr)
 	provider := gcpkmscrypto.NewTestProvider(testTokenCfg(testKeyring), client, testKeyring)
-	keys, err := provider.EnumKeys(0, "")
+	resp, err := provider.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{})
 	require.NoError(t, err)
-	require.Len(t, keys, 1)
-	assert.Equal(t, "first", keys[0].ID)
+	require.Len(t, resp.Keys, 1)
+	assert.Equal(t, "first", resp.Keys[0].ID)
 	assert.Equal(t, 1, s.CallCount("ListCryptoKeys"))
 
 	// the default endpoint: construction only, no RPC

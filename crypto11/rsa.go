@@ -1,6 +1,7 @@
 package crypto11
 
 import (
+	"context"
 	"crypto"
 	"crypto/rsa"
 	"io"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	pkcs11 "github.com/miekg/pkcs11"
 )
 
@@ -58,8 +60,8 @@ func (lib *PKCS11Lib) exportRSAPublicKey(session pkcs11.SessionHandle, pubHandle
 //
 // RSA private keys are generated with both sign and decrypt
 // permissions, and a public exponent of 65537.
-func (lib *PKCS11Lib) GenerateRSAKeyPair(bits int, purpose KeyPurpose) (*PKCS11PrivateKeyRSA, error) {
-	return lib.GenerateRSAKeyPairOnSlot(lib.Slot.id, nil, nil, bits, purpose)
+func (lib *PKCS11Lib) GenerateRSAKeyPair(ctx context.Context, bits int, usage cryptoprov.KeyUsage) (*PKCS11PrivateKeyRSA, error) {
+	return lib.GenerateRSAKeyPairOnSlot(ctx, lib.Slot.id, nil, nil, bits, usage)
 }
 
 // GenerateRSAKeyPairWithLabel creates an RSA private key of given length.
@@ -68,18 +70,23 @@ func (lib *PKCS11Lib) GenerateRSAKeyPair(bits int, purpose KeyPurpose) (*PKCS11P
 //
 // RSA private keys are generated with both sign and decrypt
 // permissions, and a public exponent of 65537.
-func (lib *PKCS11Lib) GenerateRSAKeyPairWithLabel(label string, bits int, purpose KeyPurpose) (*PKCS11PrivateKeyRSA, error) {
-	return lib.GenerateRSAKeyPairOnSlot(lib.Slot.id, nil, []byte(label), bits, purpose)
+func (lib *PKCS11Lib) GenerateRSAKeyPairWithLabel(ctx context.Context, label string, bits int, usage cryptoprov.KeyUsage) (*PKCS11PrivateKeyRSA, error) {
+	return lib.GenerateRSAKeyPairOnSlot(ctx, lib.Slot.id, nil, []byte(label), bits, usage)
 }
 
 // GenerateRSAKeyPairOnSlot creates a RSA private key on a specified slot
 //
 // Either or both label and/or id can be nil, in which case a random values will be generated.
-func (lib *PKCS11Lib) GenerateRSAKeyPairOnSlot(slot uint, id []byte, label []byte, bits int, purpose KeyPurpose) (*PKCS11PrivateKeyRSA, error) {
+// usage selects the permissions of the key: cryptoprov.KeyUsageSign is
+// CKA_SIGN and CKA_VERIFY, cryptoprov.KeyUsageEncrypt is CKA_DECRYPT and
+// CKA_ENCRYPT, and the permissions of a usage that was not asked for are
+// set to false. Zero leaves all four to the token's defaults. ctx bounds
+// the wait for a session.
+func (lib *PKCS11Lib) GenerateRSAKeyPairOnSlot(ctx context.Context, slot uint, id []byte, label []byte, bits int, usage cryptoprov.KeyUsage) (*PKCS11PrivateKeyRSA, error) {
 	var k *PKCS11PrivateKeyRSA
 	var err error
-	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
-		k, err = lib.generateRSAKeyPairOnSession(session, slot, id, label, bits, purpose)
+	err = lib.withSessionCtx(ctx, slot, func(session pkcs11.SessionHandle) error {
+		k, err = lib.generateRSAKeyPairOnSession(session, slot, id, label, bits, usage)
 		return err
 	})
 	return k, unwrapNoRetry(err)
@@ -97,13 +104,13 @@ func (lib *PKCS11Lib) GenerateRSAKeyPairOnSession(
 	id []byte,
 	label []byte,
 	bits int,
-	purpose KeyPurpose,
+	usage cryptoprov.KeyUsage,
 ) (*PKCS11PrivateKeyRSA, error) {
 	if err := lib.enter(); err != nil {
 		return nil, err
 	}
 	defer lib.exit()
-	k, err := lib.generateRSAKeyPairOnSession(session, slot, id, label, bits, purpose)
+	k, err := lib.generateRSAKeyPairOnSession(session, slot, id, label, bits, usage)
 	return k, unwrapNoRetry(err)
 }
 
@@ -112,7 +119,7 @@ func (lib *PKCS11Lib) generateRSAKeyPairOnSession(
 	id []byte,
 	label []byte,
 	bits int,
-	purpose KeyPurpose,
+	usage cryptoprov.KeyUsage,
 ) (*PKCS11PrivateKeyRSA, error) {
 	var err error
 	var pub crypto.PublicKey
@@ -147,13 +154,21 @@ func (lib *PKCS11Lib) generateRSAKeyPairOnSession(
 		pkcs11.NewAttribute(pkcs11.CKA_ID, id),
 	}
 
-	switch purpose {
-	case Signing:
-		publicKeyTemplate = append(publicKeyTemplate, pkcs11.NewAttribute(pkcs11.CKA_VERIFY, true))
-		privateKeyTemplate = append(privateKeyTemplate, pkcs11.NewAttribute(pkcs11.CKA_SIGN, true))
-	case Encryption:
-		publicKeyTemplate = append(publicKeyTemplate, pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true))
-		privateKeyTemplate = append(privateKeyTemplate, pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true))
+	if usage != 0 {
+		// Both permissions are set, the one that was not asked for to
+		// false: a token's defaults would otherwise grant it (SoftHSM
+		// defaults both to true), and the key would report a usage it was
+		// not created for.
+		sign := usage.Has(cryptoprov.KeyUsageSign)
+		encrypt := usage.Has(cryptoprov.KeyUsageEncrypt)
+		publicKeyTemplate = append(publicKeyTemplate,
+			pkcs11.NewAttribute(pkcs11.CKA_VERIFY, sign),
+			pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, encrypt),
+		)
+		privateKeyTemplate = append(privateKeyTemplate,
+			pkcs11.NewAttribute(pkcs11.CKA_SIGN, sign),
+			pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, encrypt),
+		)
 	}
 
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_KEY_PAIR_GEN, nil)}

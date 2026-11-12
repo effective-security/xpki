@@ -10,9 +10,9 @@ import (
 	"slices"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/oid"
 )
 
 // oidExtKeyUsageOCSPSigning is id-kp-OCSPSigning (RFC 5280, 4.2.1.12).

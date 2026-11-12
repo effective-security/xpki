@@ -12,11 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/cryptoprov/testprov"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/testprov"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,23 +32,27 @@ func Test_LoadSigner(t *testing.T) {
 	t.Run("PEM key", func(t *testing.T) {
 		pem, err := testca.GenerateRSAKeyInPEM(nil, 1024)
 		require.NoError(t, err)
-		prov, pvk, err := cp.LoadPrivateKey(pem)
+		prov, pvk, err := cp.LoadPrivateKey(t.Context(), pem)
 		require.NoError(t, err)
 		assert.Nil(t, prov)
 		signSHA1(t, pvk)
 	})
 
 	t.Run("pkcs11URI", func(t *testing.T) {
-		pvk, err := tp.GenerateRSAKey("", 1024, 1)
+		pvk, err := tp.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "",
+			Type:  certutil.KeyTypeRSA,
+			Size:  1024,
+		})
 		require.NoError(t, err)
 
-		keyID, _, err := tp.IdentifyKey(pvk)
+		keyID, _, err := tp.IdentifyKey(t.Context(), pvk)
 		require.NoError(t, err)
 
-		uri, _, err := tp.ExportKey(keyID)
+		uri, _, err := tp.ExportKey(t.Context(), keyID)
 		require.NoError(t, err)
 
-		prov, loaded, err := cp.LoadPrivateKey([]byte(uri))
+		prov, loaded, err := cp.LoadPrivateKey(t.Context(), []byte(uri))
 		require.NoError(t, err)
 		assert.Same(t, tp, prov)
 		assert.Same(t, pvk, loaded)
@@ -76,7 +80,7 @@ func Test_LoadSigner(t *testing.T) {
 				err: "unable to get key: 123: GetKey(123): ",
 			},
 		} {
-			_, _, err := cp.LoadPrivateKey([]byte(tc.key))
+			_, _, err := cp.LoadPrivateKey(t.Context(), []byte(tc.key))
 			require.Error(t, err, tc.key)
 			assert.True(t, strings.HasPrefix(err.Error(), tc.err), "%s: %s", tc.key, err.Error())
 		}
@@ -88,21 +92,25 @@ func Test_LoadSigner_P11(t *testing.T) {
 	cp, err := cryptoprov.New(prov, nil)
 	require.NoError(t, err)
 
-	pvk, err := prov.GenerateRSAKey("", 1024, 1)
+	pvk, err := prov.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "",
+		Type:  certutil.KeyTypeRSA,
+		Size:  1024,
+	})
 	require.NoError(t, err)
 
-	keyID, _, err := prov.IdentifyKey(pvk)
+	keyID, _, err := prov.IdentifyKey(t.Context(), pvk)
 	require.NoError(t, err)
 
-	uri, _, err := prov.ExportKey(keyID)
+	uri, _, err := prov.ExportKey(t.Context(), keyID)
 	require.NoError(t, err)
 
-	loadedProv, loaded, err := cp.LoadPrivateKey([]byte(uri))
+	loadedProv, loaded, err := cp.LoadPrivateKey(t.Context(), []byte(uri))
 	require.NoError(t, err)
 	assert.Same(t, prov, loadedProv)
 	signSHA1(t, loaded)
 
-	_, _, err = cp.LoadPrivateKey([]byte("pkcs11:manufacturer=SoftHSM;model=" + prov.Model() + ";id=123;type=private;serial=123"))
+	_, _, err = cp.LoadPrivateKey(t.Context(), []byte("pkcs11:manufacturer=SoftHSM;model="+prov.Model()+";id=123;type=private;serial=123"))
 	require.Error(t, err)
 	assert.True(t, strings.HasPrefix(err.Error(), "unable to get key: 123"), err.Error())
 }
@@ -123,7 +131,7 @@ func Test_LoadTLSKeyPair(t *testing.T) {
 	cp, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 	require.NoError(t, err)
 
-	tls, err := cp.LoadTLSKeyPair("testdata/test-cert.pem", "testdata/test-key.pem")
+	tls, err := cp.LoadTLSKeyPair(t.Context(), "testdata/test-cert.pem", "testdata/test-key.pem")
 	require.NoError(t, err)
 	assert.NotNil(t, tls.Certificate)
 	assert.NotNil(t, tls.Leaf)
@@ -193,7 +201,7 @@ func Test_TLSKeyPair(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("rsa_match", func(t *testing.T) {
-		tlsCert, err := cp.TLSKeyPair(rsaCert, rsaKey)
+		tlsCert, err := cp.TLSKeyPair(t.Context(), rsaCert, rsaKey)
 		require.NoError(t, err)
 		require.NotNil(t, tlsCert.Leaf)
 		assert.Equal(t, "localhost", tlsCert.Leaf.Subject.CommonName)
@@ -201,23 +209,23 @@ func Test_TLSKeyPair(t *testing.T) {
 	})
 
 	t.Run("ecdsa_match", func(t *testing.T) {
-		tlsCert, err := cp.TLSKeyPair(ecCert, ecKey)
+		tlsCert, err := cp.TLSKeyPair(t.Context(), ecCert, ecKey)
 		require.NoError(t, err)
 		require.NotNil(t, tlsCert.Leaf)
 	})
 
 	t.Run("mismatch_same_type", func(t *testing.T) {
-		_, err := cp.TLSKeyPair(rsaCert, otherRSAKey)
+		_, err := cp.TLSKeyPair(t.Context(), rsaCert, otherRSAKey)
 		require.EqualError(t, err, "tls: private key does not match certificate public key")
 	})
 
 	t.Run("mismatch_other_type", func(t *testing.T) {
-		_, err := cp.TLSKeyPair(ecCert, rsaKey)
+		_, err := cp.TLSKeyPair(t.Context(), ecCert, rsaKey)
 		require.EqualError(t, err, "tls: private key does not match certificate public key")
 	})
 
 	t.Run("swapped_inputs", func(t *testing.T) {
-		_, err := cp.TLSKeyPair(rsaKey, rsaCert)
+		_, err := cp.TLSKeyPair(t.Context(), rsaKey, rsaCert)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "PEM inputs may have been switched")
 	})

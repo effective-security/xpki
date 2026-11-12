@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/internal/testenv"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

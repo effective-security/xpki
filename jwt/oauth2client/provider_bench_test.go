@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/effective-security/xpki/jwt/oauth2client"
+	"github.com/effective-security/xpki/v2/jwt/oauth2client"
 	"golang.org/x/oauth2"
 )
 

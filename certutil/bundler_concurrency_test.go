@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -122,7 +122,7 @@ func TestBundlerConcurrentBundle(t *testing.T) {
 	}
 	assert.Equal(t, total, s.total())
 	for _, ca := range []*testca.Entity{cached, caA1, caA2, caB} {
-		assert.True(t, b.KnownIssuers[string(ca.Certificate.Signature)], ca.Certificate.Subject.CommonName)
+		assert.True(t, b.IsKnownIssuer(ca.Certificate), ca.Certificate.Subject.CommonName)
 	}
 
 	// options taken before learning are not changed by it
@@ -169,7 +169,7 @@ func TestBundlerLearnMerge(t *testing.T) {
 	assert.True(t, verifies(merged, leaf2))
 	assert.False(t, verifies(afterFirst, leaf2), "a published pool is not modified")
 	for _, ca := range []*testca.Entity{root, ca1, ca2} {
-		assert.True(t, b.KnownIssuers[string(ca.Certificate.Signature)], ca.Certificate.Subject.CommonName)
+		assert.True(t, b.IsKnownIssuer(ca.Certificate), ca.Certificate.Subject.CommonName)
 	}
 
 	// nothing to learn: no new pool
@@ -177,8 +177,8 @@ func TestBundlerLearnMerge(t *testing.T) {
 	assert.Same(t, merged.Intermediates, b.VerifyOptions().Intermediates)
 }
 
-// TestBundlerLearnNilPool learns over AIA when set-up code cleared
-// IntermediatePool and KnownIssuers before the first use.
+// TestBundlerLearnNilPool learns over AIA into a Bundler without an
+// intermediate pool and known issuers.
 func TestBundlerLearnNilPool(t *testing.T) {
 	t.Parallel()
 	s := newAIAServer(t)
@@ -194,13 +194,12 @@ func TestBundlerLearnNilPool(t *testing.T) {
 		certutil.WithHTTPClient(s.client()),
 	)
 	require.NoError(t, err)
-	b.IntermediatePool = nil
-	b.KnownIssuers = nil
+	certutil.ClearIntermediates(b)
 
 	chain, err := bundleWithin(t, b, []*x509.Certificate{leaf.Certificate})
 	require.NoError(t, err)
 	assert.Equal(t, []*x509.Certificate{leaf.Certificate, ca.Certificate}, chain.Chain)
-	assert.True(t, b.KnownIssuers[string(ca.Certificate.Signature)])
+	assert.True(t, b.IsKnownIssuer(ca.Certificate))
 	_, err = bundleWithin(t, b, []*x509.Certificate{leaf.Certificate})
 	require.NoError(t, err)
 	assert.Equal(t, 1, s.count("/ca"))

@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/dataprotection"
-	"github.com/effective-security/xpki/jwt"
-	"github.com/effective-security/xpki/jwt/accesstoken"
+	"github.com/effective-security/xpki/v2/dataprotection"
+	"github.com/effective-security/xpki/v2/jwt"
+	"github.com/effective-security/xpki/v2/jwt/accesstoken"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,7 +121,7 @@ func TestSign_Expiry(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	setClock(t, now)
 
-	jp, err := jwt.LoadProvider(jwtProvFile, nil)
+	jp, err := jwt.LoadProvider(ctx, jwtProvFile, nil)
 	require.NoError(t, err)
 	dp := newDP(t)
 
@@ -379,7 +379,7 @@ func TestATWithProvider(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	setClock(t, now)
 
-	jp, err := jwt.LoadProvider(jwtProvFile, nil)
+	jp, err := jwt.LoadProvider(ctx, jwtProvFile, nil)
 	require.NoError(t, err)
 
 	p := accesstoken.New(newDP(t), jp)
@@ -421,7 +421,7 @@ func TestATWithProvider(t *testing.T) {
 func TestATRevokedPlainJWT(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	jp, err := jwt.LoadProvider(jwtProvFile, nil)
+	jp, err := jwt.LoadProvider(ctx, jwtProvFile, nil)
 	require.NoError(t, err)
 
 	v := &validator{
@@ -473,7 +473,7 @@ func (a asymDP) PublicKey() crypto.PublicKey { return a.pub }
 func TestPublicKey(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	jp, err := jwt.LoadProvider(jwtProvFile, nil)
+	jp, err := jwt.LoadProvider(ctx, jwtProvFile, nil)
 	require.NoError(t, err)
 	dp := newDP(t)
 

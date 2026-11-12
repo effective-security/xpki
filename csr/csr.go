@@ -16,7 +16,7 @@ import (
 	"slices"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/oid"
 )
 
 // Signer interface to sign CSR

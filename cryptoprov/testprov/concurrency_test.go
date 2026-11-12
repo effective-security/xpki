@@ -3,7 +3,6 @@ package testprov_test
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -11,7 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/effective-security/xpki/cryptoprov/testprov"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/testprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,11 @@ const (
 func TestConcurrentKeyOperations(t *testing.T) {
 	p, err := testprov.Init()
 	require.NoError(t, err)
-	existing, err := p.GenerateECDSAKey("existing", elliptic.P256())
+	existing, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "existing",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(t, err)
 
 	type generatedKey struct {
@@ -50,10 +55,10 @@ func TestConcurrentKeyOperations(t *testing.T) {
 			<-start
 			for {
 				checkStoredKey(t, p, existing, "existing")
-				key, err := p.GetKey(missingKeyID)
+				key, err := p.GetKey(t.Context(), missingKeyID)
 				assert.EqualError(t, err, "GetKey(missing-key): key not found: missing-key")
 				assert.True(t, key == nil, "missing key must return nil")
-				uri, keyBytes, err := p.ExportKey(missingKeyID)
+				uri, keyBytes, err := p.ExportKey(t.Context(), missingKeyID)
 				assert.EqualError(t, err, "keyID=missing-key: key not found: missing-key")
 				assert.Empty(t, uri)
 				assert.True(t, keyBytes == nil, "missing key must not export bytes")
@@ -74,9 +79,18 @@ func TestConcurrentKeyOperations(t *testing.T) {
 				result := &generated[worker*keysPerWriter+i]
 				result.label = fmt.Sprintf("worker-%d-key-%d", worker, i)
 				if worker == 0 {
-					result.key, result.err = p.GenerateRSAKey(result.label, rsaKeyBits, 2)
+					result.key, result.err = p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+						Label: result.label,
+						Type:  certutil.KeyTypeRSA,
+						Size:  rsaKeyBits,
+						Usage: cryptoprov.KeyUsageEncrypt,
+					})
 				} else {
-					result.key, result.err = p.GenerateECDSAKey(result.label, elliptic.P256())
+					result.key, result.err = p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+						Label: result.label,
+						Type:  certutil.KeyTypeECDSA,
+						Size:  256,
+					})
 				}
 				if assert.NoError(t, result.err) {
 					checkStoredKey(t, p, result.key, result.label)
@@ -94,7 +108,7 @@ func TestConcurrentKeyOperations(t *testing.T) {
 	for _, result := range generated {
 		require.NoError(t, result.err)
 		checkStoredKey(t, p, result.key, result.label)
-		id, _, err := p.IdentifyKey(result.key)
+		id, _, err := p.IdentifyKey(t.Context(), result.key)
 		require.NoError(t, err)
 		assert.NotContains(t, ids, id, "generated key ID must be unique")
 		ids[id] = struct{}{}
@@ -106,18 +120,18 @@ func TestConcurrentKeyOperations(t *testing.T) {
 // All assertions in this helper are nonfatal because readers call it in goroutines.
 func checkStoredKey(t *testing.T, p *testprov.Provider, key crypto.PrivateKey, label string) {
 	t.Helper()
-	id, actualLabel, err := p.IdentifyKey(key)
+	id, actualLabel, err := p.IdentifyKey(t.Context(), key)
 	if !assert.NoError(t, err) {
 		return
 	}
 	assert.NotEmpty(t, id)
 	assert.Equal(t, label, actualLabel)
-	stored, err := p.GetKey(id)
+	stored, err := p.GetKey(t.Context(), id)
 	if !assert.NoError(t, err) {
 		return
 	}
 	assert.True(t, key == stored, "lookup must return the registered signer")
-	uri, keyBytes, err := p.ExportKey(id)
+	uri, keyBytes, err := p.ExportKey(t.Context(), id)
 	if assert.NoError(t, err) {
 		assert.Equal(t, fmt.Sprintf(keyURIFormat, label, id), uri)
 		assert.True(t, keyBytes == nil, "private key bytes must not be exported")
@@ -155,14 +169,18 @@ func checkKeyOperations(t *testing.T, key crypto.PrivateKey) {
 func BenchmarkGetKey(b *testing.B) {
 	p, err := testprov.Init()
 	require.NoError(b, err)
-	key, err := p.GenerateECDSAKey("benchmark", elliptic.P256())
+	key, err := p.GenerateKey(b.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "benchmark",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(b, err)
-	id, _, err := p.IdentifyKey(key)
+	id, _, err := p.IdentifyKey(b.Context(), key)
 	require.NoError(b, err)
 	b.Run("hit", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			stored, err := p.GetKey(id)
+			stored, err := p.GetKey(b.Context(), id)
 			if err != nil || stored != key {
 				b.Fatal("lookup did not return the registered signer")
 			}
@@ -171,7 +189,7 @@ func BenchmarkGetKey(b *testing.B) {
 	b.Run("miss", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			stored, err := p.GetKey(missingKeyID)
+			stored, err := p.GetKey(b.Context(), missingKeyID)
 			if err == nil || stored != nil {
 				b.Fatal("missing-key lookup must return an error and no key")
 			}

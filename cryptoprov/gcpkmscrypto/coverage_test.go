@@ -2,7 +2,6 @@ package gcpkmscrypto_test
 
 import (
 	"context"
-	"crypto/elliptic"
 	"encoding/pem"
 	"net"
 	"strings"
@@ -12,7 +11,9 @@ import (
 	kms "cloud.google.com/go/kms/apiv1"
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -87,7 +88,11 @@ func (s *listingKMSServer) ListCryptoKeys(_ context.Context, req *kmspb.ListCryp
 	}, nil
 }
 
-func TestEnumKeysPagination(t *testing.T) {
+// TestListKeysShortPages checks a listing against a server that returns a
+// page shorter than asked for with a next page token: the SDK pager reads on
+// until the page is full or the listing ends, and every key is listed,
+// whatever its primary version (there is no default state filter).
+func TestListKeysShortPages(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		t.Run(map[bool]string{
 			false: "pages and disabled key",
@@ -107,28 +112,39 @@ func TestEnumKeysPagination(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, client.Close()) })
 			provider := coverageProvider(t, client)
-			keys, err := provider.EnumKeys(0, "")
+			resp, err := provider.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{})
 			if fail {
 				require.Error(t, err)
 				assert.Equal(t, codes.PermissionDenied, status.Code(errors.UnwrapAll(err)))
-				assert.Nil(t, keys)
+				assert.Nil(t, resp)
 				return
 			}
 			require.NoError(t, err)
-			require.Len(t, keys, 2)
+			keys := resp.Keys
+			require.Len(t, keys, 3)
+			assert.Empty(t, resp.NextPageToken)
 			assert.Equal(t, "enabled", keys[0].ID)
-			assert.Equal(t, "no-primary", keys[1].ID)
+			assert.Equal(t, "disabled", keys[1].ID)
+			assert.Equal(t, "no-primary", keys[2].ID)
 			assert.Equal(t, "ENABLED", keys[0].Meta["state"])
+			assert.Equal(t, cryptoprov.KeyStateEnabled, keys[0].State)
 			assert.Equal(t, "3", keys[0].CurrentVersionID)
-			assert.Equal(t, map[string]string{"purpose": "ASYMMETRIC_SIGN"}, keys[1].Meta)
-			assert.Empty(t, keys[1].CurrentVersionID)
-			assert.Nil(t, keys[1].CreationTime)
-			assert.Empty(t, keys[1].Label)
+			assert.Equal(t, "test", keys[0].Label)
+			assert.Equal(t, certutil.KeyTypeECDSA, keys[0].Type)
+			assert.Equal(t, 256, keys[0].Size)
+			assert.Equal(t, cryptoprov.KeyStateDisabled, keys[1].State, "the state of a primary version is free")
+			assert.Equal(t, map[string]string{"purpose": "ASYMMETRIC_SIGN"}, keys[2].Meta)
+			assert.Empty(t, keys[2].CurrentVersionID)
+			assert.Empty(t, keys[2].State)
+			assert.Nil(t, keys[2].CreationTime)
+			assert.Empty(t, keys[2].Label)
+			assert.Empty(t, keys[2].Type)
 			assert.Equal(t, "HSM", keys[0].Meta["protection"])
 			assert.Equal(t, time.Unix(1000, 0).UTC(), *keys[0].CreationTime)
 			first, second := <-service.requests, <-service.requests
 			assert.Equal(t, coverageKeyring, first.Parent)
 			assert.Empty(t, first.PageToken)
+			assert.Equal(t, int32(cryptoprov.DefaultPageSize), first.PageSize)
 			assert.Equal(t, "second", second.PageToken)
 		})
 	}
@@ -169,13 +185,24 @@ func TestKMSFailurePropagation(t *testing.T) {
 		{
 			name:   "create",
 			client: &fakeKMS{createCryptoKey: func(*kmspb.CreateCryptoKeyRequest) (*kmspb.CryptoKey, error) { return nil, failure }},
-			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GenerateRSAKey("test", 2048, 1); return err },
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+					Label: "test",
+					Type:  certutil.KeyTypeRSA,
+					Size:  2048,
+				})
+				return err
+			},
 		},
 		{
 			name:   "generate version",
 			client: &fakeKMS{createCryptoKey: created, getCryptoKeyVersion: failVersion},
 			op: func(p *gcpkmscrypto.Provider) error {
-				_, err := p.GenerateECDSAKey("test", elliptic.P256())
+				_, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+					Label: "test",
+					Type:  certutil.KeyTypeECDSA,
+					Size:  256,
+				})
 				return err
 			},
 		},
@@ -183,7 +210,11 @@ func TestKMSFailurePropagation(t *testing.T) {
 			name:   "generate public",
 			client: &fakeKMS{createCryptoKey: created, getCryptoKeyVersion: version, getPublicKey: failPublic},
 			op: func(p *gcpkmscrypto.Provider) error {
-				_, err := p.GenerateECDSAKey("test", elliptic.P256())
+				_, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+					Label: "test",
+					Type:  certutil.KeyTypeECDSA,
+					Size:  256,
+				})
 				return err
 			},
 		},
@@ -191,35 +222,51 @@ func TestKMSFailurePropagation(t *testing.T) {
 			name:   "generate malformed",
 			client: &fakeKMS{createCryptoKey: created, getCryptoKeyVersion: version, getPublicKey: malformedPublic},
 			op: func(p *gcpkmscrypto.Provider) error {
-				_, err := p.GenerateECDSAKey("test", elliptic.P256())
+				_, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+					Label: "test",
+					Type:  certutil.KeyTypeECDSA,
+					Size:  256,
+				})
 				return err
 			},
 		},
 		{
 			name:   "get",
 			client: &fakeKMS{getCryptoKey: func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) { return nil, failure }},
-			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GetKey(t.Context(), "key/cryptoKeyVersions/1")
+				return err
+			},
 		},
 		{
 			name:   "get version",
 			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: failVersion},
-			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GetKey(t.Context(), "key/cryptoKeyVersions/1")
+				return err
+			},
 		},
 		{
 			name:   "get public",
 			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: version, getPublicKey: failPublic},
-			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GetKey(t.Context(), "key/cryptoKeyVersions/1")
+				return err
+			},
 		},
 		{
 			name:   "get malformed",
 			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: version, getPublicKey: malformedPublic},
-			op:     func(p *gcpkmscrypto.Provider) error { _, err := p.GetKey("key/cryptoKeyVersions/1"); return err },
+			op: func(p *gcpkmscrypto.Provider) error {
+				_, err := p.GetKey(t.Context(), "key/cryptoKeyVersions/1")
+				return err
+			},
 		},
 		{
 			name:   "describe",
 			client: &fakeKMS{getCryptoKey: func(*kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) { return nil, failure }},
 			op: func(p *gcpkmscrypto.Provider) error {
-				_, err := p.KeyInfo(0, "key/cryptoKeyVersions/1", false)
+				_, err := p.KeyInfo(t.Context(), "key/cryptoKeyVersions/1", keyFields)
 				return err
 			},
 		},
@@ -227,7 +274,7 @@ func TestKMSFailurePropagation(t *testing.T) {
 			name:   "describe version",
 			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: failVersion},
 			op: func(p *gcpkmscrypto.Provider) error {
-				_, err := p.KeyInfo(0, "key/cryptoKeyVersions/1", false)
+				_, err := p.KeyInfo(t.Context(), "key/cryptoKeyVersions/1", keyFields)
 				return err
 			},
 		},
@@ -235,7 +282,7 @@ func TestKMSFailurePropagation(t *testing.T) {
 			name:   "describe public",
 			client: &fakeKMS{getCryptoKey: key, getCryptoKeyVersion: version, getPublicKey: failPublic},
 			op: func(p *gcpkmscrypto.Provider) error {
-				_, err := p.KeyInfo(0, "key/cryptoKeyVersions/1", true)
+				_, err := p.KeyInfo(t.Context(), "key/cryptoKeyVersions/1", keyFieldsPublic)
 				return err
 			},
 		},
@@ -244,7 +291,7 @@ func TestKMSFailurePropagation(t *testing.T) {
 			client: &fakeKMS{destroyCryptoKeyVersion: func(*kmspb.DestroyCryptoKeyVersionRequest) (*kmspb.CryptoKeyVersion, error) {
 				return nil, failure
 			}},
-			op: func(p *gcpkmscrypto.Provider) error { return p.DestroyKeyPairOnSlot(0, "key/cryptoKeyVersions/1") },
+			op: func(p *gcpkmscrypto.Provider) error { return p.DestroyKey(t.Context(), "key/cryptoKeyVersions/1") },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -269,15 +316,25 @@ func TestKMSFailurePropagation(t *testing.T) {
 			},
 		}
 		provider := newProvider(t, client)
-		require.NoError(t, provider.DestroyKeyPairOnSlot(0, "key/cryptoKeyVersions/1"))
+		require.NoError(t, provider.DestroyKey(t.Context(), "key/cryptoKeyVersions/1"))
 		assert.Equal(t, coverageKeyring+"/cryptoKeys/key/cryptoKeyVersions/1", destroyed)
 		assert.Equal(t, []string{"DestroyCryptoKeyVersion"}, client.Calls())
 
-		_, err := provider.GenerateRSAKey("test", 1024, 1)
-		require.EqualError(t, err, "unsupported key size: 1024")
-		_, err = provider.GenerateECDSAKey("test", elliptic.P521())
-		require.EqualError(t, err, "unsupported curve")
-		_, _, err = provider.IdentifyKey(struct{}{})
+		_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "test",
+			Type:  certutil.KeyTypeRSA,
+			Size:  1024,
+		})
+		require.ErrorIs(t, err, cryptoprov.ErrNotSupported)
+		require.ErrorContains(t, err, "unsupported RSA key size: 1024")
+		_, err = provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "test",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  521,
+		})
+		require.ErrorIs(t, err, cryptoprov.ErrNotSupported)
+		require.ErrorContains(t, err, "unsupported ECDSA key size: 521")
+		_, _, err = provider.IdentifyKey(t.Context(), struct{}{})
 		require.EqualError(t, err, "not supported key")
 	})
 
@@ -289,7 +346,7 @@ func TestKMSFailurePropagation(t *testing.T) {
 				return enabledVersion("key", kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_2048_SHA256), nil
 			},
 		}
-		_, err := newProvider(t, client).GetKey("key/cryptoKeyVersions/1")
+		_, err := newProvider(t, client).GetKey(t.Context(), "key/cryptoKeyVersions/1")
 		require.EqualError(t, err, "unsupported key algorithm RSA_DECRYPT_OAEP_2048_SHA256: key/cryptoKeyVersions/1")
 		assert.Equal(t, 0, client.CallCount("GetPublicKey"))
 	})

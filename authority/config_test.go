@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/authority"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/authority"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

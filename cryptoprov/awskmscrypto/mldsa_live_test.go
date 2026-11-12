@@ -1,6 +1,7 @@
 package awskmscrypto_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/mldsa"
 	"crypto/rand"
@@ -12,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,13 +46,17 @@ func TestLiveKMSMLDSA(t *testing.T) {
 	for _, params := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		t.Run(params.String(), func(t *testing.T) {
 			label := "xpki-live-" + strings.ToLower(params.String()) + "-" + certutil.RandomString(8)
-			priv, err := provider.GenerateMLDSAKey(label, params)
+			priv, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: label,
+				Type:  certutil.KeyTypeMLDSA,
+				Size:  cryptoprov.MLDSASize(params),
+			})
 			require.NoError(t, err)
-			keyID, gotLabel, err := provider.IdentifyKey(priv)
+			keyID, gotLabel, err := provider.IdentifyKey(t.Context(), priv)
 			require.NoError(t, err)
 			assert.Equal(t, label, gotLabel)
 			t.Cleanup(func() {
-				assert.NoError(t, manager.DestroyKeyPairOnSlot(manager.CurrentSlotID(), keyID),
+				assert.NoError(t, manager.DestroyKey(context.Background(), keyID),
 					"key %s is left in the account", keyID)
 			})
 
@@ -61,7 +66,7 @@ func TestLiveKMSMLDSA(t *testing.T) {
 			assert.Equal(t, params, pub.Parameters())
 			verifyLiveMLDSASigner(t, signer, pub)
 
-			loaded, err := provider.GetKey(keyID)
+			loaded, err := provider.GetKey(t.Context(), keyID)
 			require.NoError(t, err)
 			loadedSigner := loaded.(crypto.Signer)
 			assert.True(t, pub.Equal(loadedSigner.Public()))
@@ -69,7 +74,7 @@ func TestLiveKMSMLDSA(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, mldsa.Verify(pub, []byte(label), sig, nil))
 
-			info, err := manager.KeyInfo(manager.CurrentSlotID(), keyID, true)
+			info, err := manager.KeyInfo(t.Context(), keyID, keyFieldsPublic)
 			require.NoError(t, err)
 			assert.Equal(t, certutil.KeyTypeMLDSA, info.Type)
 			assert.Equal(t, params.String(), info.Meta[cryptoprov.MetaParameterSet])

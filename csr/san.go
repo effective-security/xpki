@@ -10,8 +10,7 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/oid"
 	"golang.org/x/net/idna"
 )
 
@@ -92,24 +91,6 @@ func ApplySAN(template *x509.Certificate, names []string) error {
 	}
 	san.apply(template)
 	return nil
-}
-
-// SetSAN is ApplySAN without an error: a name ParseSAN rejects is skipped
-// with an error log and the valid names are applied. A nil names leaves
-// template unchanged; a non-nil empty slice clears the names.
-//
-// Deprecated: use ApplySAN, which reports the invalid names.
-func SetSAN(template *x509.Certificate, names []string) {
-	if template == nil || names == nil {
-		return
-	}
-	san := &SAN{}
-	for _, raw := range names {
-		if err := san.add(strings.TrimSpace(raw)); err != nil {
-			logger.KV(xlog.ERROR, "reason", "skipped_invalid_san", "san", raw, "err", err.Error())
-		}
-	}
-	san.apply(template)
 }
 
 // apply sets the names of template to s and drops any raw SAN extension.

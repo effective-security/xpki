@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/v2/certutil"
 )
 
 // Entity is a certificate and private key.

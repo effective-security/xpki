@@ -2,12 +2,12 @@ package testprov
 
 import (
 	"crypto"
-	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,54 +29,62 @@ func Test_GenerateKeys(t *testing.T) {
 	assert.NotNil(t, p.rsaKeyGenerator)
 	assert.NotNil(t, p.ecdsaKeyGenerator)
 
-	priv, err := p.GenerateECDSAKey("inmemoryECDSA", elliptic.P256())
+	priv, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "inmemoryECDSA",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(t, err)
 	assert.NotNil(t, priv)
 
-	keyID1, label, err := p.IdentifyKey(priv)
+	keyID1, label, err := p.IdentifyKey(t.Context(), priv)
 	require.NoError(t, err)
 	assert.Equal(t, "inmemoryECDSA", label)
 
 	l := len(p.inMemProv.keyIDToPvk)
 	assert.Equal(t, 1, l)
-	keyURI, keyBytes, err := p.ExportKey(keyID1)
+	keyURI, keyBytes, err := p.ExportKey(t.Context(), keyID1)
 	require.NoError(t, err)
 	assert.Nil(t, keyBytes)
 	expectedURI := fmt.Sprintf("pkcs11:manufacturer=testprov;model=inmem;serial=20764350726;token=inmemoryECDSA;id=%s;type=private", keyID1)
 	assert.Equal(t, expectedURI, keyURI)
 
-	s, err := p.GetKey(keyID1)
+	s, err := p.GetKey(t.Context(), keyID1)
 	require.NoError(t, err)
 	si, ok := s.(*provImpl)
 	assert.True(t, ok)
 	assert.NotNil(t, si.Public())
 
-	pvk, err := p.GetKey(keyID1)
+	pvk, err := p.GetKey(t.Context(), keyID1)
 	require.NoError(t, err)
 	assert.NotNil(t, pvk)
 
-	priv, err = p.GenerateRSAKey("inmemoryRSA", 4096, 1)
+	priv, err = p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "inmemoryRSA",
+		Type:  certutil.KeyTypeRSA,
+		Size:  4096,
+	})
 	require.NoError(t, err)
 	assert.NotNil(t, priv)
 
-	keyID2, label, err := p.IdentifyKey(priv)
+	keyID2, label, err := p.IdentifyKey(t.Context(), priv)
 	require.NoError(t, err)
 	assert.Equal(t, "inmemoryRSA", label)
 
 	l = len(p.inMemProv.keyIDToPvk)
 	assert.Equal(t, 2, l)
-	keyURI, _, err = p.ExportKey(keyID2)
+	keyURI, _, err = p.ExportKey(t.Context(), keyID2)
 	require.NoError(t, err)
 	expectedURI = fmt.Sprintf("pkcs11:manufacturer=testprov;model=inmem;serial=20764350726;token=inmemoryRSA;id=%s;type=private", keyID2)
 	assert.Equal(t, expectedURI, keyURI)
 
-	s, err = p.GetKey(keyID2)
+	s, err = p.GetKey(t.Context(), keyID2)
 	require.NoError(t, err)
 	si, ok = s.(*provImpl)
 	assert.True(t, ok)
 	assert.NotNil(t, si.Public())
 
-	pvk, err = p.GetKey(keyID2)
+	pvk, err = p.GetKey(t.Context(), keyID2)
 	require.NoError(t, err)
 	assert.NotNil(t, pvk)
 }
@@ -89,17 +97,21 @@ func Test_SignECDSA(t *testing.T) {
 	assert.NotNil(t, p.rsaKeyGenerator)
 	assert.NotNil(t, p.ecdsaKeyGenerator)
 
-	priv, err := p.GenerateECDSAKey("inmemoryECDSA", elliptic.P256())
+	priv, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "inmemoryECDSA",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(t, err)
 	assert.NotNil(t, priv)
 
-	keyID, label, err := p.IdentifyKey(priv)
+	keyID, label, err := p.IdentifyKey(t.Context(), priv)
 	require.NoError(t, err)
 	assert.Equal(t, "inmemoryECDSA", label)
 
 	l := len(p.inMemProv.keyIDToPvk)
 	assert.Equal(t, 1, l)
-	keyURI, _, err := p.ExportKey(keyID)
+	keyURI, _, err := p.ExportKey(t.Context(), keyID)
 	require.NoError(t, err)
 
 	expectedURI := fmt.Sprintf("pkcs11:manufacturer=testprov;model=inmem;serial=20764350726;token=inmemoryECDSA;id=%s;type=private", keyID)
@@ -121,17 +133,21 @@ func Test_SignRSA(t *testing.T) {
 	assert.NotNil(t, p.rsaKeyGenerator)
 	assert.NotNil(t, p.ecdsaKeyGenerator)
 
-	priv, err := p.GenerateRSAKey("inmemoryRSA", 1024, 1)
+	priv, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "inmemoryRSA",
+		Type:  certutil.KeyTypeRSA,
+		Size:  1024,
+	})
 	require.NoError(t, err)
 	assert.NotNil(t, priv)
 
-	keyID, label, err := p.IdentifyKey(priv)
+	keyID, label, err := p.IdentifyKey(t.Context(), priv)
 	require.NoError(t, err)
 	assert.Equal(t, "inmemoryRSA", label)
 
 	l := len(p.inMemProv.keyIDToPvk)
 	assert.Equal(t, 1, l)
-	keyURI, _, err := p.ExportKey(keyID)
+	keyURI, _, err := p.ExportKey(t.Context(), keyID)
 	require.NoError(t, err)
 
 	expectedURI := fmt.Sprintf("pkcs11:manufacturer=testprov;model=inmem;serial=20764350726;token=inmemoryRSA;id=%s;type=private", keyID)

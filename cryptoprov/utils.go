@@ -1,6 +1,7 @@
 package cryptoprov
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -16,8 +17,11 @@ import (
 )
 
 // LoadPrivateKey returns crypto.PrivateKey.
-// The input key can be in PEM encoded format, or PKCS11 URI.
-func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error) {
+// The input key can be in PEM encoded format, or PKCS11 URI. A URI is
+// resolved by the provider it names with ctx, which bounds the KMS requests
+// or the wait for a PKCS#11 session; the returned Provider is nil for a PEM
+// key.
+func (c *Crypto) LoadPrivateKey(ctx context.Context, key []byte) (Provider, crypto.PrivateKey, error) {
 	var err error
 	var pvk crypto.PrivateKey
 	var provider Provider
@@ -35,7 +39,7 @@ func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
 				pkuri.Manufacturer(), pkuri.Model())
 		}
 
-		pvk, err = provider.GetKey(pkuri.ID())
+		pvk, err = provider.GetKey(ctx, pkuri.ID())
 		if err != nil {
 			return nil, nil, errors.WithMessagef(err, "unable to get key: %s", pkuri.ID())
 		}
@@ -134,8 +138,9 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error) {
 // of files. The files must contain PEM encoded data. The certificate file
 // may contain intermediate certificates following the leaf certificate to
 // form a certificate chain. On successful return, Certificate.Leaf holds
-// the parsed leaf certificate.
-func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, error) {
+// the parsed leaf certificate. ctx is for a key file that holds a pkcs11:
+// URI, see LoadPrivateKey.
+func (c *Crypto) LoadTLSKeyPair(ctx context.Context, certFile, keyFile string) (*tls.Certificate, error) {
 	certPEMBlock, err := os.ReadFile(certFile)
 	if err != nil {
 		return nil, err
@@ -144,15 +149,15 @@ func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, err
 	if err != nil {
 		return nil, err
 	}
-	return c.TLSKeyPair(certPEMBlock, keyPEMBlock)
+	return c.TLSKeyPair(ctx, certPEMBlock, keyPEMBlock)
 }
 
 // TLSKeyPair parses a public/private key pair from PEM encoded data. The key
 // may be a PEM private key or a pkcs11: URI resolved through the registered
-// providers. On successful return, Certificate.Leaf holds the parsed leaf
+// providers with ctx. On successful return, Certificate.Leaf holds the parsed leaf
 // certificate. An error is returned when the private key does not match
 // the leaf certificate's public key.
-func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error) {
+func (c *Crypto) TLSKeyPair(ctx context.Context, certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error) {
 	var err error
 	var skippedBlockTypes []string
 
@@ -188,7 +193,7 @@ func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate,
 		return nil, errors.WithStack(err)
 	}
 
-	_, cert.PrivateKey, err = c.LoadPrivateKey(keyPEMBlock)
+	_, cert.PrivateKey, err = c.LoadPrivateKey(ctx, keyPEMBlock)
 	if err != nil {
 		return nil, err
 	}

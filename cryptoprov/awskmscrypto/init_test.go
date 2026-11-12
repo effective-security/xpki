@@ -8,7 +8,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -206,4 +208,67 @@ func TestParseKmsAttributes(t *testing.T) {
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+}
+
+// TestInitListingAttributes checks the listing settings of the token config
+// attributes: TagSearch creates the Resource Groups Tagging API client, at
+// its endpoint, and a value the provider does not understand fails Init.
+func TestInitListingAttributes(t *testing.T) {
+	isolateAWSEnv(t)
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	client := newFakeKMS()
+	captureFactory(t, client)
+
+	original := awskmscrypto.TaggingClientFactory
+	t.Cleanup(func() { awskmscrypto.TaggingClientFactory = original })
+	tagging := newFakeTagging(client)
+	var tagOpts resourcegroupstaggingapi.Options
+	created := 0
+	awskmscrypto.TaggingClientFactory = func(_ aws.Config, optFns ...func(*resourcegroupstaggingapi.Options)) awskmscrypto.TaggingClient {
+		created++
+		for _, fn := range optFns {
+			fn(&tagOpts)
+		}
+		return tagging
+	}
+
+	// without TagSearch no tagging client is created
+	provider, err := awskmscrypto.KmsLoader(tokenCfg("Region=eu-west-2, LabelSearch=index, DescribeConcurrency=3, MetadataCacheSize=7"))
+	require.NoError(t, err)
+	assert.Zero(t, created)
+	ids := addSigningKeys(t, client, 20)
+	keys := listAll(t, provider.(cryptoprov.KeyManager), &cryptoprov.ListKeysRequest{Fields: cryptoprov.KeyFieldMetadata})
+	assert.Equal(t, ids, keyIDs(keys))
+	assert.Equal(t, 7, awskmscrypto.MetadataCacheLen(provider.(*awskmscrypto.Provider)), "MetadataCacheSize")
+
+	provider, err = awskmscrypto.KmsLoader(tokenCfg("Region=eu-west-2, TagSearch=true, TaggingEndpoint=http://localhost:4566"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, created)
+	assert.Equal(t, "http://localhost:4566", aws.ToString(tagOpts.BaseEndpoint))
+	client.setTags(ids[2], map[string]string{"team": "alpha"})
+	keys = listAll(t, provider.(cryptoprov.KeyManager), &cryptoprov.ListKeysRequest{
+		Filter: cryptoprov.KeyFilter{Tags: map[string]string{"team": "alpha"}},
+	})
+	assert.Equal(t, []string{ids[2]}, keyIDs(keys))
+	assert.Len(t, tagging.Requests(), 1)
+
+	awskmscrypto.TaggingClientFactory = func(aws.Config, ...func(*resourcegroupstaggingapi.Options)) awskmscrypto.TaggingClient {
+		return nil
+	}
+	_, err = awskmscrypto.KmsLoader(tokenCfg("TagSearch=1"))
+	require.EqualError(t, err, "tagging client factory returned no client")
+
+	for attributes, msg := range map[string]string{
+		"TagSearch=yes":            `invalid TagSearch attribute "yes": expected true or false`,
+		"LabelSearch=full":         `invalid LabelSearch attribute "full": expected index or scan`,
+		"DescribeConcurrency=0":    `invalid DescribeConcurrency attribute "0": expected 1 to 64`,
+		"DescribeConcurrency=65":   `invalid DescribeConcurrency attribute "65": expected 1 to 64`,
+		"DescribeConcurrency=many": `invalid DescribeConcurrency attribute "many": expected 1 to 64`,
+		"MetadataCacheSize=-1":     `invalid MetadataCacheSize attribute "-1": expected 0 or more`,
+		"MetadataCacheSize=big":    `invalid MetadataCacheSize attribute "big": expected 0 or more`,
+	} {
+		_, err := awskmscrypto.KmsLoader(tokenCfg(attributes))
+		require.EqualError(t, err, msg, attributes)
+	}
 }

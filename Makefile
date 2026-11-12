@@ -1,7 +1,10 @@
 include .project/gomod-project.mk
+# The module is major version 2: package paths carry the /v2 suffix, the
+# repository name (REPO_NAME) does not.
+PROJ_PACKAGE := ${REPO_NAME}/v2
 BUILD_FLAGS=
 # LDFLAGS sets the build version reported by the CLIs (internal/version).
-LDFLAGS=-ldflags "-X github.com/effective-security/xpki/internal/version.build=$(GIT_VERSION)"
+LDFLAGS=-ldflags "-X github.com/effective-security/xpki/v2/internal/version.build=$(GIT_VERSION)"
 
 export COVERAGE_EXCLUSIONS="tests|testca|main\.go|clisuite|testsuite\.go|mocks\.go"
 export XPKI_INTEGRATION=required
@@ -88,7 +91,7 @@ hsmconfig: test-scripts
 		-o "${SOFTHSM_CONFIG}" \
 		--delete
 	SOFTHSM2_CONF="$${SOFTHSM2_CONF_DIR:-$$HOME/.config/softhsm2}/softhsm2.conf" \
-		"${PROJ_ROOT}/bin/hsm-tool" --cfg "${SOFTHSM_CONFIG}" hsm list
+		"${PROJ_ROOT}/bin/hsm-tool" --cfg "${SOFTHSM_CONFIG}" hsm key list
 	echo ""
 
 # PKCS#11 v3.2 token with ML-DSA for crypto11; not part of `all` or CI: it builds
@@ -112,7 +115,7 @@ docs:
 	rm -rf Documentation/api
 	mkdir -p Documentation/api
 	for pkg in $$(go list ./... | grep -v '/tests/'); do \
-		out=Documentation/api/$$(echo $$pkg | sed 's#${REPO_NAME}/##; s#/#_#g').md; \
+		out=Documentation/api/$$(echo $$pkg | sed 's#${PROJ_PACKAGE}/##; s#/#_#g').md; \
 		gomarkdoc --output $$out --repository.default-branch main $$pkg || exit 1; \
 	done
 	echo "API reference written to Documentation/api"

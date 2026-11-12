@@ -1,6 +1,6 @@
 # RULES OF CONDUCT
 
-This module (`github.com/effective-security/xpki`) is a PKI library plus two
+This module (`github.com/effective-security/xpki/v2`) is a PKI library plus two
 CLIs. The library packages are `cryptoprov` (provider abstraction with
 `crypto11`, `awskmscrypto`, `gcpkmscrypto`, `inmemcrypto` backends), `csr`,
 `authority`, `certutil`, `jwt` (with `dpop`, `accesstoken`, `oauth2client`),
@@ -98,7 +98,9 @@ Do not start by grepping the tree.
 - Opt-in fixtures skip whatever `XPKI_INTEGRATION` says, because CI does not
   provision them: a PKCS#11 v3.2 token (`XPKI_PKCS11_V32_CONFIG`) and the real
   AWS and GCP KMS (`XPKI_LIVE_AWS_KMS_REGION`, `XPKI_LIVE_GCP_KMS_KEYRING`;
-  `TestLiveKMSMLDSA` creates billable keys, so run it only when asked to).
+  the `TestLiveKMS*` tests create billable keys, so run them only when asked
+  to, and keep each live flow running on the fake in a `TestLiveKMS*OnFake`
+  test).
 - Gate only the tests that need a fixture, with
   `internal/testenv` (for example `testenv.RequireTCP(t, "local-kms",
 "localhost:14556")`, or `testenv.RequireFile` for the SoftHSM config, as
@@ -209,7 +211,9 @@ Start here instead of grepping the tree.
 - **[`Documentation/design/`](Documentation/design/README.md)** — high-level
   design of `cryptoprov`, `crypto11`, `csr`, `authority` and
   `dataprotection`, plus the cross-cutting post-quantum (ML-DSA) design and
-  code inventory in `pqc.md`.
+  code inventory in `pqc.md`, and the v2 `KeyManager`/`KeyGenerator`
+  contract, its listing rules and what each provider does for them in
+  `keymanager.md`.
 - **[`README.md`](README.md)** — high-level overview, package table,
   configuration samples and quick-start code.
 - **[`FINDINGS.md`](FINDINGS.md)** — open defects, referenced by ID from

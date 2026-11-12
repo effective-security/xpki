@@ -3,7 +3,7 @@
 ## Installation
 
 ```sh
-go install github.com/effective-security/xpki/cmd/xpki-tool@latest
+go install github.com/effective-security/xpki/v2/cmd/xpki-tool@latest
 ```
 
 ## Usage

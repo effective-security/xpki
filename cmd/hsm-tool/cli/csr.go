@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/authority"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/x/print"
+	"github.com/effective-security/xpki/v2/authority"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/x/print"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,7 +55,7 @@ func (a *CsrCreateCmd) Run(ctx *Cli) error {
 	}
 
 	var key, csrPEM []byte
-	csrPEM, key, _, _, err = prov.CreateRequestAndExportKey(&req)
+	csrPEM, key, _, _, err = prov.CreateRequestAndExportKey(ctx.Context(), &req)
 	if err != nil {
 		return errors.WithMessage(err, "process CSR")
 	}
@@ -147,7 +147,7 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 	var key, csrPEM, certPEM []byte
 
 	if a.SelfSign {
-		certPEM, csrPEM, key, err = authority.NewRoot(a.Profile,
+		certPEM, csrPEM, key, err = authority.NewRoot(ctx.Context(), a.Profile,
 			cacfg,
 			defaultCrypto, &req)
 		if err != nil {
@@ -164,12 +164,12 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 		}
 		certPEM = []byte(pem + "\n")
 	} else {
-		issuer, err := authority.NewIssuer(isscfg, cryptoprov)
+		issuer, err := authority.NewIssuer(ctx.Context(), isscfg, cryptoprov)
 		if err != nil {
 			return errors.WithMessage(err, "create issuer")
 		}
 
-		csrPEM, key, _, _, err = prov.CreateRequestAndExportKey(&req)
+		csrPEM, key, _, _, err = prov.CreateRequestAndExportKey(ctx.Context(), &req)
 		if err != nil {
 			return errors.WithMessage(err, "process CSR")
 		}
@@ -254,7 +254,7 @@ func (a *CsrSignCmd) Run(ctx *Cli) error {
 		Profiles: cacfg.Profiles,
 	}
 
-	issuer, err := authority.NewIssuer(isscfg, cryptoprov)
+	issuer, err := authority.NewIssuer(ctx.Context(), isscfg, cryptoprov)
 	if err != nil {
 		return errors.WithMessage(err, "create issuer")
 	}

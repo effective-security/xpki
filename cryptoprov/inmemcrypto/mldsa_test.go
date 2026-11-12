@@ -9,7 +9,8 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,10 +25,14 @@ func TestGenerateMLDSAKeys(t *testing.T) {
 		t.Run(params.String(), func(t *testing.T) {
 			t.Parallel()
 			p := NewProvider()
-			priv, err := p.GenerateMLDSAKey("inmemory"+params.String(), params)
+			priv, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "inmemory" + params.String(),
+				Type:  certutil.KeyTypeMLDSA,
+				Size:  cryptoprov.MLDSASize(params),
+			})
 			require.NoError(t, err)
 
-			keyID, label, err := p.IdentifyKey(priv)
+			keyID, label, err := p.IdentifyKey(t.Context(), priv)
 			require.NoError(t, err)
 			assert.Equal(t, "inmemory"+params.String(), label)
 
@@ -37,11 +42,11 @@ func TestGenerateMLDSAKeys(t *testing.T) {
 			require.True(t, ok, "%T", signer.Public())
 			assert.Equal(t, params, pub.Parameters())
 
-			stored, err := p.GetKey(keyID)
+			stored, err := p.GetKey(t.Context(), keyID)
 			require.NoError(t, err)
 			assert.Same(t, priv, stored)
 
-			uri, keyBytes, err := p.ExportKey(keyID)
+			uri, keyBytes, err := p.ExportKey(t.Context(), keyID)
 			require.NoError(t, err)
 			assert.Empty(t, uri)
 			block, rest := pem.Decode(keyBytes)
@@ -97,7 +102,11 @@ func TestGenerateMLDSAKeyError(t *testing.T) {
 	t.Parallel()
 	p := NewProvider()
 	p.mldsaKeyGenerator = failingMLDSAGenerator{}
-	_, err := p.GenerateMLDSAKey("label", mldsa.MLDSA65())
+	_, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "label",
+		Type:  certutil.KeyTypeMLDSA,
+		Size:  cryptoprov.MLDSA65,
+	})
 	require.EqualError(t, err, "unable to generate key, parameter set: ML-DSA-65: mldsa: not available")
 	assert.Empty(t, p.inMemProv.keyIDToPvk)
 }
@@ -108,9 +117,9 @@ func TestExportKeyUnsupportedType(t *testing.T) {
 	t.Parallel()
 	p := NewProvider()
 	p.inMemProv.registerKey("odd", &provImpl{id: "odd", label: "odd", pvk: struct{}{}})
-	_, _, err := p.ExportKey("odd")
+	_, _, err := p.ExportKey(t.Context(), "odd")
 	require.EqualError(t, err, "unsupported key type struct {}: odd")
-	signer, err := p.GetKey("odd")
+	signer, err := p.GetKey(t.Context(), "odd")
 	require.NoError(t, err)
 	_, err = signer.(crypto.Signer).Sign(rand.Reader, nil, nil)
 	require.EqualError(t, err, "crypto.Signer is not supported")

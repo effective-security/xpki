@@ -27,13 +27,6 @@ import (
 // When unspecified, downloaded intermediates are not saved.
 var IntermediateStash string
 
-// HTTPClient is not read by this package.
-//
-// Deprecated: AIA downloads use the client passed to WithHTTPClient, or a
-// client with a 3s timeout when none is given; setting this variable has no
-// effect (XPKI-044).
-var HTTPClient = http.DefaultClient
-
 // ErrNoCertificates is returned, wrapped, when a Bundler or BuildBundle is
 // given no certificate to bundle.
 var ErrNoCertificates = errors.New("no certificates")
@@ -69,21 +62,42 @@ const (
 // should be used.
 //
 // A Bundler is safe for concurrent use. Intermediates learned over AIA are
-// shared by later calls: they are published by replacing IntermediatePool
-// and KnownIssuers with updated copies, so a pool or map once read is never
-// modified (XPKI-035).
-//
-// The exported fields are set-up state. Set or replace them only before the
-// first Bundle, ChainFromPEM or VerifyOptions call, and do not modify the
-// pools or the map in place. After that, read the pools through
-// VerifyOptions; reading the fields directly races with learning.
+// shared by later calls: they are published by replacing the intermediate
+// pool and the known issuers with updated copies, so a pool or map once read
+// is never modified (XPKI-035). RootPool, IntermediatePool, IsKnownIssuer
+// and VerifyOptions read the current ones.
 type Bundler struct {
-	RootPool         *x509.CertPool
-	IntermediatePool *x509.CertPool
-	KnownIssuers     map[string]bool
-	opts             options
-	// mu guards the three exported fields once the Bundler is in use
+	rootPool         *x509.CertPool
+	intermediatePool *x509.CertPool
+	// knownIssuers has the signatures of the certificates in the pools
+	knownIssuers map[string]bool
+	opts         options
+	// mu guards the pools and the known issuers
 	mu sync.RWMutex
+}
+
+// RootPool returns a copy of the trust roots, which is empty when the
+// Bundler has none.
+func (b *Bundler) RootPool() *x509.CertPool {
+	roots, _, _ := b.snapshot()
+	return cloneCertPool(roots)
+}
+
+// IntermediatePool returns a copy of the intermediates known now: those the
+// Bundler was created with and those it has learned over AIA since.
+func (b *Bundler) IntermediatePool() *x509.CertPool {
+	_, intermediates, _ := b.snapshot()
+	return cloneCertPool(intermediates)
+}
+
+// IsKnownIssuer reports whether cert is one of the roots or intermediates
+// the Bundler knows now.
+func (b *Bundler) IsKnownIssuer(cert *x509.Certificate) bool {
+	if cert == nil {
+		return false
+	}
+	_, _, known := b.snapshot()
+	return known[string(cert.Signature)]
 }
 
 type options struct {
@@ -204,7 +218,7 @@ func NewBundlerFromPEM(rootBundlePEM, intBundlePEM []byte, opt ...Option) (*Bund
 // WithSystemRoots, and uses intermediates to build chains. The flavor
 // defaults to Optimal with trust roots and to Force without them; Optimal
 // without trust roots is an error, so a Bundler never trusts system roots
-// implicitly. RootPool is nil only when there are no trust roots.
+// implicitly. The root pool is nil only when there are no trust roots.
 func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundler, error) {
 	opts := defaultOptions
 	for _, o := range opt {
@@ -228,8 +242,8 @@ func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundl
 	}
 
 	b := &Bundler{
-		KnownIssuers:     map[string]bool{},
-		IntermediatePool: x509.NewCertPool(),
+		knownIssuers:     map[string]bool{},
+		intermediatePool: x509.NewCertPool(),
 		opts:             opts,
 	}
 
@@ -238,26 +252,26 @@ func NewBundler(roots, intermediates []*x509.Certificate, opt ...Option) (*Bundl
 		if err != nil {
 			return nil, errors.WithMessage(err, "unable to load system roots")
 		}
-		b.RootPool = pool
+		b.rootPool = pool
 	} else if len(roots) > 0 {
-		b.RootPool = x509.NewCertPool()
+		b.rootPool = x509.NewCertPool()
 	}
 
 	for _, c := range roots {
-		b.RootPool.AddCert(c)
-		b.KnownIssuers[string(c.Signature)] = true
+		b.rootPool.AddCert(c)
+		b.knownIssuers[string(c.Signature)] = true
 	}
 
 	for _, c := range intermediates {
-		b.IntermediatePool.AddCert(c)
-		b.KnownIssuers[string(c.Signature)] = true
+		b.intermediatePool.AddCert(c)
+		b.knownIssuers[string(c.Signature)] = true
 	}
 
 	return b, nil
 }
 
 // VerifyOptions returns the x509.VerifyOptions used by Optimal bundling.
-// Roots is never nil: without a RootPool it is an empty pool, so the options
+// Roots is never nil: without trust roots it is an empty pool, so the options
 // never fall back to the system roots.
 // It is a snapshot: intermediates learned later are not added to it.
 func (b *Bundler) VerifyOptions() x509.VerifyOptions {
@@ -270,7 +284,7 @@ func (b *Bundler) VerifyOptions() x509.VerifyOptions {
 func (b *Bundler) snapshot() (roots, intermediates *x509.CertPool, known map[string]bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return b.RootPool, b.IntermediatePool, b.KnownIssuers
+	return b.rootPool, b.intermediatePool, b.knownIssuers
 }
 
 func (b *Bundler) verifyOptions(roots, intermediates *x509.CertPool) x509.VerifyOptions {
@@ -286,7 +300,7 @@ func (b *Bundler) verifyOptions(roots, intermediates *x509.CertPool) x509.Verify
 
 // learn publishes verified intermediates for later calls. pool is a private
 // pool built from base that already holds certs; it is installed as is when
-// IntermediatePool is still base, and otherwise certs are added to a copy of
+// the intermediate pool is still base, and otherwise certs are added to a copy of
 // the current pool. Certificates already known are skipped.
 func (b *Bundler) learn(base, pool *x509.CertPool, certs []*x509.Certificate) {
 	if len(certs) == 0 {
@@ -295,9 +309,9 @@ func (b *Bundler) learn(base, pool *x509.CertPool, certs []*x509.Certificate) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	known := make(map[string]bool, len(b.KnownIssuers)+len(certs))
-	maps.Copy(known, b.KnownIssuers)
-	current := b.IntermediatePool
+	known := make(map[string]bool, len(b.knownIssuers)+len(certs))
+	maps.Copy(known, b.knownIssuers)
+	current := b.intermediatePool
 	if current != base {
 		pool = cloneCertPool(current)
 		for _, c := range certs {
@@ -309,8 +323,8 @@ func (b *Bundler) learn(base, pool *x509.CertPool, certs []*x509.Certificate) {
 	for _, c := range certs {
 		known[string(c.Signature)] = true
 	}
-	b.IntermediatePool = pool
-	b.KnownIssuers = known
+	b.intermediatePool = pool
+	b.knownIssuers = known
 }
 
 // cloneCertPool returns a copy of pool, or an empty pool when it is nil.
@@ -710,7 +724,7 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer) (*Chain, 
 
 // BundleContext is Bundle with a context that bounds and cancels AIA
 // downloads. When ctx is done during an AIA download, the returned error
-// matches ctx.Err() with errors.Is. An Optimal Bundler whose RootPool is nil
+// matches ctx.Err() with errors.Is. An Optimal Bundler without trust roots
 // fails instead of verifying against the system roots.
 func (b *Bundler) BundleContext(ctx context.Context, certs []*x509.Certificate, key crypto.Signer) (*Chain, error) {
 	if len(certs) == 0 {

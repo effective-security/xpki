@@ -3,9 +3,9 @@ package cryptoprov_test
 import (
 	"testing"
 
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/cryptoprov/testprov"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/testprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,9 +19,9 @@ func TestNewSigner(t *testing.T) {
 	cp, err := cryptoprov.New(inmemcrypto.NewProvider(), []cryptoprov.Provider{inm})
 	require.NoError(t, err)
 
-	_, err = cp.NewSignerFromFromFile("not_found")
+	_, err = cp.NewSignerFromFromFile(t.Context(), "not_found")
 	assert.EqualError(t, err, "load key file: open not_found: no such file or directory")
 
-	_, err = cp.NewSignerFromFromFile("testdata/invalid_uri.json")
+	_, err = cp.NewSignerFromFromFile(t.Context(), "testdata/invalid_uri.json")
 	assert.EqualError(t, err, "load key file: open testdata/invalid_uri.json: no such file or directory")
 }

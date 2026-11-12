@@ -3,7 +3,7 @@
 # xpki\-tool
 
 ```go
-import "github.com/effective-security/xpki/cmd/xpki-tool"
+import "github.com/effective-security/xpki/v2/cmd/xpki-tool"
 ```
 
 Command xpki\-tool inspects and validates PKI artifacts: certificates, certificate requests, CRLs and OCSP responses. See cmd/xpki\-tool/README.md for usage.

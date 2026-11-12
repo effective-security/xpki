@@ -12,8 +12,8 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/x/fileutil/resolve"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/oid"
 	"github.com/jinzhu/copier"
 )
 

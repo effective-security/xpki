@@ -43,11 +43,6 @@ var KeyTypeNames = map[uint]string{
 // on this platform: 8 on LP64 unix, 4 on Windows and 32-bit platforms.
 const ulongSize = int(C.sizeof_ulong)
 
-// unavailableInformation is CK_UNAVAILABLE_INFORMATION, the PKCS#11 value
-// for an attribute that cannot be read; BytesToUlong returns it for
-// malformed input.
-const unavailableInformation = ^uint(0)
-
 // UlongToBytes encodes n as a native CK_ULONG attribute value (host byte
 // order, ulongSize bytes). Where CK_ULONG is 32 bits, only the low 32 bits
 // of n are kept.
@@ -59,21 +54,6 @@ func UlongToBytes(n uint) []byte {
 		binary.NativeEndian.PutUint32(bs, uint32(n))
 	}
 	return bs
-}
-
-// BytesToUlong decodes a native CK_ULONG attribute value, such as
-// CKA_KEY_TYPE or CKA_CLASS. It returns CK_UNAVAILABLE_INFORMATION (^uint(0))
-// when bs is not exactly one CK_ULONG long, including a nil value for an
-// attribute the token could not return.
-//
-// Deprecated: BytesToUlong cannot report malformed input; check the length
-// and decode the value with encoding/binary.NativeEndian instead.
-func BytesToUlong(bs []byte) uint {
-	n, err := bytesToUlong(bs)
-	if err != nil {
-		return unavailableInformation
-	}
-	return n
 }
 
 // bytesToUlong decodes a native CK_ULONG attribute value and returns

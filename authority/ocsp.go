@@ -2,6 +2,7 @@ package authority
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -13,11 +14,11 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/metricskey"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/metricskey"
+	"github.com/effective-security/xpki/v2/oid"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -411,7 +412,8 @@ func (ca *Issuer) newDelegatedResponder() (*OCSPResponder, error) {
 		),
 	}
 
-	csrPEM, priv, _, err := csr.NewProvider(inmem).GenerateKeyAndRequest(req)
+	// the key is generated in memory: there is no request to cancel
+	csrPEM, priv, _, err := csr.NewProvider(inmem).GenerateKeyAndRequest(context.Background(), req)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to create CSR")
 	}

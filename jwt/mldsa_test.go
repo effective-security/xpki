@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/jwt"
 	jose "github.com/go-jose/go-jose/v4"
 	josejwt "github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
@@ -87,7 +87,11 @@ func TestProviderMLDSA(t *testing.T) {
 	for _, tc := range mldsaCases {
 		t.Run(tc.alg, func(t *testing.T) {
 			t.Parallel()
-			priv, err := inmemcrypto.NewProvider().GenerateMLDSAKey("jwt", tc.params)
+			priv, err := inmemcrypto.NewProvider().GenerateKey(ctx, &cryptoprov.GenerateKeyRequest{
+				Label: "jwt",
+				Type:  certutil.KeyTypeMLDSA,
+				Size:  cryptoprov.MLDSASize(tc.params),
+			})
 			require.NoError(t, err)
 			signer := priv.(crypto.Signer)
 			p, err := jwt.NewProviderFromCryptoSigner(signer)
@@ -155,7 +159,7 @@ func TestNewProviderMLDSAFromPEM(t *testing.T) {
 	providers, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 	require.NoError(t, err)
 
-	p, err := jwt.NewProvider(&jwt.ProviderConfig{
+	p, err := jwt.NewProvider(t.Context(), &jwt.ProviderConfig{
 		Issuer:     mldsaTestIssuer,
 		PrivateKey: string(keyPEM),
 	}, providers)

@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/effective-security/xpki/dataprotection"
+	"github.com/effective-security/xpki/v2/dataprotection"
 )
 
 // ExampleNewSymmetric protects a payload with a secret generated from

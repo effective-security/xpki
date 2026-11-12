@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 )
 
 // NewTestProvider returns a provider for keyring that uses client, without

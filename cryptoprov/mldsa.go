@@ -51,6 +51,22 @@ func MLDSAParameters(size int) (mldsa.Parameters, error) {
 	return mldsa.Parameters{}, errors.Errorf("invalid ML-DSA parameter set (expected %d, %d or %d): %d", MLDSA44, MLDSA65, MLDSA87, size)
 }
 
+// MLDSASize returns the FIPS 204 number of an ML-DSA parameter set, MLDSA44,
+// MLDSA65 or MLDSA87, as GenerateKeyRequest.Size and KeyInfo.Size carry it,
+// and 0 for any other value. It is the inverse of MLDSAParameters.
+func MLDSASize(params mldsa.Parameters) int {
+	switch params {
+	case mldsa.MLDSA44():
+		return MLDSA44
+	case mldsa.MLDSA65():
+		return MLDSA65
+	case mldsa.MLDSA87():
+		return MLDSA87
+	default:
+		return 0
+	}
+}
+
 // MLDSASignerOptions validates opts against the contract every ML-DSA
 // signer of this module follows: ML-DSA signs a message, not a digest. The
 // signer accepts the message with nil options, options whose HashFunc is

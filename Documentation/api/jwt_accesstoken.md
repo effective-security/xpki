@@ -3,7 +3,7 @@
 # accesstoken
 
 ```go
-import "github.com/effective-security/xpki/jwt/accesstoken"
+import "github.com/effective-security/xpki/v2/jwt/accesstoken"
 ```
 
 Package accesstoken wraps a jwt.Provider and a dataprotection.Provider to issue opaque encrypted access tokens of the form "pat.\<base64url\(AES\-GCM \(claims\)\)\>" while still parsing plain JWTs through the inner provider.
@@ -73,9 +73,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/effective-security/xpki/dataprotection"
-	"github.com/effective-security/xpki/jwt"
-	"github.com/effective-security/xpki/jwt/accesstoken"
+	"github.com/effective-security/xpki/v2/dataprotection"
+	"github.com/effective-security/xpki/v2/jwt"
+	"github.com/effective-security/xpki/v2/jwt/accesstoken"
 )
 
 func main() {

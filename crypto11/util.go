@@ -5,7 +5,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/v2/certutil"
 	"github.com/miekg/pkcs11"
 )
 
@@ -51,13 +51,6 @@ func (lib *PKCS11Lib) TokensInfo() ([]*SlotTokenInfo, error) {
 		}
 	}
 	return list, nil
-}
-
-// DestroyKeyPairOnSlot destroys key pair
-func (lib *PKCS11Lib) DestroyKeyPairOnSlot(slotID uint, keyID string) error {
-	return lib.withSession(slotID, func(session pkcs11.SessionHandle) error {
-		return lib.destroyKeyPairOnSession(session, slotID, keyID)
-	})
 }
 
 func (lib *PKCS11Lib) destroyKeyPairOnSession(session pkcs11.SessionHandle, slotID uint, keyID string) error {

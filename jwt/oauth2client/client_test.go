@@ -3,7 +3,7 @@ package oauth2client_test
 import (
 	"testing"
 
-	"github.com/effective-security/xpki/jwt/oauth2client"
+	"github.com/effective-security/xpki/v2/jwt/oauth2client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

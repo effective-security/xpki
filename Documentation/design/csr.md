@@ -49,7 +49,7 @@ the issuer filters (`authority`, XPKI-049).
 - **Requests are data.** `KeyRequest` is a plain struct with string and
   int fields so it round-trips through YAML profiles
   (`authority/testdata/csrprofiles/*.yaml`) and CLI flags
-  (`hsm-tool hsm generate --algo --size`). The provider is injected by
+  (`hsm-tool hsm key generate --algo --size`). The provider is injected by
   `Provider.GenerateKeyAndRequest` for requests decoded from files.
 - **`size` is overloaded.** It is the modulus size for RSA and the curve
   size (256/384/521) for ECDSA. Validation happens in `Generate`, before
@@ -89,7 +89,7 @@ defaults.
 
 Implemented in v1.1: `KeyRequest` accepts `algo: ML-DSA` (or `MLDSA`,
 case-insensitive) with `size: 44 | 65 | 87` (`AlgoMLDSA`, `MLDSA44/65/87`),
-`Generate` calls `cryptoprov.KeyGenerator.GenerateMLDSAKey` after
+`Generate(ctx)` calls `cryptoprov.KeyGenerator.GenerateKey` (one call for every algorithm since v2) after
 validating the parameter set, `SigAlgo("ML-DSA", 65)` is `x509.MLDSA65`,
 `DefaultSigAlgo` maps an `*mldsa.PublicKey` to the algorithm of its
 parameter set, and `IsPostQuantumAlgo` recognises the algorithm names.

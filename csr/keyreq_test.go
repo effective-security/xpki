@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -50,7 +50,7 @@ func TestKeyRequest(t *testing.T) {
 			assert.Equal(t, tc.expalg, csr.SigAlgo(tc.algo, tc.size))
 
 			kr := csr.NewKeyRequest(defprov, label, tc.algo, tc.size, csr.SigningKey)
-			priv, err := kr.Generate()
+			priv, err := kr.Generate(t.Context())
 			if tc.experr != "" {
 				require.Error(t, err)
 				assert.Equal(t, tc.experr, err.Error())
@@ -70,10 +70,10 @@ func TestKeyRequest(t *testing.T) {
 func TestKeyRequestMLDSAPurpose(t *testing.T) {
 	t.Parallel()
 	defprov := inmemcrypto.NewProvider()
-	_, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, csr.EncryptionKey).Generate()
+	_, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, csr.EncryptionKey).Generate(t.Context())
 	require.EqualError(t, err, "validate ML-DSA key: unsupported key purpose: 2, ML-DSA keys are signing keys")
 	for _, purpose := range []csr.KeyPurpose{csr.Undefined, csr.SigningKey} {
-		priv, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, purpose).Generate()
+		priv, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, purpose).Generate(t.Context())
 		require.NoError(t, err, "purpose %d", purpose)
 		assert.True(t, certutil.IsPostQuantumKey(priv))
 	}
@@ -99,7 +99,7 @@ func TestKeyRequestMLDSAFromYAML(t *testing.T) {
 	require.Equal(t, 44, req.KeyRequest.Size())
 	assert.Equal(t, x509.MLDSA44, req.KeyRequest.SigAlgo())
 
-	csrPEM, priv, keyID, err := prov.GenerateKeyAndRequest(req)
+	csrPEM, priv, keyID, err := prov.GenerateKeyAndRequest(t.Context(), req)
 	require.NoError(t, err)
 	assert.NotEmpty(t, keyID)
 	parsed, err := csr.ParsePEM(csrPEM)

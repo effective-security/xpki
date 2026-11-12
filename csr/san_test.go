@@ -12,9 +12,9 @@ import (
 
 	"uuid"
 
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/oid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -230,7 +230,6 @@ func TestSANValidate(t *testing.T) {
 	t.Run("nil template", func(t *testing.T) {
 		err := csr.ApplySAN(nil, []string{"example.com"})
 		assert.EqualError(t, err, "nil certificate template")
-		assert.NotPanics(t, func() { csr.SetSAN(nil, []string{"example.com"}) })
 	})
 	t.Run("nil and empty", func(t *testing.T) {
 		var san *csr.SAN
@@ -286,29 +285,6 @@ func TestApplySAN(t *testing.T) {
 	})
 }
 
-// TestSetSAN_Lenient checks that the deprecated SetSAN applies the valid
-// names and skips the invalid ones (XPKI-059).
-func TestSetSAN_Lenient(t *testing.T) {
-	t.Parallel()
-	template := sanTemplate()
-	csr.SetSAN(&template, []string{"bad name", "ok.example.com", "http://a b/", "10.0.0.1", "ok.example.com"})
-	assert.Equal(t, []string{"ok.example.com"}, template.DNSNames)
-	assert.Equal(t, []net.IP{net.IPv4(10, 0, 0, 1).To4()}, template.IPAddresses)
-	assert.Nil(t, template.EmailAddresses)
-	assert.Nil(t, template.URIs)
-	assert.Len(t, template.ExtraExtensions, 2)
-
-	kept := sanTemplate()
-	csr.SetSAN(&kept, nil)
-	assert.Equal(t, sanTemplate(), kept)
-
-	cleared := sanTemplate()
-	csr.SetSAN(&cleared, []string{})
-	assert.Empty(t, cleared.DNSNames)
-	assert.Empty(t, cleared.IPAddresses)
-	assert.Len(t, cleared.ExtraExtensions, 2)
-}
-
 // TestSignRequest_SAN checks that a generated CSR carries the names
 // ApplySAN produces, and that an invalid name fails the request (XPKI-059).
 func TestSignRequest_SAN(t *testing.T) {
@@ -321,7 +297,7 @@ func TestSignRequest_SAN(t *testing.T) {
 		SAN:        names,
 		KeyRequest: csr.NewKeyRequest(prov, "TestSignRequest_SAN"+uuid.NewV7().String(), "ECDSA", 256, csr.SigningKey),
 	}
-	csrPEM, _, _, err := csrProv.GenerateKeyAndRequest(&req)
+	csrPEM, _, _, err := csrProv.GenerateKeyAndRequest(t.Context(), &req)
 	require.NoError(t, err)
 
 	block, _ := pem.Decode(csrPEM)
@@ -346,10 +322,10 @@ func TestSignRequest_SAN(t *testing.T) {
 	assert.Equal(t, want.DNSNames, tmpl.DNSNames)
 	assert.Equal(t, want.IPAddresses, tmpl.IPAddresses)
 
-	priv, err := prov.GetKey(req.KeyRequest.Label())
+	priv, err := prov.GetKey(t.Context(), req.KeyRequest.Label())
 	if err != nil {
 		// inmem keys are looked up by ID; regenerate is not needed: sign with a fresh key
-		_, priv, _, err = csrProv.GenerateKeyAndRequest(&csr.CertificateRequest{
+		_, priv, _, err = csrProv.GenerateKeyAndRequest(t.Context(), &csr.CertificateRequest{
 			CommonName: "example.com",
 			KeyRequest: csr.NewKeyRequest(prov, "TestSignRequest_SAN2"+uuid.NewV7().String(), "ECDSA", 256, csr.SigningKey),
 		})

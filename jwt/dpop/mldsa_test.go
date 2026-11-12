@@ -8,8 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/jwt/dpop"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/jwt/dpop"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +34,11 @@ func TestSignerMLDSA(t *testing.T) {
 	} {
 		t.Run(string(tc.alg), func(t *testing.T) {
 			t.Parallel()
-			priv, err := inmemcrypto.NewProvider().GenerateMLDSAKey("dpop", tc.params)
+			priv, err := inmemcrypto.NewProvider().GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "dpop",
+				Type:  certutil.KeyTypeMLDSA,
+				Size:  cryptoprov.MLDSASize(tc.params),
+			})
 			require.NoError(t, err)
 			signer, err := dpop.NewSigner(priv.(crypto.Signer))
 			require.NoError(t, err)

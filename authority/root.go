@@ -1,15 +1,17 @@
 package authority
 
 import (
+	"context"
 	"crypto"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/csr"
 )
 
-// NewRoot creates a new root certificate from the certificate request.
-func NewRoot(profile string, cfg *Config, provider cryptoprov.Provider, req *csr.CertificateRequest) (certPEM, csrPEM, key []byte, err error) {
+// NewRoot creates a new root certificate from the certificate request. ctx
+// is for the provider that generates and exports the key.
+func NewRoot(ctx context.Context, profile string, cfg *Config, provider cryptoprov.Provider, req *csr.CertificateRequest) (certPEM, csrPEM, key []byte, err error) {
 	err = req.Validate()
 	if err != nil {
 		err = errors.WithMessage(err, "invalid request")
@@ -28,14 +30,14 @@ func NewRoot(profile string, cfg *Config, provider cryptoprov.Provider, req *csr
 		c     = csr.NewProvider(provider)
 	)
 
-	csrPEM, gkey, keyID, err = c.GenerateKeyAndRequest(req)
+	csrPEM, gkey, keyID, err = c.GenerateKeyAndRequest(ctx, req)
 	if err != nil {
 		err = errors.WithMessage(err, "process request")
 		return
 	}
 
 	signer := gkey.(crypto.Signer)
-	uri, keyBytes, err := provider.ExportKey(keyID)
+	uri, keyBytes, err := provider.ExportKey(ctx, keyID)
 	if err != nil {
 		err = errors.WithMessage(err, "failed to export key")
 		return

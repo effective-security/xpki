@@ -3,7 +3,7 @@
 # cryptoprov
 
 ```go
-import "github.com/effective-security/xpki/cryptoprov"
+import "github.com/effective-security/xpki/v2/cryptoprov"
 ```
 
 Package cryptoprov provides a unified interface for cryptographic operations across different providers and hardware security modules \(HSMs\).
@@ -20,16 +20,45 @@ The package handles key generation, signing, encryption, and key management oper
 
 Configuration is a small JSON or YAML token config whose Manufacturer field selects a loader registered with Register; provider packages register themselves in init\(\), so import them for side effects before calling Load.
 
+A Provider creates and loads keys \(KeyGenerator\). A provider that is also a KeyManager lists its keys by page and filter, describes one with the fields a mask selects and destroys it; every provider of this module is one. A listing never returns a public key: KeyInfo does, on request.
+
+```
+key, err := provider.GenerateKey(ctx, &cryptoprov.GenerateKeyRequest{
+	Label: "issuer-2026",
+	Type:  certutil.KeyTypeECDSA,
+	Size:  384,
+})
+if err != nil {
+	return err
+}
+keyID, _, err := provider.IdentifyKey(ctx, key)
+if err != nil {
+	return err
+}
+if km, ok := provider.(cryptoprov.KeyManager); ok {
+	info, err := km.KeyInfo(ctx, keyID, cryptoprov.KeyFieldMetadata|cryptoprov.KeyFieldPublicKey)
+	if err != nil {
+		return err
+	}
+	fmt.Println(info.Label, info.Type, info.Size, info.PublicKey)
+}
+```
+
 ## Index
 
 - [Constants](<#constants>)
 - [Variables](<#variables>)
+- [func AllKeys\(ctx context.Context, km KeyManager, req \*ListKeysRequest\) iter.Seq2\[\*KeyInfo, error\]](<#AllKeys>)
+- [func ECDSACurve\(size int\) \(elliptic.Curve, error\)](<#ECDSACurve>)
 - [func GcmDecrypt\(ciphertext \[\]byte, key \[\]byte\) \(\[\]byte, error\)](<#GcmDecrypt>)
 - [func GcmEncrypt\(plaintext \[\]byte, key \[\]byte\) \(\[\]byte, error\)](<#GcmEncrypt>)
 - [func GetPrivateKeyDERFromPEM\(in \[\]byte, password \[\]byte\) \(\[\]byte, error\)](<#GetPrivateKeyDERFromPEM>)
 - [func MLDSAMu\(pub \*mldsa.PublicKey, context string, message \[\]byte\) \(\[\]byte, error\)](<#MLDSAMu>)
 - [func MLDSAParameters\(size int\) \(mldsa.Parameters, error\)](<#MLDSAParameters>)
 - [func MLDSASignerOptions\(opts crypto.SignerOpts\) \(mu bool, context string, err error\)](<#MLDSASignerOptions>)
+- [func MLDSASize\(params mldsa.Parameters\) int](<#MLDSASize>)
+- [func MarkError\(err, sentinel error\) error](<#MarkError>)
+- [func NewPageToken\(req \*ListKeysRequest, cursor PageCursor\) \(string, error\)](<#NewPageToken>)
 - [func ParsePrivateKeyDER\(keyDER \[\]byte\) \(crypto.PrivateKey, error\)](<#ParsePrivateKeyDER>)
 - [func ParsePrivateKeyPEM\(keyPEM \[\]byte\) \(key crypto.PrivateKey, err error\)](<#ParsePrivateKeyPEM>)
 - [func ParsePrivateKeyPEMWithPassword\(keyPEM \[\]byte, password \[\]byte\) \(key crypto.PrivateKey, err error\)](<#ParsePrivateKeyPEMWithPassword>)
@@ -41,14 +70,37 @@ Configuration is a small JSON or YAML token config whose Manufacturer field sele
   - [func \(c \*Crypto\) Add\(p Provider\) error](<#Crypto.Add>)
   - [func \(c \*Crypto\) ByManufacturer\(manufacturer, model string\) \(Provider, error\)](<#Crypto.ByManufacturer>)
   - [func \(c \*Crypto\) Default\(\) Provider](<#Crypto.Default>)
-  - [func \(c \*Crypto\) LoadPrivateKey\(key \[\]byte\) \(Provider, crypto.PrivateKey, error\)](<#Crypto.LoadPrivateKey>)
-  - [func \(c \*Crypto\) LoadTLSKeyPair\(certFile, keyFile string\) \(\*tls.Certificate, error\)](<#Crypto.LoadTLSKeyPair>)
-  - [func \(c \*Crypto\) NewSignerFromFromFile\(caKeyFile string\) \(crypto.Signer, error\)](<#Crypto.NewSignerFromFromFile>)
-  - [func \(c \*Crypto\) NewSignerFromPEM\(caKey \[\]byte\) \(crypto.Signer, error\)](<#Crypto.NewSignerFromPEM>)
-  - [func \(c \*Crypto\) TLSKeyPair\(certPEMBlock, keyPEMBlock \[\]byte\) \(\*tls.Certificate, error\)](<#Crypto.TLSKeyPair>)
+  - [func \(c \*Crypto\) LoadPrivateKey\(ctx context.Context, key \[\]byte\) \(Provider, crypto.PrivateKey, error\)](<#Crypto.LoadPrivateKey>)
+  - [func \(c \*Crypto\) LoadTLSKeyPair\(ctx context.Context, certFile, keyFile string\) \(\*tls.Certificate, error\)](<#Crypto.LoadTLSKeyPair>)
+  - [func \(c \*Crypto\) NewSignerFromFromFile\(ctx context.Context, caKeyFile string\) \(crypto.Signer, error\)](<#Crypto.NewSignerFromFromFile>)
+  - [func \(c \*Crypto\) NewSignerFromPEM\(ctx context.Context, caKey \[\]byte\) \(crypto.Signer, error\)](<#Crypto.NewSignerFromPEM>)
+  - [func \(c \*Crypto\) TLSKeyPair\(ctx context.Context, certPEMBlock, keyPEMBlock \[\]byte\) \(\*tls.Certificate, error\)](<#Crypto.TLSKeyPair>)
+- [type GenerateKeyRequest](<#GenerateKeyRequest>)
+  - [func \(r \*GenerateKeyRequest\) KeyUsage\(\) KeyUsage](<#GenerateKeyRequest.KeyUsage>)
+  - [func \(r \*GenerateKeyRequest\) Validate\(\) error](<#GenerateKeyRequest.Validate>)
+- [type KeyFields](<#KeyFields>)
+  - [func \(f KeyFields\) Has\(v KeyFields\) bool](<#KeyFields.Has>)
+  - [func \(f KeyFields\) Validate\(\) error](<#KeyFields.Validate>)
+- [type KeyFilter](<#KeyFilter>)
+  - [func \(f \*KeyFilter\) Fields\(\) KeyFields](<#KeyFilter.Fields>)
+  - [func \(f \*KeyFilter\) IsZero\(\) bool](<#KeyFilter.IsZero>)
+  - [func \(f \*KeyFilter\) Match\(key \*KeyInfo\) bool](<#KeyFilter.Match>)
 - [type KeyGenerator](<#KeyGenerator>)
 - [type KeyInfo](<#KeyInfo>)
 - [type KeyManager](<#KeyManager>)
+- [type KeyState](<#KeyState>)
+  - [func ParseKeyState\(s string\) \(KeyState, error\)](<#ParseKeyState>)
+- [type KeyUsage](<#KeyUsage>)
+  - [func ParseKeyUsage\(s string\) \(KeyUsage, error\)](<#ParseKeyUsage>)
+  - [func \(u KeyUsage\) Has\(v KeyUsage\) bool](<#KeyUsage.Has>)
+  - [func \(u KeyUsage\) String\(\) string](<#KeyUsage.String>)
+- [type ListKeysRequest](<#ListKeysRequest>)
+  - [func \(r \*ListKeysRequest\) Limit\(defaultSize int\) int](<#ListKeysRequest.Limit>)
+  - [func \(r \*ListKeysRequest\) Validate\(\) error](<#ListKeysRequest.Validate>)
+- [type ListKeysResponse](<#ListKeysResponse>)
+  - [func PageKeys\(req \*ListKeysRequest, keys \[\]KeyInfo\) \(\*ListKeysResponse, error\)](<#PageKeys>)
+- [type PageCursor](<#PageCursor>)
+  - [func ParsePageToken\(req \*ListKeysRequest\) \(PageCursor, error\)](<#ParsePageToken>)
 - [type PrivateKeyURI](<#PrivateKeyURI>)
   - [func ParsePrivateKeyURI\(uri string\) \(PrivateKeyURI, error\)](<#ParsePrivateKeyURI>)
 - [type Provider](<#Provider>)
@@ -59,9 +111,25 @@ Configuration is a small JSON or YAML token config whose Manufacturer field sele
   - [func LoadTokenConfig\(filename string\) \(TokenConfig, error\)](<#LoadTokenConfig>)
   - [func ParseTokenURI\(uri string\) \(TokenConfig, error\)](<#ParseTokenURI>)
 - [type TokenInfo](<#TokenInfo>)
+- [type TokenManager](<#TokenManager>)
 
 
 ## Constants
+
+<a name="DefaultPageSize"></a>
+
+```go
+const (
+    // DefaultPageSize is the page size of a provider without a backend page
+    // of its own (PKCS#11, the in-memory providers) when
+    // ListKeysRequest.PageSize is zero.
+    DefaultPageSize = 100
+
+    // MaxPageSize is the largest page a provider returns; a larger
+    // ListKeysRequest.PageSize is cut to it.
+    MaxPageSize = 1000
+)
+```
 
 <a name="MLDSA44"></a>
 
@@ -92,6 +160,12 @@ const (
 var ErrDuplicateProvider = errors.New("duplicate provider")
 ```
 
+<a name="ErrInvalidPageToken"></a>ErrInvalidPageToken is the cause of the error ListKeys returns for a ListKeysRequest.PageToken that is malformed or was issued for another Filter or Fields.
+
+```go
+var ErrInvalidPageToken = errors.New("invalid page token")
+```
+
 <a name="ErrInvalidPrivateKeyURI"></a>ErrInvalidPrivateKeyURI is returned if the PKCS \#11 URI is invalid for the private key object
 
 ```go
@@ -104,11 +178,50 @@ var ErrInvalidPrivateKeyURI = errors.New("invalid URI for private key object")
 var ErrInvalidURI = errors.New("invalid URI")
 ```
 
+<a name="ErrKeyNotFound"></a>ErrKeyNotFound is the cause of the error GetKey, KeyInfo, ExportKey and DestroyKey return for a key the provider does not have.
+
+```go
+var ErrKeyNotFound = errors.New("key not found")
+```
+
 <a name="ErrNilProvider"></a>ErrNilProvider is returned by New and Crypto.Add for a nil provider, including a typed nil such as a nil \*crypto11.PKCS11Lib.
 
 ```go
 var ErrNilProvider = errors.New("nil provider")
 ```
+
+<a name="ErrNotSupported"></a>ErrNotSupported is the cause of the error a provider returns for a request it understands and its backend cannot serve: a filter on tags on a PKCS\#11 token, an encryption key on a KMS provider, a key size the backend does not offer. It is never reported as an empty result.
+
+```go
+var ErrNotSupported = errors.New("not supported by the provider")
+```
+
+<a name="AllKeys"></a>
+## func [AllKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L522>)
+
+```go
+func AllKeys(ctx context.Context, km KeyManager, req *ListKeysRequest) iter.Seq2[*KeyInfo, error]
+```
+
+AllKeys iterates over the keys of every page of the listing req describes, starting at req.PageToken; req is not modified. An error ends the iteration: it is yielded once, with a nil key. A page without keys is not the end, only an empty NextPageToken is.
+
+```
+for key, err := range cryptoprov.AllKeys(ctx, km, req) {
+	if err != nil {
+		return err
+	}
+	fmt.Println(key.ID, key.Label)
+}
+```
+
+<a name="ECDSACurve"></a>
+## func [ECDSACurve](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L633>)
+
+```go
+func ECDSACurve(size int) (elliptic.Curve, error)
+```
+
+ECDSACurve returns the curve of an ECDSA key size as GenerateKeyRequest.Size carries it: 256, 384 or 521. Any other size is an error.
 
 <a name="GcmDecrypt"></a>
 ## func [GcmDecrypt](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcm.go#L29>)
@@ -129,7 +242,7 @@ func GcmEncrypt(plaintext []byte, key []byte) ([]byte, error)
 GcmEncrypt returns encrypted blob with GCM cipher
 
 <a name="GetPrivateKeyDERFromPEM"></a>
-## func [GetPrivateKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L75>)
+## func [GetPrivateKeyDERFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L79>)
 
 ```go
 func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
@@ -138,7 +251,7 @@ func GetPrivateKeyDERFromPEM(in []byte, password []byte) ([]byte, error)
 GetPrivateKeyDERFromPEM parses a PEM\-encoded private key and returns DER\-format key bytes.
 
 <a name="MLDSAMu"></a>
-## func [MLDSAMu](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L96>)
+## func [MLDSAMu](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L112>)
 
 ```go
 func MLDSAMu(pub *mldsa.PublicKey, context string, message []byte) ([]byte, error)
@@ -156,7 +269,7 @@ func MLDSAParameters(size int) (mldsa.Parameters, error)
 MLDSAParameters returns the ML\-DSA parameter set for its FIPS 204 number: MLDSA44, MLDSA65 or MLDSA87. Any other number is an error.
 
 <a name="MLDSASignerOptions"></a>
-## func [MLDSASignerOptions](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L63>)
+## func [MLDSASignerOptions](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L79>)
 
 ```go
 func MLDSASignerOptions(opts crypto.SignerOpts) (mu bool, context string, err error)
@@ -164,8 +277,35 @@ func MLDSASignerOptions(opts crypto.SignerOpts) (mu bool, context string, err er
 
 MLDSASignerOptions validates opts against the contract every ML\-DSA signer of this module follows: ML\-DSA signs a message, not a digest. The signer accepts the message with nil options, options whose HashFunc is zero \(x509.CreateCertificate passes crypto.Hash\(0\)\) or \*mldsa.Options carrying an optional context string \(a nil \*mldsa.Options counts as nil\), and a 64\-byte message representative μ with crypto.MLDSAMu. Any other hash, and a nil pointer of any other options type, is an error, so a hash\-then\-sign caller fails instead of signing a digest as if it were the message. It returns whether the message is a μ and the context.
 
+<a name="MLDSASize"></a>
+## func [MLDSASize](<https://github.com/effective-security/xpki/blob/main/cryptoprov/mldsa.go#L57>)
+
+```go
+func MLDSASize(params mldsa.Parameters) int
+```
+
+MLDSASize returns the FIPS 204 number of an ML\-DSA parameter set, MLDSA44, MLDSA65 or MLDSA87, as GenerateKeyRequest.Size and KeyInfo.Size carry it, and 0 for any other value. It is the inverse of MLDSAParameters.
+
+<a name="MarkError"></a>
+## func [MarkError](<https://github.com/effective-security/xpki/blob/main/cryptoprov/errors.go#L23>)
+
+```go
+func MarkError(err, sentinel error) error
+```
+
+MarkError returns err with sentinel as an additional identity: errors.Is\(result, sentinel\) is true, with the standard library as with cockroachdb/errors, the message is that of err, and errors.As still finds the causes of err. A provider uses it to report a backend error, such as the "not found" of a KMS, as ErrKeyNotFound without losing the service error. A nil err stays nil.
+
+<a name="NewPageToken"></a>
+## func [NewPageToken](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L444>)
+
+```go
+func NewPageToken(req *ListKeysRequest, cursor PageCursor) (string, error)
+```
+
+NewPageToken returns the page token that resumes the listing of req at cursor. It is for provider implementations.
+
 <a name="ParsePrivateKeyDER"></a>
-## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L105>)
+## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L109>)
 
 ```go
 func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error)
@@ -174,7 +314,7 @@ func ParsePrivateKeyDER(keyDER []byte) (crypto.PrivateKey, error)
 ParsePrivateKeyDER parses a PKCS \#1, PKCS \#8, ECDSA DER\-encoded private key. The key must not be in PEM format. PKCS \#8 keys may be RSA, ECDSA, Ed25519 or ML\-DSA; an ML\-DSA key must be in the seed form \(RFC 9881\), the form x509.MarshalPKCS8PrivateKey and "openssl genpkey \-provparam ml\-dsa.output\_formats=seed\-only" write.
 
 <a name="ParsePrivateKeyPEM"></a>
-## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L55>)
+## func [ParsePrivateKeyPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L59>)
 
 ```go
 func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error)
@@ -183,7 +323,7 @@ func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.PrivateKey, err error)
 ParsePrivateKeyPEM parses and returns a PEM\-encoded private key. The private key may be either an unencrypted PKCS\#8, PKCS\#1, or elliptic private key; see ParsePrivateKeyDER for the key types.
 
 <a name="ParsePrivateKeyPEMWithPassword"></a>
-## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L64>)
+## func [ParsePrivateKeyPEMWithPassword](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L68>)
 
 ```go
 func ParsePrivateKeyPEMWithPassword(keyPEM []byte, password []byte) (key crypto.PrivateKey, err error)
@@ -210,7 +350,7 @@ func Registered() []string
 Registered returns registered providers
 
 <a name="Crypto"></a>
-## type [Crypto](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L94-L102>)
+## type [Crypto](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L103-L111>)
 
 Crypto exposes instances of Provider, found by manufacturer and model. It is safe for concurrent use: Add may run while other goroutines call ByManufacturer or LoadPrivateKey.
 
@@ -230,7 +370,7 @@ func Load(defaultConfig string, providersConfigs []string) (c *Crypto, err error
 Load returns Crypto with loaded providers from the given config locations. Each config must name a different manufacturer and model than the others \(ErrDuplicateProvider\). On error, Load closes the providers it already loaded that implement Close\(\) error.
 
 <a name="New"></a>
-### func [New](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L120>)
+### func [New](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L129>)
 
 ```go
 func New(defaultProvider Provider, providers []Provider) (*Crypto, error)
@@ -239,7 +379,7 @@ func New(defaultProvider Provider, providers []Provider) (*Crypto, error)
 New creates an instance of Crypto providers. defaultProvider is required; providers are added with Add, so a nil entry or a conflicting duplicate fails New.
 
 <a name="Crypto.Add"></a>
-### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L157>)
+### func \(\*Crypto\) [Add](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L166>)
 
 ```go
 func (c *Crypto) Add(p Provider) error
@@ -248,7 +388,7 @@ func (c *Crypto) Add(p Provider) error
 Add registers p for lookup by its manufacturer and model. Adding the same provider again, including the default one, is a no\-op when its dynamic value is comparable, such as a pointer; the provider types in this module are. A provider value that is not comparable \(a struct holding a map, slice or func\) can not be matched, so adding it again returns ErrDuplicateProvider. A different provider with the manufacturer and model of a registered or the default provider returns ErrDuplicateProvider \(XPKI\-016\), and a nil provider, including a typed nil, returns ErrNilProvider.
 
 <a name="Crypto.ByManufacturer"></a>
-### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L191>)
+### func \(\*Crypto\) [ByManufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L200>)
 
 ```go
 func (c *Crypto) ByManufacturer(manufacturer, model string) (Provider, error)
@@ -257,7 +397,7 @@ func (c *Crypto) ByManufacturer(manufacturer, model string) (Provider, error)
 ByManufacturer returns the default provider or the registered provider for manufacturer and model. It does not lock and may run concurrently with Add.
 
 <a name="Crypto.Default"></a>
-### func \(\*Crypto\) [Default](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L144>)
+### func \(\*Crypto\) [Default](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L153>)
 
 ```go
 func (c *Crypto) Default() Provider
@@ -266,103 +406,483 @@ func (c *Crypto) Default() Provider
 Default returns a default crypto provider
 
 <a name="Crypto.LoadPrivateKey"></a>
-### func \(\*Crypto\) [LoadPrivateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L20>)
+### func \(\*Crypto\) [LoadPrivateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L24>)
 
 ```go
-func (c *Crypto) LoadPrivateKey(key []byte) (Provider, crypto.PrivateKey, error)
+func (c *Crypto) LoadPrivateKey(ctx context.Context, key []byte) (Provider, crypto.PrivateKey, error)
 ```
 
-LoadPrivateKey returns crypto.PrivateKey. The input key can be in PEM encoded format, or PKCS11 URI.
+LoadPrivateKey returns crypto.PrivateKey. The input key can be in PEM encoded format, or PKCS11 URI. A URI is resolved by the provider it names with ctx, which bounds the KMS requests or the wait for a PKCS\#11 session; the returned Provider is nil for a PEM key.
 
 <a name="Crypto.LoadTLSKeyPair"></a>
-### func \(\*Crypto\) [LoadTLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L138>)
+### func \(\*Crypto\) [LoadTLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L143>)
 
 ```go
-func (c *Crypto) LoadTLSKeyPair(certFile, keyFile string) (*tls.Certificate, error)
+func (c *Crypto) LoadTLSKeyPair(ctx context.Context, certFile, keyFile string) (*tls.Certificate, error)
 ```
 
-LoadTLSKeyPair reads and parses a public/private key pair from a pair of files. The files must contain PEM encoded data. The certificate file may contain intermediate certificates following the leaf certificate to form a certificate chain. On successful return, Certificate.Leaf holds the parsed leaf certificate.
+LoadTLSKeyPair reads and parses a public/private key pair from a pair of files. The files must contain PEM encoded data. The certificate file may contain intermediate certificates following the leaf certificate to form a certificate chain. On successful return, Certificate.Leaf holds the parsed leaf certificate. ctx is for a key file that holds a pkcs11: URI, see LoadPrivateKey.
 
 <a name="Crypto.NewSignerFromFromFile"></a>
-### func \(\*Crypto\) [NewSignerFromFromFile](<https://github.com/effective-security/xpki/blob/main/cryptoprov/signer.go#L13>)
+### func \(\*Crypto\) [NewSignerFromFromFile](<https://github.com/effective-security/xpki/blob/main/cryptoprov/signer.go#L15>)
 
 ```go
-func (c *Crypto) NewSignerFromFromFile(caKeyFile string) (crypto.Signer, error)
+func (c *Crypto) NewSignerFromFromFile(ctx context.Context, caKeyFile string) (crypto.Signer, error)
 ```
 
-NewSignerFromFromFile generates a new signer from a caFile and a caKey file, both PEM encoded or caKey contains PKCS\#11 Uri
+NewSignerFromFromFile returns the signer of the key in caKeyFile, which holds a PEM encoded key or a PKCS\#11 URI; ctx is for the URI, see LoadPrivateKey.
 
 <a name="Crypto.NewSignerFromPEM"></a>
-### func \(\*Crypto\) [NewSignerFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/signer.go#L30>)
+### func \(\*Crypto\) [NewSignerFromPEM](<https://github.com/effective-security/xpki/blob/main/cryptoprov/signer.go#L32>)
 
 ```go
-func (c *Crypto) NewSignerFromPEM(caKey []byte) (crypto.Signer, error)
+func (c *Crypto) NewSignerFromPEM(ctx context.Context, caKey []byte) (crypto.Signer, error)
 ```
 
-NewSignerFromPEM generates a new crypto signer from PEM encoded blocks, or caKey contains PKCS\#11 Uri
+NewSignerFromPEM returns the signer of caKey, a PEM encoded key or a PKCS\#11 URI; ctx is for the URI, see LoadPrivateKey.
 
 <a name="Crypto.TLSKeyPair"></a>
-### func \(\*Crypto\) [TLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L155>)
+### func \(\*Crypto\) [TLSKeyPair](<https://github.com/effective-security/xpki/blob/main/cryptoprov/utils.go#L160>)
 
 ```go
-func (c *Crypto) TLSKeyPair(certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error)
+func (c *Crypto) TLSKeyPair(ctx context.Context, certPEMBlock, keyPEMBlock []byte) (*tls.Certificate, error)
 ```
 
-TLSKeyPair parses a public/private key pair from PEM encoded data. The key may be a PEM private key or a pkcs11: URI resolved through the registered providers. On successful return, Certificate.Leaf holds the parsed leaf certificate. An error is returned when the private key does not match the leaf certificate's public key.
+TLSKeyPair parses a public/private key pair from PEM encoded data. The key may be a PEM private key or a pkcs11: URI resolved through the registered providers with ctx. On successful return, Certificate.Leaf holds the parsed leaf certificate. An error is returned when the private key does not match the leaf certificate's public key.
+
+<a name="GenerateKeyRequest"></a>
+## type [GenerateKeyRequest](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L563-L580>)
+
+GenerateKeyRequest asks KeyGenerator.GenerateKey for a new key.
+
+```go
+type GenerateKeyRequest struct {
+    // Label names the key: CKA_LABEL, the AWS description and alias, the
+    // GCP "label" label and key id prefix. It may be empty: the PKCS#11 and
+    // in-memory providers then generate one, and the KMS providers create
+    // the key without a label.
+    Label string
+    // Type is the key algorithm: certutil.KeyTypeRSA, KeyTypeECDSA or
+    // KeyTypeMLDSA.
+    Type string
+    // Size is the RSA modulus size in bits, the ECDSA curve size (256, 384
+    // or 521) or the ML-DSA parameter set (MLDSA44, MLDSA65 or MLDSA87).
+    Size int
+    // Usage is what the key is for; zero means KeyUsageSign.
+    Usage KeyUsage
+    // Tags are attached to the key as AWS tags or GCP labels. A provider
+    // without tags returns ErrNotSupported when they are set.
+    Tags map[string]string
+}
+```
+
+<a name="GenerateKeyRequest.KeyUsage"></a>
+### func \(\*GenerateKeyRequest\) [KeyUsage](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L584>)
+
+```go
+func (r *GenerateKeyRequest) KeyUsage() KeyUsage
+```
+
+KeyUsage returns the usage of the key to create: Usage, or KeyUsageSign when it is zero.
+
+<a name="GenerateKeyRequest.Validate"></a>
+### func \(\*GenerateKeyRequest\) [Validate](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L596>)
+
+```go
+func (r *GenerateKeyRequest) Validate() error
+```
+
+Validate reports a request no provider can serve: an unknown type, a size the type does not have, or a usage the type cannot have \(only an RSA key encrypts\). It does not know what a backend offers: a provider answers a valid request it cannot serve with ErrNotSupported. Providers call it before any request to their backend.
+
+<a name="KeyFields"></a>
+## type [KeyFields](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L142>)
+
+KeyFields selects the groups of KeyInfo fields a call fills. ID and Name are always filled.
+
+```go
+type KeyFields uint
+```
+
+<a name="KeyFieldMetadata"></a>
+
+```go
+const (
+    // KeyFieldMetadata selects Label, Type, Size, Usage, Class and
+    // CreationTime.
+    KeyFieldMetadata KeyFields = 1 << iota
+    // KeyFieldState selects State and CurrentVersionID.
+    KeyFieldState
+    // KeyFieldTags selects Tags.
+    KeyFieldTags
+    // KeyFieldPublicKey selects PublicKey. It is valid for
+    // KeyManager.KeyInfo only: no listing fetches a public key.
+    KeyFieldPublicKey
+
+    // KeyFieldsAll selects every group a listing can fill.
+    KeyFieldsAll = KeyFieldMetadata | KeyFieldState | KeyFieldTags
+)
+```
+
+<a name="KeyFields.Has"></a>
+### func \(KeyFields\) [Has](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L164>)
+
+```go
+func (f KeyFields) Has(v KeyFields) bool
+```
+
+Has reports whether f selects every group of v.
+
+<a name="KeyFields.Validate"></a>
+### func \(KeyFields\) [Validate](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L170>)
+
+```go
+func (f KeyFields) Validate() error
+```
+
+Validate reports a mask with a group this version does not know, which a provider must not silently ignore.
+
+<a name="KeyFilter"></a>
+## type [KeyFilter](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L259-L273>)
+
+KeyFilter keeps the keys that pass every condition that is set; the zero filter keeps every key the backend lists.
+
+```go
+type KeyFilter struct {
+    // Usage keeps a key with at least one of these usages.
+    Usage KeyUsage
+    // Types keeps a key whose KeyInfo.Type is one of these.
+    Types []string
+    // Label keeps a key with exactly this label.
+    Label string
+    // LabelPrefix keeps a key whose label starts with this.
+    LabelPrefix string
+    // Tags keeps a key that has every one of these tags with this value.
+    Tags map[string]string
+    // States keeps a key in one of these states. Empty keeps every state,
+    // including a key that is pending deletion.
+    States []KeyState
+}
+```
+
+<a name="KeyFilter.Fields"></a>
+### func \(\*KeyFilter\) [Fields](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L283>)
+
+```go
+func (f *KeyFilter) Fields() KeyFields
+```
+
+Fields returns the KeyInfo groups Match reads for the conditions that are set, which a provider has to fill before it can evaluate the filter itself.
+
+<a name="KeyFilter.IsZero"></a>
+### func \(\*KeyFilter\) [IsZero](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L276>)
+
+```go
+func (f *KeyFilter) IsZero() bool
+```
+
+IsZero reports whether the filter has no condition.
+
+<a name="KeyFilter.Match"></a>
+### func \(\*KeyFilter\) [Match](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L299>)
+
+```go
+func (f *KeyFilter) Match(key *KeyInfo) bool
+```
+
+Match reports whether key passes every condition of the filter. The groups Fields names must be filled in key.
 
 <a name="KeyGenerator"></a>
-## type [KeyGenerator](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L71-L82>)
+## type [KeyGenerator](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L38-L56>)
 
-KeyGenerator defines interface for key generation operations. Every generated key is a crypto.Signer; an ML\-DSA signer follows the contract MLDSASignerOptions describes.
+KeyGenerator creates keys and returns handles to them. A handle is a crypto.Signer for a signing key and a crypto.Decrypter for an encryption key; an ML\-DSA signer follows the contract MLDSASignerOptions describes. Every method takes the caller's context: a KMS provider passes it to its requests, and crypto11, whose PKCS\#11 calls cannot be cancelled, checks it before the call and while it waits for a session.
 
 ```go
 type KeyGenerator interface {
-    // GenerateRSAKey returns RSA key for purpose: 1-signing, 2-encryption
-    GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
-    GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
-    // GenerateMLDSAKey returns an ML-DSA (FIPS 204) signing key of the
-    // parameter set params: mldsa.MLDSA44(), MLDSA65() or MLDSA87(), see
-    // MLDSAParameters. The key signs messages, not digests.
-    GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error)
-    IdentifyKey(crypto.PrivateKey) (keyID, label string, err error)
-    ExportKey(keyID string) (string, []byte, error)
-    GetKey(keyID string) (crypto.PrivateKey, error)
+    // GenerateKey creates the key req describes and returns its handle. It
+    // calls req.Validate first; a valid request the backend cannot serve
+    // (an encryption key on a KMS provider, tags on a PKCS#11 token, a size
+    // the backend does not offer) is a wrapped ErrNotSupported.
+    GenerateKey(ctx context.Context, req *GenerateKeyRequest) (crypto.PrivateKey, error)
+    // GetKey returns the handle of the key keyID, the KeyInfo.ID of a
+    // listing or the id attribute of a key URI. A key the provider does not
+    // have is a wrapped ErrKeyNotFound.
+    GetKey(ctx context.Context, keyID string) (crypto.PrivateKey, error)
+    // IdentifyKey returns the ID and the label of a handle this provider
+    // returned.
+    IdentifyKey(ctx context.Context, key crypto.PrivateKey) (keyID, label string, err error)
+    // ExportKey returns what a configuration stores to load the key again:
+    // the PEM encoded key from a provider with exportable keys (uri is then
+    // empty), otherwise the pkcs11: URI of the key, which
+    // Crypto.LoadPrivateKey resolves.
+    ExportKey(ctx context.Context, keyID string) (uri string, key []byte, err error)
 }
 ```
 
 <a name="KeyInfo"></a>
-## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L47-L56>)
+## type [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L202-L255>)
 
-KeyInfo provides key information. Type names the key algorithm as crypto/x509 prints it \("RSA", "ECDSA", "ML\-DSA"\); for an ML\-DSA key Meta also carries MetaParameterSet, for example "ML\-DSA\-65".
+KeyInfo describes a key. A call fills ID and Name, the groups its KeyFields select and whatever else the provider has without another request; a field that was neither selected nor free is zero. The design document Documentation/design/keymanager.md has the source of each field per provider.
 
 ```go
 type KeyInfo struct {
-    ID               string
-    Label            string
-    Type             string
-    Class            string
+    // ID identifies the key to GetKey, KeyInfo, ExportKey and DestroyKey:
+    // CKA_ID on a PKCS#11 token, the key id (UUID) on AWS KMS, the CryptoKey
+    // id on Google Cloud KMS ("K", or "K/cryptoKeyVersions/N" when the call
+    // named a version).
+    ID  string
+    // Name is the full resource name of a cloud key: the AWS key ARN, the
+    // GCP resource name. Empty on PKCS#11 and in-memory providers.
+    Name string
+
+    // Label is the name the key was created with (KeyFieldMetadata):
+    // CKA_LABEL, the AWS key description, the GCP "label" label.
+    Label string
+    // Type is the key algorithm (KeyFieldMetadata): certutil.KeyTypeRSA,
+    // KeyTypeECDSA or KeyTypeMLDSA, and empty for a key of another family,
+    // whose native spec is in Meta.
+    Type string
+    // Size is the RSA modulus size in bits, the ECDSA curve size or the
+    // ML-DSA parameter set number (KeyFieldMetadata), as
+    // csr.KeyRequest.Size and certutil.KeyInfo.KeySize carry it; zero when
+    // Type is empty or the backend does not tell.
+    Size int
+    // Usage is what the key is for (KeyFieldMetadata); zero for a usage
+    // other than signing and encryption, whose native name is in Meta.
+    Usage KeyUsage
+    // Class is the PKCS#11 object class name (KeyFieldMetadata); empty on
+    // the other providers.
+    Class string
+    // CreationTime is when the key was created (KeyFieldMetadata); nil when
+    // the backend does not tell, as on PKCS#11.
+    CreationTime *time.Time
+
+    // State is the state of the key, or on Google Cloud KMS of the version
+    // CurrentVersionID names (KeyFieldState). A PKCS#11 key is always
+    // enabled.
+    State KeyState
+    // CurrentVersionID is the key version the call described
+    // (KeyFieldState); empty on a provider without key versions.
     CurrentVersionID string
-    CreationTime     *time.Time
-    PublicKey        string
-    Meta             map[string]string
+
+    // Tags are the AWS resource tags or GCP labels of the key
+    // (KeyFieldTags).
+    Tags map[string]string
+
+    // PublicKey is the PEM encoded public key (KeyFieldPublicKey, from
+    // KeyManager.KeyInfo only).
+    PublicKey string
+
+    // Meta carries provider-specific details for display, such as the
+    // native usage, origin and algorithm names. For an ML-DSA key it has
+    // MetaParameterSet, for example "ML-DSA-65". Do not parse it: the typed
+    // fields above carry what callers decide on.
+    Meta map[string]string
 }
 ```
 
 <a name="KeyManager"></a>
-## type [KeyManager](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L59-L66>)
+## type [KeyManager](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L62-L79>)
 
-KeyManager defines interface for key management operations
+KeyManager lists, describes and destroys the keys of the provider's store: the token it is logged in to, the AWS account and Region, the Google Cloud key ring. It is optional: callers type\-assert a Provider. The rules of a listing are in Documentation/design/keymanager.md.
 
 ```go
 type KeyManager interface {
-    CurrentSlotID() uint
-    EnumTokens(currentSlotOnly bool) ([]TokenInfo, error)
-    EnumKeys(slotID uint, prefix string) ([]KeyInfo, error)
-    DestroyKeyPairOnSlot(slotID uint, keyID string) error
-    FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.PrivateKey, error)
-    KeyInfo(slotID uint, keyID string, includePublic bool) (*KeyInfo, error)
+    // ListKeys returns one page of the keys that pass req.Filter, with the
+    // fields req.Fields selects, and never a public key. A page can hold
+    // fewer keys than req.PageSize, or none, and still have a
+    // NextPageToken: the listing ends when that is empty (AllKeys hides the
+    // loop). A condition the provider cannot evaluate is a wrapped
+    // ErrNotSupported and a token of another request a wrapped
+    // ErrInvalidPageToken. A failure returns no partial page.
+    ListKeys(ctx context.Context, req *ListKeysRequest) (*ListKeysResponse, error)
+    // KeyInfo describes the key keyID with the fields the mask selects;
+    // KeyFieldPublicKey adds the PEM public key, which no other call
+    // returns. A key the provider does not have is a wrapped
+    // ErrKeyNotFound.
+    KeyInfo(ctx context.Context, keyID string, fields KeyFields) (*KeyInfo, error)
+    // DestroyKey destroys the key keyID, or schedules its destruction on a
+    // backend that defers it (AWS KMS, Google Cloud KMS).
+    DestroyKey(ctx context.Context, keyID string) error
 }
 ```
+
+<a name="KeyState"></a>
+## type [KeyState](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L103>)
+
+KeyState is the state of a key, or of the key version a KeyInfo describes.
+
+```go
+type KeyState string
+```
+
+<a name="KeyStateEnabled"></a>
+
+```go
+const (
+    // KeyStateEnabled is a key that can be used.
+    KeyStateEnabled KeyState = "enabled"
+    // KeyStateDisabled is a key that cannot be used until it is enabled
+    // again.
+    KeyStateDisabled KeyState = "disabled"
+    // KeyStatePendingDeletion is a key scheduled for deletion, which the
+    // backend may still cancel.
+    KeyStatePendingDeletion KeyState = "pending_deletion"
+    // KeyStateDestroyed is a key whose material is gone.
+    KeyStateDestroyed KeyState = "destroyed"
+    // KeyStateUnavailable is every other state in which the key cannot be
+    // used: being created, waiting for imported material, a failed
+    // generation. The native state is in KeyInfo.Meta.
+    KeyStateUnavailable KeyState = "unavailable"
+)
+```
+
+<a name="ParseKeyState"></a>
+### func [ParseKeyState](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L132>)
+
+```go
+func ParseKeyState(s string) (KeyState, error)
+```
+
+ParseKeyState parses a KeyState, case\-insensitively.
+
+<a name="KeyUsage"></a>
+## type [KeyUsage](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L55>)
+
+KeyUsage is a set of the operations a key is for. The values are those of csr.KeyPurpose, so KeyUsage\(csr.SigningKey\) is KeyUsageSign.
+
+```go
+type KeyUsage uint
+```
+
+<a name="KeyUsageSign"></a>
+
+```go
+const (
+    // KeyUsageSign is a key that signs: a crypto.Signer.
+    KeyUsageSign KeyUsage = 1 << iota
+    // KeyUsageEncrypt is a key that decrypts: a crypto.Decrypter.
+    KeyUsageEncrypt
+)
+```
+
+<a name="ParseKeyUsage"></a>
+### func [ParseKeyUsage](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L86>)
+
+```go
+func ParseKeyUsage(s string) (KeyUsage, error)
+```
+
+ParseKeyUsage parses the String form of a KeyUsage: "sign", "encrypt" or both separated by a comma, case\-insensitively. An empty string is no usage.
+
+<a name="KeyUsage.Has"></a>
+### func \(KeyUsage\) [Has](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L68>)
+
+```go
+func (u KeyUsage) Has(v KeyUsage) bool
+```
+
+Has reports whether u includes every usage of v.
+
+<a name="KeyUsage.String"></a>
+### func \(KeyUsage\) [String](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L73>)
+
+```go
+func (u KeyUsage) String() string
+```
+
+String returns "sign", "encrypt", "sign,encrypt", or "" for no usage.
+
+<a name="ListKeysRequest"></a>
+## type [ListKeysRequest](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L343-L355>)
+
+ListKeysRequest asks KeyManager.ListKeys for one page of keys.
+
+```go
+type ListKeysRequest struct {
+    // PageSize is the largest number of keys to return. Zero means the
+    // provider default, and a value above MaxPageSize is cut to it.
+    PageSize int
+    // PageToken is the NextPageToken of the previous page, with the same
+    // Filter and Fields; empty for the first page.
+    PageToken string
+    // Filter selects the keys.
+    Filter KeyFilter
+    // Fields selects what to fill besides ID and Name. KeyFieldPublicKey is
+    // an error.
+    Fields KeyFields
+}
+```
+
+<a name="ListKeysRequest.Limit"></a>
+### func \(\*ListKeysRequest\) [Limit](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L379>)
+
+```go
+func (r *ListKeysRequest) Limit(defaultSize int) int
+```
+
+Limit returns the number of keys a page of the request holds at most: PageSize, defaultSize \(or DefaultPageSize\) when it is zero, and never more than MaxPageSize.
+
+<a name="ListKeysRequest.Validate"></a>
+### func \(\*ListKeysRequest\) [Validate](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L360>)
+
+```go
+func (r *ListKeysRequest) Validate() error
+```
+
+Validate reports a request no provider accepts: a negative page size, a field mask that asks a listing for the public key or has unknown groups, or an invalid filter. The page token is checked by the provider it is for.
+
+<a name="ListKeysResponse"></a>
+## type [ListKeysResponse](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L391-L398>)
+
+ListKeysResponse is one page of a listing.
+
+```go
+type ListKeysResponse struct {
+    // Keys are the keys of the page, at most the page size. A page can hold
+    // fewer keys than asked for, or none, while NextPageToken is set.
+    Keys []KeyInfo
+    // NextPageToken resumes the listing after this page; empty after the
+    // last page.
+    NextPageToken string
+}
+```
+
+<a name="PageKeys"></a>
+### func [PageKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L481>)
+
+```go
+func PageKeys(req *ListKeysRequest, keys []KeyInfo) (*ListKeysResponse, error)
+```
+
+PageKeys answers req from keys, the complete list of a provider that holds its keys in memory, in a stable order: it validates the request, skips the candidates the page token has passed, applies the filter and returns at most a page with the token of the next one. Every key must have the groups the filter reads; the keys are returned as they are, whatever req.Fields selects. The token is an offset in keys, so a key added or removed between two pages can be repeated or missed.
+
+<a name="PageCursor"></a>
+## type [PageCursor](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L403-L413>)
+
+PageCursor is where a listing resumes. A provider keeps it in ListKeysResponse.NextPageToken with NewPageToken and reads it back from the next request with ParsePageToken; callers treat the token as opaque.
+
+```go
+type PageCursor struct {
+    // Source names the candidate source the listing reads, for a provider
+    // with more than one.
+    Source string `json:"s,omitempty"`
+    // Marker is the backend's own marker or page token of the page the
+    // listing resumes in.
+    Marker string `json:"m,omitempty"`
+    // Offset is the number of candidates of that page, or of the whole
+    // search order, the listing has examined.
+    Offset int `json:"o,omitempty"`
+}
+```
+
+<a name="ParsePageToken"></a>
+### func [ParsePageToken](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L456>)
+
+```go
+func ParsePageToken(req *ListKeysRequest) (PageCursor, error)
+```
+
+ParsePageToken returns the cursor of req.PageToken, the zero cursor for an empty token, or a wrapped ErrInvalidPageToken for a token that is malformed, has a negative offset or was issued for another Filter or Fields. It is for provider implementations.
 
 <a name="PrivateKeyURI"></a>
 ## type [PrivateKeyURI](<https://github.com/effective-security/xpki/blob/main/cryptoprov/uri.go#L19-L34>)
@@ -400,9 +920,9 @@ func ParsePrivateKeyURI(uri string) (PrivateKeyURI, error)
 ParsePrivateKeyURI parses a PKCS \#11 URI \(RFC 7512\) into a key configuration. The URI must have type=private, serial and id \(the id is percent\-decoded and may hold binary data\). Query attributes are validated like ParseTokenURI does but not returned.
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L85-L89>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L94-L98>)
 
-Provider defines an interface to work with crypto providers: HSM, SoftHSM, KMS, crypto
+Provider is a key backend: a PKCS\#11 token, a cloud KMS or an in\-process store. Manufacturer and Model identify it in Crypto and in key URIs.
 
 ```go
 type Provider interface {
@@ -493,18 +1013,42 @@ func ParseTokenURI(uri string) (TokenConfig, error)
 ParseTokenURI parses a PKCS \#11 URI \(RFC 7512\) into a token configuration. The path attributes manufacturer, model, token and serial select the token; the query attributes module\-name, module\-path, pin\-value and pin\-source \(a file: URI whose content, trimmed, is the PIN\) set the library and the PIN. module\-path overrides module\-name when both are present. The query attributes are also accepted in the path, as this package did before XPKI\-027, but not in both places, and a URI with both pin\-source and pin\-value is refused \(RFC 7512 §2.4\). Manufacturer and model are trimmed. Errors never contain a pin\-value.
 
 <a name="TokenInfo"></a>
-## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L35-L42>)
+## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/keys.go#L179-L195>)
 
-TokenInfo provides PKCS \#11 token info
+TokenInfo describes a token of a provider with several stores, which is a PKCS\#11 module with its slots.
 
 ```go
 type TokenInfo struct {
-    SlotID       uint
-    Description  string
-    Label        string
+    // SlotID is the slot the token is in; TokenManager.Token takes it.
+    SlotID uint
+    // Description is the slot description.
+    Description string
+    // Label is the token label.
+    Label string
+    // Manufacturer is the token manufacturer.
     Manufacturer string
-    Model        string
-    Serial       string
+    // Model is the token model.
+    Model string
+    // Serial is the token serial number.
+    Serial string
+    // Current reports the token the provider is logged in to: the store its
+    // own KeyManager methods work on.
+    Current bool
+}
+```
+
+<a name="TokenManager"></a>
+## type [TokenManager](<https://github.com/effective-security/xpki/blob/main/cryptoprov/provider.go#L84-L90>)
+
+TokenManager is implemented by a provider with several stores, which is crypto11 with the slots of its PKCS\#11 module. The KeyManager methods of the provider itself work on the token it is logged in to.
+
+```go
+type TokenManager interface {
+    // ListTokens returns the tokens of the provider; TokenInfo.Current
+    // marks the one it is logged in to.
+    ListTokens(ctx context.Context) ([]TokenInfo, error)
+    // Token returns the KeyManager of the token in slot slotID.
+    Token(slotID uint) (KeyManager, error)
 }
 ```
 

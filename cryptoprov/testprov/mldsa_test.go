@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,13 +23,17 @@ func TestGenerateMLDSAKey(t *testing.T) {
 	message := []byte("testprov ML-DSA message")
 
 	for _, params := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
-		priv, err := p.GenerateMLDSAKey("pq-"+params.String(), params)
+		priv, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "pq-" + params.String(),
+			Type:  certutil.KeyTypeMLDSA,
+			Size:  cryptoprov.MLDSASize(params),
+		})
 		require.NoError(t, err)
-		keyID, label, err := p.IdentifyKey(priv)
+		keyID, label, err := p.IdentifyKey(t.Context(), priv)
 		require.NoError(t, err)
 		assert.Equal(t, "pq-"+params.String(), label)
 
-		uri, keyBytes, err := p.ExportKey(keyID)
+		uri, keyBytes, err := p.ExportKey(t.Context(), keyID)
 		require.NoError(t, err)
 		assert.Nil(t, keyBytes)
 		assert.Equal(t, fmt.Sprintf("pkcs11:manufacturer=testprov;model=inmem;serial=20764350726;token=pq-%s;id=%s;type=private", params, keyID), uri)
@@ -59,9 +64,13 @@ func TestGenerateMLDSAKey(t *testing.T) {
 	}
 
 	// a key without a label gets a generated one
-	priv, err := p.GenerateMLDSAKey("", mldsa.MLDSA44())
+	priv, err := p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "",
+		Type:  certutil.KeyTypeMLDSA,
+		Size:  cryptoprov.MLDSA44,
+	})
 	require.NoError(t, err)
-	_, label, err := p.IdentifyKey(priv)
+	_, label, err := p.IdentifyKey(t.Context(), priv)
 	require.NoError(t, err)
 	assert.NotEmpty(t, label)
 }
@@ -77,7 +86,11 @@ func TestGenerateMLDSAKeyError(t *testing.T) {
 	p, err := Init()
 	require.NoError(t, err)
 	p.mldsaKeyGenerator = failingMLDSAGenerator{}
-	_, err = p.GenerateMLDSAKey("label", mldsa.MLDSA87())
+	_, err = p.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "label",
+		Type:  certutil.KeyTypeMLDSA,
+		Size:  cryptoprov.MLDSA87,
+	})
 	require.EqualError(t, err, "parameter set ML-DSA-87: mldsa: not available")
 	assert.Empty(t, p.inMemProv.keyIDToPvk)
 }

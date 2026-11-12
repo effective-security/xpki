@@ -1,14 +1,12 @@
 package cryptoprov
 
 import (
+	"context"
 	"crypto"
-	"crypto/elliptic"
-	"crypto/mldsa"
 	"maps"
 	"reflect"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
@@ -31,57 +29,68 @@ var ErrNilProvider = errors.New("nil provider")
 // model.
 var ErrDuplicateProvider = errors.New("duplicate provider")
 
-// TokenInfo provides PKCS #11 token info
-type TokenInfo struct {
-	SlotID       uint
-	Description  string
-	Label        string
-	Manufacturer string
-	Model        string
-	Serial       string
-}
-
-// KeyInfo provides key information. Type names the key algorithm as
-// crypto/x509 prints it ("RSA", "ECDSA", "ML-DSA"); for an ML-DSA key Meta
-// also carries MetaParameterSet, for example "ML-DSA-65".
-type KeyInfo struct {
-	ID               string
-	Label            string
-	Type             string
-	Class            string
-	CurrentVersionID string
-	CreationTime     *time.Time
-	PublicKey        string
-	Meta             map[string]string
-}
-
-// KeyManager defines interface for key management operations
-type KeyManager interface {
-	CurrentSlotID() uint
-	EnumTokens(currentSlotOnly bool) ([]TokenInfo, error)
-	EnumKeys(slotID uint, prefix string) ([]KeyInfo, error)
-	DestroyKeyPairOnSlot(slotID uint, keyID string) error
-	FindKeyPairOnSlot(slotID uint, keyID, label string) (crypto.PrivateKey, error)
-	KeyInfo(slotID uint, keyID string, includePublic bool) (*KeyInfo, error)
-}
-
-// KeyGenerator defines interface for key generation operations. Every
-// generated key is a crypto.Signer; an ML-DSA signer follows the contract
-// MLDSASignerOptions describes.
+// KeyGenerator creates keys and returns handles to them. A handle is a
+// crypto.Signer for a signing key and a crypto.Decrypter for an encryption
+// key; an ML-DSA signer follows the contract MLDSASignerOptions describes.
+// Every method takes the caller's context: a KMS provider passes it to its
+// requests, and crypto11, whose PKCS#11 calls cannot be cancelled, checks it
+// before the call and while it waits for a session.
 type KeyGenerator interface {
-	// GenerateRSAKey returns RSA key for purpose: 1-signing, 2-encryption
-	GenerateRSAKey(label string, bits int, purpose int) (crypto.PrivateKey, error)
-	GenerateECDSAKey(label string, curve elliptic.Curve) (crypto.PrivateKey, error)
-	// GenerateMLDSAKey returns an ML-DSA (FIPS 204) signing key of the
-	// parameter set params: mldsa.MLDSA44(), MLDSA65() or MLDSA87(), see
-	// MLDSAParameters. The key signs messages, not digests.
-	GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error)
-	IdentifyKey(crypto.PrivateKey) (keyID, label string, err error)
-	ExportKey(keyID string) (string, []byte, error)
-	GetKey(keyID string) (crypto.PrivateKey, error)
+	// GenerateKey creates the key req describes and returns its handle. It
+	// calls req.Validate first; a valid request the backend cannot serve
+	// (an encryption key on a KMS provider, tags on a PKCS#11 token, a size
+	// the backend does not offer) is a wrapped ErrNotSupported.
+	GenerateKey(ctx context.Context, req *GenerateKeyRequest) (crypto.PrivateKey, error)
+	// GetKey returns the handle of the key keyID, the KeyInfo.ID of a
+	// listing or the id attribute of a key URI. A key the provider does not
+	// have is a wrapped ErrKeyNotFound.
+	GetKey(ctx context.Context, keyID string) (crypto.PrivateKey, error)
+	// IdentifyKey returns the ID and the label of a handle this provider
+	// returned.
+	IdentifyKey(ctx context.Context, key crypto.PrivateKey) (keyID, label string, err error)
+	// ExportKey returns what a configuration stores to load the key again:
+	// the PEM encoded key from a provider with exportable keys (uri is then
+	// empty), otherwise the pkcs11: URI of the key, which
+	// Crypto.LoadPrivateKey resolves.
+	ExportKey(ctx context.Context, keyID string) (uri string, key []byte, err error)
 }
 
-// Provider defines an interface to work with crypto providers: HSM, SoftHSM, KMS, crypto
+// KeyManager lists, describes and destroys the keys of the provider's store:
+// the token it is logged in to, the AWS account and Region, the Google Cloud
+// key ring. It is optional: callers type-assert a Provider. The rules of a
+// listing are in Documentation/design/keymanager.md.
+type KeyManager interface {
+	// ListKeys returns one page of the keys that pass req.Filter, with the
+	// fields req.Fields selects, and never a public key. A page can hold
+	// fewer keys than req.PageSize, or none, and still have a
+	// NextPageToken: the listing ends when that is empty (AllKeys hides the
+	// loop). A condition the provider cannot evaluate is a wrapped
+	// ErrNotSupported and a token of another request a wrapped
+	// ErrInvalidPageToken. A failure returns no partial page.
+	ListKeys(ctx context.Context, req *ListKeysRequest) (*ListKeysResponse, error)
+	// KeyInfo describes the key keyID with the fields the mask selects;
+	// KeyFieldPublicKey adds the PEM public key, which no other call
+	// returns. A key the provider does not have is a wrapped
+	// ErrKeyNotFound.
+	KeyInfo(ctx context.Context, keyID string, fields KeyFields) (*KeyInfo, error)
+	// DestroyKey destroys the key keyID, or schedules its destruction on a
+	// backend that defers it (AWS KMS, Google Cloud KMS).
+	DestroyKey(ctx context.Context, keyID string) error
+}
+
+// TokenManager is implemented by a provider with several stores, which is
+// crypto11 with the slots of its PKCS#11 module. The KeyManager methods of
+// the provider itself work on the token it is logged in to.
+type TokenManager interface {
+	// ListTokens returns the tokens of the provider; TokenInfo.Current
+	// marks the one it is logged in to.
+	ListTokens(ctx context.Context) ([]TokenInfo, error)
+	// Token returns the KeyManager of the token in slot slotID.
+	Token(slotID uint) (KeyManager, error)
+}
+
+// Provider is a key backend: a PKCS#11 token, a cloud KMS or an in-process
+// store. Manufacturer and Model identify it in Crypto and in key URIs.
 type Provider interface {
 	KeyGenerator
 	Manufacturer() string

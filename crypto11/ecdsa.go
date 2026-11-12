@@ -2,6 +2,7 @@ package crypto11
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -208,8 +209,8 @@ func (lib *PKCS11Lib) exportECDSAPublicKey(session pkcs11.SessionHandle, pubHand
 //
 // Only a limited set of named elliptic curves are supported.
 // The underlying PKCS#11 implementation may impose further restrictions.
-func (lib *PKCS11Lib) GenerateECDSAKeyPair(c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
-	return lib.GenerateECDSAKeyPairOnSlot(lib.Slot.id, nil, nil, c)
+func (lib *PKCS11Lib) GenerateECDSAKeyPair(ctx context.Context, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
+	return lib.GenerateECDSAKeyPairOnSlot(ctx, lib.Slot.id, nil, nil, c)
 }
 
 // GenerateECDSAKeyPairWithLabel creates an ECDSA private key using curve c.
@@ -218,8 +219,8 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPair(c elliptic.Curve) (*PKCS11PrivateKeyE
 //
 // Only a limited set of named elliptic curves are supported.
 // The underlying PKCS#11 implementation may impose further restrictions.
-func (lib *PKCS11Lib) GenerateECDSAKeyPairWithLabel(label string, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
-	return lib.GenerateECDSAKeyPairOnSlot(lib.Slot.id, nil, []byte(label), c)
+func (lib *PKCS11Lib) GenerateECDSAKeyPairWithLabel(ctx context.Context, label string, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
+	return lib.GenerateECDSAKeyPairOnSlot(ctx, lib.Slot.id, nil, []byte(label), c)
 }
 
 // GenerateECDSAKeyPairOnSlot creates an ECDSA private key using curve c, on a specified slot.
@@ -228,10 +229,11 @@ func (lib *PKCS11Lib) GenerateECDSAKeyPairWithLabel(label string, c elliptic.Cur
 //
 // Only a limited set of named elliptic curves are supported.
 // The underlying PKCS#11 implementation may impose further restrictions.
-func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSlot(slot uint, id []byte, label []byte, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
+// ctx bounds the wait for a session.
+func (lib *PKCS11Lib) GenerateECDSAKeyPairOnSlot(ctx context.Context, slot uint, id []byte, label []byte, c elliptic.Curve) (*PKCS11PrivateKeyECDSA, error) {
 	var k *PKCS11PrivateKeyECDSA
 	var err error
-	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
+	err = lib.withSessionCtx(ctx, slot, func(session pkcs11.SessionHandle) error {
 		k, err = lib.generateECDSAKeyPairOnSession(session, slot, id, label, c)
 		return err
 	})
