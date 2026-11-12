@@ -3,7 +3,7 @@
 # armor
 
 ```go
-import "github.com/effective-security/xpki/armor"
+import "github.com/effective-security/xpki/v2/armor"
 ```
 
 Package armor implements OpenPGP ASCII Armor, see RFC 9580 §6. OpenPGP Armor is very similar to PEM except that it may carry a CRC24 checksum line before the end line. The checksum is optional and Decode never rejects a block because of it \(RFC 9580 §6.1\); Block.CRCValid reports whether a present checksum matches the decoded bytes.

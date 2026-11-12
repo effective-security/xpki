@@ -1,6 +1,7 @@
 package crypto11
 
 import (
+	"context"
 	"slices"
 	"sync"
 
@@ -137,14 +138,34 @@ func newSessionPool(slot uint, maxSessions int, ops sessionOps) *sessionPool {
 }
 
 // get borrows an idle session, opens one while below max, or waits for a
-// session to be returned. It fails once the pool is closed. reused reports
-// whether the session was taken from the idle list rather than opened now.
-func (p *sessionPool) get() (session pkcs11.SessionHandle, reused bool, err error) {
+// session to be returned. It fails once the pool is closed, and when ctx is
+// done before a session is borrowed: a borrower at the session limit waits
+// no longer than its context allows. reused reports whether the session was
+// taken from the idle list rather than opened now.
+func (p *sessionPool) get(ctx context.Context) (session pkcs11.SessionHandle, reused bool, err error) {
+	if ctx.Done() != nil {
+		// wake the wait below when ctx ends; a context that cannot end
+		// (the Sign path has none) needs no watcher
+		stop := context.AfterFunc(ctx, func() {
+			p.mu.Lock()
+			p.cond.Broadcast()
+			p.mu.Unlock()
+		})
+		defer stop()
+	}
+
 	p.mu.Lock()
 	for {
 		if p.closed {
 			p.mu.Unlock()
 			return 0, false, errors.WithStack(errClosed)
+		}
+		if ctx.Err() != nil {
+			// the wake-up that ended this wait may have been meant for a
+			// returned session: pass it on
+			p.cond.Signal()
+			p.mu.Unlock()
+			return 0, false, errors.Wrapf(ctx.Err(), "wait for a session on slot %d", p.slot)
 		}
 		if n := len(p.idle); n > 0 {
 			session = p.idle[n-1]
@@ -310,7 +331,17 @@ func (lib *PKCS11Lib) NewSession(slot uint) (pkcs11.SessionHandle, error) {
 //
 // f must not call withSession itself: a nested borrow can wait forever
 // for a session held by its caller.
+//
+// withSession has no context: it is the borrow of the crypto.Signer and
+// crypto.Decrypter paths, which wait for a session without a deadline.
 func (lib *PKCS11Lib) withSession(slot uint, f func(session pkcs11.SessionHandle) error) error {
+	return lib.withSessionCtx(context.Background(), slot, f)
+}
+
+// withSessionCtx is withSession with the caller's context, which bounds the
+// wait for a session and is checked before each run of f. PKCS#11 calls
+// cannot be cancelled, so a run of f that has started is not interrupted.
+func (lib *PKCS11Lib) withSessionCtx(ctx context.Context, slot uint, f func(session pkcs11.SessionHandle) error) error {
 	pool, err := lib.acquirePool(slot)
 	if err != nil {
 		return err
@@ -321,7 +352,7 @@ func (lib *PKCS11Lib) withSession(slot uint, f func(session pkcs11.SessionHandle
 	var retriedStale, retriedLogin bool
 	for {
 		gen := lib.loginGen.Load()
-		reused, loggedOut, err := lib.runOnPooledSession(pool, loginSlot, f)
+		reused, loggedOut, err := lib.runOnPooledSession(ctx, pool, loginSlot, f)
 		// a re-login by another caller during f explains a login-sensitive
 		// failure as well as a public session state does
 		reloggedIn := loginSlot && lib.loginGen.Load() != gen && loginSensitiveError(err)
@@ -396,8 +427,8 @@ func (lib *PKCS11Lib) isLoginSlot(slot uint) bool {
 // reused reports whether the session was idle before the call; loggedOut
 // whether f failed because the login slot is logged out (never set when
 // loginSlot is false).
-func (lib *PKCS11Lib) runOnPooledSession(pool *sessionPool, loginSlot bool, f func(session pkcs11.SessionHandle) error) (reused, loggedOut bool, err error) {
-	session, reused, err := pool.get()
+func (lib *PKCS11Lib) runOnPooledSession(ctx context.Context, pool *sessionPool, loginSlot bool, f func(session pkcs11.SessionHandle) error) (reused, loggedOut bool, err error) {
+	session, reused, err := pool.get(ctx)
 	if err != nil {
 		return reused, false, err
 	}

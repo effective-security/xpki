@@ -1,33 +1,48 @@
 package crypto11
 
 import (
+	"context"
 	"crypto/elliptic"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	pkcs11 "github.com/miekg/pkcs11"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Methods that take a caller session, and ExportKey, fail with errClosed
-// after Close instead of dereferencing the nil Ctx.
+// Methods that take a caller session, ExportKey and the key and token
+// management methods fail with errClosed after Close instead of
+// dereferencing the nil Ctx.
 func TestClose_SessionMethodsReturnErrClosed(t *testing.T) {
 	t.Parallel()
 	lib, _ := newFakeLib(1)
-	// Init always sets the slot; ExportKey and EnumTokens(true) read it
+	// Init always sets the slot; ExportKey and the key manager read it
 	lib.Slot = &SlotTokenInfo{id: testSlot}
 	require.NoError(t, lib.Close())
 	const session = pkcs11.SessionHandle(1)
 
 	calls := map[string]func() error{
 		"ListKeys": func() error {
-			_, err := lib.ListKeys(session, pkcs11.CKO_PRIVATE_KEY, ^uint(0))
+			_, err := lib.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{})
 			return err
 		},
-		"FindKeys": func() error {
-			_, err := lib.FindKeys(session, "label", pkcs11.CKO_PRIVATE_KEY, ^uint(0))
+		"KeyInfo": func() error {
+			_, err := lib.KeyInfo(t.Context(), "id", cryptoprov.KeyFieldMetadata)
+			return err
+		},
+		"DestroyKey": func() error {
+			return lib.DestroyKey(t.Context(), "id")
+		},
+		"ListTokens": func() error {
+			_, err := lib.ListTokens(t.Context())
+			return err
+		},
+		"Token": func() error {
+			_, err := lib.Token(testSlot)
 			return err
 		},
 		"FindKeyPairOnSession": func() error {
@@ -35,7 +50,7 @@ func TestClose_SessionMethodsReturnErrClosed(t *testing.T) {
 			return err
 		},
 		"GenerateRSAKeyPairOnSession": func() error {
-			_, err := lib.GenerateRSAKeyPairOnSession(session, testSlot, nil, nil, 2048, Signing)
+			_, err := lib.GenerateRSAKeyPairOnSession(session, testSlot, nil, nil, 2048, cryptoprov.KeyUsageSign)
 			return err
 		},
 		"GenerateECDSAKeyPairOnSession": func() error {
@@ -43,11 +58,18 @@ func TestClose_SessionMethodsReturnErrClosed(t *testing.T) {
 			return err
 		},
 		"ExportKey": func() error {
-			_, _, err := lib.ExportKey("id")
+			_, _, err := lib.ExportKey(t.Context(), "id")
 			return err
 		},
-		"EnumTokens(current)": func() error {
-			_, err := lib.EnumTokens(true)
+		"GenerateKey": func() error {
+			_, err := lib.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Type: certutil.KeyTypeECDSA,
+				Size: 256,
+			})
+			return err
+		},
+		"GetKey": func() error {
+			_, err := lib.GetKey(t.Context(), "id")
 			return err
 		},
 	}
@@ -66,10 +88,10 @@ func TestClose_SessionMethodsReturnErrClosed(t *testing.T) {
 // Not parallel: it sets the exportKeyAdmitted hook.
 func TestExportKey_CloseWhileAdmitted(t *testing.T) {
 	requireP11(t)
-	priv, err := p11lib.GenerateECDSAKeyPair(elliptic.P256())
+	priv, err := p11lib.GenerateECDSAKeyPair(t.Context(), elliptic.P256())
 	require.NoError(t, err)
 	keyID := string(mustKeyID(t, priv))
-	t.Cleanup(func() { _ = p11lib.DestroyKeyPairOnSlot(p11lib.Slot.id, keyID) })
+	t.Cleanup(func() { _ = p11lib.destroyKeyOnSlot(context.Background(), p11lib.Slot.id, keyID) })
 
 	lib2, err := Init(loadTestConfig(t))
 	require.NoError(t, err)
@@ -84,13 +106,13 @@ func TestExportKey_CloseWhileAdmitted(t *testing.T) {
 
 	var uri string
 	require.NotPanics(t, func() {
-		uri, _, err = lib2.ExportKey(keyID)
+		uri, _, err = lib2.ExportKey(t.Context(), keyID)
 	})
 	require.NoError(t, err)
 	assert.Contains(t, uri, "id="+keyID)
 	require.NoError(t, waitErr(t, closed))
 
-	_, _, err = lib2.ExportKey(keyID)
+	_, _, err = lib2.ExportKey(t.Context(), keyID)
 	assert.ErrorIs(t, err, errClosed)
 }
 

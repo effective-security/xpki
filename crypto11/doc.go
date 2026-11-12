@@ -27,11 +27,18 @@
 //		return err
 //	}
 //	defer func() { _ = lib.Close() }()
-//	key, err := lib.GenerateECDSAKeyPair(elliptic.P256())
+//	key, err := lib.GenerateECDSAKeyPair(ctx, elliptic.P256())
 //	if err != nil {
 //		return err
 //	}
 //	sig, err := key.Sign(rand.Reader, digest, crypto.SHA256)
+//
+// A PKCS11Lib is the cryptoprov.Provider and cryptoprov.KeyManager of the
+// token it is logged in to, and a cryptoprov.TokenManager for the other
+// tokens of the module. The methods that take a context wait for a session
+// no longer than it allows; a PKCS#11 call that has started is not
+// interrupted, and Sign and Decrypt, which have no context, wait without a
+// deadline.
 //
 // This package is based on github.com/ThalesIgnite/crypto11 with
 // modifications for integration with the xpki ecosystem.

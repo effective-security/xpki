@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/dataprotection"
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/dataprotection"
+	"github.com/effective-security/xpki/v2/jwt"
 )
 
 const (

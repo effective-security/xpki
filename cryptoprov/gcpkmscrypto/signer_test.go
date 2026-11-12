@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -236,7 +236,7 @@ func TestSignVerifiesLocally(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s.AddKey(t, tc.name, tc.algorithm, tc.name)
-			pk, err := provider.GetKey(tc.name)
+			pk, err := provider.GetKey(t.Context(), tc.name)
 			require.NoError(t, err)
 			signer := pk.(crypto.Signer)
 			assert.Equal(t, tc.algorithm, pk.(*gcpkmscrypto.Signer).Algorithm())

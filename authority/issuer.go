@@ -1,6 +1,7 @@
 package authority
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/mldsa"
@@ -23,11 +24,11 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/metricskey"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/metricskey"
+	"github.com/effective-security/xpki/v2/oid"
 )
 
 // defaultBackdate applies when a profile does not set backdate.
@@ -211,15 +212,17 @@ func (ca *Issuer) AddProfile(label string, p *CertProfile) {
 	ca.cfg.Profiles[label] = p
 }
 
-// NewIssuer creates Issuer from provided configuration
-func NewIssuer(cfg *IssuerConfig, prov *cryptoprov.Crypto) (*Issuer, error) {
-	return NewIssuerWithBundles(cfg, prov, nil, nil)
+// NewIssuer creates Issuer from provided configuration. ctx is for the
+// provider that resolves a pkcs11: URI in the key file.
+func NewIssuer(ctx context.Context, cfg *IssuerConfig, prov *cryptoprov.Crypto) (*Issuer, error) {
+	return NewIssuerWithBundles(ctx, cfg, prov, nil, nil)
 }
 
-// NewIssuerWithBundles creates Issuer from provided configuration
-func NewIssuerWithBundles(cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, rootPem []byte) (*Issuer, error) {
+// NewIssuerWithBundles creates Issuer from provided configuration. ctx is
+// for the provider that resolves a pkcs11: URI in the key file.
+func NewIssuerWithBundles(ctx context.Context, cfg *IssuerConfig, prov *cryptoprov.Crypto, caPem, rootPem []byte) (*Issuer, error) {
 	// ensure that signer can be created before the key is generated
-	cryptoSigner, err := prov.NewSignerFromFromFile(
+	cryptoSigner, err := prov.NewSignerFromFromFile(ctx,
 		cfg.KeyFile)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "unable to create signer")

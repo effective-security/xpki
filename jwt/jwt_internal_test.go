@@ -7,16 +7,16 @@ import (
 	"crypto/rsa"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
 	gojwt "github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCurrentKeyLastWithoutID(t *testing.T) {
-	p, err := NewProvider(&ProviderConfig{
+	p, err := NewProvider(t.Context(), &ProviderConfig{
 		Issuer: "issuer.com",
 		Keys: []*Key{
 			{ID: "1", Seed: "seed1"},
@@ -44,7 +44,7 @@ func TestSigningMethodES256(t *testing.T) {
 	crypto, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 	require.NoError(t, err)
 
-	signer, err := crypto.NewSignerFromPEM(pemKey)
+	signer, err := crypto.NewSignerFromPEM(t.Context(), pemKey)
 	require.NoError(t, err)
 
 	signature, err := sign("test", signer)
@@ -70,7 +70,7 @@ func TestSigningMethodRS256(t *testing.T) {
 	crypto, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 	require.NoError(t, err)
 
-	signer, err := crypto.NewSignerFromPEM(pemKey)
+	signer, err := crypto.NewSignerFromPEM(t.Context(), pemKey)
 	require.NoError(t, err)
 
 	signature, err := sign("test", signer)

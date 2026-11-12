@@ -9,7 +9,7 @@ import (
 
 func TestBuildVersion(t *testing.T) {
 	vcs := func(revision string, modified bool) *debug.BuildInfo {
-		info := &debug.BuildInfo{Main: debug.Module{Path: "github.com/effective-security/xpki", Version: "(devel)"}}
+		info := &debug.BuildInfo{Main: debug.Module{Path: "github.com/effective-security/xpki/v2", Version: "(devel)"}}
 		if revision != "" {
 			info.Settings = append(info.Settings, debug.BuildSetting{Key: "vcs.revision", Value: revision})
 		}

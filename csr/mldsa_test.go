@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ func TestMLDSAKeyAndRequest(t *testing.T) {
 				[]csr.X509Name{{Organization: "xpki"}}, []string{"pq.example.com", "10.0.0.1"})
 			assert.Equal(t, tc.want, req.KeyRequest.SigAlgo())
 
-			csrPEM, keyPEM, keyID, pub, err := prov.CreateRequestAndExportKey(req)
+			csrPEM, keyPEM, keyID, pub, err := prov.CreateRequestAndExportKey(t.Context(), req)
 			require.NoError(t, err)
 			assert.NotEmpty(t, keyID)
 			mlPub, ok := pub.(*mldsa.PublicKey)
@@ -86,7 +86,7 @@ func TestMLDSAKeyAndRequest(t *testing.T) {
 			assert.True(t, certutil.IsPostQuantumCertificate(crt))
 
 			// the provider signer rejects hash-then-sign callers
-			signer, err := prov.NewKeyRequest("again", csr.AlgoMLDSA, tc.size, csr.SigningKey).Generate()
+			signer, err := prov.NewKeyRequest("again", csr.AlgoMLDSA, tc.size, csr.SigningKey).Generate(t.Context())
 			require.NoError(t, err)
 			_, err = signer.(crypto.Signer).Sign(rand.Reader, make([]byte, 32), crypto.SHA256)
 			require.EqualError(t, err, "ML-DSA signs a message, not a digest: unsupported signer options SHA-256")
@@ -149,6 +149,11 @@ func TestKeyRequestValidate(t *testing.T) {
 		{algo: "ECDSA", size: 224, err: "validate ECDSA key: invalid curve size: 224"},
 		{algo: "ML-DSA", size: 66, err: "validate ML-DSA key: invalid ML-DSA parameter set (expected 44, 65 or 87): 66"},
 		{algo: "ML-DSA", size: csr.MLDSA65, purpose: csr.EncryptionKey, err: "validate ML-DSA key: unsupported key purpose: 2, ML-DSA keys are signing keys"},
+		{algo: "ecdsa", size: csr.CurveP384, purpose: csr.EncryptionKey, err: "validate ECDSA key: unsupported key purpose: 2, ECDSA keys are signing keys"},
+		{algo: "RSA", size: 2048, purpose: csr.KeyPurpose(3), err: "validate RSA key: invalid key purpose: 3"},
+		{algo: "RSA", size: 2048, purpose: csr.KeyPurpose(-1), err: "validate RSA key: invalid key purpose: -1"},
+		{algo: "ECDSA", size: csr.CurveP256, purpose: csr.KeyPurpose(4), err: "validate ECDSA key: invalid key purpose: 4"},
+		{algo: "ML-DSA", size: csr.MLDSA44, purpose: csr.KeyPurpose(3), err: "validate ML-DSA key: invalid key purpose: 3"},
 		{algo: "DSA", size: 2048, err: "invalid algorithm: DSA"},
 		{algo: "", err: "invalid algorithm: "},
 	} {

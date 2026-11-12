@@ -10,8 +10,8 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"

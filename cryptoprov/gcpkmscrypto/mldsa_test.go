@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -205,11 +205,11 @@ func TestLiveKMSFlowOnFake(t *testing.T) {
 	provider := grpcProvider(t, s)
 	for _, tc := range mldsaAlgorithms {
 		if !tc.externalMu {
-			continue // GenerateMLDSAKey creates only the external-μ algorithms
+			continue // GenerateKey creates only the external-μ algorithms
 		}
 		name := "live-" + tc.algorithm.String()
 		s.AddKey(t, name, tc.algorithm, name)
-		priv, err := provider.GetKey(name)
+		priv, err := provider.GetKey(t.Context(), name)
 		require.NoError(t, err)
 		signer := priv.(crypto.Signer)
 		pub, ok := signer.Public().(*mldsa.PublicKey)
@@ -234,7 +234,7 @@ func TestMLDSAKeysOnFakeKMS(t *testing.T) {
 			name := "pq-" + tc.algorithm.String()
 			s.AddKey(t, name, tc.algorithm, name)
 
-			priv, err := provider.GetKey(name)
+			priv, err := provider.GetKey(t.Context(), name)
 			require.NoError(t, err)
 			signer := priv.(*gcpkmscrypto.Signer)
 			pub, ok := signer.Public().(*mldsa.PublicKey)
@@ -243,7 +243,7 @@ func TestMLDSAKeysOnFakeKMS(t *testing.T) {
 			assert.Equal(t, tc.algorithm, signer.Algorithm())
 			assert.True(t, pub.Equal(s.PublicKey(t, testKeyring+cryptoKeysPath+name+versionsPath+"1")))
 
-			ki, err := provider.KeyInfo(0, name, true)
+			ki, err := provider.KeyInfo(t.Context(), name, keyFieldsPublic)
 			require.NoError(t, err)
 			assert.Equal(t, certutil.KeyTypeMLDSA, ki.Type)
 			assert.Equal(t, tc.params.String(), ki.Meta[cryptoprov.MetaParameterSet])
@@ -335,14 +335,14 @@ func TestMLDSAPublicKeyFormat(t *testing.T) {
 			got = req
 			return checksummed(raw, wrapperspb.Int64(int64(gcpkmscrypto.Crc32c(raw)))), nil
 		})
-		priv, err := newProvider(t, client).GetKey("pq/cryptoKeyVersions/1")
+		priv, err := newProvider(t, client).GetKey(t.Context(), "pq/cryptoKeyVersions/1")
 		require.NoError(t, err)
 		require.NotNil(t, got)
 		assert.Equal(t, kmspb.PublicKey_NIST_PQC, got.GetPublicKeyFormat())
 		assert.Equal(t, keyName+"/cryptoKeyVersions/1", got.GetName())
 		assert.True(t, key.PublicKey().Equal(priv.(crypto.Signer).Public()))
 
-		ki, err := newProvider(t, client).KeyInfo(0, "pq/cryptoKeyVersions/1", true)
+		ki, err := newProvider(t, client).KeyInfo(t.Context(), "pq/cryptoKeyVersions/1", keyFieldsPublic)
 		require.NoError(t, err)
 		block, _ := pem.Decode([]byte(ki.PublicKey))
 		require.NotNil(t, block)
@@ -365,9 +365,9 @@ func TestMLDSAPublicKeyFormat(t *testing.T) {
 			client := newClient(func(*kmspb.GetPublicKeyRequest) (*kmspb.PublicKey, error) {
 				return tc.resp, nil
 			})
-			_, err := newProvider(t, client).GetKey("pq/cryptoKeyVersions/1")
+			_, err := newProvider(t, client).GetKey(t.Context(), "pq/cryptoKeyVersions/1")
 			require.ErrorContains(t, err, tc.err)
-			_, err = newProvider(t, client).KeyInfo(0, "pq/cryptoKeyVersions/1", true)
+			_, err = newProvider(t, client).KeyInfo(t.Context(), "pq/cryptoKeyVersions/1", keyFieldsPublic)
 			require.ErrorContains(t, err, "failed to get public key, id=pq/cryptoKeyVersions/1: ")
 			require.ErrorContains(t, err, tc.err)
 		})
@@ -386,19 +386,23 @@ func TestGenerateMLDSAKeyOnFakeKMS(t *testing.T) {
 		if !tc.externalMu {
 			continue
 		}
-		priv, err := provider.GenerateMLDSAKey("PQ Key "+tc.params.String(), tc.params)
+		priv, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "PQ Key " + tc.params.String(),
+			Type:  certutil.KeyTypeMLDSA,
+			Size:  cryptoprov.MLDSASize(tc.params),
+		})
 		require.NoError(t, err, tc.params.String())
 		signer := priv.(*gcpkmscrypto.Signer)
 		assert.Equal(t, tc.algorithm, signer.Algorithm())
 		assert.Equal(t, tc.sigAlg, signer.SignatureAlgorithm())
 
-		keyID, label, err := provider.IdentifyKey(priv)
+		keyID, label, err := provider.IdentifyKey(t.Context(), priv)
 		require.NoError(t, err)
 		wantLabel, _ := gcpkmscrypto.KeyLabelAndID("PQ Key " + tc.params.String())
 		assert.Equal(t, wantLabel, label)
 		assert.Contains(t, keyID, versionsPath+"1")
 
-		uri, _, err := provider.ExportKey(keyID)
+		uri, _, err := provider.ExportKey(t.Context(), keyID)
 		require.NoError(t, err)
 		assert.Contains(t, uri, "id="+keyID+";")
 

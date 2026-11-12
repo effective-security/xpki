@@ -102,11 +102,6 @@ func Test_bytesToUlong_Malformed(t *testing.T) {
 			require.ErrorIs(t, err, errMalformedUlong)
 			assert.EqualError(t, err, fmt.Sprintf("length %d, expected %d: crypto11: malformed CK_ULONG attribute value", len(tc.in), ulongSize))
 			assert.Zero(t, n)
-
-			assert.NotPanics(t, func() {
-				n = BytesToUlong(tc.in)
-			})
-			assert.Equal(t, unavailableInformation, n)
 		})
 	}
 }
@@ -134,7 +129,6 @@ func Test_bytesToUlong_RoundTrip(t *testing.T) {
 			n, err := bytesToUlong(ref)
 			require.NoError(t, err)
 			assert.Equal(t, v, n)
-			assert.Equal(t, v, BytesToUlong(ref))
 		})
 	}
 }

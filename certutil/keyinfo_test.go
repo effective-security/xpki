@@ -10,15 +10,15 @@ import (
 	"crypto/rsa"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/internal/testenv"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/internal/testenv"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	// register providers
-	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	_ "github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 )
 
 func TestKeyInfoRSA(t *testing.T) {
@@ -139,9 +139,13 @@ func TestKeyInfoKMS(t *testing.T) {
 	require.NoError(t, err)
 
 	kms := prov.Default()
-	pvk, err := kms.GetKey("TestKeyInfoKMS")
+	pvk, err := kms.GetKey(t.Context(), "TestKeyInfoKMS")
 	if err != nil || pvk == nil {
-		pvk, err = kms.GenerateECDSAKey("TestKeyInfoKMS", elliptic.P256())
+		pvk, err = kms.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "TestKeyInfoKMS",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  256,
+		})
 		require.NoError(t, err)
 	}
 	signer, ok := pvk.(crypto.Signer)

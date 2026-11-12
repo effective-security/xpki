@@ -1,14 +1,14 @@
 package csr
 
 import (
+	"context"
 	"crypto"
-	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/x509"
 	"strings"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 )
 
 // KeyRequest algorithm names; Algo is matched case-insensitively.
@@ -64,7 +64,7 @@ type KeyRequestGen interface {
 	Algo() string
 	Label() string
 	Size() int
-	Generate() (crypto.PrivateKey, error)
+	Generate(ctx context.Context) (crypto.PrivateKey, error)
 	SigAlgo() x509.SignatureAlgorithm
 	Purpose() int
 }
@@ -109,73 +109,80 @@ func (kr *KeyRequest) SigAlgo() x509.SignatureAlgorithm {
 
 // Validate reports whether the request names a known algorithm with a size
 // and purpose it supports, without generating a key, so a configuration can
-// be rejected before the first use. Generate calls it. ML-DSA is a signature
-// scheme, so an EncryptionKey purpose is rejected for it.
+// be rejected before the first use. Generate calls it. The purpose must be
+// Undefined, SigningKey or EncryptionKey; ECDSA and ML-DSA keys are signing
+// keys, so an EncryptionKey purpose is rejected for them.
 func (kr *KeyRequest) Validate() error {
-	switch algo := kr.Algo(); normalizeAlgo(algo) {
+	_, _, err := kr.validate()
+	return err
+}
+
+// validate implements Validate and returns the normalized algorithm, which is
+// the cryptoprov key type, and the key usage of the purpose.
+func (kr *KeyRequest) validate() (string, cryptoprov.KeyUsage, error) {
+	algo := normalizeAlgo(kr.Algo())
+	switch algo {
 	case AlgoRSA:
 		if err := validateRSAKeyPairInfoHandler(kr.Size()); err != nil {
-			return errors.WithMessage(err, "validate RSA key")
+			return "", 0, errors.WithMessage(err, "validate RSA key")
 		}
 	case AlgoECDSA:
 		if err := validateECDSAKeyPairCurveInfoHandler(kr.Size()); err != nil {
-			return errors.WithMessage(err, "validate ECDSA key")
+			return "", 0, errors.WithMessage(err, "validate ECDSA key")
 		}
 	case AlgoMLDSA:
-		if kr.Purpose() == int(EncryptionKey) {
-			return errors.Errorf("validate ML-DSA key: unsupported key purpose: %d, ML-DSA keys are signing keys", kr.Purpose())
-		}
 		if _, err := cryptoprov.MLDSAParameters(kr.Size()); err != nil {
-			return errors.WithMessage(err, "validate ML-DSA key")
+			return "", 0, errors.WithMessage(err, "validate ML-DSA key")
 		}
 	default:
-		return errors.Errorf("invalid algorithm: %s", algo)
+		return "", 0, errors.Errorf("invalid algorithm: %s", kr.Algo())
 	}
-	return nil
+	usage, err := kr.keyUsage(algo)
+	if err != nil {
+		return "", 0, errors.WithMessagef(err, "validate %s key", algo)
+	}
+	return algo, usage, nil
 }
 
-// Generate generates a key as specified in the request (see Validate): RSA,
-// ECDSA or ML-DSA (through cryptoprov.KeyGenerator.GenerateMLDSAKey; a
-// provider whose backend lacks ML-DSA returns its own error).
-func (kr *KeyRequest) Generate() (crypto.PrivateKey, error) {
-	if err := kr.Validate(); err != nil {
+// keyUsage returns the cryptoprov.KeyUsage of the request's purpose for the
+// normalized algo: Undefined and SigningKey are KeyUsageSign, EncryptionKey
+// is KeyUsageEncrypt for RSA only. Any other purpose is an error, so a
+// configured value is never passed through as a usage bitmask.
+func (kr *KeyRequest) keyUsage(algo string) (cryptoprov.KeyUsage, error) {
+	switch kr.P {
+	case Undefined, SigningKey:
+		return cryptoprov.KeyUsageSign, nil
+	case EncryptionKey:
+		if algo != AlgoRSA {
+			return 0, errors.Errorf("unsupported key purpose: %d, %s keys are signing keys", kr.P, algo)
+		}
+		return cryptoprov.KeyUsageEncrypt, nil
+	default:
+		return 0, errors.Errorf("invalid key purpose: %d", kr.P)
+	}
+}
+
+// Generate generates a key as specified in the request (see Validate)
+// through cryptoprov.KeyGenerator.GenerateKey of its provider, with ctx. The
+// purpose selects the usage of an RSA key (Undefined is a signing key); an
+// ECDSA or ML-DSA key is a signing key. A provider whose backend lacks the
+// algorithm, the size or the usage returns an error that wraps
+// cryptoprov.ErrNotSupported.
+func (kr *KeyRequest) Generate(ctx context.Context) (crypto.PrivateKey, error) {
+	algo, usage, err := kr.validate()
+	if err != nil {
 		return nil, err
 	}
-	switch normalizeAlgo(kr.Algo()) {
-	case AlgoRSA:
-		pk, err := kr.prov.GenerateRSAKey(kr.Label(), kr.Size(), kr.Purpose())
-		if err != nil {
-			return nil, errors.WithMessage(err, "generate RSA key")
-		}
-		return pk, nil
-	case AlgoECDSA:
-		var curve elliptic.Curve
-		switch kr.Size() {
-		case CurveP256:
-			curve = elliptic.P256()
-		case CurveP384:
-			curve = elliptic.P384()
-		case CurveP521:
-			curve = elliptic.P521()
-		default:
-			return nil, errors.New("invalid curve")
-		}
-		pk, err := kr.prov.GenerateECDSAKey(kr.Label(), curve)
-		if err != nil {
-			return nil, errors.WithMessage(err, "generate ECDSA key")
-		}
-		return pk, nil
-	default: // AlgoMLDSA, the only other algorithm Validate accepts
-		params, err := cryptoprov.MLDSAParameters(kr.Size())
-		if err != nil {
-			return nil, errors.WithMessage(err, "validate ML-DSA key")
-		}
-		pk, err := kr.prov.GenerateMLDSAKey(kr.Label(), params)
-		if err != nil {
-			return nil, errors.WithMessage(err, "generate ML-DSA key")
-		}
-		return pk, nil
+	pk, err := kr.prov.GenerateKey(ctx, &cryptoprov.GenerateKeyRequest{
+		Label: kr.Label(),
+		Type:  algo,
+		Size:  kr.Size(),
+		Usage: usage,
+	})
+	if err != nil {
+		return nil, errors.WithMessagef(err, "generate %s key", algo)
 	}
+	return pk, nil
 }
 
 // normalizeAlgo returns the canonical, upper-case algorithm name of algo,

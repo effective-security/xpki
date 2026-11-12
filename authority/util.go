@@ -1,25 +1,27 @@
 package authority
 
 import (
+	"context"
 	"crypto/x509"
 	"os"
 	"strings"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/csr"
 )
 
-// GenCert creates certificate and stores key and certs to specified location
-func (ca *Issuer) GenCert(crypto cryptoprov.Provider, req *csr.CertificateRequest, profile, certFile, keyFile string) (*x509.Certificate, []byte, error) {
+// GenCert creates certificate and stores key and certs to specified location.
+// ctx is for the provider that generates and exports the key.
+func (ca *Issuer) GenCert(ctx context.Context, crypto cryptoprov.Provider, req *csr.CertificateRequest, profile, certFile, keyFile string) (*x509.Certificate, []byte, error) {
 	logger.KV(xlog.INFO,
 		"profile", profile,
 		"cn", req.CommonName,
 		"cert", certFile,
 	)
 	c := csr.NewProvider(crypto)
-	csrPEM, key, _, _, err := c.CreateRequestAndExportKey(req)
+	csrPEM, key, _, _, err := c.CreateRequestAndExportKey(ctx, req)
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "process request")
 	}

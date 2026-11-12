@@ -3,7 +3,7 @@
 ## Installation
 
 ```sh
-go install github.com/effective-security/xpki/cmd/hsm-tool@latest
+go install github.com/effective-security/xpki/v2/cmd/hsm-tool@latest
 ```
 
 ## Usage
@@ -15,31 +15,30 @@ CLI tool for HSM or KMS
 
 Flags:
   -h, --help                 Show context-sensitive help.
-      --cfg=STRING           Location of HSM config file, as default crypto
-                             provider
+      --cfg=STRING           Location of HSM config file, as default crypto provider
       --crypto=CRYPTO        Location of additional HSM config files
       --plain-key            Generate plain key
   -D, --debug                Enable debug mode
   -l, --log-level="error"    Set the logging level (debug|info|warn|error)
 
 Commands:
-  hsm list        list keys
-  hsm info        print key information
-  hsm generate    generate key
-  hsm remove      delete key
-  csr create      create certificate request
-  csr gen-cert    create CSR and sign certificate
-  csr sign        sign certificate
+  hsm key list        list keys
+  hsm key info        print key information
+  hsm key generate    generate key
+  hsm key remove      delete key
+  csr create          create certificate request
+  csr gen-cert        create CSR and sign certificate
+  csr sign            sign certificate
 
 Run "hsm-tool <command> --help" for more information on a command.
 ```
 
 ## Commands
 
-### hsm-tool hsm list
+### hsm-tool hsm key list
 
 ```sh
-Usage: hsm-tool hsm list --cfg=STRING [flags]
+Usage: hsm-tool hsm key list --cfg=STRING [flags]
 
 list keys
 
@@ -55,12 +54,27 @@ Flags:
       --token=STRING         specifies slot token (optional)
       --serial=STRING        specifies slot serial (optional)
       --prefix=STRING        specifies key label prefix (optional)
+      --label=STRING         specifies the exact key label (optional)
+      --usage=STRING         lists keys with one of the usages: sign,encrypt
+                             (optional)
+      --type=TYPE,...        lists keys of the types: RSA,ECDSA,ML-DSA (default:
+                             all three)
+      --tag=KEY=VALUE;...    lists keys with the tag or cloud label name=value;
+                             repeat the flag for several (not supported by
+                             PKCS#11)
+      --state=STATE,...      lists keys in the states:
+                             enabled,disabled,pending_deletion,destroyed,unavailable,
+                             or all (default: enabled,disabled)
+      --limit=INT            lists at most this number of keys of a token
+                             (default: all)
+      --all                  lists keys of every type, including symmetric and
+                             MAC keys
 ```
 
-### hsm-tool hsm info
+### hsm-tool hsm key info
 
 ```sh
-Usage: hsm-tool hsm info --cfg=STRING <id> [flags]
+Usage: hsm-tool hsm key info --cfg=STRING <id> [flags]
 
 print key information
 
@@ -79,12 +93,13 @@ Flags:
       --token=STRING         slot token (optional)
       --serial=STRING        slot serial (optional)
       --public               print Public Key
+      --tags                 print the tags or cloud labels of the key
 ```
 
-### hsm-tool hsm generate
+### hsm-tool hsm key generate
 
 ```sh
-Usage: hsm-tool hsm generate --cfg=STRING --algo=STRING --size=INT --purpose=STRING --label=STRING [flags]
+Usage: hsm-tool hsm key generate --cfg=STRING --algo=STRING --size=INT --purpose=STRING --label=STRING [flags]
 
 generate key
 
@@ -106,10 +121,10 @@ Flags:
       --force                force to override key file if exists
 ```
 
-### hsm-tool hsm remove
+### hsm-tool hsm key remove
 
 ```sh
-Usage: hsm-tool hsm remove --cfg=STRING <id> [flags]
+Usage: hsm-tool hsm key remove --cfg=STRING <id> [flags]
 
 delete key
 

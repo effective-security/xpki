@@ -36,17 +36,19 @@ flowchart LR
 
 ## Core abstractions
 
-| Abstraction            | File          | Role                                                                                                                                                    |
-| ---------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Provider`             | `provider.go` | `KeyGenerator` plus `Manufacturer()`/`Model()`. The identity pair is what a key URI names and what `Crypto` indexes by.                                  |
-| `KeyGenerator`         | `provider.go` | The algorithm surface: `GenerateRSAKey(label, bits, purpose)`, `GenerateECDSAKey(label, curve)`, `IdentifyKey`, `ExportKey`, `GetKey`. Keys are opaque `crypto.PrivateKey` values that also implement `crypto.Signer` (and `crypto.Decrypter` where the backend can). |
-| `KeyManager`           | `provider.go` | Optional management surface: tokens, key enumeration, key info, destroy. Not embedded in `Provider`; callers type-assert.                                |
-| `Crypto`               | `provider.go` | Registry of loaded providers: one default plus lookup by manufacturer and model. Resolves `pkcs11:` key URIs to a provider and a key.                    |
-| Loader registry        | `loader.go`   | Process-global map manufacturer → `ProviderLoader`, filled by backend `init()`; `LoadProvider`/`Load` turn config files into providers.                  |
-| `TokenConfig`          | `config.go`   | The small JSON/YAML token file: manufacturer, model, module path, token serial/label, PIN (literal or `file:`), free-form `Attributes` for KMS options.   |
-| Key URI                | `uri.go`      | RFC 7512 `pkcs11:` URI parser. A private key is addressed by manufacturer, model, serial, token, `id` and `type=private`; the URI is what `ExportKey` returns for non-exportable keys and what issuer and JWT configs store in place of a PEM key. |
-| PEM / TLS helpers      | `utils.go`, `signer.go` | `LoadPrivateKey` accepts a PEM key or a key URI; `ParsePrivateKeyDER` accepts PKCS#8, PKCS#1 and SEC1; `TLSKeyPair` pairs a chain with either kind of key. |
-| AES-GCM helpers        | `gcm.go`      | `GcmEncrypt`/`GcmDecrypt` with a prefixed nonce, used by callers for small secrets.                                                                       |
+| Abstraction          | File                    | Role                                                                                                                                                                                                                                                                         |
+| -------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Provider`           | `provider.go`           | `KeyGenerator` plus `Manufacturer()`/`Model()`. The identity pair is what a key URI names and what `Crypto` indexes by.                                                                                                                                                      |
+| `KeyGenerator`       | `provider.go`           | The key surface: `GenerateKey(ctx, *GenerateKeyRequest)` for every algorithm (type, size, usage, tags), `GetKey`, `IdentifyKey`, `ExportKey`. Keys are opaque `crypto.PrivateKey` values that also implement `crypto.Signer` (and `crypto.Decrypter` where the backend can). |
+| `KeyManager`         | `provider.go`           | Optional management surface: `ListKeys` by page and filter, `KeyInfo` by field mask, `DestroyKey`. Not embedded in `Provider`; callers type-assert. Every provider of the module implements it. The contract and its listing rules are in [keymanager.md](keymanager.md).    |
+| `TokenManager`       | `provider.go`           | Optional: the tokens of a provider with several stores (`ListTokens`, `Token`). Only `crypto11` implements it.                                                                                                                                                               |
+| Key management types | `keys.go`, `errors.go`  | `KeyInfo`, `KeyUsage`, `KeyState`, `KeyFields`, `KeyFilter`, the requests, `AllKeys`, and the helpers for provider authors (`PageKeys`, page tokens, `MarkError`).                                                                                                           |
+| `Crypto`             | `provider.go`           | Registry of loaded providers: one default plus lookup by manufacturer and model. Resolves `pkcs11:` key URIs to a provider and a key.                                                                                                                                        |
+| Loader registry      | `loader.go`             | Process-global map manufacturer → `ProviderLoader`, filled by backend `init()`; `LoadProvider`/`Load` turn config files into providers.                                                                                                                                      |
+| `TokenConfig`        | `config.go`             | The small JSON/YAML token file: manufacturer, model, module path, token serial/label, PIN (literal or `file:`), free-form `Attributes` for KMS options.                                                                                                                      |
+| Key URI              | `uri.go`                | RFC 7512 `pkcs11:` URI parser. A private key is addressed by manufacturer, model, serial, token, `id` and `type=private`; the URI is what `ExportKey` returns for non-exportable keys and what issuer and JWT configs store in place of a PEM key.                           |
+| PEM / TLS helpers    | `utils.go`, `signer.go` | `LoadPrivateKey` accepts a PEM key or a key URI; `ParsePrivateKeyDER` accepts PKCS#8, PKCS#1 and SEC1; `TLSKeyPair` pairs a chain with either kind of key.                                                                                                                   |
+| AES-GCM helpers      | `gcm.go`                | `GcmEncrypt`/`GcmDecrypt` with a prefixed nonce, used by callers for small secrets.                                                                                                                                                                                          |
 
 ## Main flows
 
@@ -108,12 +110,25 @@ Resolving a key reference (`Crypto.LoadPrivateKey`, used by
 - **Lock-free lookups.** `Crypto.Add` copies the provider map and
   publishes it through an `atomic.Pointer`; `ByManufacturer` reads without
   a lock, so a hot signing path never contends with provider loading.
-- **No `context.Context` in the interfaces.** A design debt recorded in
-  [ROADMAP.md](../../ROADMAP.md): KMS backends call their SDKs with
-  `context.Background()`.
+- **`context.Context` on every interface method (v2).** The KMS backends
+  pass it to their SDK requests, and `crypto11`, whose PKCS#11 calls cannot
+  be cancelled, bounds the wait for a session with it. The functions that
+  load or generate a key take it too. The exception is signing:
+  `crypto.Signer` has no context, so `Signer.Sign` of the KMS backends still
+  uses `context.Background()` (roadmap item 1). The loaders (`Load`,
+  `LoadProvider`) have none either.
+- **One generator, one listing.** v1 had a generator method per algorithm and
+  an `EnumKeys` that returned every key with every field; v2 has
+  `GenerateKey` with a request and `ListKeys` with pages, a filter and a
+  field mask, so a new algorithm, usage or filter condition does not change
+  an interface. The reasons and the per-provider cost are in
+  [keymanager.md](keymanager.md).
 - **Errors.** `cockroachdb/errors` everywhere; sentinels (`ErrInvalidURI`,
-  `ErrInvalidPrivateKeyURI`, `ErrNilProvider`, `ErrDuplicateProvider`) are
-  always wrapped so `errors.Is` works and stacks are preserved.
+  `ErrInvalidPrivateKeyURI`, `ErrNilProvider`, `ErrDuplicateProvider`,
+  `ErrKeyNotFound`, `ErrNotSupported`, `ErrInvalidPageToken`) are
+  always wrapped so `errors.Is` works and stacks are preserved. Where a
+  backend error must stay reachable with `errors.As` (the KMS "not found"),
+  a provider marks it with `MarkError` instead of replacing it.
 
 ## Extension points
 
@@ -138,9 +153,9 @@ need the SoftHSM token and are gated with `internal/testenv.RequireFile`
 
 Implemented in v1.1 (see [pqc.md](pqc.md) for the cross-cutting design):
 
-- `KeyGenerator.GenerateMLDSAKey(label, params)` is part of the provider
-  contract; every provider in this module implements it. External
-  implementers must add it (v1.1 is a breaking release).
+- ML-DSA is a key `Type` of `GenerateKeyRequest` (`certutil.KeyTypeMLDSA`
+  with `Size` 44, 65 or 87); v1.1 had a `GenerateMLDSAKey` method, which v2
+  folded into `GenerateKey`. Every provider in this module implements it.
 - `mldsa.go` holds the shared pieces of the contract: `MLDSAParameters`
   (44/65/87 → `mldsa.Parameters`), `MLDSASignerOptions` (the message with
   nil, zero-hash or `*mldsa.Options`; μ with `crypto.MLDSAMu`; every

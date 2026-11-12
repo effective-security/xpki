@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/effective-security/xpki/dataprotection"
-	"github.com/effective-security/xpki/jwt"
-	"github.com/effective-security/xpki/jwt/accesstoken"
+	"github.com/effective-security/xpki/v2/dataprotection"
+	"github.com/effective-security/xpki/v2/jwt"
+	"github.com/effective-security/xpki/v2/jwt/accesstoken"
 )
 
 // ExampleNew compiles the usage sample from doc.go.

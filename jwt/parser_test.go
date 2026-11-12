@@ -3,11 +3,11 @@ package jwt_test
 import (
 	"testing"
 
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	_ "github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 )
 
 // mark as test secrets to be ignored by gosec

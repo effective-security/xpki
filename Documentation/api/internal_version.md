@@ -3,7 +3,7 @@
 # version
 
 ```go
-import "github.com/effective-security/xpki/internal/version"
+import "github.com/effective-security/xpki/v2/internal/version"
 ```
 
 Package version exposes the build version of the binaries. The version is set by the linker \(\-X ...internal/version.build=\<version\>, as make build does with GIT\_VERSION\) and otherwise read from the module build information, so a plain go build or go install reports its module version or VCS revision. PopulateFromBuild parses "\[v\]major.minor.commit\[\-dirty\]".

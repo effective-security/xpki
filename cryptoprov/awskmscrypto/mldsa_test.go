@@ -1,6 +1,7 @@
 package awskmscrypto_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/mldsa"
 	"crypto/rand"
@@ -17,11 +18,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/aws/smithy-go"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/internal/testenv"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +43,7 @@ var mldsaSpecs = []struct {
 func mldsaSignerFor(t *testing.T, client *fakeKMS, provider *awskmscrypto.Provider, spec types.KeySpec) (*awskmscrypto.Signer, *mldsa.PublicKey, string) {
 	t.Helper()
 	keyID := client.mustAddKey(t, "pq-"+string(spec), spec, types.KeyUsageTypeSignVerify)
-	priv, err := provider.GetKey(keyID)
+	priv, err := provider.GetKey(t.Context(), keyID)
 	require.NoError(t, err)
 	signer, ok := priv.(*awskmscrypto.Signer)
 	require.True(t, ok)
@@ -52,7 +53,7 @@ func mldsaSignerFor(t *testing.T, client *fakeKMS, provider *awskmscrypto.Provid
 }
 
 // TestGenerateMLDSAKeys checks the created keys: spec, usage, alias and
-// algorithm, the signer's public key, and KeyInfo/EnumKeys type and
+// algorithm, the signer's public key, and KeyInfo/ListKeys type, size and
 // parameter set.
 func TestGenerateMLDSAKeys(t *testing.T) {
 	t.Parallel()
@@ -61,7 +62,11 @@ func TestGenerateMLDSAKeys(t *testing.T) {
 
 	for _, tc := range mldsaSpecs {
 		label := "pq/" + tc.params.String()
-		priv, err := provider.GenerateMLDSAKey(label, tc.params)
+		priv, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: label,
+			Type:  certutil.KeyTypeMLDSA,
+			Size:  cryptoprov.MLDSASize(tc.params),
+		})
 		require.NoError(t, err, tc.params.String())
 		signer, ok := priv.(*awskmscrypto.Signer)
 		require.True(t, ok)
@@ -72,11 +77,11 @@ func TestGenerateMLDSAKeys(t *testing.T) {
 		assert.True(t, certutil.IsPostQuantumKey(signer))
 		assert.Equal(t, tc.sigAlg, csr.DefaultSigAlgo(signer))
 
-		keyID, gotLabel, err := provider.IdentifyKey(priv)
+		keyID, gotLabel, err := provider.IdentifyKey(t.Context(), priv)
 		require.NoError(t, err)
 		assert.Equal(t, label, gotLabel)
 
-		ki, err := provider.KeyInfo(0, keyID, true)
+		ki, err := provider.KeyInfo(t.Context(), keyID, keyFieldsPublic)
 		require.NoError(t, err)
 		assert.Equal(t, certutil.KeyTypeMLDSA, ki.Type)
 		assert.Equal(t, tc.params.String(), ki.Meta[cryptoprov.MetaParameterSet])
@@ -88,28 +93,41 @@ func TestGenerateMLDSAKeys(t *testing.T) {
 		assert.True(t, pub.Equal(parsed))
 
 		// the key is found through its alias too
-		again, err := provider.GetKey(awskmscrypto.AliasFromLabel(label))
+		again, err := provider.GetKey(t.Context(), awskmscrypto.AliasFromLabel(label))
 		require.NoError(t, err)
 		assert.True(t, pub.Equal(again.(crypto.Signer).Public()))
 	}
 
-	keys, err := provider.EnumKeys(0, "pq/")
-	require.NoError(t, err)
+	keys := listAll(t, provider, &cryptoprov.ListKeysRequest{
+		Filter: cryptoprov.KeyFilter{
+			LabelPrefix: "pq/",
+			Types:       []string{certutil.KeyTypeMLDSA},
+		},
+		Fields: cryptoprov.KeyFieldMetadata,
+	})
 	require.Len(t, keys, len(mldsaSpecs))
 	for i, ki := range keys {
 		assert.Equal(t, certutil.KeyTypeMLDSA, ki.Type)
+		assert.Equal(t, cryptoprov.MLDSASize(mldsaSpecs[i].params), ki.Size)
 		assert.Equal(t, mldsaSpecs[i].params.String(), ki.Meta[cryptoprov.MetaParameterSet])
 	}
 
 	// classical keys report their type and no parameter set
-	ec, err := provider.GenerateECDSAKey("classical", nil)
-	require.EqualError(t, err, "unsupported curve")
+	ec, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "classical",
+		Type:  certutil.KeyTypeECDSA,
+	})
+	require.EqualError(t, err, "invalid ECDSA curve size (expected 256, 384 or 521): 0")
 	assert.Nil(t, ec)
-	rsaKey, err := provider.GenerateRSAKey("classical", 2048, 1)
+	rsaKey, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "classical",
+		Type:  certutil.KeyTypeRSA,
+		Size:  2048,
+	})
 	require.NoError(t, err)
-	rsaID, _, err := provider.IdentifyKey(rsaKey)
+	rsaID, _, err := provider.IdentifyKey(t.Context(), rsaKey)
 	require.NoError(t, err)
-	ki, err := provider.KeyInfo(0, rsaID, false)
+	ki, err := provider.KeyInfo(t.Context(), rsaID, keyFields)
 	require.NoError(t, err)
 	assert.Equal(t, certutil.KeyTypeRSA, ki.Type)
 	assert.NotContains(t, ki.Meta, cryptoprov.MetaParameterSet)
@@ -239,7 +257,7 @@ func TestMLDSACSRAndCertificate(t *testing.T) {
 
 			size := map[types.KeySpec]int{types.KeySpecMlDsa44: csr.MLDSA44, types.KeySpecMlDsa65: csr.MLDSA65, types.KeySpecMlDsa87: csr.MLDSA87}[tc.spec]
 			req := csrProv.NewSigningCertificateRequest("pq", csr.AlgoMLDSA, size, "pq.example.com", nil, []string{"pq.example.com"})
-			csrPEM, keyURI, keyID, pub, err := csrProv.CreateRequestAndExportKey(req)
+			csrPEM, keyURI, keyID, pub, err := csrProv.CreateRequestAndExportKey(t.Context(), req)
 			require.NoError(t, err)
 			assert.NotEmpty(t, keyID)
 			assert.Contains(t, string(keyURI), "pkcs11:manufacturer=AWSKMS;model=KMS;id="+keyID)
@@ -252,7 +270,7 @@ func TestMLDSACSRAndCertificate(t *testing.T) {
 			assert.Equal(t, tc.sigAlg, parsed.SignatureAlgorithm)
 			assert.True(t, pub.(*mldsa.PublicKey).Equal(parsed.PublicKey))
 
-			signer, err := provider.GetKey(keyID)
+			signer, err := provider.GetKey(t.Context(), keyID)
 			require.NoError(t, err)
 			template := &x509.Certificate{
 				SerialNumber:          big.NewInt(1),
@@ -304,7 +322,11 @@ func TestKmsProviderMLDSA(t *testing.T) {
 	provider, err := awskmscrypto.KmsLoader(cfg)
 	require.NoError(t, err)
 
-	priv, err := provider.GenerateMLDSAKey("TestKmsProviderMLDSA", mldsa.MLDSA65())
+	priv, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "TestKmsProviderMLDSA",
+		Type:  certutil.KeyTypeMLDSA,
+		Size:  cryptoprov.MLDSA65,
+	})
 	if err != nil {
 		// local-kms rejects the key spec with its enum constraint message;
 		// any other failure is a real one
@@ -315,10 +337,10 @@ func TestKmsProviderMLDSA(t *testing.T) {
 		}
 		require.NoError(t, err)
 	}
-	keyID, _, err := provider.IdentifyKey(priv)
+	keyID, _, err := provider.IdentifyKey(t.Context(), priv)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = provider.(cryptoprov.KeyManager).DestroyKeyPairOnSlot(0, keyID)
+		_ = provider.(cryptoprov.KeyManager).DestroyKey(context.Background(), keyID)
 	})
 
 	signer := priv.(crypto.Signer)

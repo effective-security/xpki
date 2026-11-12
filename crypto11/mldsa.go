@@ -1,13 +1,14 @@
 package crypto11
 
 import (
+	"context"
 	"crypto"
 	"crypto/mldsa"
 	"io"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	pkcs11 "github.com/miekg/pkcs11"
 )
 
@@ -144,24 +145,6 @@ func (priv *PKCS11PrivateKeyMLDSA) Sign(rand io.Reader, message []byte, opts cry
 	return sig, nil
 }
 
-// mldsaKeyMeta returns the KeyInfo.Meta of an ML-DSA key object: its parameter
-// set name under cryptoprov.MetaParameterSet (design decision D3).
-func (lib *PKCS11Lib) mldsaKeyMeta(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) (map[string]string, error) {
-	attributes, err := lib.Ctx.GetAttributeValue(session, handle, []*pkcs11.Attribute{
-		pkcs11.NewAttribute(ckaParameterSet, nil),
-	})
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	params, err := mldsaParameters(attributes[0].Value)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{
-		cryptoprov.MetaParameterSet: params.String(),
-	}, nil
-}
-
 // exportMLDSAPublicKey reads the public key of an ML-DSA public key object
 // from its CKA_PARAMETER_SET and CKA_VALUE attributes.
 func (lib *PKCS11Lib) exportMLDSAPublicKey(session pkcs11.SessionHandle, pubHandle pkcs11.ObjectHandle) (crypto.PublicKey, error) {
@@ -178,17 +161,18 @@ func (lib *PKCS11Lib) exportMLDSAPublicKey(session pkcs11.SessionHandle, pubHand
 
 // GenerateMLDSAKeyPairWithLabel creates an ML-DSA key pair of params with
 // label and a random ID on the configured slot.
-func (lib *PKCS11Lib) GenerateMLDSAKeyPairWithLabel(label string, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error) {
-	return lib.GenerateMLDSAKeyPairOnSlot(lib.Slot.id, nil, []byte(label), params)
+func (lib *PKCS11Lib) GenerateMLDSAKeyPairWithLabel(ctx context.Context, label string, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error) {
+	return lib.GenerateMLDSAKeyPairOnSlot(ctx, lib.Slot.id, nil, []byte(label), params)
 }
 
 // GenerateMLDSAKeyPairOnSlot creates an ML-DSA key pair of params on slot
 // with CKM_ML_DSA_KEY_PAIR_GEN, which needs a PKCS#11 v3.2 token. label
-// and/or id can be nil, in which case random values are generated.
-func (lib *PKCS11Lib) GenerateMLDSAKeyPairOnSlot(slot uint, id []byte, label []byte, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error) {
+// and/or id can be nil, in which case random values are generated. ctx
+// bounds the wait for a session.
+func (lib *PKCS11Lib) GenerateMLDSAKeyPairOnSlot(ctx context.Context, slot uint, id []byte, label []byte, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error) {
 	var k *PKCS11PrivateKeyMLDSA
 	var err error
-	err = lib.withSession(slot, func(session pkcs11.SessionHandle) error {
+	err = lib.withSessionCtx(ctx, slot, func(session pkcs11.SessionHandle) error {
 		k, err = lib.generateMLDSAKeyPairOnSession(session, slot, id, label, params)
 		return err
 	})
@@ -255,28 +239,4 @@ func (lib *PKCS11Lib) generateMLDSAKeyPairOnSession(session pkcs11.SessionHandle
 		lib: lib,
 		ref: ref,
 	}, nil
-}
-
-// GenerateMLDSAKey generates an ML-DSA key pair of params and returns a
-// signer that also reports its key ID and label (KeyIdentifier). The token
-// must implement PKCS#11 v3.2 ML-DSA; SoftHSM 2.6 does not and fails the
-// key pair generation.
-func (lib *PKCS11Lib) GenerateMLDSAKey(label string, params mldsa.Parameters) (crypto.PrivateKey, error) {
-	priv, err := lib.GenerateMLDSAKeyPairWithLabel(label, params)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	id, l, err := lib.identify(&priv.key.PKCS11Object, priv.ref)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	k := &privateKeyGen{
-		id:               id,
-		label:            l,
-		PKCS11PrivateKey: priv.key,
-		PrivateKey:       priv,
-	}
-
-	return k, nil
 }

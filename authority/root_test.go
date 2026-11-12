@@ -8,10 +8,10 @@ import (
 
 	"uuid"
 
-	"github.com/effective-security/xpki/authority"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/authority"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +38,7 @@ func (s *testSuite) TestNewRoot() {
 		KeyRequest: kr,
 	}
 
-	certPEM, _, key, err := authority.NewRoot("ROOT", rootCfg, crypto, &req)
+	certPEM, _, key, err := authority.NewRoot(s.T().Context(), "ROOT", rootCfg, crypto, &req)
 	s.Require().NoError(err)
 
 	crt, err := certutil.ParseFromPEM(certPEM)
@@ -49,7 +49,7 @@ func (s *testSuite) TestNewRoot() {
 	s.True(crt.BasicConstraintsValid)
 	s.Equal(-1, crt.MaxPathLen)
 
-	_, err = s.crypto.NewSignerFromPEM(key)
+	_, err = s.crypto.NewSignerFromPEM(s.T().Context(), key)
 	s.Require().NoError(err)
 }
 
@@ -74,14 +74,14 @@ func TestNewRootEx(t *testing.T) {
 		KeyRequest: prov.NewKeyRequest("TestNewRootEx", "ECDSA", 256, csr.SigningKey),
 	}
 
-	_, _, _, err := authority.NewRoot("ROOT", rootCfg, defprov, &req)
+	_, _, _, err := authority.NewRoot(t.Context(), "ROOT", rootCfg, defprov, &req)
 	require.NoError(t, err)
 
 	err = json.Unmarshal([]byte(csrCA), &req)
 	require.NoError(t, err, "invalid csr")
 
 	var key, csrPEM, certPEM []byte
-	certPEM, csrPEM, key, err = authority.NewRoot("ROOT", rootCfg, defprov, &req)
+	certPEM, csrPEM, key, err = authority.NewRoot(t.Context(), "ROOT", rootCfg, defprov, &req)
 	require.NoError(t, err, "init CA")
 	assert.NotNil(t, csrPEM)
 

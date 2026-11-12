@@ -3,8 +3,7 @@ package gcpkmscrypto_test
 import (
 	"context"
 	"crypto"
-	"crypto/elliptic"
-	"crypto/mldsa"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -14,7 +13,9 @@ import (
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -81,25 +82,69 @@ func TestKeyLabelAndID(t *testing.T) {
 	})
 }
 
-// TestGenerateRSAKeyPurpose checks that an encryption key is rejected
-// before any RPC (XPKI-019) and that every other purpose is a signing key,
-// as in the other providers (XPKI-118).
-func TestGenerateRSAKeyPurpose(t *testing.T) {
+// TestGenerateKeyUsage checks that an encryption key, a size KMS does not
+// offer and a reserved tag are rejected before any RPC (XPKI-019), the first
+// two with cryptoprov.ErrNotSupported, and that no usage means a signing
+// key, as in the other providers (XPKI-118).
+func TestGenerateKeyUsage(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeKMS{}
 	provider := newProvider(t, client)
-	_, err := provider.GenerateRSAKey("enc", 2048, 2)
-	require.EqualError(t, err, "unsupported key purpose: 2, only signing keys are supported")
-	_, err = provider.GenerateRSAKey("enc", 1024, 1)
-	require.EqualError(t, err, "unsupported key size: 1024")
+	for _, usage := range []cryptoprov.KeyUsage{
+		cryptoprov.KeyUsageEncrypt,
+		cryptoprov.KeyUsageSign | cryptoprov.KeyUsageEncrypt,
+	} {
+		_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "enc",
+			Type:  certutil.KeyTypeRSA,
+			Size:  2048,
+			Usage: usage,
+		})
+		require.ErrorIs(t, err, cryptoprov.ErrNotSupported)
+		require.ErrorContains(t, err, "unsupported key usage: "+usage.String()+", only signing keys are supported")
+	}
+	for _, req := range []*cryptoprov.GenerateKeyRequest{
+		{
+			Label: "small",
+			Type:  certutil.KeyTypeRSA,
+			Size:  1024,
+		},
+		{
+			Label: "p521",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  521,
+		},
+	} {
+		_, err := provider.GenerateKey(t.Context(), req)
+		require.ErrorIs(t, err, cryptoprov.ErrNotSupported, req.Label)
+		require.ErrorContains(t, err, fmt.Sprintf("unsupported %s key size: %d", req.Type, req.Size))
+	}
+	_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "tagged",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+		Tags:  map[string]string{"label": "mine"},
+	})
+	require.EqualError(t, err, `invalid tag "label": the name is reserved for the key label`)
+	_, err = provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: "unknown",
+		Type:  "DSA",
+		Size:  2048,
+	})
+	require.ErrorContains(t, err, `invalid key type "DSA"`)
 	assert.Empty(t, client.Calls())
 
-	for _, purpose := range []int{0, 1, 3} {
-		_, err := provider.GenerateRSAKey("sign", 2048, purpose)
-		require.ErrorIs(t, err, errUnexpectedCall, "purpose %d reaches CreateCryptoKey", purpose)
+	for _, usage := range []cryptoprov.KeyUsage{0, cryptoprov.KeyUsageSign} {
+		_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "sign",
+			Type:  certutil.KeyTypeRSA,
+			Size:  2048,
+			Usage: usage,
+		})
+		require.ErrorIs(t, err, errUnexpectedCall, "usage %d reaches CreateCryptoKey", usage)
 	}
-	assert.Equal(t, 3, client.CallCount("CreateCryptoKey"))
+	assert.Equal(t, 2, client.CallCount("CreateCryptoKey"))
 }
 
 // generatingKMS returns a fake client whose CreateCryptoKey answers with
@@ -174,7 +219,11 @@ func TestGenerateKeyIDExists(t *testing.T) {
 			assert.Equal(t, "label", req.GetCryptoKey().GetLabels()["label"])
 			return create(req)
 		}
-		pk, err := newProvider(t, client).GenerateECDSAKey("label", elliptic.P256())
+		pk, err := newProvider(t, client).GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "label",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  256,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, genVersionID, pk.(*gcpkmscrypto.Signer).KeyID())
 		require.Len(t, ids, 3)
@@ -185,7 +234,11 @@ func TestGenerateKeyIDExists(t *testing.T) {
 	t.Run("exhausted", func(t *testing.T) {
 		t.Parallel()
 		client := generatingKMS(0, kmspb.CryptoKeyVersion_ENABLED, exists, exists, exists)
-		_, err := newProvider(t, client).GenerateECDSAKey("label", elliptic.P256())
+		_, err := newProvider(t, client).GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "label",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  256,
+		})
 		require.Error(t, err)
 		assert.Equal(t, codes.AlreadyExists, status.Code(errors.UnwrapAll(err)))
 		assert.True(t, strings.HasPrefix(err.Error(), "failed to create key label-"), err.Error())
@@ -196,7 +249,11 @@ func TestGenerateKeyIDExists(t *testing.T) {
 	t.Run("other error", func(t *testing.T) {
 		t.Parallel()
 		client := generatingKMS(0, kmspb.CryptoKeyVersion_ENABLED, invalid)
-		_, err := newProvider(t, client).GenerateECDSAKey("label", elliptic.P256())
+		_, err := newProvider(t, client).GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "label",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  256,
+		})
 		require.Error(t, err)
 		assert.Equal(t, codes.InvalidArgument, status.Code(errors.UnwrapAll(err)))
 		assert.Equal(t, 1, client.CallCount("CreateCryptoKey"))
@@ -232,7 +289,11 @@ func TestGenerateKeyWait(t *testing.T) {
 			provider := newProvider(t, client)
 			gcpkmscrypto.SetGenerationWait(provider, genInterval, genAttempts, recordingSleep(&mu, &waits))
 
-			pk, err := provider.GenerateECDSAKey("label", elliptic.P256())
+			pk, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "label",
+				Type:  certutil.KeyTypeECDSA,
+				Size:  256,
+			})
 			if tc.err != "" {
 				require.EqualError(t, err, tc.err)
 				assert.Nil(t, pk)
@@ -260,7 +321,11 @@ func TestGenerateKeyWait(t *testing.T) {
 		var mu sync.Mutex
 		var waits []time.Duration
 		gcpkmscrypto.SetGenerationWait(provider, genInterval, genAttempts, recordingSleep(&mu, &waits))
-		_, err := provider.GenerateECDSAKey("label", elliptic.P256())
+		_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "label",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  256,
+		})
 		require.ErrorIs(t, err, failure)
 		assert.Equal(t, "failed to get key version "+genVersion+": KMS unavailable", err.Error())
 		assert.Equal(t, 1, client.CallCount("GetCryptoKeyVersion"))
@@ -295,7 +360,11 @@ func TestGenerateKeyWaitCancelled(t *testing.T) {
 		provider, polled := pollingProvider(t)
 		done := make(chan error, 1)
 		go func() {
-			_, err := provider.GenerateECDSAKey("label", elliptic.P256())
+			_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "label",
+				Type:  certutil.KeyTypeECDSA,
+				Size:  256,
+			})
 			done <- err
 		}()
 		<-polled
@@ -335,7 +404,7 @@ func TestGenerateKeyWaitCancelled(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
 		go func() {
-			_, err := gcpkmscrypto.GenKey(provider, ctx, "label", kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256)
+			_, err := gcpkmscrypto.GenKey(provider, ctx, "label", kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256, nil)
 			done <- err
 		}()
 		<-polled
@@ -464,7 +533,11 @@ func TestGenerateKeyDiscard(t *testing.T) {
 			var waits []time.Duration
 			gcpkmscrypto.SetGenerationWait(provider, genInterval, genAttempts, recordingSleep(&mu, &waits))
 
-			pk, err := provider.GenerateECDSAKey("label", elliptic.P256())
+			pk, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "label",
+				Type:  certutil.KeyTypeECDSA,
+				Size:  256,
+			})
 			if tc.err != "" {
 				require.EqualError(t, err, tc.err)
 				assert.Nil(t, pk)
@@ -484,7 +557,11 @@ func TestGenerateKeyDiscard(t *testing.T) {
 		t.Parallel()
 		client := generatingKMS(0, kmspb.CryptoKeyVersion_ENABLED, failure)
 		destroyed := recordDestroyed(client, nil)
-		_, err := newProvider(t, client).GenerateECDSAKey("label", elliptic.P256())
+		_, err := newProvider(t, client).GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "label",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  256,
+		})
 		require.ErrorIs(t, err, failure)
 		assert.Empty(t, *destroyed)
 	})
@@ -509,7 +586,11 @@ func TestGenerateKeyDiscard(t *testing.T) {
 				},
 			}, nil
 		}
-		_, err := newProvider(t, client).GenerateMLDSAKey("label", mldsa.MLDSA65())
+		_, err := newProvider(t, client).GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "label",
+			Type:  certutil.KeyTypeMLDSA,
+			Size:  cryptoprov.MLDSA65,
+		})
 		require.EqualError(t, err, "public key corrupted in-transit")
 		assert.Equal(t, []string{genVersion}, *destroyed)
 	})
@@ -528,11 +609,41 @@ func TestGenerateKeyRequest(t *testing.T) {
 		generate  func() (crypto.PrivateKey, error)
 		algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm
 	}{
-		{name: "rsa2048", generate: func() (crypto.PrivateKey, error) { return provider.GenerateRSAKey("RSA 2048", 2048, 1) }, algorithm: kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256},
-		{name: "rsa3072", generate: func() (crypto.PrivateKey, error) { return provider.GenerateRSAKey("RSA 3072", 3072, 1) }, algorithm: kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256},
-		{name: "rsa4096", generate: func() (crypto.PrivateKey, error) { return provider.GenerateRSAKey("RSA 4096", 4096, 1) }, algorithm: kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512},
-		{name: "p256", generate: func() (crypto.PrivateKey, error) { return provider.GenerateECDSAKey("EC P256*", elliptic.P256()) }, algorithm: kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256},
-		{name: "p384", generate: func() (crypto.PrivateKey, error) { return provider.GenerateECDSAKey("EC P384", elliptic.P384()) }, algorithm: kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384},
+		{name: "rsa2048", generate: func() (crypto.PrivateKey, error) {
+			return provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "RSA 2048",
+				Type:  certutil.KeyTypeRSA,
+				Size:  2048,
+			})
+		}, algorithm: kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256},
+		{name: "rsa3072", generate: func() (crypto.PrivateKey, error) {
+			return provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "RSA 3072",
+				Type:  certutil.KeyTypeRSA,
+				Size:  3072,
+			})
+		}, algorithm: kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256},
+		{name: "rsa4096", generate: func() (crypto.PrivateKey, error) {
+			return provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "RSA 4096",
+				Type:  certutil.KeyTypeRSA,
+				Size:  4096,
+			})
+		}, algorithm: kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512},
+		{name: "p256", generate: func() (crypto.PrivateKey, error) {
+			return provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "EC P256*",
+				Type:  certutil.KeyTypeECDSA,
+				Size:  256,
+			})
+		}, algorithm: kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256},
+		{name: "p384", generate: func() (crypto.PrivateKey, error) {
+			return provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "EC P384",
+				Type:  certutil.KeyTypeECDSA,
+				Size:  384,
+			})
+		}, algorithm: kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pk, err := tc.generate()
@@ -545,9 +656,12 @@ func TestGenerateKeyRequest(t *testing.T) {
 			assert.Equal(t, id+"/cryptoKeyVersions/1", signer.KeyID())
 			assert.Equal(t, strings.TrimSuffix(id[:len(id)-9], "-"), signer.Label())
 
-			ki, err := provider.KeyInfo(0, signer.KeyID(), false)
+			ki, err := provider.KeyInfo(t.Context(), signer.KeyID(), keyFields)
 			require.NoError(t, err)
-			assert.Equal(t, "protection=HSM,label="+signer.Label(), ki.Label)
+			assert.Equal(t, signer.Label(), ki.Label)
+			assert.Equal(t, signer.KeyID(), ki.ID)
+			assert.Equal(t, cryptoprov.KeyUsageSign, ki.Usage)
+			assert.Equal(t, cryptoprov.KeyStateEnabled, ki.State)
 			assert.Equal(t, tc.algorithm.String(), ki.Meta["algo"])
 			assert.Equal(t, "ASYMMETRIC_SIGN", ki.Meta["purpose"])
 		})

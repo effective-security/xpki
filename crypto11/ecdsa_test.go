@@ -45,7 +45,7 @@ func TestHardECDSA(t *testing.T) {
 	var id, label string
 
 	for i, curve := range curves {
-		priv, err = p11lib.GenerateECDSAKeyPair(curve)
+		priv, err = p11lib.GenerateECDSAKeyPair(t.Context(), curve)
 		require.NoError(t, err, "[%d] crypto11.GenerateECDSAKeyPair, curve=%v: %v", i, curve, err)
 		require.NotNil(t, priv)
 
@@ -55,14 +55,14 @@ func TestHardECDSA(t *testing.T) {
 		testEcdsaSigning(t, priv, crypto.SHA384)
 		testEcdsaSigning(t, priv, crypto.SHA512)
 		// Get a fresh handle to  the key
-		id, label, err = p11lib.Identify(&priv.key.PKCS11Object)
+		id, label, err = p11lib.Identify(t.Context(), &priv.key.PKCS11Object)
 		require.NoError(t, err, "crypto11.Identify: %v", err)
 
-		key2, err = p11lib.FindKeyPair(id, "")
+		key2, err = p11lib.FindKeyPair(t.Context(), id, "")
 		require.NoError(t, err, "crypto11.FindKeyPair: %v", err)
 		testEcdsaSigning(t, key2.(*PKCS11PrivateKeyECDSA), crypto.SHA256)
 
-		key3, err = p11lib.FindKeyPair("", label)
+		key3, err = p11lib.FindKeyPair(t.Context(), "", label)
 		require.NoError(t, err, "crypto11.FindKeyPair: %v", err)
 		testEcdsaSigning(t, key3.(crypto.Signer), crypto.SHA384)
 	}

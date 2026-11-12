@@ -12,3 +12,16 @@ const MaxPBKDF2Iterations = maxPBKDF2Iterations
 func (b *Bundler) Learn(base, pool *x509.CertPool, certs []*x509.Certificate) {
 	b.learn(base, pool, certs)
 }
+
+// ClearIntermediates clears the intermediate pool and the known issuers of
+// b, a state only this package can produce.
+func ClearIntermediates(b *Bundler) {
+	b.intermediatePool = nil
+	b.knownIssuers = nil
+}
+
+// ClearRoots clears the trust roots of b, a state only this package can
+// produce.
+func ClearRoots(b *Bundler) {
+	b.rootPool = nil
+}

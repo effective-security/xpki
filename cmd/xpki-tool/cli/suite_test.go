@@ -9,8 +9,8 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/x/ctl"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/crypto/ocsp"
 )

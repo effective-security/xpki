@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -50,7 +51,7 @@ func TestKeyRequest(t *testing.T) {
 			assert.Equal(t, tc.expalg, csr.SigAlgo(tc.algo, tc.size))
 
 			kr := csr.NewKeyRequest(defprov, label, tc.algo, tc.size, csr.SigningKey)
-			priv, err := kr.Generate()
+			priv, err := kr.Generate(t.Context())
 			if tc.experr != "" {
 				require.Error(t, err)
 				assert.Equal(t, tc.experr, err.Error())
@@ -70,12 +71,53 @@ func TestKeyRequest(t *testing.T) {
 func TestKeyRequestMLDSAPurpose(t *testing.T) {
 	t.Parallel()
 	defprov := inmemcrypto.NewProvider()
-	_, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, csr.EncryptionKey).Generate()
+	_, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, csr.EncryptionKey).Generate(t.Context())
 	require.EqualError(t, err, "validate ML-DSA key: unsupported key purpose: 2, ML-DSA keys are signing keys")
 	for _, purpose := range []csr.KeyPurpose{csr.Undefined, csr.SigningKey} {
-		priv, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, purpose).Generate()
+		priv, err := csr.NewKeyRequest(defprov, "pq", csr.AlgoMLDSA, csr.MLDSA44, purpose).Generate(t.Context())
 		require.NoError(t, err, "purpose %d", purpose)
 		assert.True(t, certutil.IsPostQuantumKey(priv))
+	}
+}
+
+// TestKeyRequestPurposeUsage checks the usage each purpose gives the key
+// generated through the provider, and that an undefined purpose value, such
+// as a configured `purpose: 3`, or an encryption purpose for a signing-only
+// algorithm, is rejected before the provider is called.
+func TestKeyRequestPurposeUsage(t *testing.T) {
+	t.Parallel()
+	defprov := inmemcrypto.NewProvider()
+	for _, tc := range []struct {
+		algo    string
+		size    int
+		purpose csr.KeyPurpose
+		usage   cryptoprov.KeyUsage
+		err     string
+	}{
+		{algo: csr.AlgoRSA, size: 2048, purpose: csr.Undefined, usage: cryptoprov.KeyUsageSign},
+		{algo: csr.AlgoRSA, size: 2048, purpose: csr.SigningKey, usage: cryptoprov.KeyUsageSign},
+		{algo: csr.AlgoRSA, size: 2048, purpose: csr.EncryptionKey, usage: cryptoprov.KeyUsageEncrypt},
+		{algo: csr.AlgoECDSA, size: csr.CurveP256, purpose: csr.Undefined, usage: cryptoprov.KeyUsageSign},
+		{algo: csr.AlgoECDSA, size: csr.CurveP256, purpose: csr.SigningKey, usage: cryptoprov.KeyUsageSign},
+		{algo: csr.AlgoECDSA, size: csr.CurveP256, purpose: csr.EncryptionKey, err: "validate ECDSA key: unsupported key purpose: 2, ECDSA keys are signing keys"},
+		{algo: csr.AlgoRSA, size: 2048, purpose: csr.KeyPurpose(3), err: "validate RSA key: invalid key purpose: 3"},
+	} {
+		name := fmt.Sprintf("%s_%d_%d", tc.algo, tc.size, tc.purpose)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			priv, err := csr.NewKeyRequest(defprov, name, tc.algo, tc.size, tc.purpose).Generate(t.Context())
+			if tc.err != "" {
+				require.EqualError(t, err, tc.err)
+				assert.Nil(t, priv)
+				return
+			}
+			require.NoError(t, err)
+			keyID, _, err := defprov.IdentifyKey(t.Context(), priv)
+			require.NoError(t, err)
+			info, err := defprov.KeyInfo(t.Context(), keyID, cryptoprov.KeyFieldMetadata)
+			require.NoError(t, err)
+			assert.Equal(t, tc.usage, info.Usage)
+		})
 	}
 }
 
@@ -99,7 +141,7 @@ func TestKeyRequestMLDSAFromYAML(t *testing.T) {
 	require.Equal(t, 44, req.KeyRequest.Size())
 	assert.Equal(t, x509.MLDSA44, req.KeyRequest.SigAlgo())
 
-	csrPEM, priv, keyID, err := prov.GenerateKeyAndRequest(req)
+	csrPEM, priv, keyID, err := prov.GenerateKeyAndRequest(t.Context(), req)
 	require.NoError(t, err)
 	assert.NotEmpty(t, keyID)
 	parsed, err := csr.ParsePEM(csrPEM)

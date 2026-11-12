@@ -6,8 +6,8 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/effective-security/x/ctl"
-	"github.com/effective-security/xpki/cmd/xpki-tool/cli"
-	"github.com/effective-security/xpki/internal/version"
+	"github.com/effective-security/xpki/v2/cmd/xpki-tool/cli"
+	"github.com/effective-security/xpki/v2/internal/version"
 )
 
 type app struct {

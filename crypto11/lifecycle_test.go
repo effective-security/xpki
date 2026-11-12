@@ -1,6 +1,7 @@
 package crypto11
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -82,10 +83,10 @@ func TestInit_SharedModule(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, benchRandomSize, n)
 
-	priv, err := lib2.GenerateECDSAKeyPair(elliptic.P256())
+	priv, err := lib2.GenerateECDSAKeyPair(t.Context(), elliptic.P256())
 	require.NoError(t, err)
 	keyID := string(mustKeyID(t, priv))
-	t.Cleanup(func() { _ = p11lib.DestroyKeyPairOnSlot(p11lib.Slot.id, keyID) })
+	t.Cleanup(func() { _ = p11lib.destroyKeyOnSlot(context.Background(), p11lib.Slot.id, keyID) })
 	digest := sha256.Sum256([]byte("shared module"))
 
 	closeLib(t, lib2)
@@ -96,7 +97,7 @@ func TestInit_SharedModule(t *testing.T) {
 	assert.Equal(t, refs, moduleRefs(cfg.Path()))
 
 	// the remaining wrapper still works and the key is still on the token
-	key, err := p11lib.FindKeyPair(keyID, "")
+	key, err := p11lib.FindKeyPair(t.Context(), keyID, "")
 	require.NoError(t, err)
 	sig, err := key.(crypto.Signer).Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.NoError(t, err)
@@ -110,17 +111,17 @@ func TestInit_SharedModule(t *testing.T) {
 	assert.ErrorIs(t, err, errClosed)
 	_, err = lib2.TokensInfo()
 	assert.ErrorIs(t, err, errClosed)
-	_, err = lib2.EnumTokens(false)
+	_, err = lib2.ListTokens(t.Context())
 	assert.ErrorIs(t, err, errClosed)
-	_, err = lib2.EnumKeys(slot, "")
+	_, err = enumKeys(lib2, slot, "")
 	assert.ErrorIs(t, err, errClosed)
-	_, err = lib2.KeyInfo(slot, keyID, true)
+	_, err = lib2.keyInfoOnSlot(t.Context(), slot, keyID, keyFieldsPublic)
 	assert.ErrorIs(t, err, errClosed)
-	_, err = lib2.FindKeyPair(keyID, "")
+	_, err = lib2.FindKeyPair(t.Context(), keyID, "")
 	assert.ErrorIs(t, err, errClosed)
 	_, err = lib2.NewSession(slot)
 	assert.ErrorIs(t, err, errClosed)
-	assert.ErrorIs(t, lib2.DestroyKeyPairOnSlot(slot, keyID), errClosed)
+	assert.ErrorIs(t, lib2.destroyKeyOnSlot(context.Background(), slot, keyID), errClosed)
 }
 
 // XPKI-001/005: Close closes every session the wrapper opened, including
@@ -128,16 +129,16 @@ func TestInit_SharedModule(t *testing.T) {
 func TestClose_ClosesAllSessions(t *testing.T) {
 	requireP11(t)
 	cfg := loadTestConfig(t)
-	priv, err := p11lib.GenerateECDSAKeyPair(elliptic.P256())
+	priv, err := p11lib.GenerateECDSAKeyPair(t.Context(), elliptic.P256())
 	require.NoError(t, err)
 	keyID := string(mustKeyID(t, priv))
-	t.Cleanup(func() { _ = p11lib.DestroyKeyPairOnSlot(p11lib.Slot.id, keyID) })
+	t.Cleanup(func() { _ = p11lib.destroyKeyOnSlot(context.Background(), p11lib.Slot.id, keyID) })
 	digest := sha256.Sum256([]byte("close"))
 
 	before := probeSessionHandle(t)
 	lib2, err := Init(cfg, WithMaxSessions(4))
 	require.NoError(t, err)
-	key, err := lib2.FindKeyPair(keyID, "")
+	key, err := lib2.FindKeyPair(t.Context(), keyID, "")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -286,10 +287,10 @@ func TestLifecycleChild(t *testing.T) {
 	assert.Same(t, lib1.Ctx, lib2.Ctx)
 	assert.Equal(t, 2, moduleRefs(path))
 
-	priv, err := lib1.GenerateECDSAKeyPair(elliptic.P256())
+	priv, err := lib1.GenerateECDSAKeyPair(t.Context(), elliptic.P256())
 	require.NoError(t, err)
 	keyID := string(mustKeyIDOn(t, lib1, priv))
-	key, err := lib2.FindKeyPair(keyID, "")
+	key, err := lib2.FindKeyPair(t.Context(), keyID, "")
 	require.NoError(t, err)
 	digest := sha256.Sum256([]byte("child"))
 
@@ -299,7 +300,7 @@ func TestLifecycleChild(t *testing.T) {
 	sig, err := key.(crypto.Signer).Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.NoError(t, err)
 	assert.True(t, ecdsa.VerifyASN1(priv.Public().(*ecdsa.PublicKey), digest[:], sig))
-	require.NoError(t, lib2.DestroyKeyPairOnSlot(lib2.Slot.id, keyID))
+	require.NoError(t, lib2.destroyKeyOnSlot(context.Background(), lib2.Slot.id, keyID))
 
 	// the last Close finalizes and unloads the module
 	closeLib(t, lib2)
@@ -347,7 +348,7 @@ func TestLifecycle_ExternalInit(t *testing.T) {
 
 func mustKeyIDOn(tb testing.TB, lib *PKCS11Lib, priv *PKCS11PrivateKeyECDSA) []byte {
 	tb.Helper()
-	id, _, err := lib.Identify(&priv.key.PKCS11Object)
+	id, _, err := lib.Identify(tb.Context(), &priv.key.PKCS11Object)
 	require.NoError(tb, err)
 	return []byte(id)
 }

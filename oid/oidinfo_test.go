@@ -4,7 +4,7 @@ import (
 	"crypto/x509"
 	"testing"
 
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/oid"
 	"github.com/stretchr/testify/assert"
 )
 

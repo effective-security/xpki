@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
-	jwtgo "github.com/effective-security/xpki/jwt"
+	jwtgo "github.com/effective-security/xpki/v2/jwt"
 	"github.com/go-jose/go-jose/v4"
 	josejson "github.com/go-jose/go-jose/v4/json"
 	"github.com/go-jose/go-jose/v4/jwt"

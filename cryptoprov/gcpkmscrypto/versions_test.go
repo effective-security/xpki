@@ -9,8 +9,8 @@ import (
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -66,60 +66,60 @@ func TestKeyVersions(t *testing.T) {
 	v2ID := rotatedKey + "/cryptoKeyVersions/2"
 
 	// the only version is the newest enabled one
-	pk, err := provider.GetKey(rotatedKey)
+	pk, err := provider.GetKey(t.Context(), rotatedKey)
 	require.NoError(t, err)
 	signer1 := ecSigner(t, s, pk, v1ID, v1)
 
 	// after rotation a bare id selects version 2, the version-1 signer
 	// and an explicit version 1 keep signing with version 1
 	v2 := s.AddVersion(t, keyName, kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256, kmspb.CryptoKeyVersion_ENABLED)
-	pk, err = provider.GetKey(rotatedKey)
+	pk, err = provider.GetKey(t.Context(), rotatedKey)
 	require.NoError(t, err)
 	signer2 := ecSigner(t, s, pk, v2ID, v2)
 	assert.Equal(t, []bool{false, true}, signAndVerify(t, s, signer2, v1, v2))
 	assert.Equal(t, []bool{true, false}, signAndVerify(t, s, signer1, v1, v2))
 
-	pk, err = provider.GetKey(v1ID)
+	pk, err = provider.GetKey(t.Context(), v1ID)
 	require.NoError(t, err)
 	assert.Equal(t, []bool{true, false}, signAndVerify(t, s, ecSigner(t, s, pk, v1ID, v1), v1, v2))
 
 	// the exported URI of a signer pins its version; a legacy URI without
 	// a version follows the newest enabled version
-	uri, key, err := provider.ExportKey(signer1.(*gcpkmscrypto.Signer).KeyID())
+	uri, key, err := provider.ExportKey(t.Context(), signer1.(*gcpkmscrypto.Signer).KeyID())
 	require.NoError(t, err)
 	assert.Equal(t, "pkcs11:manufacturer=GCPKMS;model=KMS;id=rot/cryptoKeyVersions/1;serial=1;type=private", uri)
 	assert.Equal(t, []byte(uri), key)
 	pinned, err := cryptoprov.ParsePrivateKeyURI(uri)
 	require.NoError(t, err)
-	pk, err = provider.GetKey(pinned.ID())
+	pk, err = provider.GetKey(t.Context(), pinned.ID())
 	require.NoError(t, err)
 	ecSigner(t, s, pk, v1ID, v1)
 
 	legacy, err := cryptoprov.ParsePrivateKeyURI(legacyURI)
 	require.NoError(t, err)
 	assert.Equal(t, rotatedKey, legacy.ID())
-	pk, err = provider.GetKey(legacy.ID())
+	pk, err = provider.GetKey(t.Context(), legacy.ID())
 	require.NoError(t, err)
 	ecSigner(t, s, pk, v2ID, v2)
 
 	// a disabled version is skipped by a bare id and rejected by name
 	s.SetState(t, v2, kmspb.CryptoKeyVersion_DISABLED)
-	pk, err = provider.GetKey(rotatedKey)
+	pk, err = provider.GetKey(t.Context(), rotatedKey)
 	require.NoError(t, err)
 	ecSigner(t, s, pk, v1ID, v1)
-	_, err = provider.GetKey(v2ID)
+	_, err = provider.GetKey(t.Context(), v2ID)
 	require.EqualError(t, err, "key version rot/cryptoKeyVersions/2 is DISABLED")
 
 	// no enabled version at all
 	s.SetState(t, v1, kmspb.CryptoKeyVersion_DISABLED)
-	_, err = provider.GetKey(rotatedKey)
+	_, err = provider.GetKey(t.Context(), rotatedKey)
 	require.EqualError(t, err, "key rot has no enabled version")
 
 	// a missing version or key is the KMS error
-	_, err = provider.GetKey(rotatedKey + "/cryptoKeyVersions/3")
+	_, err = provider.GetKey(t.Context(), rotatedKey+"/cryptoKeyVersions/3")
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(errors.UnwrapAll(err)))
-	_, err = provider.GetKey("missing")
+	_, err = provider.GetKey(t.Context(), "missing")
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(errors.UnwrapAll(err)))
 }
@@ -140,18 +140,18 @@ func TestKeyVersionPaging(t *testing.T) {
 	// follows page tokens.
 	s.SetState(t, names[1], kmspb.CryptoKeyVersion_DISABLED)
 	s.SetState(t, names[2], kmspb.CryptoKeyVersion_DESTROY_SCHEDULED)
-	pk, err := provider.GetKey(rotatedKey)
+	pk, err := provider.GetKey(t.Context(), rotatedKey)
 	require.NoError(t, err)
 	ecSigner(t, s, pk, rotatedKey+"/cryptoKeyVersions/5", names[3])
 	assert.Equal(t, (5+fakeVersionPageSize-1)/fakeVersionPageSize, s.CallCount("ListCryptoKeyVersions"), "pages fetched")
 	s.SetState(t, names[3], kmspb.CryptoKeyVersion_DESTROYED)
-	pk, err = provider.GetKey(rotatedKey)
+	pk, err = provider.GetKey(t.Context(), rotatedKey)
 	require.NoError(t, err)
 	ecSigner(t, s, pk, rotatedKey+"/cryptoKeyVersions/2", names[0])
 }
 
 // TestKeyInfoVersions checks that KeyInfo describes the selected version
-// and that EnumKeys does not invent one (XPKI-020).
+// and that ListKeys does not invent one (XPKI-020).
 func TestKeyInfoVersions(t *testing.T) {
 	t.Parallel()
 
@@ -161,30 +161,30 @@ func TestKeyInfoVersions(t *testing.T) {
 	v1 := keyName + "/cryptoKeyVersions/1"
 	v2 := s.AddVersion(t, keyName, kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384, kmspb.CryptoKeyVersion_ENABLED)
 
-	ki, err := provider.KeyInfo(0, rotatedKey, true)
+	ki, err := provider.KeyInfo(t.Context(), rotatedKey, keyFieldsPublic)
 	require.NoError(t, err)
 	assert.Equal(t, rotatedKey, ki.ID)
 	assert.Equal(t, "2", ki.CurrentVersionID)
-	assert.Equal(t, "protection=HSM,label=rotated", ki.Label)
+	assert.Equal(t, "rotated", ki.Label)
 	assert.Equal(t, map[string]string{
 		"purpose":    "ASYMMETRIC_SIGN",
 		"state":      "ENABLED",
 		"algo":       "EC_SIGN_P384_SHA384",
 		"protection": "HSM",
 	}, ki.Meta)
-	pub, err := provider.GetKey(rotatedKey)
+	pub, err := provider.GetKey(t.Context(), rotatedKey)
 	require.NoError(t, err)
 	assert.Equal(t, publicPEM(t, pub.(crypto.Signer).Public()), ki.PublicKey)
 
 	s.SetState(t, v2, kmspb.CryptoKeyVersion_DISABLED)
-	ki, err = provider.KeyInfo(0, rotatedKey, true)
+	ki, err = provider.KeyInfo(t.Context(), rotatedKey, keyFieldsPublic)
 	require.NoError(t, err)
 	assert.Equal(t, "1", ki.CurrentVersionID)
 	assert.Equal(t, "EC_SIGN_P256_SHA256", ki.Meta["algo"])
 	assert.Equal(t, publicPEM(t, s.PublicKey(t, v1)), ki.PublicKey)
 
 	// an explicit version is described whatever its state
-	ki, err = provider.KeyInfo(0, rotatedKey+"/cryptoKeyVersions/2", false)
+	ki, err = provider.KeyInfo(t.Context(), rotatedKey+"/cryptoKeyVersions/2", keyFields)
 	require.NoError(t, err)
 	assert.Equal(t, "2", ki.CurrentVersionID)
 	assert.Equal(t, "DISABLED", ki.Meta["state"])
@@ -193,25 +193,25 @@ func TestKeyInfoVersions(t *testing.T) {
 	// with no enabled version, a bare id describes the newest version that
 	// is not destroyed (XPKI-117), and GetKey still refuses it
 	s.SetState(t, v1, kmspb.CryptoKeyVersion_DISABLED)
-	ki, err = provider.KeyInfo(0, rotatedKey, false)
+	ki, err = provider.KeyInfo(t.Context(), rotatedKey, keyFields)
 	require.NoError(t, err)
 	assert.Equal(t, "2", ki.CurrentVersionID)
 	assert.Equal(t, "DISABLED", ki.Meta["state"])
-	_, err = provider.GetKey(rotatedKey)
+	_, err = provider.GetKey(t.Context(), rotatedKey)
 	require.EqualError(t, err, "key rot has no enabled version")
 	// KMS refuses the public key of a disabled version; the error is its
-	_, err = provider.KeyInfo(0, rotatedKey, true)
+	_, err = provider.KeyInfo(t.Context(), rotatedKey, keyFieldsPublic)
 	require.Error(t, err)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(errors.UnwrapAll(err)))
 
 	s.SetState(t, v2, kmspb.CryptoKeyVersion_DESTROYED)
-	ki, err = provider.KeyInfo(0, rotatedKey, false)
+	ki, err = provider.KeyInfo(t.Context(), rotatedKey, keyFields)
 	require.NoError(t, err)
 	assert.Equal(t, "1", ki.CurrentVersionID)
 
 	// with every version destroyed, the key alone is described
 	s.SetState(t, v1, kmspb.CryptoKeyVersion_DESTROYED)
-	ki, err = provider.KeyInfo(0, rotatedKey, false)
+	ki, err = provider.KeyInfo(t.Context(), rotatedKey, keyFields)
 	require.NoError(t, err)
 	assert.Equal(t, rotatedKey, ki.ID)
 	assert.Empty(t, ki.CurrentVersionID)
@@ -220,19 +220,30 @@ func TestKeyInfoVersions(t *testing.T) {
 		"algo":       "EC_SIGN_P256_SHA256",
 		"protection": "HSM",
 	}, ki.Meta)
-	_, err = provider.KeyInfo(0, rotatedKey, true)
+	_, err = provider.KeyInfo(t.Context(), rotatedKey, keyFieldsPublic)
 	require.EqualError(t, err, "key rot has no version with a public key")
 
-	// listing does not resolve versions
-	keys, err := provider.EnumKeys(0, "")
+	// a listing does not resolve versions unless the state is asked for
+	listings := s.CallCount("ListCryptoKeyVersions")
+	resp, err := provider.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{Fields: cryptoprov.KeyFieldMetadata})
 	require.NoError(t, err)
-	require.Len(t, keys, 1)
-	assert.Equal(t, rotatedKey, keys[0].ID)
-	assert.Empty(t, keys[0].CurrentVersionID)
-	assert.NotContains(t, keys[0].Meta, "state")
+	require.Len(t, resp.Keys, 1)
+	assert.Equal(t, rotatedKey, resp.Keys[0].ID)
+	assert.Empty(t, resp.Keys[0].CurrentVersionID)
+	assert.Empty(t, resp.Keys[0].State)
+	assert.NotContains(t, resp.Keys[0].Meta, "state")
+	assert.Equal(t, listings, s.CallCount("ListCryptoKeyVersions"))
+
+	// every version is destroyed: the key is, and has no version to name
+	resp, err = provider.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{Fields: cryptoprov.KeyFieldState})
+	require.NoError(t, err)
+	require.Len(t, resp.Keys, 1)
+	assert.Equal(t, cryptoprov.KeyStateDestroyed, resp.Keys[0].State)
+	assert.Empty(t, resp.Keys[0].CurrentVersionID)
+	assert.Greater(t, s.CallCount("ListCryptoKeyVersions"), listings)
 }
 
-// TestDestroyVersions checks exactly which versions DestroyKeyPairOnSlot
+// TestDestroyVersions checks exactly which versions DestroyKey
 // destroys (XPKI-020, XPKI-116).
 func TestDestroyVersions(t *testing.T) {
 	t.Parallel()
@@ -261,7 +272,7 @@ func TestDestroyVersions(t *testing.T) {
 
 	// an explicit version is destroyed on its own, whatever its state, with
 	// one RPC and no lookup
-	require.NoError(t, provider.DestroyKeyPairOnSlot(0, rotatedKey+"/cryptoKeyVersions/3"))
+	require.NoError(t, provider.DestroyKey(t.Context(), rotatedKey+"/cryptoKeyVersions/3"))
 	assert.Equal(t, []kmspb.CryptoKeyVersion_CryptoKeyVersionState{enabled, enabled, scheduled, scheduled, pending}, stateOf(v1, v2, v3, v4, v5))
 	assert.Equal(t, []string{"DestroyCryptoKeyVersion"}, s.Calls()[len(s.Calls())-1:])
 	s.SetState(t, v3, disabled)
@@ -269,29 +280,29 @@ func TestDestroyVersions(t *testing.T) {
 	// a bare id destroys every enabled or disabled version, newest first,
 	// and stops at the first failure
 	s.FailDestroy(v2, status.Error(codes.Internal, "hsm busy"))
-	err := provider.DestroyKeyPairOnSlot(0, rotatedKey)
+	err := provider.DestroyKey(t.Context(), rotatedKey)
 	require.Error(t, err)
 	assert.Equal(t, "failed to schedule key deletion: rot/cryptoKeyVersions/2: rpc error: code = Internal desc = hsm busy", err.Error())
 	assert.Equal(t, []kmspb.CryptoKeyVersion_CryptoKeyVersionState{enabled, enabled, scheduled, scheduled, pending}, stateOf(v1, v2, v3, v4, v5))
 
 	s.FailDestroy(v2, nil)
-	require.NoError(t, provider.DestroyKeyPairOnSlot(0, rotatedKey))
+	require.NoError(t, provider.DestroyKey(t.Context(), rotatedKey))
 	assert.Equal(t, []kmspb.CryptoKeyVersion_CryptoKeyVersionState{scheduled, scheduled, scheduled, scheduled, pending}, stateOf(v1, v2, v3, v4, v5))
-	_, err = provider.GetKey(rotatedKey)
+	_, err = provider.GetKey(t.Context(), rotatedKey)
 	require.EqualError(t, err, "key rot has no enabled version", "the key can no longer sign")
 
 	// nothing left to destroy
-	require.EqualError(t, provider.DestroyKeyPairOnSlot(0, rotatedKey), "key rot has no version to destroy")
+	require.EqualError(t, provider.DestroyKey(t.Context(), rotatedKey), "key rot has no version to destroy")
 	assert.Equal(t, 5, s.CallCount("DestroyCryptoKeyVersion"))
 
 	// a retired key whose only version is disabled is destroyed by its bare id
 	retired := s.AddKey(t, "retired", kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256, "retired") + "/cryptoKeyVersions/1"
 	s.SetState(t, retired, disabled)
-	require.NoError(t, provider.DestroyKeyPairOnSlot(0, "retired"))
+	require.NoError(t, provider.DestroyKey(t.Context(), "retired"))
 	assert.Equal(t, scheduled, s.State(t, retired))
 
 	// a missing version is the KMS error
-	err = provider.DestroyKeyPairOnSlot(0, rotatedKey+"/cryptoKeyVersions/9")
+	err = provider.DestroyKey(t.Context(), rotatedKey+"/cryptoKeyVersions/9")
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(errors.UnwrapAll(err)))
 	assert.Equal(t, 0, s.CallCount("GetCryptoKeyVersion"), "destroy never fetches a version")
@@ -314,12 +325,12 @@ func TestInvalidKeyIDs(t *testing.T) {
 	} {
 		t.Run(keyID, func(t *testing.T) {
 			want := `invalid key ID: "` + keyID + `"`
-			_, err := provider.GetKey(keyID)
+			_, err := provider.GetKey(t.Context(), keyID)
 			assert.EqualError(t, err, want)
-			_, err = provider.KeyInfo(0, keyID, true)
+			_, err = provider.KeyInfo(t.Context(), keyID, keyFieldsPublic)
 			assert.EqualError(t, err, want)
-			assert.EqualError(t, provider.DestroyKeyPairOnSlot(0, keyID), want)
-			_, _, err = provider.ExportKey(keyID)
+			assert.EqualError(t, provider.DestroyKey(t.Context(), keyID), want)
+			_, _, err = provider.ExportKey(t.Context(), keyID)
 			assert.EqualError(t, err, want)
 			signer := gcpkmscrypto.NewSigner(keyID, "label", nil, kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256, provider)
 			_, err = signer.Sign(rand.Reader, make([]byte, sha256.Size), crypto.SHA256)

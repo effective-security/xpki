@@ -3,7 +3,7 @@
 # jwt
 
 ```go
-import "github.com/effective-security/xpki/jwt"
+import "github.com/effective-security/xpki/v2/jwt"
 ```
 
 Package jwt provides JSON Web Token \(JWT\) signing, verification, and parsing capabilities.
@@ -79,9 +79,9 @@ The package provides both high\-level APIs for common use cases and lower\-level
 - [type ParserConfig](<#ParserConfig>)
   - [func LoadParserConfig\(file string\) \(\*ParserConfig, error\)](<#LoadParserConfig>)
 - [type Provider](<#Provider>)
-  - [func LoadProvider\(cfgfile string, crypto \*cryptoprov.Crypto\) \(Provider, error\)](<#LoadProvider>)
-  - [func MustNewProvider\(cfg \*ProviderConfig, crypto \*cryptoprov.Crypto, ops ...Option\) Provider](<#MustNewProvider>)
-  - [func NewProvider\(cfg \*ProviderConfig, crypto \*cryptoprov.Crypto, ops ...Option\) \(Provider, error\)](<#NewProvider>)
+  - [func LoadProvider\(ctx context.Context, cfgfile string, crypto \*cryptoprov.Crypto\) \(Provider, error\)](<#LoadProvider>)
+  - [func MustNewProvider\(ctx context.Context, cfg \*ProviderConfig, crypto \*cryptoprov.Crypto, ops ...Option\) Provider](<#MustNewProvider>)
+  - [func NewProvider\(ctx context.Context, cfg \*ProviderConfig, crypto \*cryptoprov.Crypto, ops ...Option\) \(Provider, error\)](<#NewProvider>)
   - [func NewProviderFromCryptoSigner\(signer crypto.Signer, ops ...Option\) \(Provider, error\)](<#NewProviderFromCryptoSigner>)
   - [func NewProviderWithSymmetricKey\(key \[\]byte, ops ...Option\) \(Provider, error\)](<#NewProviderWithSymmetricKey>)
 - [type ProviderConfig](<#ProviderConfig>)
@@ -661,7 +661,7 @@ func (n *NumericDate) UnmarshalJSON(b []byte) error
 UnmarshalJSON reads a date from its JSON representation. Integer and fractional values are accepted, quoted or not; a fractional value is truncated toward zero to whole seconds.
 
 <a name="Option"></a>
-## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L465-L467>)
+## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L469-L471>)
 
 A Option modifies the default behavior of Provider.
 
@@ -742,34 +742,34 @@ type Provider interface {
 ```
 
 <a name="LoadProvider"></a>
-### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L158>)
+### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L159>)
 
 ```go
-func LoadProvider(cfgfile string, crypto *cryptoprov.Crypto) (Provider, error)
+func LoadProvider(ctx context.Context, cfgfile string, crypto *cryptoprov.Crypto) (Provider, error)
 ```
 
-LoadProvider returns new provider
+LoadProvider returns new provider from the configuration in cfgfile, see NewProvider.
 
 <a name="MustNewProvider"></a>
-### func [MustNewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L167>)
+### func [MustNewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L169>)
 
 ```go
-func MustNewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) Provider
+func MustNewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) Provider
 ```
 
-MustNewProvider returns new provider
+MustNewProvider returns new provider, see NewProvider, and panics when it cannot be created.
 
 <a name="NewProvider"></a>
-### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L176>)
+### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L180>)
 
 ```go
-func NewProvider(cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error)
+func NewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error)
 ```
 
-NewProvider returns new provider that supports, both Signer and Parser
+NewProvider returns new provider that supports, both Signer and Parser. ctx is for the crypto provider that resolves a pkcs11: URI in cfg.PrivateKey \(cryptoprov.Crypto.LoadPrivateKey\); it is not kept.
 
 <a name="NewProviderFromCryptoSigner"></a>
-### func [NewProviderFromCryptoSigner](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L259>)
+### func [NewProviderFromCryptoSigner](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L263>)
 
 ```go
 func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error)
@@ -778,7 +778,7 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 NewProviderFromCryptoSigner returns new from Signer
 
 <a name="NewProviderWithSymmetricKey"></a>
-### func [NewProviderWithSymmetricKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L293>)
+### func [NewProviderWithSymmetricKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L297>)
 
 ```go
 func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error)

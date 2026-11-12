@@ -2,7 +2,6 @@ package cryptoprov_test
 
 import (
 	"crypto"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -12,12 +11,13 @@ import (
 	"slices"
 	"uuid"
 
-	"github.com/effective-security/xpki/crypto11"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/cryptoprov/testprov"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/crypto11"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov/testprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +44,7 @@ func loadP11Provider(t *testing.T) cryptoprov.Provider {
 
 	mgr, supported := any(p11).(cryptoprov.KeyManager)
 	require.True(t, supported)
-	assert.NotNil(t, mgr.EnumKeys)
+	assert.NotNil(t, mgr.ListKeys)
 
 	return prov
 }
@@ -93,22 +93,26 @@ func Test_P11(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, "provider for \"NetHSM\" and model \"\" not found", err.Error())
 
-	keyURI, keyBytes, err := d.ExportKey("test")
+	keyURI, keyBytes, err := d.ExportKey(t.Context(), "test")
 	assert.Error(t, err)
 	assert.Empty(t, keyURI)
 	assert.Nil(t, keyBytes)
 
 	t.Run("RSA-sign", func(t *testing.T) {
 		rsaKeyLabel := "rsa" + uuid.NewV7().String()
-		key, err := d.GenerateRSAKey(rsaKeyLabel, 1024, 1)
+		key, err := d.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: rsaKeyLabel,
+			Type:  certutil.KeyTypeRSA,
+			Size:  1024,
+		})
 		require.NoError(t, err)
 
-		keyID, keyLabel, err := d.IdentifyKey(key)
+		keyID, keyLabel, err := d.IdentifyKey(t.Context(), key)
 		require.NoError(t, err)
 		assert.NotEmpty(t, keyID)
 		assert.Equal(t, rsaKeyLabel, keyLabel)
 
-		keyURI, keyBytes, err := d.ExportKey(keyID)
+		keyURI, keyBytes, err := d.ExportKey(t.Context(), keyID)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, keyURI)
 		assert.Nil(t, keyBytes)
@@ -118,7 +122,7 @@ func Test_P11(t *testing.T) {
 		assert.Equal(t, "SoftHSM", pvkURI.Manufacturer())
 		assert.Equal(t, keyID, pvkURI.ID())
 
-		_, pvk, err := cp.LoadPrivateKey([]byte(keyURI))
+		_, pvk, err := cp.LoadPrivateKey(t.Context(), []byte(keyURI))
 		require.NoError(t, err)
 
 		message := []byte("To Be Signed")
@@ -135,15 +139,20 @@ func Test_P11(t *testing.T) {
 
 	t.Run("RSA-encrypt", func(t *testing.T) {
 		rsaKeyLabel := "rsa" + uuid.NewV7().String()
-		key, err := d.GenerateRSAKey(rsaKeyLabel, 1024, 2)
+		key, err := d.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: rsaKeyLabel,
+			Type:  certutil.KeyTypeRSA,
+			Size:  1024,
+			Usage: cryptoprov.KeyUsageEncrypt,
+		})
 		require.NoError(t, err)
 
-		keyID, keyLabel, err := d.IdentifyKey(key)
+		keyID, keyLabel, err := d.IdentifyKey(t.Context(), key)
 		require.NoError(t, err)
 		assert.NotEmpty(t, keyID)
 		assert.Equal(t, rsaKeyLabel, keyLabel)
 
-		keyURI, keyBytes, err := d.ExportKey(keyID)
+		keyURI, keyBytes, err := d.ExportKey(t.Context(), keyID)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, keyURI)
 		assert.Nil(t, keyBytes)
@@ -153,7 +162,7 @@ func Test_P11(t *testing.T) {
 		assert.Equal(t, "SoftHSM", pvkURI.Manufacturer())
 		assert.Equal(t, keyID, pvkURI.ID())
 
-		_, pvk, err := cp.LoadPrivateKey([]byte(keyURI))
+		_, pvk, err := cp.LoadPrivateKey(t.Context(), []byte(keyURI))
 		require.NoError(t, err)
 
 		message := []byte("To Be Encrypted")
@@ -172,15 +181,19 @@ func Test_P11(t *testing.T) {
 
 	t.Run("ECDSA", func(t *testing.T) {
 		ecdsaKeyLabel := "ecdsa" + uuid.NewV7().String()
-		rsa, err := d.GenerateECDSAKey(ecdsaKeyLabel, elliptic.P256())
+		rsa, err := d.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: ecdsaKeyLabel,
+			Type:  certutil.KeyTypeECDSA,
+			Size:  256,
+		})
 		require.NoError(t, err)
 
-		keyID, keyLabel, err := d.IdentifyKey(rsa)
+		keyID, keyLabel, err := d.IdentifyKey(t.Context(), rsa)
 		require.NoError(t, err)
 		assert.NotEmpty(t, keyID)
 		assert.Equal(t, ecdsaKeyLabel, keyLabel)
 
-		keyURI, keyBytes, err := d.ExportKey(keyID)
+		keyURI, keyBytes, err := d.ExportKey(t.Context(), keyID)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, keyURI)
 		assert.Nil(t, keyBytes)
@@ -190,7 +203,7 @@ func Test_P11(t *testing.T) {
 		assert.Equal(t, "SoftHSM", pvkURI.Manufacturer())
 		assert.Equal(t, keyID, pvkURI.ID())
 
-		_, _, err = cp.LoadPrivateKey([]byte(keyURI))
+		_, _, err = cp.LoadPrivateKey(t.Context(), []byte(keyURI))
 		require.NoError(t, err)
 	})
 }

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

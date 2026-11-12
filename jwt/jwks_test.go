@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/effective-security/x/configloader"
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/jwt"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
