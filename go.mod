@@ -10,9 +10,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kms v1.62.6
 	github.com/aws/smithy-go v1.28.9
 	github.com/cockroachdb/errors v1.14.0
-	github.com/effective-security/metrics v0.10.158
-	github.com/effective-security/x v1.0.111
-	github.com/effective-security/xlog v1.0.70
+	github.com/effective-security/metrics v0.10.159
+	github.com/effective-security/x v1.0.112
+	github.com/effective-security/xlog v1.0.71
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/googleapis/gax-go/v2 v2.27.0
@@ -22,7 +22,7 @@ require (
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.38.0
-	google.golang.org/api v0.313.0
+	google.golang.org/api v0.315.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
