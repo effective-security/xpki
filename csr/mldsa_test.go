@@ -101,7 +101,7 @@ func TestSignRequestMLDSAParsedKey(t *testing.T) {
 	priv, err := mldsa.GenerateKey(mldsa.MLDSA65())
 	require.NoError(t, err)
 	prov := csr.NewProvider(inmemcrypto.NewProvider())
-	csrPEM, err := prov.SignRequest(priv, &csr.CertificateRequest{
+	csrPEM, err := prov.SignRequest(t.Context(), priv, &csr.CertificateRequest{
 		CommonName: "pq.example.com",
 		SAN:        []string{"pq.example.com"},
 	})

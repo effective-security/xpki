@@ -7,6 +7,9 @@ one `GenerateKey`; and every method takes a `context.Context`. The contract
 was shaped for cloud KMS and still fits a PKCS#11 token. It is roadmap item
 12; the design, what each provider does for a listing and the decisions K1 to
 K12 are in [`Documentation/design/keymanager.md`](design/keymanager.md).
+The signing path takes a context too (roadmap item 1): every key of the
+providers is a `cryptoprov.ContextSigner`, and the functions that sign with
+a CA or CSR key take `ctx`.
 
 It is a **breaking** release for every client: the module path is
 `github.com/effective-security/xpki/v2`. v1 continues on the `release-v1`
@@ -136,6 +139,9 @@ not available: the service does not offer it for HSM keys, see "Constraints".
   `Provider.GenerateKeyAndRequest` and `Provider.CreateRequestAndExportKey`.
 - `SetSAN`, deprecated since v1.0, is removed; use `ApplySAN`, which reports
   the invalid names.
+- `Provider.SignRequest` takes `ctx` as its first argument; it bounds the
+  signature of the CSR, as it does in `GenerateKeyAndRequest` and
+  `CreateRequestAndExportKey`.
 - **Behavior**: `KeyRequest.Validate` (and so `Generate`) rejects a purpose
   other than `Undefined`, `SigningKey` and `EncryptionKey` (`invalid key
   purpose: 3`), and an `EncryptionKey` purpose for ECDSA (`unsupported key
@@ -148,6 +154,17 @@ not available: the service does not offer it for HSM keys, see "Constraints".
 
 - `NewRoot`, `NewIssuer`, `NewIssuerWithBundles`, `NewAuthority` and
   `Issuer.GenCert` take `ctx` as their first argument.
+- `Issuer.Sign`, `SignProof`, `SignOCSP` and `CreateDelegatedOCSPSigner` take
+  `ctx` as their first argument; it bounds the signature of the CA key (a KMS
+  request, the wait for a PKCS#11 session) and the wait for a delegated OCSP
+  responder renewal.
+- **Behavior**: a delegated OCSP responder renewal runs apart from the
+  request that starts it, bounded by one minute of its own, and every
+  request that needs it shares its outcome. `SignOCSP` with a still-valid
+  cached responder no longer waits for the renewal it starts: it signs with
+  the cached responder while the new one is issued. A request without a
+  usable responder, and `CreateDelegatedOCSPSigner`, wait no longer than
+  their context; one that leaves does not fail the renewal for the others.
 
 ### jwt
 
@@ -156,6 +173,8 @@ not available: the service does not offer it for HSM keys, see "Constraints".
 
 ### certutil
 
+- `CreateOCSPResponse` takes `ctx` as its first argument; it bounds the
+  signature of the response for classical and ML-DSA keys alike.
 - The `HTTPClient` variable, deprecated and unread since v1.0, is removed;
   use `WithHTTPClient`.
 - `Bundler.RootPool`, `IntermediatePool` and `KnownIssuers` are no longer
@@ -176,6 +195,23 @@ not available: the service does not offer it for HSM keys, see "Constraints".
 
 ## New
 
+- **A context on the signing path** (roadmap item 1). `cryptoprov.ContextSigner`
+  (`SignContext(ctx, rand, digest, opts)`) and `ContextDecrypter`
+  (`DecryptContext`) are implemented by every key of `crypto11`,
+  `awskmscrypto`, `gcpkmscrypto`, `inmemcrypto` and `testprov`; `Sign` and
+  `Decrypt` are those with `context.Background()`, so a key still works
+  wherever a `crypto.Signer` does. A KMS signer checks `ctx` before its
+  request, passes it to the request, and reports a request whose context
+  ended with an error that `errors.Is` matches to `context.Canceled` or
+  `context.DeadlineExceeded`; a PKCS#11 key waits at the session limit no
+  longer than `ctx` (roadmap item 6). `cryptoprov.SignContext` and
+  `DecryptContext` sign and decrypt with any key under a context, and
+  `cryptoprov.BindContext(ctx, signer)` hands one to an API that only calls
+  `Sign` (`x509.CreateCertificate`, `ocsp.CreateResponse`); the bound
+  signer of a `ContextSigner` has no `SignMessage`, so `crypto.SignMessage`
+  signs through the bound `Sign` with the context. `authority`,
+  `csr`, `certutil` and `jwt` sign this way; `jwt.Signer.Sign` and the `dpop`
+  signer already had a `ctx`, which now reaches the key.
 - **Paged, filtered listings.** `ListKeysRequest` has `PageSize`, `PageToken`,
   `Filter` (`Usage`, `Types`, `Label`, `LabelPrefix`, `Tags`, `States`) and
   `Fields`. `AllKeys(ctx, km, req)` iterates over every page. A page can be
@@ -306,9 +342,11 @@ their acceptance is the request and attribute-read counts their tests assert.
   token and is not affected by other keys.
 - **PKCS#11 usage is what the token says**: a key created by v1 on SoftHSM
   reports signing and, for RSA, encryption.
-- **The signing path has no context yet.** `crypto.Signer` has none, so
-  `Signer.Sign` of the KMS providers still uses `context.Background()`
-  (roadmap item 1).
+- **A plain `Sign` has no deadline.** `Sign` and `Decrypt` of a key are
+  `SignContext` and `DecryptContext` with `context.Background()`: a caller
+  that cannot pass a context, such as a TLS handshake, is bounded only by the
+  KMS SDK retry limits, and a PKCS#11 key waits for a session as long as it
+  takes. Use `SignContext` or `BindContext` where a deadline matters.
 - **KMS encryption keys** are still not supported: `KeyUsageEncrypt` is
   `ErrNotSupported` on the KMS providers (roadmap item 2).
 - **No ML-DSA keys on Google Cloud KMS.** `gcpkmscrypto` creates HSM keys
@@ -352,6 +390,11 @@ v1 path; check the diff for one outside an import block.
 | `LoadPrivateKey(pem)`, `NewSignerFromPEM(pem)`, `TLSKeyPair(…)` | the same with `ctx` first                                                      |
 | `kr.Generate()`, `GenerateKeyAndRequest(req)`                   | the same with `ctx` first                                                      |
 | `authority.NewAuthority(cfg, crypto)`, `NewIssuer`, `NewRoot`   | the same with `ctx` first                                                      |
+| `issuer.Sign(req)`, `SignProof`, `SignOCSP`                     | the same with `ctx` first                                                      |
+| `issuer.CreateDelegatedOCSPSigner()`                            | `issuer.CreateDelegatedOCSPSigner(ctx)`                                        |
+| `csrProv.SignRequest(priv, req)`                                | `csrProv.SignRequest(ctx, priv, req)`                                          |
+| `certutil.CreateOCSPResponse(issuer, responder, tmpl, signer)`  | the same with `ctx` first                                                      |
+| `signer.Sign(rand, digest, opts)` where a deadline matters      | `cryptoprov.SignContext(ctx, signer, rand, digest, opts)`                      |
 | `jwt.NewProvider(cfg, crypto)`, `LoadProvider`                  | the same with `ctx` first                                                      |
 | `csr.SetSAN(template, names)`                                   | `csr.ApplySAN(template, names)` and handle the error                           |
 | `bundler.RootPool`, `bundler.KnownIssuers[sig]`                 | `bundler.RootPool()`, `bundler.IsKnownIssuer(cert)`                            |
@@ -376,9 +419,11 @@ v1 path; check the diff for one outside an import block.
   listing.
 - porto moves first: its exported API uses `jwt` and `dpop` types, so an
   application moves all of its xpki imports in the release in which it takes
-  the porto built on v2. The signing half of roadmap item 1 changes more
-  signatures; decision K9 recommends finishing it before the applications
-  migrate.
+  the porto built on v2. The signing half of roadmap item 1 is in this
+  release, so the migration rewrites each signing call once (decision K9).
+- An implementer of a key for `cryptoprov` adds `SignContext` (and
+  `DecryptContext` for a decrypter) and makes `Sign` call it with
+  `context.Background()`; `internal/provtest` (`TestSignContext`) checks it.
 
 ## Validation
 
@@ -458,3 +503,11 @@ Not validated:
 - **Downstream.** porto, kubeca, trustyca, secdi and martini were not
   migrated or compiled against v2; the removed symbols were searched for in
   the local checkouts and none is used there.
+
+Signing path (roadmap items 1 and 6), run on 2026-11-17 with Go 1.27.4,
+SoftHSM 2.6.1 and both `local-kms` 3.11.7 containers: `make covtest` passes every
+package, 93.1% total (7975 of 8570 statements); `make lint` (0 issues) and
+`make test RACE=true` pass. The conformance suite (`TestSignContext`) signs
+and cancels on `inmemcrypto`, `testprov`, `crypto11` (SoftHSM), the AWS fake
+KMS and the in-process Google Cloud KMS; the real AWS and Google Cloud KMS
+were not run for this change.

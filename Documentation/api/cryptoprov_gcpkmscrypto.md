@@ -41,6 +41,7 @@ The label of a key is its "label" label and its tags are its labels. ListKeys is
   - [func \(s \*Signer\) Label\(\) string](<#Signer.Label>)
   - [func \(s \*Signer\) Public\(\) crypto.PublicKey](<#Signer.Public>)
   - [func \(s \*Signer\) Sign\(rand io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(signature \[\]byte, err error\)](<#Signer.Sign>)
+  - [func \(s \*Signer\) SignContext\(ctx context.Context, \_ io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(signature \[\]byte, err error\)](<#Signer.SignContext>)
   - [func \(s \*Signer\) SignatureAlgorithm\(\) x509.SignatureAlgorithm](<#Signer.SignatureAlgorithm>)
   - [func \(s \*Signer\) String\(\) string](<#Signer.String>)
 
@@ -70,7 +71,7 @@ var KmsClientFactory = func(endpoint string) (KmsClient, error) {
 ```
 
 <a name="Crc32c"></a>
-## func [Crc32c](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L344>)
+## func [Crc32c](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L354>)
 
 ```go
 func Crc32c(data []byte) uint32
@@ -293,7 +294,7 @@ func (s *Signer) Public() crypto.PublicKey
 Public returns public key for the signer
 
 <a name="Signer.Sign"></a>
-### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L189>)
+### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L190>)
 
 ```go
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
@@ -303,7 +304,16 @@ Sign signs digest with the KMS key version. For an RSA or ECDSA key opts is requ
 
 An ML\-DSA key signs the message: digest is the message with nil, a zero hash or \*mldsa.Options, or the 64\-byte representative μ with crypto.MLDSAMu \(cryptoprov.MLDSASignerOptions\). A key with an EXTERNAL\_MU algorithm receives μ, computed locally when the message is given, so the message never leaves the process; a key with a PQ\_SIGN\_ML\_DSA\_\* algorithm receives the message itself and accepts neither μ nor a context string.
 
-Invalid options fail before any RPC. The response is accepted only when KMS verified the checksum of what was sent and the signature matches its checksum \(XPKI\-023\). After the provider is closed, Sign returns ErrClosed.
+Invalid options fail before any RPC. The response is accepted only when KMS verified the checksum of what was sent and the signature matches its checksum \(XPKI\-023\). After the provider is closed, Sign returns ErrClosed. Sign is SignContext with context.Background\(\).
+
+<a name="Signer.SignContext"></a>
+### func \(\*Signer\) [SignContext](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L196>)
+
+```go
+func (s *Signer) SignContext(ctx context.Context, _ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
+```
+
+SignContext is Sign with the KMS request bounded by ctx \(cryptoprov.ContextSigner\); invalid options still fail before any RPC.
 
 <a name="Signer.SignatureAlgorithm"></a>
 ### func \(\*Signer\) [SignatureAlgorithm](<https://github.com/effective-security/xpki/blob/main/cryptoprov/gcpkmscrypto/signer.go#L155>)

@@ -92,7 +92,7 @@ func TestCSRWithKMSKey(t *testing.T) {
 			assert.Equal(t, tc.want, csr.DefaultSigAlgo(signer))
 
 			signs := s.CallCount("AsymmetricSign")
-			csrPEM, err := csrProv.SignRequest(pk, &csr.CertificateRequest{
+			csrPEM, err := csrProv.SignRequest(t.Context(), pk, &csr.CertificateRequest{
 				CommonName: tc.name + ".example.com",
 				SAN:        []string{tc.name + ".example.com", "ops@example.com"},
 			})

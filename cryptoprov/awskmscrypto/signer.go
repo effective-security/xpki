@@ -116,17 +116,27 @@ func (s *Signer) String() string {
 // crypto.MLDSAMu (cryptoprov.MLDSASignerOptions); every other hash is an
 // error. The signer computes μ locally and calls KMS with MessageType
 // EXTERNAL_MU and ML_DSA_SHAKE_256, so the message itself is never sent.
-// Invalid options fail before any RPC.
+// Invalid options fail before any RPC. Sign is SignContext with
+// context.Background().
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	return s.SignContext(context.Background(), rand, digest, opts)
+}
+
+// SignContext is Sign with the KMS request bounded by ctx
+// (cryptoprov.ContextSigner); invalid options still fail before any RPC.
+func (s *Signer) SignContext(ctx context.Context, _ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "sign")
 
 	req, err := s.signInput(digest, opts)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.kmsClient.Sign(context.Background(), req)
+	if err = ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
+	resp, err := s.kmsClient.Sign(ctx, req)
 	if err != nil {
-		return nil, errors.WithMessage(err, "unable to sign")
+		return nil, ctxError(ctx, errors.WithMessage(err, "unable to sign"))
 	}
 	if resp == nil || len(resp.Signature) == 0 {
 		return nil, errors.Wrap(errEmptyResponse, "unable to sign")
@@ -236,4 +246,14 @@ func isNilOpts(opts crypto.SignerOpts) bool {
 	}
 	v := reflect.ValueOf(opts)
 	return v.Kind() == reflect.Pointer && v.IsNil()
+}
+
+// ctxError marks err, the failure of a request made with ctx, with ctx.Err()
+// when ctx has ended, so that errors.Is finds context.Canceled or
+// context.DeadlineExceeded whatever the SDK returned.
+func ctxError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return cryptoprov.MarkError(err, ctxErr)
+	}
+	return err
 }

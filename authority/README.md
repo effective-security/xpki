@@ -77,7 +77,7 @@ the certificate.
 
 ## Signing pipeline
 
-`Issuer.Sign(csr.SignRequest)` treats the **SignRequest** as coming from a
+`Issuer.Sign(ctx, csr.SignRequest)` treats the **SignRequest** as coming from a
 trusted registration authority (RA) and the **CSR** as untrusted.
 
 ```mermaid

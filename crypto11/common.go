@@ -2,6 +2,7 @@ package crypto11
 
 import (
 	"C"
+	"context"
 	"encoding/asn1"
 	"encoding/binary"
 	"encoding/hex"
@@ -153,13 +154,14 @@ func (lib *PKCS11Lib) generateKeyID(session pkcs11.SessionHandle) ([]byte, error
 	return []byte(label[:32]), nil
 }
 
-// Compute DSA/ECDSA signature and marshal the result in DER form
-func (lib *PKCS11Lib) dsaGeneric(key *PKCS11Object, ref *objectRef, mechanism uint, digest []byte) ([]byte, error) {
+// dsaGeneric computes a DSA/ECDSA signature and marshals the result in DER
+// form; ctx bounds the wait for a session.
+func (lib *PKCS11Lib) dsaGeneric(ctx context.Context, key *PKCS11Object, ref *objectRef, mechanism uint, digest []byte) ([]byte, error) {
 	var err error
 	var sigBytes []byte
 	var sig dsaSignature
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, nil)}
-	err = lib.withKey(key, ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+	err = lib.withKeyCtx(ctx, key, ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 		if err = lib.Ctx.SignInit(session, mech, handle); err != nil {
 			return err
 		}

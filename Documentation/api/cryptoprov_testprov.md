@@ -28,7 +28,7 @@ Key generation, lookup, and URI export may run concurrently. Registry locking do
 
 
 <a name="Loader"></a>
-## func [Loader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L233>)
+## func [Loader](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L251>)
 
 ```go
 func Loader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error)
@@ -37,7 +37,7 @@ func Loader(tc cryptoprov.TokenConfig) (cryptoprov.Provider, error)
 Loader for Provider
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L245-L252>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L263-L270>)
 
 Provider stores non\-exportable keys for tests and supports concurrent key generation, lookup, and URI export. Token configuration must remain unchanged while the provider is in use.
 
@@ -48,7 +48,7 @@ type Provider struct {
 ```
 
 <a name="Init"></a>
-### func [Init](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L255>)
+### func [Init](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L273>)
 
 ```go
 func Init() (*Provider, error)
@@ -57,7 +57,7 @@ func Init() (*Provider, error)
 Init creates new provider for in memory based HSM
 
 <a name="Provider.DestroyKey"></a>
-### func \(\*Provider\) [DestroyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L421>)
+### func \(\*Provider\) [DestroyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L439>)
 
 ```go
 func (p *Provider) DestroyKey(ctx context.Context, keyID string) error
@@ -66,7 +66,7 @@ func (p *Provider) DestroyKey(ctx context.Context, keyID string) error
 DestroyKey forgets the key keyID. Handles returned earlier keep working. A key the provider does not have is a wrapped cryptoprov.ErrKeyNotFound.
 
 <a name="Provider.ExportKey"></a>
-### func \(\*Provider\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L432>)
+### func \(\*Provider\) [ExportKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L450>)
 
 ```go
 func (p *Provider) ExportKey(_ context.Context, keyID string) (string, []byte, error)
@@ -75,7 +75,7 @@ func (p *Provider) ExportKey(_ context.Context, keyID string) (string, []byte, e
 ExportKey returns pkcs11 uri for the given key id
 
 <a name="Provider.GenerateKey"></a>
-### func \(\*Provider\) [GenerateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L308>)
+### func \(\*Provider\) [GenerateKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L326>)
 
 ```go
 func (p *Provider) GenerateKey(ctx context.Context, req *cryptoprov.GenerateKeyRequest) (crypto.PrivateKey, error)
@@ -84,7 +84,7 @@ func (p *Provider) GenerateKey(ctx context.Context, req *cryptoprov.GenerateKeyR
 GenerateKey creates a signer using a randomly generated RSA, ECDSA or ML\-DSA key as req describes it \(cryptoprov.GenerateKeyRequest.Validate\); an ML\-DSA signer signs messages, not digests. The usage and the tags are recorded for KeyInfo and ListKeys and are not enforced. An empty label gets a random one.
 
 <a name="Provider.GetKey"></a>
-### func \(\*Provider\) [GetKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L292>)
+### func \(\*Provider\) [GetKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L310>)
 
 ```go
 func (p *Provider) GetKey(ctx context.Context, keyID string) (crypto.PrivateKey, error)
@@ -93,7 +93,7 @@ func (p *Provider) GetKey(ctx context.Context, keyID string) (crypto.PrivateKey,
 GetKey returns key for the given id, or a wrapped cryptoprov.ErrKeyNotFound.
 
 <a name="Provider.IdentifyKey"></a>
-### func \(\*Provider\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L366>)
+### func \(\*Provider\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L384>)
 
 ```go
 func (p *Provider) IdentifyKey(_ context.Context, priv crypto.PrivateKey) (keyID, label string, err error)
@@ -102,7 +102,7 @@ func (p *Provider) IdentifyKey(_ context.Context, priv crypto.PrivateKey) (keyID
 IdentifyKey returns key id and label for the given private key
 
 <a name="Provider.KeyInfo"></a>
-### func \(\*Provider\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L393>)
+### func \(\*Provider\) [KeyInfo](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L411>)
 
 ```go
 func (p *Provider) KeyInfo(ctx context.Context, keyID string, fields cryptoprov.KeyFields) (*cryptoprov.KeyInfo, error)
@@ -111,7 +111,7 @@ func (p *Provider) KeyInfo(ctx context.Context, keyID string, fields cryptoprov.
 KeyInfo describes the key keyID, with its PEM public key when fields has cryptoprov.KeyFieldPublicKey. A key the provider does not have is a wrapped cryptoprov.ErrKeyNotFound.
 
 <a name="Provider.ListKeys"></a>
-### func \(\*Provider\) [ListKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L376>)
+### func \(\*Provider\) [ListKeys](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L394>)
 
 ```go
 func (p *Provider) ListKeys(ctx context.Context, req *cryptoprov.ListKeysRequest) (*cryptoprov.ListKeysResponse, error)
@@ -120,7 +120,7 @@ func (p *Provider) ListKeys(ctx context.Context, req *cryptoprov.ListKeysRequest
 ListKeys returns a page of the keys in the order they were generated; the page token is an offset in that order \(cryptoprov.PageKeys\). Every field group is filled whatever req.Fields selects, since none costs a request.
 
 <a name="Provider.Manufacturer"></a>
-### func \(\*Provider\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L270>)
+### func \(\*Provider\) [Manufacturer](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L288>)
 
 ```go
 func (p *Provider) Manufacturer() string
@@ -129,7 +129,7 @@ func (p *Provider) Manufacturer() string
 Manufacturer return manufacturer for the provider
 
 <a name="Provider.Model"></a>
-### func \(\*Provider\) [Model](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L278>)
+### func \(\*Provider\) [Model](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L296>)
 
 ```go
 func (p *Provider) Model() string
@@ -138,7 +138,7 @@ func (p *Provider) Model() string
 Model return model for the provider
 
 <a name="Provider.Serial"></a>
-### func \(\*Provider\) [Serial](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L286>)
+### func \(\*Provider\) [Serial](<https://github.com/effective-security/xpki/blob/main/cryptoprov/testprov/provider.go#L304>)
 
 ```go
 func (p *Provider) Serial() string

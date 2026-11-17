@@ -47,7 +47,7 @@ func TestSigningMethodES256(t *testing.T) {
 	signer, err := crypto.NewSignerFromPEM(t.Context(), pemKey)
 	require.NoError(t, err)
 
-	signature, err := sign("test", signer)
+	signature, err := sign(t.Context(), "test", signer)
 	require.NoError(t, err)
 
 	err = gojwt.SigningMethodES256.Verify("test", signature, &ecKey.PublicKey)
@@ -73,7 +73,7 @@ func TestSigningMethodRS256(t *testing.T) {
 	signer, err := crypto.NewSignerFromPEM(t.Context(), pemKey)
 	require.NoError(t, err)
 
-	signature, err := sign("test", signer)
+	signature, err := sign(t.Context(), "test", signer)
 	require.NoError(t, err)
 
 	err = gojwt.SigningMethodRS256.Verify("test", signature, &key.PublicKey)
@@ -91,7 +91,7 @@ func TestSigningMethodHS256(t *testing.T) {
 	signer, err := newSymmetricSigner("HS256", key)
 	require.NoError(t, err)
 
-	signature, err := sign("test", signer)
+	signature, err := sign(t.Context(), "test", signer)
 	require.NoError(t, err)
 
 	err = gojwt.SigningMethodHS256.Verify("test", signature, key)

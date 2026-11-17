@@ -27,7 +27,7 @@ func TestIssuerProofRoundTrip(t *testing.T) {
 				require.NoError(t, err)
 			}
 			data := []byte("proof payload")
-			proof, err := issuer.SignProof(data)
+			proof, err := issuer.SignProof(t.Context(), data)
 			require.NoError(t, err)
 			require.NotEmpty(t, proof)
 			require.NoError(t, issuer.VerifyProof(data, proof))
@@ -132,7 +132,7 @@ func TestIssuerSignExtensions(t *testing.T) {
 				Type:  "CERTIFICATE REQUEST",
 				Bytes: der,
 			}))
-			cert, data, err := issuer.Sign(request)
+			cert, data, err := issuer.Sign(t.Context(), request)
 			if tc.want != "" {
 				require.ErrorContains(t, err, tc.want)
 				assert.Nil(t, cert)
@@ -159,7 +159,7 @@ func TestIssuerTemplateErrors(t *testing.T) {
 		Usage:  []string{"digital signature"},
 	}
 	issuer.AddProfile("default", profile)
-	_, _, err := issuer.Sign(csr.SignRequest{Request: "not a CSR"})
+	_, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: "not a CSR"})
 	require.ErrorContains(t, err, "failed to parse CSR")
 	_, err = CreateIssuer(&IssuerConfig{}, []byte("invalid"), nil, nil, entity.PrivateKey)
 	require.ErrorContains(t, err, "failed to create signing CA cert bundle")
@@ -183,9 +183,9 @@ func TestIssuerTemplateErrors(t *testing.T) {
 	}
 	require.Error(t, issuer.fillTemplate(&x509.Certificate{PublicKey: struct{}{}}, profile, time.Time{}, time.Time{}))
 	self := &Issuer{}
-	_, err = self.sign(&x509.Certificate{})
+	_, err = self.sign(t.Context(), &x509.Certificate{})
 	require.EqualError(t, err, "CA template is not specified")
-	_, err = issuer.sign(&x509.Certificate{
+	_, err = issuer.sign(t.Context(), &x509.Certificate{
 		PublicKey: struct{}{},
 		NotAfter:  entity.Certificate.NotAfter.Add(time.Hour),
 	})

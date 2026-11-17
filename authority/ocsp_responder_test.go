@@ -1,6 +1,7 @@
 package authority
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -52,12 +53,25 @@ type countingSigner struct {
 }
 
 func (s *countingSigner) Sign(r io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	return s.SignContext(context.Background(), r, digest, opts)
+}
+
+// SignContext waits for the gate, or for ctx to end, as a KMS request
+// bounded by ctx does; an ended ctx fails before the call is counted.
+func (s *countingSigner) SignContext(ctx context.Context, r io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
 	s.calls.Add(1)
 	if s.entered != nil {
 		s.enterOnce.Do(func() { close(s.entered) })
 	}
 	if s.gate != nil {
-		<-s.gate
+		select {
+		case <-s.gate:
+		case <-ctx.Done():
+			return nil, errors.WithStack(ctx.Err())
+		}
 	}
 	if s.fail.Load() {
 		return nil, errors.WithStack(errSignerUnavailable)
@@ -103,7 +117,7 @@ func delegatedTestIssuer(t testing.TB, caOpts ...testca.Option) (*Issuer, *testc
 
 // responderWithin runs f with a deadline, so a deadlock (XPKI-051) fails
 // the test instead of hanging the suite.
-func responderWithin(t *testing.T, f func() (*OCSPResponder, error)) (*OCSPResponder, error) {
+func responderWithin(t *testing.T, f func(context.Context) (*OCSPResponder, error)) (*OCSPResponder, error) {
 	t.Helper()
 	type result struct {
 		r   *OCSPResponder
@@ -111,7 +125,7 @@ func responderWithin(t *testing.T, f func() (*OCSPResponder, error)) (*OCSPRespo
 	}
 	done := make(chan result, 1)
 	go func() {
-		r, err := f()
+		r, err := f(t.Context())
 		done <- result{r, err}
 	}()
 	select {
@@ -141,8 +155,19 @@ func preload(issuer *Issuer, entity *testca.Entity, notAfter time.Time) *OCSPRes
 	return r
 }
 
-func signGood(issuer *Issuer, serial int64) ([]byte, error) {
-	return issuer.SignOCSP(&OCSPSignRequest{
+// renewedFrom waits until a renewal that started after prior was read has
+// published its outcome and ended, so the next caller starts a new one, and
+// returns the outcome.
+func renewedFrom(t *testing.T, issuer *Issuer, prior *ocspRenewal) *ocspRenewal {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return issuer.renewal.Load() != prior && issuer.renewing.Load() == nil
+	}, responderDeadline, time.Millisecond)
+	return issuer.renewal.Load()
+}
+
+func signGood(ctx context.Context, issuer *Issuer, serial int64) ([]byte, error) {
+	return issuer.SignOCSP(ctx, &OCSPSignRequest{
 		SerialNumber: big.NewInt(serial),
 		Status:       OCSPStatusGood,
 	})
@@ -184,12 +209,12 @@ func TestDelegatedOCSPFreshCreation(t *testing.T) {
 	assertDelegatedResponder(t, issuer, r)
 	assert.Equal(t, int32(1), signer.calls.Load())
 
-	reused, err := issuer.CreateDelegatedOCSPSigner()
+	reused, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Same(t, r, reused)
 	assert.Equal(t, int32(1), signer.calls.Load())
 
-	der, err := signGood(issuer, 44)
+	der, err := signGood(t.Context(), issuer, 44)
 	require.NoError(t, err)
 	response, cert := parseDelegated(t, der, entity.Certificate)
 	assert.True(t, r.Cert.Equal(cert))
@@ -202,9 +227,9 @@ func TestDelegatedOCSPFreshSignOCSP(t *testing.T) {
 	issuer, entity, _ := delegatedTestIssuer(t)
 
 	var der []byte
-	_, err := responderWithin(t, func() (*OCSPResponder, error) {
+	_, err := responderWithin(t, func(ctx context.Context) (*OCSPResponder, error) {
 		var err error
-		der, err = signGood(issuer, 45)
+		der, err = signGood(ctx, issuer, 45)
 		return nil, err
 	})
 	require.NoError(t, err)
@@ -220,12 +245,19 @@ func TestDelegatedOCSPRenewal(t *testing.T) {
 	// expires within the OCSP expiry interval, so it is due for renewal
 	old := preload(issuer, entity, time.Now().Add(delegatedOCSPTTL/2))
 
-	der, err := signGood(issuer, 46)
+	// the request signs with the valid cached responder while it renews
+	der, err := signGood(t.Context(), issuer, 46)
 	require.NoError(t, err)
 	_, cert := parseDelegated(t, der, entity.Certificate)
+	assert.True(t, old.Cert.Equal(cert))
+	assert.Equal(t, &ocspRenewal{}, renewedFrom(t, issuer, nil))
 	renewed := issuer.delegated.Load()
 	require.NotSame(t, old, renewed)
 	assertDelegatedResponder(t, issuer, renewed)
+
+	der, err = signGood(t.Context(), issuer, 49)
+	require.NoError(t, err)
+	_, cert = parseDelegated(t, der, entity.Certificate)
 	assert.True(t, renewed.Cert.Equal(cert))
 	assert.Equal(t, int32(1), signer.calls.Load())
 }
@@ -238,7 +270,7 @@ func TestDelegatedOCSPRenewalFailureUsesValidCache(t *testing.T) {
 	signer.fail.Store(true)
 
 	// CreateDelegatedOCSPSigner reports the failure
-	r, err := issuer.CreateDelegatedOCSPSigner()
+	r, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.ErrorIs(t, err, errSignerUnavailable)
 	assert.Contains(t, err.Error(), "delegated OCSP responder is not available: failed to sign OCSP responder")
 	assert.Nil(t, r)
@@ -246,13 +278,13 @@ func TestDelegatedOCSPRenewalFailureUsesValidCache(t *testing.T) {
 	assert.Same(t, old, issuer.delegated.Load())
 
 	// within the retry interval it keeps reporting it without an attempt
-	_, again := issuer.CreateDelegatedOCSPSigner()
+	_, again := issuer.CreateDelegatedOCSPSigner(t.Context())
 	assert.Equal(t, err.Error(), again.Error())
 	assert.Equal(t, int32(1), signer.calls.Load())
 
 	// SignOCSP uses the valid cached responder without another attempt
 	// within the retry interval, and the response does not outlive it
-	der, err := signGood(issuer, 47)
+	der, err := signGood(t.Context(), issuer, 47)
 	require.NoError(t, err)
 	response, cert := parseDelegated(t, der, entity.Certificate)
 	assert.True(t, old.Cert.Equal(cert))
@@ -261,20 +293,25 @@ func TestDelegatedOCSPRenewalFailureUsesValidCache(t *testing.T) {
 
 	// after the retry interval SignOCSP tries again and still falls back
 	later := time.Now().Add(ocspRenewRetryInterval + time.Second)
-	r, err = issuer.delegatedResponder(later, true)
+	failed := issuer.renewal.Load()
+	r, err = issuer.delegatedResponder(t.Context(), later, true)
 	require.NoError(t, err)
 	assert.Same(t, old, r)
+	failedAgain := renewedFrom(t, issuer, failed)
+	require.ErrorIs(t, failedAgain.err, errSignerUnavailable)
 	assert.Equal(t, int32(2), signer.calls.Load())
+	assert.Same(t, old, issuer.delegated.Load())
 
 	// once the signer recovers, the next attempt renews
 	signer.fail.Store(false)
-	r, err = issuer.delegatedResponder(later.Add(ocspRenewRetryInterval+time.Second), true)
+	r, err = issuer.delegatedResponder(t.Context(), later.Add(ocspRenewRetryInterval+time.Second), true)
 	require.NoError(t, err)
+	assert.Same(t, old, r)
+	assert.Equal(t, &ocspRenewal{}, renewedFrom(t, issuer, failedAgain))
+	r = issuer.delegated.Load()
 	require.NotSame(t, old, r)
 	assertDelegatedResponder(t, issuer, r)
-	assert.Same(t, r, issuer.delegated.Load())
-	assert.Equal(t, &ocspRenewal{}, issuer.renewal.Load())
-	r2, err := issuer.CreateDelegatedOCSPSigner()
+	r2, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Same(t, r, r2)
 }
@@ -287,7 +324,7 @@ func TestDelegatedOCSPFailureWithoutValidResponder(t *testing.T) {
 		signer.fail.Store(true)
 
 		for range 2 {
-			der, err := signGood(issuer, 48)
+			der, err := signGood(t.Context(), issuer, 48)
 			require.ErrorIs(t, err, errSignerUnavailable)
 			assert.Contains(t, err.Error(), "delegated OCSP responder is not available")
 			assert.Nil(t, der)
@@ -302,7 +339,7 @@ func TestDelegatedOCSPFailureWithoutValidResponder(t *testing.T) {
 		old := preload(issuer, entity, time.Now().Add(delegatedOCSPTTL/2))
 		signer.fail.Store(true)
 
-		r, err := issuer.delegatedResponder(old.Cert.NotAfter, true)
+		r, err := issuer.delegatedResponder(t.Context(), old.Cert.NotAfter, true)
 		require.ErrorIs(t, err, errSignerUnavailable)
 		assert.Nil(t, r)
 		assert.Same(t, old, issuer.delegated.Load())
@@ -312,13 +349,13 @@ func TestDelegatedOCSPFailureWithoutValidResponder(t *testing.T) {
 func TestDelegatedOCSPResponderClipsNextUpdate(t *testing.T) {
 	t.Parallel()
 	issuer, entity, _ := delegatedTestIssuer(t)
-	r, err := issuer.CreateDelegatedOCSPSigner()
+	r, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	notAfter := r.Cert.NotAfter.UTC()
 
 	thisUpdate := time.Now().UTC().Truncate(time.Second)
 	nextUpdate := notAfter.Add(time.Hour)
-	der, err := issuer.SignOCSP(&OCSPSignRequest{
+	der, err := issuer.SignOCSP(t.Context(), &OCSPSignRequest{
 		SerialNumber: big.NewInt(49),
 		Status:       OCSPStatusGood,
 		ThisUpdate:   &thisUpdate,
@@ -329,7 +366,7 @@ func TestDelegatedOCSPResponderClipsNextUpdate(t *testing.T) {
 	assert.Equal(t, notAfter, response.NextUpdate)
 
 	late := notAfter
-	der, err = issuer.SignOCSP(&OCSPSignRequest{
+	der, err = issuer.SignOCSP(t.Context(), &OCSPSignRequest{
 		SerialNumber: big.NewInt(49),
 		Status:       OCSPStatusGood,
 		ThisUpdate:   &late,
@@ -346,18 +383,44 @@ func TestDelegatedOCSPShortLivedResponderIsNotReissued(t *testing.T) {
 	caNotAfter := time.Now().Add(delegatedOCSPTTL / 2).Truncate(time.Second)
 	issuer, entity, signer := delegatedTestIssuer(t, testca.NotAfter(caNotAfter))
 
-	first, err := issuer.CreateDelegatedOCSPSigner()
+	first, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, caNotAfter.UTC(), first.Cert.NotAfter)
-	again, err := issuer.CreateDelegatedOCSPSigner()
+	again, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Same(t, first, again)
 
-	der, err := signGood(issuer, 50)
+	der, err := signGood(t.Context(), issuer, 50)
 	require.NoError(t, err)
 	response, _ := parseDelegated(t, der, entity.Certificate)
 	assert.Equal(t, first.Cert.NotAfter.UTC(), response.NextUpdate)
 	assert.Equal(t, int32(1), signer.calls.Load())
+}
+
+// TestDelegatedOCSPStaleCallerShortLived checks that a caller that read the
+// renewal state before another renewal issued a short-lived responder (the CA
+// expires first) gets that responder instead of issuing another one within
+// the retry interval.
+func TestDelegatedOCSPStaleCallerShortLived(t *testing.T) {
+	t.Parallel()
+	issuer, _, signer := delegatedTestIssuer(t, testca.NotAfter(time.Now().Add(delegatedOCSPTTL/2)))
+
+	var hooks atomic.Int32
+	var other *OCSPResponder
+	var otherErr error
+	issuer.renewWaitHook = func() {
+		// the first caller has read the state; another renewal ends first
+		if hooks.Add(1) == 1 {
+			other, otherErr = issuer.CreateDelegatedOCSPSigner(t.Context())
+		}
+	}
+
+	stale, err := responderWithin(t, issuer.CreateDelegatedOCSPSigner)
+	require.NoError(t, err)
+	require.NoError(t, otherErr)
+	assert.Same(t, other, stale)
+	assert.Equal(t, int32(2), hooks.Load())
+	assert.Equal(t, int32(1), signer.calls.Load(), "the stale caller issued another responder")
 }
 
 func TestDelegatedOCSPWaitersShareFailure(t *testing.T) {
@@ -366,26 +429,26 @@ func TestDelegatedOCSPWaitersShareFailure(t *testing.T) {
 	signer.gate = make(chan struct{})
 	signer.fail.Store(true)
 	// counts callers that have read the pre-failure renewal state and are
-	// about to wait for renewLock
+	// about to join the renewal
 	var waiting sync.WaitGroup
 	waiting.Add(concurrentRequests + 1)
 	issuer.renewWaitHook = waiting.Done
 
-	// the first caller holds renewLock inside the failing CA signature
+	// the first caller starts the renewal, blocked in the failing CA signature
 	first := make(chan error, 1)
 	go func() {
-		_, err := signGood(issuer, 51)
+		_, err := signGood(t.Context(), issuer, 51)
 		first <- err
 	}()
 	require.Eventually(t, func() bool { return signer.calls.Load() == 1 }, responderDeadline, time.Millisecond)
 
-	// the others queue for renewLock with no usable responder; the failure
+	// the others join it with no usable responder; the failure
 	// is published only after all of them have read the prior state
 	var wg sync.WaitGroup
 	errs := make([]error, concurrentRequests)
 	for i := range concurrentRequests {
 		wg.Go(func() {
-			_, errs[i] = signGood(issuer, int64(200+i))
+			_, errs[i] = signGood(t.Context(), issuer, int64(200+i))
 		})
 	}
 	waiting.Wait()
@@ -542,7 +605,7 @@ func TestCreateIssuerDelegatedOCSPProfile(t *testing.T) {
 			default:
 				require.NoError(t, err)
 				// the first responder is not due for renewal
-				r, err := issuer.CreateDelegatedOCSPSigner()
+				r, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 				require.NoError(t, err)
 				assert.True(t, validFor(r, time.Now().Add(delegatedOCSPTTL)), r.Cert.NotAfter)
 				assert.Equal(t, &ocspRenewal{}, issuer.renewal.Load())
@@ -569,11 +632,11 @@ func TestDelegatedOCSPRawEKUProfile(t *testing.T) {
 	require.NoError(t, profile.Validate())
 	issuer.AddProfile(delegatedProfile, profile)
 
-	r, err := issuer.CreateDelegatedOCSPSigner()
+	r, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	// recognized as a responder: no AIA OCSP/CRL URLs
 	assertDelegatedResponder(t, issuer, r)
-	der, err := signGood(issuer, 52)
+	der, err := signGood(t.Context(), issuer, 52)
 	require.NoError(t, err)
 	_, cert := parseDelegated(t, der, entity.Certificate)
 	assert.True(t, r.Cert.Equal(cert))
@@ -592,14 +655,14 @@ func TestDelegatedOCSPReplacedProfileIsRevalidated(t *testing.T) {
 	require.NoError(t, replacement.Validate())
 	issuer.AddProfile(delegatedProfile, replacement)
 
-	r, err := issuer.CreateDelegatedOCSPSigner()
+	r, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.EqualError(t, err, `delegated OCSP responder is not available: delegated_ocsp_profile "ocsp" extended key usage must include "ocsp signing"`)
 	assert.Nil(t, r)
 	// rejected before signing anything
 	assert.Equal(t, int32(0), signer.calls.Load())
 
 	// SignOCSP keeps using the still-valid cached responder
-	der, err := signGood(issuer, 53)
+	der, err := signGood(t.Context(), issuer, 53)
 	require.NoError(t, err)
 	_, cert := parseDelegated(t, der, entity.Certificate)
 	assert.True(t, old.Cert.Equal(cert))
@@ -623,15 +686,17 @@ func TestDelegatedOCSPSlowFailureAfterExpiry(t *testing.T) {
 		close(signer.gate)
 	}()
 
-	// valid when the attempt starts, expired when the slow failure returns
+	// valid when the attempt starts, expired when the slow failure returns:
+	// the caller signs with the cached responder and does not wait
 	now := old.Cert.NotAfter.Add(-signDelay / 2)
-	r, err := issuer.delegatedResponder(now, true)
-	require.ErrorIs(t, err, errSignerUnavailable)
-	assert.Nil(t, r)
+	r, err := issuer.delegatedResponder(t.Context(), now, true)
+	require.NoError(t, err)
+	assert.Same(t, old, r)
+	state := renewedFrom(t, issuer, nil)
+	require.ErrorIs(t, state.err, errSignerUnavailable)
 	assert.Equal(t, int32(1), signer.calls.Load())
 	// the retry interval starts when the attempt ended
-	retryAt := issuer.renewal.Load().retryAt
-	assert.False(t, retryAt.Before(now.Add(signDelay+ocspRenewRetryInterval)), retryAt)
+	assert.False(t, state.retryAt.Before(now.Add(signDelay+ocspRenewRetryInterval)), state.retryAt)
 }
 
 // runConcurrent starts n goroutines released together and returns their
@@ -645,7 +710,7 @@ func runConcurrent(t *testing.T, issuer *Issuer, n int, extra func()) [][]byte {
 	for i := range n {
 		wg.Go(func() {
 			<-start
-			responses[i], errs[i] = signGood(issuer, int64(100+i))
+			responses[i], errs[i] = signGood(t.Context(), issuer, int64(100+i))
 		})
 	}
 	if extra != nil {
@@ -686,6 +751,7 @@ func TestDelegatedOCSPConcurrentRenewal(t *testing.T) {
 	responses := runConcurrent(t, issuer, concurrentRequests, func() {
 		issuer.AddProfile("extra", &CertProfile{})
 	})
+	assert.Equal(t, &ocspRenewal{}, renewedFrom(t, issuer, nil))
 	renewed := issuer.delegated.Load()
 	require.NotSame(t, old, renewed)
 	assertDelegatedResponder(t, issuer, renewed)
@@ -707,7 +773,7 @@ func TestCAResponderConcurrent(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, response.Certificate)
 	}
-	r, err := issuer.CreateDelegatedOCSPSigner()
+	r, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Same(t, issuer.caResponder, r)
 }

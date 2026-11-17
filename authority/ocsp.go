@@ -96,7 +96,9 @@ func OCSPReasonStringToCode(reason string) (reasonCode int, err error) {
 // SignOCSP returns an OCSP response signed by the CA key or the delegated
 // responder, RSA, ECDSA or ML-DSA. An ML-DSA response can be read by
 // certutil.ParseOCSPResponse; golang.org/x/crypto/ocsp cannot verify it.
-func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
+// ctx bounds the signature of the response and a renewal of the delegated
+// responder made by this call (see CreateDelegatedOCSPSigner).
+func (ca *Issuer) SignOCSP(ctx context.Context, req *OCSPSignRequest) ([]byte, error) {
 	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_ocsp")
 
 	var thisUpdate, nextUpdate time.Time
@@ -135,7 +137,7 @@ func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 	responder := ca.caResponder
 	if ca.delegatesOCSP() {
 		var err error
-		responder, err = ca.delegatedResponder(time.Now(), true)
+		responder, err = ca.delegatedResponder(ctx, time.Now(), true)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +161,7 @@ func (ca *Issuer) SignOCSP(req *OCSPSignRequest) ([]byte, error) {
 		)
 		template.Certificate = responder.Cert
 	}
-	return certutil.CreateOCSPResponse(issuer, responder.Cert, template, responder.Signer)
+	return certutil.CreateOCSPResponse(ctx, issuer, responder.Cert, template, responder.Signer)
 }
 
 // OCSPResponder is a key and certificate that sign OCSP responses for an
@@ -175,6 +177,15 @@ type OCSPResponder struct {
 // renewal produced a responder that is already due for renewal because the
 // CA expires first (XPKI-053).
 const ocspRenewRetryInterval = time.Minute
+
+// ocspRenewTimeout bounds a delegated responder renewal, which runs apart
+// from the callers that wait for it: a CA signer that hangs fails the
+// renewal, which starts the retry interval, instead of blocking renewals.
+const ocspRenewTimeout = time.Minute
+
+// errResponderUnavailable prefixes every error of a caller that gets no
+// delegated responder.
+const errResponderUnavailable = "delegated OCSP responder is not available"
 
 // ocspSigningUsage is the profile usage name of the OCSP signing EKU.
 const ocspSigningUsage = "ocsp signing"
@@ -192,6 +203,16 @@ type ocspRenewal struct {
 	err error
 }
 
+// ocspRenewCall is a delegated responder renewal in progress, published
+// through Issuer.renewing; done is closed once r and err are set. Callers that
+// wait for the renewal share done, so a caller that does not wait registers
+// nothing.
+type ocspRenewCall struct {
+	done chan struct{}
+	r    *OCSPResponder
+	err  error
+}
+
 // CreateDelegatedOCSPSigner returns the responder that signs OCSP responses.
 // Without a delegated_ocsp_profile it returns the CA key and certificate.
 // Otherwise it returns the cached delegated responder, first issuing a new
@@ -200,12 +221,14 @@ type ocspRenewal struct {
 // attempt failed, it returns that error, even if the cached responder is
 // still valid (SignOCSP keeps using a valid cached responder instead); a new
 // attempt is made at most every ocspRenewRetryInterval.
-// It is safe for concurrent use.
-func (ca *Issuer) CreateDelegatedOCSPSigner() (*OCSPResponder, error) {
+// ctx bounds the wait for the renewal, not the renewal: it runs apart from
+// its callers, bounded by ocspRenewTimeout, so a caller that leaves does not
+// fail it for the others. It is safe for concurrent use.
+func (ca *Issuer) CreateDelegatedOCSPSigner(ctx context.Context) (*OCSPResponder, error) {
 	if !ca.delegatesOCSP() {
 		return ca.caResponder, nil
 	}
-	return ca.delegatedResponder(time.Now(), false)
+	return ca.delegatedResponder(ctx, time.Now(), false)
 }
 
 // delegatesOCSP reports whether a delegated_ocsp_profile is configured.
@@ -224,18 +247,17 @@ func validFor(r *OCSPResponder, cutoff time.Time) bool {
 }
 
 // delegatedResponder returns the delegated responder to sign with at now.
-// Delegated responders are published through ca.delegated and issued under
-// ca.renewLock. Lock order: renewLock, then ca.lock (taken by Sign through
-// Profile); ca.lock is never held while acquiring renewLock (XPKI-051).
+// Responders are published through ca.delegated; one renewal at a time runs
+// in ca.renewing, apart from its callers' contexts (bounded by
+// ocspRenewTimeout), and every caller that waits for it shares its outcome.
 //
 // With useValid (SignOCSP), a caller with a still-valid cached responder
-// never waits: it takes no lock within the retry interval, and skips the
-// renewal when another caller holds renewLock. A renewal failure then falls
-// back to that responder. Without a valid responder, the error is returned
-// and no other key is used (XPKI-053). Callers that waited for renewLock
-// while another caller's attempt failed share that failure instead of
-// retrying one after another.
-func (ca *Issuer) delegatedResponder(now time.Time, useValid bool) (*OCSPResponder, error) {
+// never waits: it starts a renewal when one is due, outside the retry
+// interval and not already running, and signs with the cached responder
+// meanwhile; a renewal failure then leaves that responder in use. Without a
+// valid responder the caller waits for the renewal, no longer than ctx, and
+// gets its error, never another key (XPKI-053).
+func (ca *Issuer) delegatedResponder(ctx context.Context, now time.Time, useValid bool) (*OCSPResponder, error) {
 	// Renew before a response signed now could outlive the responder.
 	cutoff := now.Add(ca.ocspExpiry)
 	current := ca.delegated.Load()
@@ -245,60 +267,103 @@ func (ca *Issuer) delegatedResponder(now time.Time, useValid bool) (*OCSPRespond
 
 	last := ca.renewal.Load()
 	valid := validAt(current, now)
-	if valid && useValid {
-		if last != nil && now.Before(last.retryAt) {
-			return current, nil
+	if valid && last != nil && now.Before(last.retryAt) {
+		if last.err != nil && !useValid {
+			return nil, errors.WithStack(last.err)
 		}
-		if !ca.renewLock.TryLock() {
-			// another caller is renewing
-			return current, nil
-		}
-	} else {
-		if ca.renewWaitHook != nil {
-			ca.renewWaitHook()
-		}
-		ca.renewLock.Lock()
-	}
-	defer ca.renewLock.Unlock()
-
-	// Another caller may have renewed, or failed to, while this one waited.
-	current = ca.delegated.Load()
-	if validFor(current, cutoff) {
 		return current, nil
 	}
-	valid = validAt(current, now)
-	state := ca.renewal.Load()
-	switch {
-	case state != last && state.err != nil:
-		if valid && useValid {
-			return current, nil
+
+	// a caller with a valid responder signs with it while the renewal runs
+	if valid && useValid {
+		if err := ctx.Err(); err != nil {
+			return nil, errors.WithMessage(errors.WithStack(err), errResponderUnavailable)
 		}
-		return nil, errors.WithStack(state.err)
-	case valid && state != nil && now.Before(state.retryAt):
-		if state.err != nil && !useValid {
+		ca.startRenewal(ctx, now, cutoff, last)
+		return current, nil
+	}
+
+	if err := ctx.Err(); err != nil {
+		// a caller that cannot wait starts no renewal
+		return nil, errors.WithMessage(errors.WithStack(err), errResponderUnavailable)
+	}
+	if ca.renewWaitHook != nil {
+		ca.renewWaitHook()
+	}
+	call := ca.startRenewal(ctx, now, cutoff, last)
+	select {
+	case <-call.done:
+		if call.err != nil {
+			return nil, call.err
+		}
+		return call.r, nil
+	case <-ctx.Done():
+		return nil, errors.WithMessage(errors.WithStack(ctx.Err()), errResponderUnavailable)
+	}
+}
+
+// startRenewal returns the renewal in progress, or starts one with the state
+// the caller read. The renewal keeps the values of ctx (logging, tracing), not
+// its cancellation.
+func (ca *Issuer) startRenewal(ctx context.Context, now, cutoff time.Time, last *ocspRenewal) *ocspRenewCall {
+	for {
+		if running := ca.renewing.Load(); running != nil {
+			return running
+		}
+		call := &ocspRenewCall{done: make(chan struct{})}
+		if !ca.renewing.CompareAndSwap(nil, call) {
+			continue
+		}
+		renewCtx := context.WithoutCancel(ctx)
+		go func() {
+			call.r, call.err = ca.renewDelegated(renewCtx, now, cutoff, last)
+			// The outcome is published first: a caller in between joins this
+			// finished call and gets that outcome.
+			ca.renewing.Store(nil)
+			close(call.done)
+		}()
+		return call
+	}
+}
+
+// renewDelegated issues a delegated responder and publishes it, or records
+// the failure, which starts the retry interval. last is the outcome the
+// caller that started it read: when another renewal ended since, its
+// outcome is the result, so a caller that read the state before that
+// renewal neither retries a failure at once nor issues another responder
+// when the new one is short-lived because the CA expires first.
+func (ca *Issuer) renewDelegated(ctx context.Context, now, cutoff time.Time, last *ocspRenewal) (*OCSPResponder, error) {
+	if current := ca.delegated.Load(); validFor(current, cutoff) {
+		return current, nil
+	}
+	if state := ca.renewal.Load(); state != last && state != nil {
+		if state.err != nil {
 			return nil, errors.WithStack(state.err)
 		}
-		return current, nil
+		if current := ca.delegated.Load(); validAt(current, now) {
+			return current, nil
+		}
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, ocspRenewTimeout)
+	defer cancel()
 	started := time.Now()
-	r, err := ca.newDelegatedResponder()
-	// The attempt can block on the CA signer (KMS/HSM): judge the cached
-	// responder and start the retry interval from when it ended.
+	r, err := ca.newDelegatedResponder(ctx)
+	// The attempt can block on the CA signer (KMS/HSM): start the retry
+	// interval from when it ended.
 	done := now.Add(time.Since(started))
 	if err != nil {
-		err = errors.WithMessage(err, "delegated OCSP responder is not available")
+		err = errors.WithMessage(err, errResponderUnavailable)
 		ca.renewal.Store(&ocspRenewal{
 			retryAt: done.Add(ocspRenewRetryInterval),
 			err:     err,
 		})
-		if useValid && validAt(current, done) {
+		if current := ca.delegated.Load(); validAt(current, done) {
 			logger.KV(xlog.ERROR,
 				"reason", "delegated_ocsp_renewal",
 				"expires", current.Cert.NotAfter.UTC().Format(time.RFC3339),
 				"err", err,
 			)
-			return current, nil
 		}
 		return nil, err
 	}
@@ -392,8 +457,8 @@ func validateDelegatedOCSPProfile(p *CertProfile, name string, aia *AIAConfig, o
 
 // newDelegatedResponder generates an in-memory key of the configured algorithm
 // and issues a delegated OCSP signing certificate with the
-// delegated_ocsp_profile.
-func (ca *Issuer) newDelegatedResponder() (*OCSPResponder, error) {
+// delegated_ocsp_profile; ctx bounds the CA signature.
+func (ca *Issuer) newDelegatedResponder(ctx context.Context) (*OCSPResponder, error) {
 	profile := ca.cfg.AIA.DelegatedOCSPProfile
 	// AddProfile may have replaced the profile since CreateIssuer validated it.
 	snapshot := ca.Profile(profile)
@@ -412,8 +477,7 @@ func (ca *Issuer) newDelegatedResponder() (*OCSPResponder, error) {
 		),
 	}
 
-	// the key is generated in memory: there is no request to cancel
-	csrPEM, priv, _, err := csr.NewProvider(inmem).GenerateKeyAndRequest(context.Background(), req)
+	csrPEM, priv, _, err := csr.NewProvider(inmem).GenerateKeyAndRequest(ctx, req)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to create CSR")
 	}
@@ -423,7 +487,7 @@ func (ca *Issuer) newDelegatedResponder() (*OCSPResponder, error) {
 		return nil, errors.Errorf("unable to convert key to crypto.Signer")
 	}
 
-	crt, _, err := ca.signWithProfile(csr.SignRequest{
+	crt, _, err := ca.signWithProfile(ctx, csr.SignRequest{
 		Request: string(csrPEM),
 		Profile: profile,
 		Subject: &csr.X509Subject{

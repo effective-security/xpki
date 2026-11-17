@@ -134,13 +134,13 @@ func TestNewIssuerDelegatedOCSP(t *testing.T) {
 	}
 	require.NoError(t, err)
 
-	responder, err := issuer.CreateDelegatedOCSPSigner()
+	responder, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "OCSP Responder", responder.Cert.Subject.CommonName)
 	assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageOCSPSigning}, responder.Cert.ExtKeyUsage)
 	require.NoError(t, responder.Cert.CheckSignatureFrom(ca.Certificate))
 
-	der, err := issuer.SignOCSP(&authority.OCSPSignRequest{
+	der, err := issuer.SignOCSP(t.Context(), &authority.OCSPSignRequest{
 		SerialNumber: big.NewInt(7),
 		Status:       authority.OCSPStatusGood,
 	})

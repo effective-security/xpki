@@ -1,6 +1,7 @@
 package certutil_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -73,7 +74,7 @@ func TestCreateOCSPResponseMLDSA(t *testing.T) {
 
 			for _, status := range []int{ocsp.Good, ocsp.Revoked, ocsp.Unknown} {
 				template := ocspTemplate(status)
-				der, err := certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template, caKey)
+				der, err := certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template, caKey)
 				require.NoError(t, err)
 
 				res, err := certutil.ParseOCSPResponse(der, ca.Certificate)
@@ -115,7 +116,7 @@ func TestCreateOCSPResponseMLDSA(t *testing.T) {
 			template.IssuerHash = crypto.SHA256
 			// the parameter set fixes the algorithm, whatever the template says
 			template.SignatureAlgorithm = x509.ECDSAWithSHA256
-			der, err := certutil.CreateOCSPResponse(ca.Certificate, responder.Certificate, template, responderKey)
+			der, err := certutil.CreateOCSPResponse(t.Context(), ca.Certificate, responder.Certificate, template, responderKey)
 			require.NoError(t, err)
 
 			res, err := certutil.ParseOCSPResponse(der, ca.Certificate)
@@ -146,7 +147,7 @@ func TestCreateOCSPResponseClassical(t *testing.T) {
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	ca := testca.NewEntity(testca.Authority, testca.PrivateKey(ecKey), testca.KeyUsage(x509.KeyUsageCertSign))
-	der, err := certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, ocspTemplate(ocsp.Good), ecKey)
+	der, err := certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, ocspTemplate(ocsp.Good), ecKey)
 	require.NoError(t, err)
 	res, err := certutil.ParseOCSPResponse(der, ca.Certificate)
 	require.NoError(t, err)
@@ -160,7 +161,7 @@ func TestCreateOCSPResponseClassical(t *testing.T) {
 	responder := pqCA.Issue(testca.PrivateKey(responderKey), testca.ExtKeyUsage(x509.ExtKeyUsageOCSPSigning))
 	template := ocspTemplate(ocsp.Good)
 	template.Certificate = responder.Certificate
-	der, err = certutil.CreateOCSPResponse(pqCA.Certificate, responder.Certificate, template, responderKey)
+	der, err = certutil.CreateOCSPResponse(t.Context(), pqCA.Certificate, responder.Certificate, template, responderKey)
 	require.NoError(t, err)
 	res, err = certutil.ParseOCSPResponse(der, pqCA.Certificate)
 	require.NoError(t, err)
@@ -180,50 +181,70 @@ func (s failingSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error
 	return nil, errors.New("backend failed")
 }
 
+// TestCreateOCSPResponseCancelled checks that neither a classical nor an
+// ML-DSA response is signed with an ended context.
+func TestCreateOCSPResponseCancelled(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	pqCA, pqKey := mldsaCA(t, mldsa.MLDSA44())
+	_, err := certutil.CreateOCSPResponse(ctx, pqCA.Certificate, pqCA.Certificate, ocspTemplate(ocsp.Good), pqKey)
+	require.ErrorIs(t, err, context.Canceled)
+
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	ecCA := testca.NewEntity(testca.PrivateKey(ecKey), testca.Authority, testca.KeyUsage(x509.KeyUsageCertSign))
+	_, err = certutil.CreateOCSPResponse(ctx, ecCA.Certificate, ecCA.Certificate, ocspTemplate(ocsp.Good), ecKey)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = certutil.CreateOCSPResponse(t.Context(), ecCA.Certificate, ecCA.Certificate, ocspTemplate(ocsp.Good), ecKey)
+	require.NoError(t, err)
+}
+
 // TestCreateOCSPResponseErrors covers invalid arguments and signer failures.
 func TestCreateOCSPResponseErrors(t *testing.T) {
 	t.Parallel()
 	ca, key := mldsaCA(t, mldsa.MLDSA44())
 	template := ocspTemplate(ocsp.Good)
 
-	_, err := certutil.CreateOCSPResponse(nil, ca.Certificate, template, key)
+	_, err := certutil.CreateOCSPResponse(t.Context(), nil, ca.Certificate, template, key)
 	require.EqualError(t, err, "issuer certificate is nil")
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, nil, template, key)
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, nil, template, key)
 	require.EqualError(t, err, "responder certificate is nil")
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template, nil)
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template, nil)
 	require.EqualError(t, err, "signer is nil")
 
 	// keys that must fail, not panic: crypto/mldsa panics on them
 	var nilKey *mldsa.PrivateKey
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template, nilKey)
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template, nilKey)
 	require.EqualError(t, err, "signer is nil")
 	var nilECKey *ecdsa.PrivateKey
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template, nilECKey)
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template, nilECKey)
 	require.EqualError(t, err, "signer is nil")
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template, &mldsa.PrivateKey{})
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template, &mldsa.PrivateKey{})
 	require.EqualError(t, err, "invalid ML-DSA private key")
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template,
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template,
 		failingSigner{pub: &mldsa.PublicKey{}})
 	require.EqualError(t, err, "invalid ML-DSA public key")
 
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template,
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template,
 		failingSigner{pub: key.Public()})
 	require.EqualError(t, err, "unable to sign the OCSP response: backend failed")
 
 	// x/crypto signs for a classical key, so its error comes from the signer
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template,
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template,
 		failingSigner{pub: mustECDSAPublic(t)})
 	require.ErrorContains(t, err, "backend failed")
 	require.NotContains(t, err.Error(), "unable to sign the OCSP response")
 
 	// a key type neither path signs with
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, template,
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, template,
 		failingSigner{pub: "not a key"})
 	require.ErrorContains(t, err, "only RSA and ECDSA keys supported")
 
 	bad := template
 	bad.SerialNumber = nil
-	_, err = certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, bad, key)
+	_, err = certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, bad, key)
 	require.Error(t, err, "x/crypto cannot encode a nil serial number")
 }
 
@@ -293,7 +314,7 @@ func TestParseOCSPResponseRejects(t *testing.T) {
 	otherParams, _ := mldsaCA(t, mldsa.MLDSA87())
 	ecCA := testca.NewEntity(testca.Authority)
 
-	direct, err := certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, ocspTemplate(ocsp.Good), key)
+	direct, err := certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, ocspTemplate(ocsp.Good), key)
 	require.NoError(t, err)
 
 	responderKey, err := mldsa.GenerateKey(mldsa.MLDSA44())
@@ -301,7 +322,7 @@ func TestParseOCSPResponseRejects(t *testing.T) {
 	responder := ca.Issue(testca.PrivateKey(responderKey), testca.ExtKeyUsage(x509.ExtKeyUsageOCSPSigning))
 	template := ocspTemplate(ocsp.Good)
 	template.Certificate = responder.Certificate
-	delegated, err := certutil.CreateOCSPResponse(ca.Certificate, responder.Certificate, template, responderKey)
+	delegated, err := certutil.CreateOCSPResponse(t.Context(), ca.Certificate, responder.Certificate, template, responderKey)
 	require.NoError(t, err)
 
 	// the failure is an ocsp.ParseError, as x/crypto reports a classical one
@@ -326,7 +347,7 @@ func TestParseOCSPResponseRejects(t *testing.T) {
 
 	// the signed data of another response, so the fields parse and differ
 	otherTemplate := ocspTemplate(ocsp.Revoked)
-	otherDirect, err := certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, otherTemplate, key)
+	otherDirect, err := certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, otherTemplate, key)
 	require.NoError(t, err)
 	otherOuter := decodeTestOCSP(t, otherDirect)
 	otherBasic := decodeTestBasic(t, &otherOuter)
@@ -392,7 +413,7 @@ func TestParseOCSPResponseRejects(t *testing.T) {
 func TestParseOCSPResponseForCert(t *testing.T) {
 	t.Parallel()
 	ca, key := mldsaCA(t, mldsa.MLDSA44())
-	der, err := certutil.CreateOCSPResponse(ca.Certificate, ca.Certificate, ocspTemplate(ocsp.Revoked), key)
+	der, err := certutil.CreateOCSPResponse(t.Context(), ca.Certificate, ca.Certificate, ocspTemplate(ocsp.Revoked), key)
 	require.NoError(t, err)
 
 	res, err := certutil.ParseOCSPResponseForCert(der, &x509.Certificate{SerialNumber: big.NewInt(ocspTestSerial)}, ca.Certificate)

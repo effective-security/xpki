@@ -93,13 +93,17 @@ This package is based on github.com/ThalesIgnite/crypto11 with modifications for
 - [type PKCS11PrivateKeyECDSA](<#PKCS11PrivateKeyECDSA>)
   - [func \(priv \*PKCS11PrivateKeyECDSA\) Public\(\) crypto.PublicKey](<#PKCS11PrivateKeyECDSA.Public>)
   - [func \(priv \*PKCS11PrivateKeyECDSA\) Sign\(rand io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(\[\]byte, error\)](<#PKCS11PrivateKeyECDSA.Sign>)
+  - [func \(priv \*PKCS11PrivateKeyECDSA\) SignContext\(ctx context.Context, \_ io.Reader, digest \[\]byte, \_ crypto.SignerOpts\) \(\[\]byte, error\)](<#PKCS11PrivateKeyECDSA.SignContext>)
 - [type PKCS11PrivateKeyMLDSA](<#PKCS11PrivateKeyMLDSA>)
   - [func \(priv \*PKCS11PrivateKeyMLDSA\) Public\(\) crypto.PublicKey](<#PKCS11PrivateKeyMLDSA.Public>)
   - [func \(priv \*PKCS11PrivateKeyMLDSA\) Sign\(rand io.Reader, message \[\]byte, opts crypto.SignerOpts\) \(\[\]byte, error\)](<#PKCS11PrivateKeyMLDSA.Sign>)
+  - [func \(priv \*PKCS11PrivateKeyMLDSA\) SignContext\(ctx context.Context, \_ io.Reader, message \[\]byte, opts crypto.SignerOpts\) \(\[\]byte, error\)](<#PKCS11PrivateKeyMLDSA.SignContext>)
 - [type PKCS11PrivateKeyRSA](<#PKCS11PrivateKeyRSA>)
   - [func \(priv \*PKCS11PrivateKeyRSA\) Decrypt\(rand io.Reader, ciphertext \[\]byte, options crypto.DecrypterOpts\) \(plaintext \[\]byte, err error\)](<#PKCS11PrivateKeyRSA.Decrypt>)
+  - [func \(priv \*PKCS11PrivateKeyRSA\) DecryptContext\(ctx context.Context, \_ io.Reader, ciphertext \[\]byte, options crypto.DecrypterOpts\) \(plaintext \[\]byte, err error\)](<#PKCS11PrivateKeyRSA.DecryptContext>)
   - [func \(priv \*PKCS11PrivateKeyRSA\) Public\(\) crypto.PublicKey](<#PKCS11PrivateKeyRSA.Public>)
   - [func \(priv \*PKCS11PrivateKeyRSA\) Sign\(rand io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(signature \[\]byte, err error\)](<#PKCS11PrivateKeyRSA.Sign>)
+  - [func \(priv \*PKCS11PrivateKeyRSA\) SignContext\(ctx context.Context, \_ io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(signature \[\]byte, err error\)](<#PKCS11PrivateKeyRSA.SignContext>)
   - [func \(priv \*PKCS11PrivateKeyRSA\) Validate\(\) error](<#PKCS11PrivateKeyRSA.Validate>)
 - [type SlotInfo](<#SlotInfo>)
 - [type SlotTokenInfo](<#SlotTokenInfo>)
@@ -178,7 +182,7 @@ func LoadProvider(cfg cryptoprov.TokenConfig) (cryptoprov.Provider, error)
 LoadProvider provides loader for crypto11 provider
 
 <a name="UlongToBytes"></a>
-## func [UlongToBytes](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L49>)
+## func [UlongToBytes](<https://github.com/effective-security/xpki/blob/main/crypto11/common.go#L50>)
 
 ```go
 func UlongToBytes(n uint) []byte
@@ -392,7 +396,7 @@ The key will have a random ID.
 Only a limited set of named elliptic curves are supported. The underlying PKCS\#11 implementation may impose further restrictions.
 
 <a name="PKCS11Lib.GenerateKey"></a>
-### func \(\*PKCS11Lib\) [GenerateKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L313>)
+### func \(\*PKCS11Lib\) [GenerateKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L326>)
 
 ```go
 func (lib *PKCS11Lib) GenerateKey(ctx context.Context, req *cryptoprov.GenerateKeyRequest) (crypto.PrivateKey, error)
@@ -401,7 +405,7 @@ func (lib *PKCS11Lib) GenerateKey(ctx context.Context, req *cryptoprov.GenerateK
 GenerateKey generates the key pair req describes on the token lib is logged in to and returns a handle that also reports its key ID and label \(KeyIdentifier\): an RSA key with the permissions of req.Usage \(CKA\_SIGN for cryptoprov.KeyUsageSign, CKA\_DECRYPT for cryptoprov.KeyUsageEncrypt, or both\), an ECDSA key on P\-256, P\-384 or P\-521, or an ML\-DSA key, for which the token must implement PKCS\#11 v3.2 \(SoftHSM 2.6 does not and fails the key pair generation\). A PKCS\#11 object has no tags, so req.Tags is a wrapped cryptoprov.ErrNotSupported. ctx bounds the wait for a session; a generation that has started is not interrupted.
 
 <a name="PKCS11Lib.GenerateMLDSAKeyPairOnSlot"></a>
-### func \(\*PKCS11Lib\) [GenerateMLDSAKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L172>)
+### func \(\*PKCS11Lib\) [GenerateMLDSAKeyPairOnSlot](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L179>)
 
 ```go
 func (lib *PKCS11Lib) GenerateMLDSAKeyPairOnSlot(ctx context.Context, slot uint, id []byte, label []byte, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error)
@@ -410,7 +414,7 @@ func (lib *PKCS11Lib) GenerateMLDSAKeyPairOnSlot(ctx context.Context, slot uint,
 GenerateMLDSAKeyPairOnSlot creates an ML\-DSA key pair of params on slot with CKM\_ML\_DSA\_KEY\_PAIR\_GEN, which needs a PKCS\#11 v3.2 token. label and/or id can be nil, in which case random values are generated. ctx bounds the wait for a session.
 
 <a name="PKCS11Lib.GenerateMLDSAKeyPairWithLabel"></a>
-### func \(\*PKCS11Lib\) [GenerateMLDSAKeyPairWithLabel](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L164>)
+### func \(\*PKCS11Lib\) [GenerateMLDSAKeyPairWithLabel](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L171>)
 
 ```go
 func (lib *PKCS11Lib) GenerateMLDSAKeyPairWithLabel(ctx context.Context, label string, params mldsa.Parameters) (*PKCS11PrivateKeyMLDSA, error)
@@ -489,7 +493,7 @@ Identify returns the ID and label for a PKCS\#11 object.
 Either of these values may be used to retrieve the key for later use. The object's Handle is used as given; IdentifyKey, given a private key of this package, also recovers from a handle invalidated by a logout. ctx bounds the wait for a session.
 
 <a name="PKCS11Lib.IdentifyKey"></a>
-### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L371>)
+### func \(\*PKCS11Lib\) [IdentifyKey](<https://github.com/effective-security/xpki/blob/main/crypto11/keys.go#L384>)
 
 ```go
 func (lib *PKCS11Lib) IdentifyKey(ctx context.Context, priv crypto.PrivateKey) (keyID, label string, err error)
@@ -549,7 +553,7 @@ func (lib *PKCS11Lib) Model() string
 Model returns model for the calling library
 
 <a name="PKCS11Lib.NewSession"></a>
-### func \(\*PKCS11Lib\) [NewSession](<https://github.com/effective-security/xpki/blob/main/crypto11/sessions.go#L296>)
+### func \(\*PKCS11Lib\) [NewSession](<https://github.com/effective-security/xpki/blob/main/crypto11/sessions.go#L297>)
 
 ```go
 func (lib *PKCS11Lib) NewSession(slot uint) (pkcs11.SessionHandle, error)
@@ -638,7 +642,7 @@ type PKCS11PrivateKeyECDSA struct {
 ```
 
 <a name="PKCS11PrivateKeyECDSA.Public"></a>
-### func \(\*PKCS11PrivateKeyECDSA\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/ecdsa.go#L344>)
+### func \(\*PKCS11PrivateKeyECDSA\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/ecdsa.go#L351>)
 
 ```go
 func (priv *PKCS11PrivateKeyECDSA) Public() crypto.PublicKey
@@ -649,7 +653,7 @@ Public returns the public half of a private key.
 This partially implements the go.crypto.Signer and go.crypto.Decrypter interfaces for PKCS11PrivateKey. \(The remains of the implementation is in the key\-specific types.\)
 
 <a name="PKCS11PrivateKeyECDSA.Sign"></a>
-### func \(\*PKCS11PrivateKeyECDSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/ecdsa.go#L335>)
+### func \(\*PKCS11PrivateKeyECDSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/ecdsa.go#L336>)
 
 ```go
 func (priv *PKCS11PrivateKeyECDSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
@@ -661,7 +665,16 @@ This completes the implementation of crypto.Signer for PKCS11PrivateKeyECDSA.
 
 PKCS\#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 
-The return value is a DER\-encoded byteblock.
+The return value is a DER\-encoded byteblock. Sign is SignContext with context.Background\(\).
+
+<a name="PKCS11PrivateKeyECDSA.SignContext"></a>
+### func \(\*PKCS11PrivateKeyECDSA\) [SignContext](<https://github.com/effective-security/xpki/blob/main/crypto11/ecdsa.go#L342>)
+
+```go
+func (priv *PKCS11PrivateKeyECDSA) SignContext(ctx context.Context, _ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error)
+```
+
+SignContext is Sign with ctx bounding the wait for a pooled session \(cryptoprov.ContextSigner\).
 
 <a name="PKCS11PrivateKeyMLDSA"></a>
 ## type [PKCS11PrivateKeyMLDSA](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L100-L106>)
@@ -684,13 +697,22 @@ func (priv *PKCS11PrivateKeyMLDSA) Public() crypto.PublicKey
 Public returns the public half of the key, an \*mldsa.PublicKey.
 
 <a name="PKCS11PrivateKeyMLDSA.Sign"></a>
-### func \(\*PKCS11PrivateKeyMLDSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L120>)
+### func \(\*PKCS11PrivateKeyMLDSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L121>)
 
 ```go
 func (priv *PKCS11PrivateKeyMLDSA) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error)
 ```
 
-Sign signs message with the ML\-DSA key through CKM\_ML\_DSA and returns the FIPS 204 signature. It accepts the message with nil options, a zero hash or an \*mldsa.Options without context \(cryptoprov.MLDSASignerOptions\); the token hedges the signature. A digest hash, a μ \(crypto.MLDSAMu\) and a context string are errors, since PKCS\#11 v3.2 has no external\-μ mechanism and this package passes no mechanism parameter. PKCS\#11 picks its own randomness, so rand is ignored.
+Sign signs message with the ML\-DSA key through CKM\_ML\_DSA and returns the FIPS 204 signature. It accepts the message with nil options, a zero hash or an \*mldsa.Options without context \(cryptoprov.MLDSASignerOptions\); the token hedges the signature. A digest hash, a μ \(crypto.MLDSAMu\) and a context string are errors, since PKCS\#11 v3.2 has no external\-μ mechanism and this package passes no mechanism parameter. PKCS\#11 picks its own randomness, so rand is ignored. Sign is SignContext with context.Background\(\).
+
+<a name="PKCS11PrivateKeyMLDSA.SignContext"></a>
+### func \(\*PKCS11PrivateKeyMLDSA\) [SignContext](<https://github.com/effective-security/xpki/blob/main/crypto11/mldsa.go#L127>)
+
+```go
+func (priv *PKCS11PrivateKeyMLDSA) SignContext(ctx context.Context, _ io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error)
+```
+
+SignContext is Sign with ctx bounding the wait for a pooled session \(cryptoprov.ContextSigner\).
 
 <a name="PKCS11PrivateKeyRSA"></a>
 ## type [PKCS11PrivateKeyRSA](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L17-L23>)
@@ -704,7 +726,7 @@ type PKCS11PrivateKeyRSA struct {
 ```
 
 <a name="PKCS11PrivateKeyRSA.Decrypt"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Decrypt](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L213>)
+### func \(\*PKCS11PrivateKeyRSA\) [Decrypt](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L214>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Decrypt(rand io.Reader, ciphertext []byte, options crypto.DecrypterOpts) (plaintext []byte, err error)
@@ -716,10 +738,19 @@ This completes the implementation of crypto.Decrypter for PKCS11PrivateKeyRSA.
 
 If options is nil or a \*rsa.PKCS1v15DecryptOptions, PKCS\#1 v1.5 decryption is performed; a non\-zero SessionKeyLen is not supported. If options is a \*rsa.OAEPOptions, OAEP decryption is performed.
 
-The underlying PKCS\#11 implementation may impose further restrictions.
+The underlying PKCS\#11 implementation may impose further restrictions. Decrypt is DecryptContext with context.Background\(\).
+
+<a name="PKCS11PrivateKeyRSA.DecryptContext"></a>
+### func \(\*PKCS11PrivateKeyRSA\) [DecryptContext](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L220>)
+
+```go
+func (priv *PKCS11PrivateKeyRSA) DecryptContext(ctx context.Context, _ io.Reader, ciphertext []byte, options crypto.DecrypterOpts) (plaintext []byte, err error)
+```
+
+DecryptContext is Decrypt with ctx bounding the wait for a pooled session \(cryptoprov.ContextDecrypter\).
 
 <a name="PKCS11PrivateKeyRSA.Public"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L373>)
+### func \(\*PKCS11PrivateKeyRSA\) [Public](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L387>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Public() crypto.PublicKey
@@ -730,7 +761,7 @@ Public returns the public half of a private key.
 This partially implements the go.crypto.Signer and go.crypto.Decrypter interfaces for PKCS11PrivateKey. \(The remains of the implementation is in the key\-specific types.\)
 
 <a name="PKCS11PrivateKeyRSA.Sign"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L355>)
+### func \(\*PKCS11PrivateKeyRSA\) [Sign](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L363>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
@@ -742,10 +773,19 @@ This completes the implementation of crypto.Signer for PKCS11PrivateKeyRSA.
 
 PKCS\#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 
-For PSS, rsa.PSSSaltLengthAuto uses the largest salt the key allows, rsa.PSSSaltLengthEqualsHash uses the hash length, and a positive value is used as\-is. For PKCS\#1 v1.5 the hash must be one of SHA\-1, SHA\-224, SHA\-256, SHA\-384 or SHA\-512; other hashes are rejected. The underlying PKCS\#11 implementation may impose further restrictions.
+For PSS, rsa.PSSSaltLengthAuto uses the largest salt the key allows, rsa.PSSSaltLengthEqualsHash uses the hash length, and a positive value is used as\-is. For PKCS\#1 v1.5 the hash must be one of SHA\-1, SHA\-224, SHA\-256, SHA\-384 or SHA\-512; other hashes are rejected. The underlying PKCS\#11 implementation may impose further restrictions. Sign is SignContext with context.Background\(\).
+
+<a name="PKCS11PrivateKeyRSA.SignContext"></a>
+### func \(\*PKCS11PrivateKeyRSA\) [SignContext](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L369>)
+
+```go
+func (priv *PKCS11PrivateKeyRSA) SignContext(ctx context.Context, _ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
+```
+
+SignContext is Sign with ctx bounding the wait for a pooled session \(cryptoprov.ContextSigner\).
 
 <a name="PKCS11PrivateKeyRSA.Validate"></a>
-### func \(\*PKCS11PrivateKeyRSA\) [Validate](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L382>)
+### func \(\*PKCS11PrivateKeyRSA\) [Validate](<https://github.com/effective-security/xpki/blob/main/crypto11/rsa.go#L396>)
 
 ```go
 func (priv *PKCS11PrivateKeyRSA) Validate() error

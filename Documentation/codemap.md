@@ -41,6 +41,7 @@ v1 is maintained on the `release-v1` branch.
 | `armor/`, `oid/`, `x/print/`, `metricskey/`, `internal/version/` | Helpers (see below)                                                     |
 | `internal/testenv/`                                              | Test-only gate for external fixtures (`XPKI_INTEGRATION`)               |
 | `internal/pagetoken/`                                            | Opaque page tokens bound to a request, used by `cryptoprov`             |
+| `internal/signctx/`                                              | Context for a signer: the implementation of `cryptoprov.SignContext`    |
 | `internal/provtest/`                                             | Test-only conformance suite of the key management contract              |
 | `testca/`                                                        | Test-only CA and certificate generator                                  |
 | `cmd/hsm-tool/`, `cmd/xpki-tool/`                                | CLIs (kong)                                                             |
@@ -59,6 +60,7 @@ consumers. Nothing in the library imports `cmd/`.
 | Provider interfaces                        | `cryptoprov/provider.go`                                                                     | `Provider`, `KeyGenerator` (`GenerateKey`, `GetKey`, `IdentifyKey`, `ExportKey`), `KeyManager` (`ListKeys`, `KeyInfo`, `DestroyKey`), `TokenManager` (`ListTokens`, `Token`); every method takes `ctx`                                                                                                                                                        |
 | Key management types, listing helpers      | `cryptoprov/keys.go`, `cryptoprov/errors.go`                                                 | `KeyInfo`, `TokenInfo`, `KeyUsage`, `KeyState`, `KeyFields`, `KeyFilter` (`Match`, `Fields`), `ListKeysRequest`/`Response`, `GenerateKeyRequest` (`Validate`), `AllKeys`, `PageKeys`, `PageCursor`, `NewPageToken`, `ParsePageToken`, `ECDSACurve`, `ParseKeyUsage`, `ParseKeyState`, `ErrKeyNotFound`, `ErrNotSupported`, `ErrInvalidPageToken`, `MarkError` |
 | Page tokens                                | `internal/pagetoken/pagetoken.go`                                                            | `Encode`, `Decode`, `Binding`, `ErrInvalid`, `MaxTokenSize`                                                                                                                                                                                                                                                                                                   |
+| Context on the signing path                | `cryptoprov/sign.go`, `internal/signctx/signctx.go`                                          | `ContextSigner` (`SignContext`), `ContextDecrypter` (`DecryptContext`), `SignContext`, `DecryptContext`, `BindContext` (for `x509`/`ocsp` calls); `signctx.Sign`, `Decrypt`, `Bind` for `certutil`                                                                                                                                                         |
 | Provider conformance suite                 | `internal/provtest/testsuite.go`                                                             | `Run`, `Config`; run by `inmemcrypto` (through `internal/provtest`), `testprov`, `crypto11`, `awskmscrypto`, `gcpkmscrypto`                                                                                                                                                                                                                                   |
 | ML-DSA signer contract, μ, parameter sets  | `cryptoprov/mldsa.go`                                                                        | `MLDSAParameters`, `MLDSASize`, `MLDSASignerOptions`, `MLDSAMu`, `MLDSA44/65/87`, `MetaParameterSet`, `MLDSAMuSize`                                                                                                                                                                                                                                           |
 | Provider registry / loading                | `cryptoprov/loader.go`                                                                       | `Register`, `LoadProvider`, `Load`, `Registered`                                                                                                                                                                                                                                                                                                              |
@@ -86,9 +88,9 @@ consumers. Nothing in the library imports `cmd/`.
 | JSON/YAML OID and Duration                 | `csr/types.go`                                                                               | `OID`, `Duration`, `ParseObjectIdentifier`                                                                                                                                                                                                                                                                                                                    |
 | CA config and profiles                     | `authority/config.go`                                                                        | `Config`, `IssuerConfig`, `AIAConfig` (`DelegatedOCSPKey`), `CertProfile` (`AllowedKeyAlgorithms`), `LoadConfig`, `Validate`, `Usages`                                                                                                                                                                                                                        |
 | CA issuer registry                         | `authority/authority.go`                                                                     | `NewAuthority(ctx, …)`, `GetIssuerBy{Label,Profile,KeyID,KeyHash,NameHash}`                                                                                                                                                                                                                                                                                   |
-| Issuer construction / signing              | `authority/issuer.go`                                                                        | `NewIssuer(ctx, …)`, `NewIssuerWithBundles(ctx, …)`, `CreateIssuer`, `Issuer.Sign`, `SignProof`, `VerifyProof`                                                                                                                                                                                                                                                |
-| OCSP signing, delegated responder          | `authority/ocsp.go`                                                                          | `SignOCSP`, `OCSPSignRequest`, `CreateDelegatedOCSPSigner`, `OCSPReasonStringToCode`, `validateDelegatedOCSPKey`                                                                                                                                                                                                                                              |
-| OCSP responder renewal / locking           | `authority/ocsp.go` (`delegatedResponder`), `authority/issuer.go` (`Issuer`)                 | `caResponder`, `delegated`, `renewal` (`ocspRenewal`), `renewLock`, `renewWaitHook`, `validateDelegatedOCSPProfile`, `signWithProfile`                                                                                                                                                                                                                        |
+| Issuer construction / signing              | `authority/issuer.go`                                                                        | `NewIssuer(ctx, …)`, `NewIssuerWithBundles(ctx, …)`, `CreateIssuer`, `Issuer.Sign(ctx, …)`, `SignProof(ctx, …)`, `VerifyProof`                                                                                                                                                                                                                                              |
+| OCSP signing, delegated responder          | `authority/ocsp.go`                                                                          | `SignOCSP(ctx, …)`, `OCSPSignRequest`, `CreateDelegatedOCSPSigner(ctx)`, `OCSPReasonStringToCode`, `validateDelegatedOCSPKey`                                                                                                                                                                                                                                          |
+| OCSP responder renewal / locking           | `authority/ocsp.go` (`delegatedResponder`, `renewDelegated`), `authority/issuer.go` (`Issuer`) | `caResponder`, `delegated`, `renewal` (`ocspRenewal`), `renewing` (`ocspRenewCall`), `ocspRenewTimeout`, `renewWaitHook`, `validateDelegatedOCSPProfile`, `signWithProfile`                                                                                                                                                                                           |
 | Certificate policies, SKI                  | `authority/extensions.go`                                                                    | `addPolicies`, `CTPoisonOID`, `SCTListOID`                                                                                                                                                                                                                                                                                                                    |
 | ML-DSA key usage rule (RFC 9881)           | `authority/extensions.go`, `authority/config.go`                                             | `mldsaForbiddenKeyUsage`, `checkMLDSATemplate`, `CertProfile.checkMLDSAKeyUsage`                                                                                                                                                                                                                                                                              |
 | Root bootstrap / cert files                | `authority/root.go`, `authority/util.go`                                                     | `NewRoot(ctx, …)`, `Issuer.GenCert(ctx, …)`                                                                                                                                                                                                                                                                                                                   |
@@ -148,6 +150,7 @@ parsing, TLS key-pair loading and AES-GCM helpers.
 | `uri.go`      | RFC 7512 parser (`parsePKCS11URI`), `ParseTokenURI`, `ParsePrivateKeyURI`, `pin-value` redaction                                                                                                                                                                                                       |
 | `utils.go`    | `Crypto.LoadPrivateKey` (PEM or `pkcs11:` URI), `ParsePrivateKeyPEM*`, `ParsePrivateKeyDER`, `LoadTLSKeyPair`, `TLSKeyPair`                                                                                                                                                                            |
 | `signer.go`   | `NewSignerFromFromFile`, `NewSignerFromPEM`                                                                                                                                                                                                                                                            |
+| `sign.go`     | `ContextSigner`, `ContextDecrypter`, `SignContext`, `DecryptContext`, `BindContext` (wrappers of `internal/signctx`)                                                                                                                                                                                   |
 | `mldsa.go`    | ML-DSA (FIPS 204): `MLDSAParameters` (44/65/87), the signer contract `MLDSASignerOptions`, `MLDSAMu` (Algorithm 7), `MetaParameterSet`                                                                                                                                                                 |
 | `gcm.go`      | `GcmEncrypt`/`GcmDecrypt` (nonce prefixed)                                                                                                                                                                                                                                                             |
 
@@ -251,6 +254,23 @@ TokenLabel, Pin, Attributes`; YAML keys are snake_case.
   `LoadTLSKeyPair` and `TLSKeyPair` take `ctx` (v2): it reaches
   `Provider.GetKey` when the key is a `pkcs11:` URI and is not used for a PEM
   key. The loaders (`Load`, `LoadProvider`, `ProviderLoader`) have no context.
+- Signing path (v2, roadmap item 1): every key handle of a provider of this
+  module is a `ContextSigner` (`SignContext`), and an RSA key of `crypto11`,
+  `inmemcrypto` and `testprov` a `ContextDecrypter`; `Sign`/`Decrypt` are the
+  context variants with `context.Background()`, so a plain `Sign` (a TLS
+  handshake, third-party code) is unbounded as before. `SignContext` and
+  `DecryptContext` use the context variant when the key has one and
+  otherwise check `ctx` before calling the plain method. `BindContext`
+  returns a signer whose `Sign` is `SignContext(ctx, signer, …)`, for an API
+  that only calls `Sign` (`x509.CreateCertificate`,
+  `CreateCertificateRequest`, `ocsp.CreateResponse`); it keeps `SignMessage`
+  of a `crypto.MessageSigner` that is not a `ContextSigner` (`SignMessage`
+  takes no context, so `crypto.SignMessage` of a bound `ContextSigner` goes
+  through the bound `Sign`) and hides every other method, so callers bind
+  at the call and keep the key for type checks (`csr.SignatureAlgorithmer`).
+  The implementation is `internal/signctx`, which `certutil` (below
+  `cryptoprov` in the import graph) uses directly; the interfaces of both
+  packages have the same method sets.
 - Errors are `cockroachdb/errors`; sentinels `ErrInvalidURI`, `ErrInvalidPrivateKeyURI`.
 
 ### Test layout
@@ -289,6 +309,17 @@ another binding or another payload shape, or is longer than `MaxTokenSize`
 (`NewPageToken`, `ParsePageToken`) and maps `ErrInvalid` to
 `ErrInvalidPageToken`; providers do not import it.
 
+## Package internal/signctx
+
+`signctx.go`: `Signer` and `Decrypter` (the method sets of
+`cryptoprov.ContextSigner` and `ContextDecrypter`), `Sign`, `Decrypt` and
+`Bind`, which `cryptoprov.SignContext`, `DecryptContext` and `BindContext`
+wrap. It exists so that `certutil.CreateOCSPResponse` can take a context
+without importing `cryptoprov`, which imports `certutil`. An ended context
+fails with an error that wraps `ctx.Err()` before a plain signer is called;
+the bound signer of `Bind` stores the context and must not outlive it.
+`signctx_test.go` covers it completely.
+
 ## Package internal/provtest
 
 `testsuite.go` (excluded from coverage by its name): the conformance suite
@@ -303,7 +334,10 @@ suite runs (the SoftHSM token, whose page token is an offset in the search
 order). The suite generates keys with a random label prefix, runs
 `TestPaging`, `TestFilters`, `TestFields`, `TestPageToken`,
 `TestInvalidRequests`, `TestNotSupported`, `TestKeyInfo`, `TestGetKey`,
-`TestKeyNotFound`, `TestCancelledContext` and `TestDestroyKey`, and destroys
+`TestKeyNotFound`, `TestCancelledContext`, `TestSignContext` (every signing
+key is a `ContextSigner` that signs a certificate through `BindContext` and
+fails with a cancelled context; an encryption key is a `ContextDecrypter`,
+checked with OAEP SHA-1, which SoftHSM has) and `TestDestroyKey`, and destroys
 its keys in `TearDownSuite`. The filter tests read one page of
 `MaxPageSize`. Run by `internal/provtest` itself on `inmemcrypto` (both
 paging modes), and by `testprov`, `crypto11` (SoftHSM), `awskmscrypto` (fake
@@ -383,8 +417,8 @@ C toolchain (cgo) and dlopens the module named in the config.
   for good (PKCS#11 §5.7.2), so `PKCS11PrivateKeyRSA`/`PKCS11PrivateKeyECDSA`
   carry an unexported `objectRef` (class, an owned copy of the CKA_ID,
   current handle; the id is read once by the constructors, or passed when
-  the key was found by id or generated) and `withKey`, used by RSA/ECDSA
-  `Sign`, RSA `Decrypt` and `IdentifyKey`, looks the object up again by
+  the key was found by id or generated) and `withKeyCtx`, used by RSA/ECDSA
+  `SignContext`, RSA `DecryptContext` and `IdentifyKey`, looks the object up again by
   CKA_ID on `CKR_OBJECT_HANDLE_INVALID` or `CKR_KEY_HANDLE_INVALID` (the
   code C_Sign/C_Decrypt use, `staleKeyHandleErrors`) and runs the callback
   once more (so
@@ -485,8 +519,11 @@ C toolchain (cgo) and dlopens the module named in the config.
   fails before borrowing when `ctx` is done. `GenerateKey`, `GetKey`,
   `ExportKey`, `IdentifyKey`, `Identify`, `KeyInfo`, `DestroyKey`,
   `FindKeyPair*` and `Generate*KeyPair*` (not the `*OnSession` variants) take
-  `ctx`. `withSession` is the borrow of `Sign` and `Decrypt`, which have no
-  context. A PKCS#11 call that has started is never interrupted.
+  `ctx`, and so do `SignContext` of the RSA, ECDSA and ML-DSA keys and
+  `DecryptContext` of an RSA key (v2, roadmap items 1 and 6); `Sign` and
+  `Decrypt` are those with `context.Background()`, which waits at the session
+  limit without a deadline. A PKCS#11 call that has started is never
+  interrupted.
 - `DestroyKey` returns an error that is both `errKeyNotFound` and
   `cryptoprov.ErrKeyNotFound` when neither the private nor the public object
   exists (`keyError`, also used by `GetKey`, `KeyInfo` and `ExportKey`);
@@ -496,7 +533,7 @@ C toolchain (cgo) and dlopens the module named in the config.
   parameter set from `CKA_PARAMETER_SET` of the private key into `Size` and
   `Meta[cryptoprov.MetaParameterSet]`. `PKCS11PrivateKeyMLDSA.Sign` validates options with
   `cryptoprov.MLDSASignerOptions`, then signs the message with `CKM_ML_DSA`
-  through `withKey` (handle refresh as for RSA/ECDSA); a μ
+  through `withKeyCtx` (handle refresh as for RSA/ECDSA); a μ
   (`crypto.MLDSAMu`) and a context string are errors
   (`errMLDSAExternalMu`, `errMLDSAContext`): v3.2 has no external-μ
   mechanism and the `CK_SIGN_ADDITIONAL_CONTEXT` parameter is deliberately not
@@ -520,7 +557,10 @@ Close waiting/wakeups, concurrent pool creation vs Close) and
 `relogin_test.go` (retry bounds, one re-login under concurrency, sticky PIN
 errors, stale idle sessions, handle refresh, Close during a re-login)
 through the `sessionOps` seam (`open`/`close`/`login`/`state`/`find`, with
-`fakeSessions` counters, gates and `logout()`), config/DSA tests;
+`fakeSessions` counters, gates and `logout()`), config/DSA tests,
+`TestKeySignContext_BoundsTheWait` (`provider_test.go`: `SignContext` of
+every key type and RSA `DecryptContext` give up at the session limit when
+their context ends);
 `relogin_softhsm_test.go` covers a real logout, a listing after a logout,
 concurrent operations costing one login, a sticky wrong PIN, and
 `C_CloseAllSessions` in a re-executed child (`runChild`), since it
@@ -555,8 +595,11 @@ is opt-in through `XPKI_PKCS11_V32_CONFIG` (skips otherwise, whatever
 
 Invariants: the KMS providers pass the caller's `ctx` to every SDK request of
 `GenerateKey`, `GetKey`, `ExportKey`, `ListKeys`, `KeyInfo` and `DestroyKey`
-(v2) and check it before the first one; only `Signer.Sign` still uses
-`context.Background()` (roadmap item 1). Both are `cryptoprov.KeyManager`s
+(v2) and check it before the first one; `Signer.SignContext` checks it after
+the options are validated and before the request, passes it to the request,
+and marks a failure of a request whose context ended with `ctx.Err()`
+(`ctxError`, through `cryptoprov.MarkError`, since gRPC returns a status
+error); `Signer.Sign` is `SignContext` with `context.Background()`. Both are `cryptoprov.KeyManager`s
 of one store (the AWS account and Region, the GCP key ring) and no
 `TokenManager`. An encryption usage is `ErrNotSupported` (roadmap item 2).
 `KmsClientFactory` package vars are the test seams (the GCP one takes the
@@ -929,6 +972,10 @@ template, subject merging, SAN classification, CRL-DP encoding, JSON/YAML
   fixed: deny-by-default for CSR extensions).
 - `KeyRequest.prov` is unexported; `GenerateKeyAndRequest` injects the
   provider for requests decoded from JSON/YAML.
+- `Provider.SignRequest(ctx, priv, req)` (v2, roadmap item 1) signs the CSR
+  with `cryptoprov.BindContext(ctx, priv)`; `DefaultSigAlgo` reads the
+  unbound key, so a `SignatureAlgorithmer` still picks the algorithm.
+  `GenerateKeyAndRequest` and `CreateRequestAndExportKey` pass their `ctx`.
 - `X509Name` YAML/JSON keys are lowercase (`c`, `st`, `l`, `o`, `ou`, `email`);
   uppercase keys are silently ignored by the YAML decoder.
 - `SigAlgo`/`DefaultSigAlgo`: RSA 2048 and 3072 bits → SHA-256 (XPKI-114:
@@ -1047,16 +1094,31 @@ and `CreateIssuer` validates them (`validateDelegatedOCSPKey`).
   copies. A registered `*CertProfile` is shared with every reader and must
   not be modified; register a `Copy` instead (XPKI-055). OCSP responders (XPKI-051/052/053): `caResponder` is immutable
   after `CreateIssuer`; the delegated responder is an `atomic.Pointer`
-  snapshot issued under `renewLock`. Lock order is `renewLock` → `lock`
-  (`Sign` → `Profile`); never acquire `renewLock` while holding `lock`.
-  Renewal starts when the responder expires within `ocsp_expiry`. A
-  `SignOCSP` caller with a still-valid responder never waits: within the
-  retry window (`renewal.retryAt`, an atomic snapshot) it takes no lock,
-  otherwise it uses `TryLock`. On renewal failure `SignOCSP` uses a
-  still-valid cached responder (retry after `ocspRenewRetryInterval`, 1
-  minute) and otherwise returns an error, never the CA key; callers that
-  queued during a failed attempt share its error. `CreateDelegatedOCSPSigner`
-  blocks on `renewLock` and returns the last error while renewal is overdue.
+  snapshot issued by `renewDelegated` in the renewal call `renewing` (an
+  `atomic.Pointer[ocspRenewCall]` set by `startRenewal` with a CAS: one
+  renewal at a time; callers that wait share its `done` channel and outcome,
+  and a caller that does not wait registers nothing). A renewal started by a
+  caller that read the `renewal` state before another renewal ended takes
+  that renewal's outcome, a failure or a short-lived responder, instead of
+  signing again within the retry interval.
+  The renewal runs apart from its callers: under
+  `context.WithoutCancel(ctx)` (the values of the starting caller's context,
+  not its cancellation) and `ocspRenewTimeout` (1 minute), so a caller that
+  leaves never fails it for the others, and a hung CA signer fails it and
+  starts the retry interval. No lock is held around it, so the
+  `renewLock` → `lock` order of XPKI-051 is gone. Renewal starts when the
+  responder expires within `ocsp_expiry`. A `SignOCSP` caller with a
+  still-valid responder never waits: within the retry window
+  (`renewal.retryAt`, an atomic snapshot) it starts nothing, otherwise it
+  starts or joins the renewal and signs with the cached responder. A caller
+  without a valid responder (or `CreateDelegatedOCSPSigner`) waits for the
+  renewal no longer than its context, and a caller whose context has already
+  ended starts none. On renewal failure `SignOCSP` keeps the still-valid
+  cached responder (retry after `ocspRenewRetryInterval`, 1 minute) and
+  otherwise returns an error, never the CA key; `renewDelegated` rechecks the
+  state the starting caller read, so a caller that read it before a failed
+  attempt shares that failure. `CreateDelegatedOCSPSigner` returns the last
+  error while renewal is overdue.
   `CreateIssuer`, and each issuance on the exact profile snapshot it signs
   with (`signWithProfile`), rejects a missing or CA delegated profile, one
   whose effective EKU lacks OCSP signing (a raw profile EKU extension is
@@ -1089,9 +1151,12 @@ and `CreateIssuer` validates them (`validateDelegatedOCSPKey`).
   extension from the profile or the `SignRequest` counts and replaces `usages`.
 - Context (v2): `NewAuthority`, `NewIssuer`, `NewIssuerWithBundles`, `NewRoot`
   and `Issuer.GenCert` take `ctx` for the provider that loads, generates or
-  exports the key. Signing (`Issuer.Sign`, the CRL and OCSP signers) goes
-  through `crypto.Signer` and has none (roadmap item 1); the delegated OCSP
-  responder key is generated in memory with a background context.
+  exports the key. `Issuer.Sign`, `SignProof`, `SignOCSP` and
+  `CreateDelegatedOCSPSigner` take `ctx` for the CA signature (roadmap item
+  1): `sign` binds it to the CA key for `x509.CreateCertificate`
+  (`cryptoprov.BindContext`), `SignProof` uses `cryptoprov.SignContext`, and
+  `SignOCSP` passes it to `certutil.CreateOCSPResponse`; it bounds the wait
+  for a delegated responder renewal, not the renewal (see above).
 - Profiles must be `Validate()`d before use (compiles regexes; `LoadConfig` does).
 - `Copy()` methods are shallow for `*CertProfile`.
 - Metrics: `metricskey.PerfCAOperation`, `PerfCASignRequest`.
@@ -1129,6 +1194,17 @@ AU1 issuance policy with hostile signed CSRs (profile-owned OIDs, SAN bypass,
 allow-list/omit matrix, issuer-generated CRL DP), extension precedence, and
 `validityWindow` against a fixed clock. `config_test.go` has the
 `allowed_profiles` named/wildcard × nil/empty/populated matrix.
+`sign_context_test.go` covers the context of the signing path: `Sign`,
+`SignProof` and `SignOCSP` with a cancelled context never reach the CA key
+and start no renewal, a renewal outlives a caller cancelled inside the CA
+signature (`TestDelegatedOCSPRenewalOutlivesCaller`), a caller queued behind
+a blocked renewal leaves at its deadline (`TestDelegatedOCSPWaiterDeadline`),
+and requests with deadlines shorter than a renewal keep signing with the
+cached responder while one renewal runs
+(`TestDelegatedOCSPSlowRenewalShortDeadlines`). `countingSigner`
+(`ocsp_responder_test.go`) is a `ContextSigner` whose gate also opens when
+the context ends; `renewedFrom` waits for a background renewal to publish
+its outcome.
 
 ## Package certutil
 
@@ -1169,7 +1245,10 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   a responder and the issuer hashes of the CertID are not checked, also as in
   x/crypto: that is left to the service reading the response (ROADMAP 11).
   `CreateOCSPResponse` returns an error for a nil or typed
-  nil signer and an uninitialized ML-DSA key.
+  nil signer and an uninitialized ML-DSA key. It takes `ctx` (v2): a classical
+  key signs through `ocsp.CreateResponse` with `signctx.Bind`, an ML-DSA key
+  through `signctx.Sign`, so an ended context fails either way before the key
+  is used.
 - Chain building: `certs[0]` is the leaf; `Force` only checks each cert is
   signed by the next; `Optimal` runs `x509.Verify` against the root and
   intermediate pools, fetches AIA intermediates on unknown authority when
@@ -1283,6 +1362,9 @@ ML-DSA-44/65/87 (RFC 9964).
   P-384 → ES384, else ES256; ML-DSA → the algorithm named after its parameter
   set. HS256 key ring: seeds are SHA-256'd, `kid` header
   set; `NewProvider` errors if `kid` is not in `keys`.
+- Context: `Signer.Sign(ctx, claims)` reaches the key through
+  `signJWT(ctx, …)` and `SignerInfo.sign(ctx, …)`, which call
+  `cryptoprov.SignContext` (v2, roadmap item 1).
 - ML-DSA: `sign` passes the JWS signing input itself with nil options (the
   provider contract), and `VerifySignature` calls `mldsa.Verify` with an empty
   context; there is no hash. `mldsaKeyFits` requires an initialized

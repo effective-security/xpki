@@ -414,7 +414,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		crt, _, err := rootCA.Sign(sreq)
+		crt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.Equal(sreq.Subject.CommonName, crt.Subject.CommonName) // must be from RA
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
@@ -454,7 +454,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		crt, _, err := rootCA.Sign(sreq)
+		crt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
@@ -493,7 +493,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		crt, _, err := rootCA.Sign(sreq)
+		crt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
@@ -509,7 +509,7 @@ func (s *testSuite) TestIssuerSign() {
 
 		// test unknown profile
 		sreq.Profile = "unknown"
-		_, _, err = rootCA.Sign(sreq)
+		_, _, err = rootCA.Sign(s.T().Context(), sreq)
 		s.Require().Error(err)
 		s.Equal("unsupported profile: unknown", err.Error())
 	})
@@ -526,13 +526,13 @@ func (s *testSuite) TestIssuerSign() {
 		s.Require().NoError(err)
 		csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
 
-		_, _, err = rootCA.Sign(csr.SignRequest{Request: string(csrPEM)})
+		_, _, err = rootCA.Sign(s.T().Context(), csr.SignRequest{Request: string(csrPEM)})
 		s.Require().Error(err)
 		s.Contains(err.Error(), `CSR: invalid SAN "trailing.dot.": DNS name has a trailing dot`)
 		s.Contains(err.Error(), `invalid SAN "a b.trusty.com": invalid character ' ' in DNS label "a b"`)
 
 		// the same names in the SignRequest are rejected as well
-		_, _, err = rootCA.Sign(csr.SignRequest{Request: string(csrPEM), SAN: []string{"trailing.dot."}})
+		_, _, err = rootCA.Sign(s.T().Context(), csr.SignRequest{Request: string(csrPEM), SAN: []string{"trailing.dot."}})
 		s.Require().Error(err)
 		s.Contains(err.Error(), `invalid SAN "trailing.dot."`)
 	})
@@ -551,7 +551,7 @@ func (s *testSuite) TestIssuerSign() {
 			Profile: "ocsp",
 		}
 
-		crt, _, err := rootCA.Sign(sreq)
+		crt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)
@@ -589,7 +589,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		crt, _, err := rootCA.Sign(sreq)
+		crt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.True(certutil.IsOCSPSigner(crt))
 		s.True(certutil.HasOCSPNoCheck(crt))
@@ -598,7 +598,7 @@ func (s *testSuite) TestIssuerSign() {
 
 		// without the extension in the request, the OCSP signer gets AIA and CDP
 		sreq.Extensions = nil
-		crt, _, err = rootCA.Sign(sreq)
+		crt, _, err = rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.True(certutil.IsOCSPSigner(crt))
 		s.False(certutil.HasOCSPNoCheck(crt))
@@ -624,7 +624,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		caCrt, _, err := rootCA.Sign(sreq)
+		caCrt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.Equal(sreq.Subject.CommonName, caCrt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, caCrt.Issuer.CommonName)
@@ -653,7 +653,7 @@ func (s *testSuite) TestIssuerSign() {
 			Profile: "RestrictedServer",
 		}
 
-		_, _, err = rootCA.Sign(sreq)
+		_, _, err = rootCA.Sign(s.T().Context(), sreq)
 		s.Require().Error(err)
 		s.Equal("CommonName does not match allowed list: [TEST] server", err.Error())
 	})
@@ -679,7 +679,7 @@ func (s *testSuite) TestIssuerSign() {
 			Profile: "RestrictedServer",
 		}
 
-		_, _, err = rootCA.Sign(sreq)
+		_, _, err = rootCA.Sign(s.T().Context(), sreq)
 		s.Require().Error(err)
 		s.Equal("DNS Name does not match allowed list: trustyca.com", err.Error())
 	})
@@ -706,7 +706,7 @@ func (s *testSuite) TestIssuerSign() {
 			Profile: "RestrictedServer",
 		}
 
-		_, _, err = rootCA.Sign(sreq)
+		_, _, err = rootCA.Sign(s.T().Context(), sreq)
 		s.Require().Error(err)
 		s.Equal("URI does not match allowed list: spiffe://google.com/ca", err.Error())
 	})
@@ -732,7 +732,7 @@ func (s *testSuite) TestIssuerSign() {
 			Profile: "RestrictedServer",
 		}
 
-		_, _, err = rootCA.Sign(sreq)
+		_, _, err = rootCA.Sign(s.T().Context(), sreq)
 		s.Require().Error(err)
 		s.Equal("Email does not match allowed list: rootca@trusty.com", err.Error())
 	})
@@ -758,7 +758,7 @@ func (s *testSuite) TestIssuerSign() {
 			Profile: "RestrictedCA",
 		}
 
-		caCrt, _, err := rootCA.Sign(sreq)
+		caCrt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.Equal(caReq.CommonName, caCrt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, caCrt.Issuer.CommonName)
@@ -792,7 +792,7 @@ func (s *testSuite) TestIssuerSign() {
 			Profile: "RestrictedServer",
 		}
 
-		crt, _, err := rootCA.Sign(sreq)
+		crt, _, err := rootCA.Sign(s.T().Context(), sreq)
 		s.Require().NoError(err)
 		s.Equal(req.CommonName, crt.Subject.CommonName)
 		s.Equal(rootReq.CommonName, crt.Issuer.CommonName)

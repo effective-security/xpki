@@ -315,7 +315,7 @@ func TestOCSPMLDSAResponse(t *testing.T) {
 	leaf := root.Issue(testca.Subject(pkix.Name{CommonName: "ML-DSA OCSP"}), testca.OCSPServer(server.URL+"/ocsp"))
 
 	now := time.Now().UTC().Truncate(time.Minute)
-	der, err := certutil.CreateOCSPResponse(root.Certificate, root.Certificate, ocsp.Response{
+	der, err := certutil.CreateOCSPResponse(t.Context(), root.Certificate, root.Certificate, ocsp.Response{
 		Status:       ocsp.Good,
 		SerialNumber: leaf.Certificate.SerialNumber,
 		ThisUpdate:   now,
@@ -334,7 +334,7 @@ func TestOCSPMLDSAResponse(t *testing.T) {
 	// a response signed by another key of the issuer's type is rejected
 	other, err := mldsa.GenerateKey(mldsa.MLDSA65())
 	require.NoError(t, err)
-	forged, err := certutil.CreateOCSPResponse(root.Certificate, root.Certificate, ocsp.Response{
+	forged, err := certutil.CreateOCSPResponse(t.Context(), root.Certificate, root.Certificate, ocsp.Response{
 		Status:       ocsp.Good,
 		SerialNumber: leaf.Certificate.SerialNumber,
 		ThisUpdate:   now,

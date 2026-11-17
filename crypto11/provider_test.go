@@ -411,6 +411,48 @@ func TestKeySearch(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestKeySignContext_BoundsTheWait checks that SignContext and
+// DecryptContext of every key type wait for a session at the limit no
+// longer than their context (roadmap item 6), and that a cancelled context
+// borrows nothing.
+func TestKeySignContext_BoundsTheWait(t *testing.T) {
+	t.Parallel()
+	lib, _ := newFakeLib(1)
+	release := make(chan struct{})
+	_, held := holdSession(t, lib, testSlot, release)
+	defer func() {
+		close(release)
+		require.NoError(t, <-held)
+	}()
+
+	key := &PKCS11PrivateKey{PKCS11Object: PKCS11Object{Slot: testSlot, handle: 1}}
+	rsaKey := &PKCS11PrivateKeyRSA{key: key, lib: lib}
+	signers := map[string]cryptoprov.ContextSigner{
+		"RSA":    rsaKey,
+		"ECDSA":  &PKCS11PrivateKeyECDSA{key: key, lib: lib},
+		"ML-DSA": &PKCS11PrivateKeyMLDSA{key: key, lib: lib},
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for name, signer := range signers {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		_, err := signer.SignContext(ctx, nil, make([]byte, 32), nil)
+		cancel()
+		require.ErrorIs(t, err, context.DeadlineExceeded, name)
+		require.ErrorContains(t, err, "wait for a session on slot", name)
+
+		_, err = signer.SignContext(cancelled, nil, make([]byte, 32), nil)
+		require.ErrorIs(t, err, context.Canceled, name)
+	}
+
+	ctx, cancelWait := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancelWait()
+	_, err := rsaKey.DecryptContext(ctx, nil, make([]byte, 256), nil)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	_, err = rsaKey.DecryptContext(cancelled, nil, make([]byte, 256), nil)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 // TestWithSessionCtx_BoundsTheWait checks the context-aware borrow: a
 // borrower at the session limit waits no longer than its context, a context
 // that is already done borrows nothing, and the pool keeps working.

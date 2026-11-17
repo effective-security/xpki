@@ -58,6 +58,7 @@ for key, err := range cryptoprov.AllKeys(ctx, provider, req) {
   - [func \(s \*Signer\) Label\(\) string](<#Signer.Label>)
   - [func \(s \*Signer\) Public\(\) crypto.PublicKey](<#Signer.Public>)
   - [func \(s \*Signer\) Sign\(rand io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(signature \[\]byte, err error\)](<#Signer.Sign>)
+  - [func \(s \*Signer\) SignContext\(ctx context.Context, \_ io.Reader, digest \[\]byte, opts crypto.SignerOpts\) \(signature \[\]byte, err error\)](<#Signer.SignContext>)
   - [func \(s \*Signer\) SigningAlgorithms\(\) \[\]types.SigningAlgorithmSpec](<#Signer.SigningAlgorithms>)
   - [func \(s \*Signer\) String\(\) string](<#Signer.String>)
 - [type TaggingClient](<#TaggingClient>)
@@ -287,7 +288,7 @@ func (s *Signer) Public() crypto.PublicKey
 Public returns public key for the signer
 
 <a name="Signer.Sign"></a>
-### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L120>)
+### func \(\*Signer\) [Sign](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L121>)
 
 ```go
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
@@ -295,7 +296,16 @@ func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (si
 
 Sign signs digest with the KMS key. For an RSA or ECDSA key opts is required \(XPKI\-025\): its hash selects the KMS algorithm and digest must have that hash's length. \*rsa.PSSOptions select RSASSA\_PSS for an RSA key and are rejected for an ECDSA key; the salt must be rsa.PSSSaltLengthEqualsHash or the hash size, the only salt KMS produces \(rsa.PSSSaltLengthAuto asks for a maximal salt and is rejected\). The algorithm must be one the key supports, as KMS reported when the signer was created; for an ECDSA key that is the algorithm of its curve.
 
-An ML\-DSA key signs the message: digest is the message with nil, a zero hash or \*mldsa.Options, or the 64\-byte representative μ with crypto.MLDSAMu \(cryptoprov.MLDSASignerOptions\); every other hash is an error. The signer computes μ locally and calls KMS with MessageType EXTERNAL\_MU and ML\_DSA\_SHAKE\_256, so the message itself is never sent. Invalid options fail before any RPC.
+An ML\-DSA key signs the message: digest is the message with nil, a zero hash or \*mldsa.Options, or the 64\-byte representative μ with crypto.MLDSAMu \(cryptoprov.MLDSASignerOptions\); every other hash is an error. The signer computes μ locally and calls KMS with MessageType EXTERNAL\_MU and ML\_DSA\_SHAKE\_256, so the message itself is never sent. Invalid options fail before any RPC. Sign is SignContext with context.Background\(\).
+
+<a name="Signer.SignContext"></a>
+### func \(\*Signer\) [SignContext](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L127>)
+
+```go
+func (s *Signer) SignContext(ctx context.Context, _ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
+```
+
+SignContext is Sign with the KMS request bounded by ctx \(cryptoprov.ContextSigner\); invalid options still fail before any RPC.
 
 <a name="Signer.SigningAlgorithms"></a>
 ### func \(\*Signer\) [SigningAlgorithms](<https://github.com/effective-security/xpki/blob/main/cryptoprov/awskmscrypto/signer.go#L89>)

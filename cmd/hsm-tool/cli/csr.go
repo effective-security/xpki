@@ -179,7 +179,7 @@ func (a *GenCertCmd) Run(ctx *Cli) error {
 			Profile: a.Profile,
 		}
 
-		crt, _, err := issuer.Sign(signReq)
+		crt, _, err := issuer.Sign(ctx.Context(), signReq)
 		if err != nil {
 			return errors.WithMessage(err, "sign request")
 		}
@@ -265,7 +265,7 @@ func (a *CsrSignCmd) Run(ctx *Cli) error {
 		Profile: a.Profile,
 	}
 
-	crt, _, err := issuer.Sign(signReq)
+	crt, _, err := issuer.Sign(ctx.Context(), signReq)
 	if err != nil {
 		return errors.WithMessage(err, "sign request")
 	}

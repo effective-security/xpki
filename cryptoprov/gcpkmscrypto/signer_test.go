@@ -1,6 +1,7 @@
 package gcpkmscrypto_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -11,9 +12,13 @@ import (
 	"testing"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
+	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -274,4 +279,31 @@ func TestSignVerifiesLocally(t *testing.T) {
 			assert.Equal(t, signs, s.CallCount("AsymmetricSign"))
 		})
 	}
+}
+
+// TestSignerSignContext checks that an ended context fails before the KMS
+// request, and that a context that ends during the request is reported as
+// such although gRPC returns a status error.
+func TestSignerSignContext(t *testing.T) {
+	t.Parallel()
+	digest := make([]byte, 32)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := &fakeKMS{
+		asymmetricSign: func(req *kmspb.AsymmetricSignRequest) (*kmspb.AsymmetricSignResponse, error) {
+			cancel()
+			return nil, status.Error(codes.Canceled, "context canceled")
+		},
+	}
+	signer, ok := testSigner(t, client, kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256).(cryptoprov.ContextSigner)
+	require.True(t, ok, "the signer is not a cryptoprov.ContextSigner")
+
+	_, err := signer.SignContext(ctx, rand.Reader, digest, crypto.SHA256)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, codes.Canceled, status.Code(errors.Cause(err)))
+	assert.Equal(t, 1, client.CallCount("AsymmetricSign"))
+
+	_, err = signer.SignContext(ctx, rand.Reader, digest, crypto.SHA256)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, client.CallCount("AsymmetricSign"), "a request was sent with an ended context")
 }

@@ -116,22 +116,29 @@ func (priv *PKCS11PrivateKeyMLDSA) Public() crypto.PublicKey {
 // the token hedges the signature. A digest hash, a μ (crypto.MLDSAMu) and
 // a context string are errors, since PKCS#11 v3.2 has no external-μ
 // mechanism and this package passes no mechanism parameter. PKCS#11 picks
-// its own randomness, so rand is ignored.
+// its own randomness, so rand is ignored. Sign is SignContext with
+// context.Background().
 func (priv *PKCS11PrivateKeyMLDSA) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error) {
-	mu, context, err := cryptoprov.MLDSASignerOptions(opts)
+	return priv.SignContext(context.Background(), rand, message, opts)
+}
+
+// SignContext is Sign with ctx bounding the wait for a pooled session
+// (cryptoprov.ContextSigner).
+func (priv *PKCS11PrivateKeyMLDSA) SignContext(ctx context.Context, _ io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error) {
+	mu, msgContext, err := cryptoprov.MLDSASignerOptions(opts)
 	if err != nil {
 		return nil, err
 	}
 	if mu {
 		return nil, errors.WithStack(errMLDSAExternalMu)
 	}
-	if context != "" {
+	if msgContext != "" {
 		return nil, errors.WithStack(errMLDSAContext)
 	}
 
 	var sig []byte
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(ckmMLDSA, nil)}
-	err = priv.lib.withKey(&priv.key.PKCS11Object, priv.ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+	err = priv.lib.withKeyCtx(ctx, &priv.key.PKCS11Object, priv.ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 		if err := priv.lib.Ctx.SignInit(session, mech, handle); err != nil {
 			return err
 		}

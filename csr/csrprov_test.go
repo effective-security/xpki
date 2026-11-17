@@ -1,10 +1,12 @@
 package csr_test
 
 import (
+	"context"
 	"crypto"
 	"testing"
 
 	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
 	"github.com/effective-security/xpki/v2/csr"
 	"github.com/effective-security/xpki/v2/internal/testenv"
 	"github.com/stretchr/testify/assert"
@@ -82,13 +84,34 @@ func TestGenerateKeyAndRequest(t *testing.T) {
 				signer := k.(crypto.Signer)
 				assert.Equal(t, tc.req.KeyRequest.SigAlgo(), csr.DefaultSigAlgo(signer))
 
-				_, err = prov.SignRequest(k, tc.req)
+				_, err = prov.SignRequest(t.Context(), k, tc.req)
 				require.NoError(t, err)
 
 				assert.Equal(t, tc.req.KeyRequest.SigAlgo(), csr.DefaultSigAlgo(signer))
 			}
 		})
 	}
+}
+
+// TestSignRequestCancelled checks that a CSR is not signed with an ended
+// context.
+func TestSignRequestCancelled(t *testing.T) {
+	t.Parallel()
+	inmem := inmemcrypto.NewProvider()
+	prov := csr.NewProvider(inmem)
+	req := &csr.CertificateRequest{
+		CommonName: "ctx.example.test",
+		KeyRequest: prov.NewKeyRequest("ctx", csr.AlgoECDSA, csr.CurveP256, csr.SigningKey),
+	}
+	_, key, _, err := prov.GenerateKeyAndRequest(t.Context(), req)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = prov.SignRequest(ctx, key, req)
+	require.ErrorIs(t, err, context.Canceled)
+	_, _, _, err = prov.GenerateKeyAndRequest(ctx, req)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestCreateRequestAndExportKey(t *testing.T) {

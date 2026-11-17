@@ -451,8 +451,9 @@ and `CreateRequestAndExportKey`; `authority.NewRoot`, `NewIssuer`,
 `NewIssuerWithBundles` and `NewAuthority`; `jwt.NewProvider`, `LoadProvider`
 and `MustNewProvider`. That is the loading half of roadmap item 1; `authority.Issuer.GenCert` gained `ctx` for
 the same reason. Its
-signing half (`Issuer.Sign`, `SignRequest`, the `crypto.Signer` path) stays
-in item 1.
+signing half (`Issuer.Sign`, `SignRequest`, the `crypto.Signer` path) was
+done after this work, in the same v2.0 (`cryptoprov.ContextSigner`, see
+[cryptoprov.md](cryptoprov.md)).
 
 ### Mechanics
 
@@ -495,7 +496,7 @@ in item 1.
 | K6  | Slots                                                | Out of `KeyManager`. `TokenManager` is optional and implemented by `crypto11`.                                                                                                                                                                         | Approved 2026-11-12 |
 | K7  | Generation                                           | One `GenerateKey` with `Type`, `Size`, `Usage` and `Tags`. `KeyUsageSign` and `KeyUsageEncrypt` are 1 and 2, as `csr.KeyPurpose`.                                                                                                                      | Approved 2026-11-12 |
 | K8  | Page semantics                                       | Short and empty pages are allowed; tokens are opaque and bound to the filter.                                                                                                                                                                          | Approved 2026-11-12 |
-| K9  | What else rides the major, and when do clients move? | Thread `ctx` through key loading and generation in this work (KM2). Finish the signing path of roadmap item 1 before porto and the applications migrate. Remove the symbols already marked `Deprecated` and the ones roadmap items 6 and 7 name (KM8). | Approved 2026-11-12 |
+| K9  | What else rides the major, and when do clients move? | Thread `ctx` through key loading and generation in this work (KM2). Finish the signing path of roadmap item 1 before porto and the applications migrate (done in v2.0 on 2026-11-17). Remove the symbols already marked `Deprecated` and the ones roadmap items 6 and 7 name (KM8). | Approved 2026-11-12 |
 | K10 | v1 maintenance                                       | `release-v1`, security and correctness fixes only. XPKI-129 is fixed in v2 by KM3 and backported only on request.                                                                                                                                      | Approved 2026-11-12 |
 | K11 | GCP filter pushdown                                  | Push down only the documented forms and recheck on the client. `purpose=` and a sorted single-version lookup wait for a run against the service, together with PQ7.                                                                                    | Approved 2026-11-12 |
 | K12 | Default state filter                                 | None. `hsm-tool hsm key list` asks for enabled and disabled keys, which is what v1 listed on AWS, and for the RSA, ECDSA and ML-DSA key types; `--state all` and `--all` drop the two filters.                                                             | Approved 2026-11-12 |

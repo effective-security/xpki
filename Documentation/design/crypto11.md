@@ -103,8 +103,10 @@ orphan or duplicates a caller-supplied id.
   cancelled. `withSessionCtx` fails before it borrows when the context is
   done and gives up the wait for a session when it ends; a waiter that gives
   up passes on the wake-up it consumed, so a returned session is not lost.
-  The key generation, lookup and management methods use it; `Sign` and
-  `Decrypt`, which have no context, borrow with `withSession`.
+  The key generation, lookup and management methods use it, and so do
+  `SignContext` and `DecryptContext` of the keys (`cryptoprov.ContextSigner`
+  and `ContextDecrypter`, v2); `Sign` and `Decrypt` are those with
+  `context.Background()`.
 - **Digest-in signing.** `Sign` receives a digest and `opts.HashFunc()`:
   RSA PKCS#1 v1.5 wraps the `DigestInfo` itself (`CKM_RSA_PKCS`), PSS and
   OAEP pass parameters (`CKM_RSA_PKCS_PSS`, `CKM_RSA_PKCS_OAEP`), ECDSA

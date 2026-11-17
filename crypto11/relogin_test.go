@@ -428,7 +428,7 @@ func TestWithKey_RefreshAfterLogout(t *testing.T) {
 	f.setObject("key-1", 200)
 
 	var handles []pkcs11.ObjectHandle
-	require.NoError(t, lib.withKey(obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+	require.NoError(t, lib.withKeyCtx(t.Context(), obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 		handles = append(handles, handle)
 		if handle == 100 {
 			return pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID)
@@ -443,7 +443,7 @@ func TestWithKey_RefreshAfterLogout(t *testing.T) {
 
 	// later operations use the new handle without another lookup
 	finds := f.findCount()
-	require.NoError(t, lib.withKey(obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+	require.NoError(t, lib.withKeyCtx(t.Context(), obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 		assert.Equal(t, pkcs11.ObjectHandle(200), handle)
 		return nil
 	}))
@@ -460,7 +460,7 @@ func TestWithKey_RefreshWhileLoggedIn(t *testing.T) {
 	f.setObject("key-2", 300)
 
 	cb, calls := failNTimes(1, pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID))
-	require.NoError(t, lib.withKey(obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+	require.NoError(t, lib.withKeyCtx(t.Context(), obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 		return cb(pkcs11.SessionHandle(handle))
 	}))
 	assert.Equal(t, []pkcs11.SessionHandle{100, 300}, *calls)
@@ -470,7 +470,7 @@ func TestWithKey_RefreshWhileLoggedIn(t *testing.T) {
 	f.mu.Lock()
 	delete(f.objects, "gone")
 	f.mu.Unlock()
-	err := lib.withKey(gone, goneRef, func(pkcs11.SessionHandle, pkcs11.ObjectHandle) error {
+	err := lib.withKeyCtx(t.Context(), gone, goneRef, func(pkcs11.SessionHandle, pkcs11.ObjectHandle) error {
 		return pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID)
 	})
 	assert.ErrorIs(t, err, pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID))
@@ -481,7 +481,7 @@ func TestWithKey_RefreshWhileLoggedIn(t *testing.T) {
 	plain := &PKCS11Object{handle: 500, Slot: testSlot}
 	assert.Equal(t, pkcs11.ObjectHandle(500), plain.Handle())
 	finds := f.findCount()
-	err = lib.withKey(plain, nil, func(pkcs11.SessionHandle, pkcs11.ObjectHandle) error {
+	err = lib.withKeyCtx(t.Context(), plain, nil, func(pkcs11.SessionHandle, pkcs11.ObjectHandle) error {
 		return pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID)
 	})
 	assert.ErrorIs(t, err, pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID))
@@ -585,7 +585,7 @@ func TestWithKey_KeyHandleInvalid(t *testing.T) {
 		obj, ref := newFakeKeyObject(f, "key-3", 100)
 		f.setObject("key-3", 300)
 		var handles []pkcs11.ObjectHandle
-		require.NoError(t, lib.withKey(obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+		require.NoError(t, lib.withKeyCtx(t.Context(), obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 			handles = append(handles, handle)
 			if handle == 100 {
 				return errKeyHandle
@@ -601,7 +601,7 @@ func TestWithKey_KeyHandleInvalid(t *testing.T) {
 		f.logout()
 		f.setObject("key-4", 400)
 		var handles []pkcs11.ObjectHandle
-		require.NoError(t, lib.withKey(obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+		require.NoError(t, lib.withKeyCtx(t.Context(), obj, ref, func(_ pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 			handles = append(handles, handle)
 			if handle == 100 {
 				return errKeyHandle

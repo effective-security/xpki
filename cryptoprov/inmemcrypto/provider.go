@@ -128,6 +128,23 @@ func (s *provImpl) Public() crypto.PublicKey {
 	return s.pvk
 }
 
+// SignContext is Sign once ctx is checked (cryptoprov.ContextSigner): an
+// in-memory signature cannot be interrupted.
+func (s *provImpl) SignContext(ctx context.Context, rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return s.Sign(rand, digest, opts)
+}
+
+// DecryptContext is Decrypt once ctx is checked (cryptoprov.ContextDecrypter).
+func (s *provImpl) DecryptContext(ctx context.Context, rand io.Reader, ciphertext []byte, opts crypto.DecrypterOpts) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return s.Decrypt(rand, ciphertext, opts)
+}
+
 // Sign signs digest with the key. For an RSA or ECDSA key nil opts mean
 // crypto.SHA256. An ML-DSA key signs the message: it accepts nil, a zero
 // hash, *mldsa.Options or crypto.MLDSAMu and rejects every digest hash

@@ -186,7 +186,14 @@ func (s *Signer) String() string {
 // Invalid options fail before any RPC. The response is accepted only when
 // KMS verified the checksum of what was sent and the signature matches its
 // checksum (XPKI-023). After the provider is closed, Sign returns ErrClosed.
+// Sign is SignContext with context.Background().
 func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	return s.SignContext(context.Background(), rand, digest, opts)
+}
+
+// SignContext is Sign with the KMS request bounded by ctx
+// (cryptoprov.ContextSigner); invalid options still fail before any RPC.
+func (s *Signer) SignContext(ctx context.Context, _ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	defer metricskey.PerfCryptoOperation.MeasureSince(time.Now(), ProviderName, "sign")
 
 	if s.prov == nil {
@@ -216,14 +223,17 @@ func (s *Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (si
 		req.DigestCrc32C = wrapperspb.Int64(int64(Crc32c(digest)))
 	}
 
+	if err = ctx.Err(); err != nil {
+		return nil, errors.WithStack(err)
+	}
 	if err = s.prov.enter(); err != nil {
 		return nil, err
 	}
 	defer s.prov.exit()
 
-	result, err := s.prov.AsymmetricSign(context.Background(), req)
+	result, err := s.prov.AsymmetricSign(ctx, req)
 	if err != nil {
-		return nil, errors.WithMessagef(err, "unable to sign")
+		return nil, ctxError(ctx, errors.WithMessagef(err, "unable to sign"))
 	}
 	if result == nil {
 		return nil, errors.WithMessage(errEmptyResponse, "unable to sign")
@@ -344,4 +354,14 @@ func isNilOpts(opts crypto.SignerOpts) bool {
 func Crc32c(data []byte) uint32 {
 	t := crc32.MakeTable(crc32.Castagnoli)
 	return crc32.Checksum(data, t)
+}
+
+// ctxError marks err, the failure of a request made with ctx, with ctx.Err()
+// when ctx has ended, so that errors.Is finds context.Canceled or
+// context.DeadlineExceeded although gRPC returns a status error.
+func ctxError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return cryptoprov.MarkError(err, ctxErr)
+	}
+	return err
 }

@@ -51,7 +51,7 @@ func TestSignOCSPResponses(t *testing.T) {
 		{"unknown SHA384", OCSPStatusUnknown, ocsp.Unknown, crypto.SHA384},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			der, err := issuer.SignOCSP(&OCSPSignRequest{
+			der, err := issuer.SignOCSP(t.Context(), &OCSPSignRequest{
 				SerialNumber: big.NewInt(42),
 				Status:       tc.status,
 				Reason:       ocsp.KeyCompromise,
@@ -84,7 +84,7 @@ func TestSignOCSPResponses(t *testing.T) {
 		})
 	}
 	before := time.Now().Truncate(time.Minute)
-	der, err := issuer.SignOCSP(&OCSPSignRequest{
+	der, err := issuer.SignOCSP(t.Context(), &OCSPSignRequest{
 		SerialNumber: big.NewInt(43),
 		Status:       OCSPStatusGood,
 	})
@@ -94,9 +94,9 @@ func TestSignOCSPResponses(t *testing.T) {
 	assert.False(t, response.ThisUpdate.Before(before))
 	assert.False(t, response.ThisUpdate.After(time.Now().Truncate(time.Minute)))
 	assert.Equal(t, issuer.OcspExpiry(), response.NextUpdate.Sub(response.ThisUpdate))
-	_, err = issuer.SignOCSP(&OCSPSignRequest{Status: "invalid"})
+	_, err = issuer.SignOCSP(t.Context(), &OCSPSignRequest{Status: "invalid"})
 	require.EqualError(t, err, "invalid status: invalid")
-	_, err = issuer.SignOCSP(&OCSPSignRequest{
+	_, err = issuer.SignOCSP(t.Context(), &OCSPSignRequest{
 		Status:       OCSPStatusGood,
 		SerialNumber: big.NewInt(1),
 		IssuerHash:   crypto.MD5,
@@ -106,11 +106,11 @@ func TestSignOCSPResponses(t *testing.T) {
 
 func TestOCSPResponderReuse(t *testing.T) {
 	issuer, entity := ocspTestIssuer(t)
-	responder, err := issuer.CreateDelegatedOCSPSigner()
+	responder, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Same(t, entity.PrivateKey, responder.Signer)
 	assert.True(t, entity.Certificate.Equal(responder.Cert))
-	reused, err := issuer.CreateDelegatedOCSPSigner()
+	reused, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Same(t, responder, reused)
 
@@ -123,10 +123,10 @@ func TestOCSPResponderReuse(t *testing.T) {
 		Signer: delegated.PrivateKey,
 	}
 	issuer.delegated.Store(cached)
-	reused, err = issuer.CreateDelegatedOCSPSigner()
+	reused, err = issuer.CreateDelegatedOCSPSigner(t.Context())
 	require.NoError(t, err)
 	assert.Same(t, cached, reused)
-	der, err := issuer.SignOCSP(&OCSPSignRequest{
+	der, err := issuer.SignOCSP(t.Context(), &OCSPSignRequest{
 		Status:       OCSPStatusGood,
 		SerialNumber: big.NewInt(44),
 	})

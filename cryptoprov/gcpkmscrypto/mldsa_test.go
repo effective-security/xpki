@@ -265,7 +265,7 @@ func TestMLDSAKeysOnFakeKMS(t *testing.T) {
 				require.NoError(t, mldsa.Verify(pub, message, sig, ctx))
 			}
 
-			csrPEM, err := csrProv.SignRequest(priv, &csr.CertificateRequest{
+			csrPEM, err := csrProv.SignRequest(t.Context(), priv, &csr.CertificateRequest{
 				CommonName: "pq.example.com",
 				SAN:        []string{"pq.example.com"},
 			})

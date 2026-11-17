@@ -27,7 +27,7 @@ chain, err := b.BundleContext(ctx, []*x509.Certificate{leaf}, nil)
 - [Variables](<#variables>)
 - [func BuildBundle\(c \*Chain\) \(bundle \*Bundle, status \*BundleStatus, err error\)](<#BuildBundle>)
 - [func CreateOCSPRequest\(crt, issuer \*x509.Certificate, hash crypto.Hash\) \(\[\]byte, error\)](<#CreateOCSPRequest>)
-- [func CreateOCSPResponse\(issuer, responderCert \*x509.Certificate, template ocsp.Response, signer crypto.Signer\) \(\[\]byte, error\)](<#CreateOCSPResponse>)
+- [func CreateOCSPResponse\(ctx context.Context, issuer, responderCert \*x509.Certificate, template ocsp.Response, signer crypto.Signer\) \(\[\]byte, error\)](<#CreateOCSPResponse>)
 - [func CreatePoolFromPEM\(pemBytes \[\]byte\) \(\*x509.CertPool, error\)](<#CreatePoolFromPEM>)
 - [func Digest\(hash crypto.Hash, data \[\]byte\) \[\]byte](<#Digest>)
 - [func EncodePrivateKeyToPEM\(priv crypto.PrivateKey\) \(key \[\]byte, err error\)](<#EncodePrivateKeyToPEM>)
@@ -158,7 +158,7 @@ func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error)
 BuildBundle returns the Bundle and BundleStatus of a Chain built by a Bundler. A nil c or c.Cert returns an error; a nil c.Status is treated as an empty status, and a nil c.Root \(a Force chain\) leaves RootCert and RootCertPEM empty \(XPKI\-042\).
 
 <a name="CreateOCSPRequest"></a>
-## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L298>)
+## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L303>)
 
 ```go
 func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte, error)
@@ -167,15 +167,17 @@ func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte,
 CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer key with hash. A nil crt or issuer or an unavailable hash returns an error before any work \(XPKI\-103\), and so does an issuer whose subject is not crt's issuer name or whose key did not sign crt \(XPKI\-121\). The signature check accepts SHA\-1 and applies no CA policy.
 
 <a name="CreateOCSPResponse"></a>
-## func [CreateOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L92>)
+## func [CreateOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L97>)
 
 ```go
-func CreateOCSPResponse(issuer, responderCert *x509.Certificate, template ocsp.Response, signer crypto.Signer) ([]byte, error)
+func CreateOCSPResponse(ctx context.Context, issuer, responderCert *x509.Certificate, template ocsp.Response, signer crypto.Signer) ([]byte, error)
 ```
 
 CreateOCSPResponse returns a DER encoded OCSP response signed by signer, the key of responderCert, as ocsp.CreateResponse does: template gives the content, and template.Certificate, when set, is embedded. Unlike ocsp.CreateResponse it also signs with an ML\-DSA key, from any provider: the response is encoded by golang.org/x/crypto/ocsp, and the signature over its tbsResponseData \(RFC 6960 §4.2.1\) is pure ML\-DSA with an empty context and the id\-ml\-dsa\-\* algorithm without parameters \(RFC 9881\). template.SignatureAlgorithm is ignored for an ML\-DSA key, whose parameter set fixes the algorithm. A nil issuer, responderCert or signer, or an uninitialized ML\-DSA key, is an error.
 
 An ML\-DSA response can be read by ParseOCSPResponse and by OpenSSL 3.5, but golang.org/x/crypto/ocsp cannot verify it.
+
+ctx bounds the signature: a cryptoprov.ContextSigner signs with it \(SignContext\), any other signer is called once ctx is checked.
 
 <a name="CreatePoolFromPEM"></a>
 ## func [CreatePoolFromPEM](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L148>)
@@ -484,7 +486,7 @@ func ParseHexDigestWithPrefix(digest string) (hash.Hash, []byte, error)
 ParseHexDigestWithPrefix parses encoded digest in \{alg\}:\{hex\} format
 
 <a name="ParseOCSPResponse"></a>
-## func [ParseOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L213>)
+## func [ParseOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L218>)
 
 ```go
 func ParseOCSPResponse(der []byte, issuer *x509.Certificate) (*ocsp.Response, error)
@@ -493,7 +495,7 @@ func ParseOCSPResponse(der []byte, issuer *x509.Certificate) (*ocsp.Response, er
 ParseOCSPResponse parses and verifies a DER encoded OCSP response that holds one status, as ParseOCSPResponseForCert with no certificate.
 
 <a name="ParseOCSPResponseForCert"></a>
-## func [ParseOCSPResponseForCert](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L234>)
+## func [ParseOCSPResponseForCert](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L239>)
 
 ```go
 func ParseOCSPResponseForCert(der []byte, cert, issuer *x509.Certificate) (*ocsp.Response, error)

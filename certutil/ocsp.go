@@ -2,6 +2,7 @@ package certutil
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -14,6 +15,7 @@ import (
 	"reflect"
 
 	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xpki/v2/internal/signctx"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -89,7 +91,10 @@ func (unsignedOCSPSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, er
 //
 // An ML-DSA response can be read by ParseOCSPResponse and by OpenSSL 3.5, but
 // golang.org/x/crypto/ocsp cannot verify it.
-func CreateOCSPResponse(issuer, responderCert *x509.Certificate, template ocsp.Response, signer crypto.Signer) ([]byte, error) {
+//
+// ctx bounds the signature: a cryptoprov.ContextSigner signs with it
+// (SignContext), any other signer is called once ctx is checked.
+func CreateOCSPResponse(ctx context.Context, issuer, responderCert *x509.Certificate, template ocsp.Response, signer crypto.Signer) ([]byte, error) {
 	if issuer == nil {
 		return nil, errors.New("issuer certificate is nil")
 	}
@@ -100,7 +105,7 @@ func CreateOCSPResponse(issuer, responderCert *x509.Certificate, template ocsp.R
 		return nil, errors.New("signer is nil")
 	}
 	if !IsPostQuantumKey(signer) {
-		der, err := ocsp.CreateResponse(issuer, responderCert, template, signer)
+		der, err := ocsp.CreateResponse(issuer, responderCert, template, signctx.Bind(ctx, signer))
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -128,7 +133,7 @@ func CreateOCSPResponse(issuer, responderCert *x509.Certificate, template ocsp.R
 
 	// the message itself with nil options, the signer contract of every
 	// provider (cryptoprov.MLDSASignerOptions)
-	signature, err := signer.Sign(rand.Reader, basic.TBSResponseData.FullBytes, nil)
+	signature, err := signctx.Sign(ctx, signer, rand.Reader, basic.TBSResponseData.FullBytes, nil)
 	if err != nil {
 		return nil, errors.WithMessage(err, "unable to sign the OCSP response")
 	}

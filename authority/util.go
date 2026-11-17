@@ -13,7 +13,8 @@ import (
 )
 
 // GenCert creates certificate and stores key and certs to specified location.
-// ctx is for the provider that generates and exports the key.
+// ctx is for the provider that generates and exports the key, and bounds
+// the signature of the CA key.
 func (ca *Issuer) GenCert(ctx context.Context, crypto cryptoprov.Provider, req *csr.CertificateRequest, profile, certFile, keyFile string) (*x509.Certificate, []byte, error) {
 	logger.KV(xlog.INFO,
 		"profile", profile,
@@ -26,7 +27,7 @@ func (ca *Issuer) GenCert(ctx context.Context, crypto cryptoprov.Provider, req *
 		return nil, nil, errors.WithMessage(err, "process request")
 	}
 
-	crt, certPEM, err := ca.Sign(csr.SignRequest{
+	crt, certPEM, err := ca.Sign(ctx, csr.SignRequest{
 		SAN:        req.SAN,
 		Request:    string(csrPEM),
 		Profile:    profile,

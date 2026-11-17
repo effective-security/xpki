@@ -26,6 +26,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -40,6 +41,7 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
 )
@@ -198,17 +200,19 @@ func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error) {
 }
 
 // sign returns signed segment
-func sign(signingString string, signer crypto.Signer) ([]byte, error) {
+func sign(ctx context.Context, signingString string, signer crypto.Signer) ([]byte, error) {
 	si, err := NewSignerInfo(signer)
 	if err != nil {
 		return nil, err
 	}
-	return si.sign(signingString)
+	return si.sign(ctx, signingString)
 }
 
-func (si *SignerInfo) sign(signingString string) ([]byte, error) {
+// sign returns the JWS signature of signingString; ctx bounds the signature
+// of the key (cryptoprov.SignContext).
+func (si *SignerInfo) sign(ctx context.Context, signingString string) ([]byte, error) {
 	if strings.HasPrefix(si.algo, "HS") {
-		sig, err := si.signer.Sign(nil, []byte(signingString), nil)
+		sig, err := cryptoprov.SignContext(ctx, si.signer, nil, []byte(signingString), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -218,7 +222,7 @@ func (si *SignerInfo) sign(signingString string) ([]byte, error) {
 	if _, ok := mldsaParameterSets[si.algo]; ok {
 		// RFC 9964: pure ML-DSA over the JWS signing input with an empty
 		// context; nil options are the signer contract of every provider
-		sig, err := si.signer.Sign(rand.Reader, []byte(signingString), nil)
+		sig, err := cryptoprov.SignContext(ctx, si.signer, rand.Reader, []byte(signingString), nil)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -228,7 +232,7 @@ func (si *SignerInfo) sign(signingString string) ([]byte, error) {
 	h := si.hasher.hash.New()
 	h.Write([]byte(signingString))
 
-	sig, err := si.signer.Sign(rand.Reader, h.Sum(nil), si.hasher)
+	sig, err := cryptoprov.SignContext(ctx, si.signer, rand.Reader, h.Sum(nil), si.hasher)
 	if err != nil {
 		return nil, err
 	}
@@ -272,8 +276,8 @@ func (si *SignerInfo) sign(signingString string) ([]byte, error) {
 
 // signJWT returns the compact token for claims. The protected header holds
 // typ and alg plus headers; a token identifier is the jti claim of the
-// payload and is never generated here (XPKI-073).
-func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error) {
+// payload and is never generated here (XPKI-073). ctx bounds the signature.
+func (si *SignerInfo) signJWT(ctx context.Context, claims any, headers map[string]any) (string, error) {
 	header := map[string]any{
 		"typ": "JWT",
 		"alg": si.algo,
@@ -290,7 +294,7 @@ func (si *SignerInfo) signJWT(claims any, headers map[string]any) (string, error
 	}
 
 	sstr := EncodeSegment(jsonHeader) + "." + EncodeSegment(jsonClaims)
-	sig, err := si.sign(sstr)
+	sig, err := si.sign(ctx, sstr)
 	if err != nil {
 		return "", err
 	}

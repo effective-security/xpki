@@ -42,10 +42,11 @@ func TestConformance(t *testing.T) {
   - [func \(s \*Suite\) TestNotSupported\(\)](<#Suite.TestNotSupported>)
   - [func \(s \*Suite\) TestPageToken\(\)](<#Suite.TestPageToken>)
   - [func \(s \*Suite\) TestPaging\(\)](<#Suite.TestPaging>)
+  - [func \(s \*Suite\) TestSignContext\(\)](<#Suite.TestSignContext>)
 
 
 <a name="Run"></a>
-## func [Run](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L113>)
+## func [Run](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L119>)
 
 ```go
 func Run(t *testing.T, cfg Config)
@@ -54,7 +55,7 @@ func Run(t *testing.T, cfg Config)
 Run runs the conformance suite on the provider of cfg.
 
 <a name="Config"></a>
-## type [Config](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L48-L76>)
+## type [Config](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L54-L82>)
 
 Config describes the provider under test and what its backend can do.
 
@@ -91,7 +92,7 @@ type Config struct {
 ```
 
 <a name="Suite"></a>
-## type [Suite](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L89-L110>)
+## type [Suite](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L95-L116>)
 
 Suite is the conformance suite; use Run.
 
@@ -103,7 +104,7 @@ type Suite struct {
 ```
 
 <a name="Suite.SetupSuite"></a>
-### func \(\*Suite\) [SetupSuite](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L123>)
+### func \(\*Suite\) [SetupSuite](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L129>)
 
 ```go
 func (s *Suite) SetupSuite()
@@ -112,7 +113,7 @@ func (s *Suite) SetupSuite()
 SetupSuite creates the provider and the keys of the run.
 
 <a name="Suite.TearDownSuite"></a>
-### func \(\*Suite\) [TearDownSuite](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L201>)
+### func \(\*Suite\) [TearDownSuite](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L207>)
 
 ```go
 func (s *Suite) TearDownSuite()
@@ -121,7 +122,7 @@ func (s *Suite) TearDownSuite()
 TearDownSuite destroys the keys of the run.
 
 <a name="Suite.TestCancelledContext"></a>
-### func \(\*Suite\) [TestCancelledContext](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L683>)
+### func \(\*Suite\) [TestCancelledContext](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L689>)
 
 ```go
 func (s *Suite) TestCancelledContext()
@@ -130,7 +131,7 @@ func (s *Suite) TestCancelledContext()
 TestCancelledContext checks that a call with a cancelled context fails with its error and does not create a key.
 
 <a name="Suite.TestDestroyKey"></a>
-### func \(\*Suite\) [TestDestroyKey](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L716>)
+### func \(\*Suite\) [TestDestroyKey](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L804>)
 
 ```go
 func (s *Suite) TestDestroyKey()
@@ -139,7 +140,7 @@ func (s *Suite) TestDestroyKey()
 TestDestroyKey checks that a destroyed key is gone, or is no longer enabled on a backend that defers the destruction.
 
 <a name="Suite.TestFields"></a>
-### func \(\*Suite\) [TestFields](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L461>)
+### func \(\*Suite\) [TestFields](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L467>)
 
 ```go
 func (s *Suite) TestFields()
@@ -148,7 +149,7 @@ func (s *Suite) TestFields()
 TestFields checks that a listing fills the groups its field mask selects.
 
 <a name="Suite.TestFilters"></a>
-### func \(\*Suite\) [TestFilters](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L314>)
+### func \(\*Suite\) [TestFilters](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L320>)
 
 ```go
 func (s *Suite) TestFilters()
@@ -157,7 +158,7 @@ func (s *Suite) TestFilters()
 TestFilters checks every filter condition against the keys of the run.
 
 <a name="Suite.TestGetKey"></a>
-### func \(\*Suite\) [TestGetKey](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L648>)
+### func \(\*Suite\) [TestGetKey](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L654>)
 
 ```go
 func (s *Suite) TestGetKey()
@@ -166,7 +167,7 @@ func (s *Suite) TestGetKey()
 TestGetKey checks that a key is loaded by its ID and exported in a form that names it.
 
 <a name="Suite.TestInvalidRequests"></a>
-### func \(\*Suite\) [TestInvalidRequests](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L547>)
+### func \(\*Suite\) [TestInvalidRequests](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L553>)
 
 ```go
 func (s *Suite) TestInvalidRequests()
@@ -175,7 +176,7 @@ func (s *Suite) TestInvalidRequests()
 TestInvalidRequests checks the requests no provider accepts.
 
 <a name="Suite.TestKeyInfo"></a>
-### func \(\*Suite\) [TestKeyInfo](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L612>)
+### func \(\*Suite\) [TestKeyInfo](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L618>)
 
 ```go
 func (s *Suite) TestKeyInfo()
@@ -184,7 +185,7 @@ func (s *Suite) TestKeyInfo()
 TestKeyInfo checks the description of every key, with and without its public key.
 
 <a name="Suite.TestKeyNotFound"></a>
-### func \(\*Suite\) [TestKeyNotFound](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L671>)
+### func \(\*Suite\) [TestKeyNotFound](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L677>)
 
 ```go
 func (s *Suite) TestKeyNotFound()
@@ -193,7 +194,7 @@ func (s *Suite) TestKeyNotFound()
 TestKeyNotFound checks the error for a key the provider does not have.
 
 <a name="Suite.TestNotSupported"></a>
-### func \(\*Suite\) [TestNotSupported](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L584>)
+### func \(\*Suite\) [TestNotSupported](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L590>)
 
 ```go
 func (s *Suite) TestNotSupported()
@@ -202,7 +203,7 @@ func (s *Suite) TestNotSupported()
 TestNotSupported checks that what the backend cannot do is an error, not an empty result or a key of another kind.
 
 <a name="Suite.TestPageToken"></a>
-### func \(\*Suite\) [TestPageToken](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L509>)
+### func \(\*Suite\) [TestPageToken](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L515>)
 
 ```go
 func (s *Suite) TestPageToken()
@@ -211,12 +212,21 @@ func (s *Suite) TestPageToken()
 TestPageToken checks that a page token is opaque state of one listing: it is rejected with another filter, another field mask, or when it is not a token.
 
 <a name="Suite.TestPaging"></a>
-### func \(\*Suite\) [TestPaging](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L294>)
+### func \(\*Suite\) [TestPaging](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L300>)
 
 ```go
 func (s *Suite) TestPaging()
 ```
 
 TestPaging checks that a full listing returns every key once at every page size, by pages and through AllKeys.
+
+<a name="Suite.TestSignContext"></a>
+### func \(\*Suite\) [TestSignContext](<https://github.com/effective-security/xpki/blob/main/internal/provtest/testsuite.go#L724>)
+
+```go
+func (s *Suite) TestSignContext()
+```
+
+TestSignContext checks that every signing key is a cryptoprov.ContextSigner that signs under a live context, through BindContext as x509 calls it, and fails with a cancelled one; and that an encryption key is a cryptoprov.ContextDecrypter that does the same.
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

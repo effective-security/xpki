@@ -182,10 +182,10 @@ closed the item that was KM12.
 ### Gate before clients migrate
 
 A client that moves to v2 rewrites every xpki import, so it should do that
-once (decision K9). Every signature item 12 planned to change has changed.
-The signing half of roadmap item 1 (`authority.Issuer.Sign`,
-`csr.Provider.SignRequest`, the `crypto.Signer` path) changes more: merge it
-first, or leave it explicitly for a later break, before KM14 starts. An
+once (decision K9). Every signature item 12 planned to change has changed,
+and so has the signing half of roadmap item 1 (`authority.Issuer.Sign`,
+`csr.Provider.SignRequest`, `cryptoprov.ContextSigner`), which is in v2.0
+since 2026-11-17: the gate is open for KM14 once KM10 is done. An
 application moves all of its xpki imports in the release in which it takes
 the porto built on v2, and a process that uses PKCS#11 links one major only.
 

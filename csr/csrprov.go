@@ -51,7 +51,8 @@ func (c *Provider) NewSigningCertificateRequest(
 // CreateRequestAndExportKey takes a certificate request and generates a key and
 // CSR from it. key is what loads the key again: its PEM encoding from a
 // provider with exportable keys, otherwise its pkcs11: URI. ctx is for the
-// provider that generates and exports the key.
+// provider that generates and exports the key, and bounds the signature of
+// the CSR.
 func (c *Provider) CreateRequestAndExportKey(ctx context.Context, req *CertificateRequest) (csrPEM, key []byte, keyID string, pub crypto.PublicKey, err error) {
 	err = req.Validate()
 	if err != nil {
@@ -92,8 +93,8 @@ func (c *Provider) CreateRequestAndExportKey(ctx context.Context, req *Certifica
 }
 
 // GenerateKeyAndRequest takes a certificate request and generates a key and
-// CSR from it. ctx is for the provider that generates the key; the CSR is
-// signed through crypto.Signer, which has no context.
+// CSR from it. ctx is for the provider that generates the key and bounds
+// the signature of the CSR (see SignRequest).
 func (c *Provider) GenerateKeyAndRequest(ctx context.Context, req *CertificateRequest) (csrPEM []byte, priv crypto.PrivateKey, keyID string, err error) {
 	if req.KeyRequest == nil {
 		err = errors.New("invalid key request")
@@ -120,7 +121,7 @@ func (c *Provider) GenerateKeyAndRequest(ctx context.Context, req *CertificateRe
 	}
 	logger.KV(xlog.TRACE, "key_id", keyID, "label", label)
 
-	csrPEM, err = c.SignRequest(priv, req)
+	csrPEM, err = c.SignRequest(ctx, priv, req)
 	if err != nil {
 		err = errors.WithMessage(err, "failed to sign request")
 		return
@@ -132,8 +133,9 @@ func (c *Provider) GenerateKeyAndRequest(ctx context.Context, req *CertificateRe
 // SignRequest signs a certificate request with priv. req.SAN is parsed by
 // ParseSAN, so an invalid name fails the request instead of being skipped
 // and duplicates are dropped (XPKI-059); the signature algorithm is
-// DefaultSigAlgo(priv).
-func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) (csrPEM []byte, err error) {
+// DefaultSigAlgo(priv). ctx bounds the signature (cryptoprov.BindContext):
+// a KMS request or the wait for a PKCS#11 session ends with it.
+func (c *Provider) SignRequest(ctx context.Context, priv crypto.PrivateKey, req *CertificateRequest) (csrPEM []byte, err error) {
 	ext, err := pkixExtentions(req.Extensions)
 	if err != nil {
 		err = errors.WithMessage(err, "invalid extensions")
@@ -163,7 +165,7 @@ func (c *Provider) SignRequest(priv crypto.PrivateKey, req *CertificateRequest) 
 		"SAN", req.SAN,
 	)
 
-	csrPEM, err = x509.CreateCertificateRequest(rand.Reader, &template, priv)
+	csrPEM, err = x509.CreateCertificateRequest(rand.Reader, &template, cryptoprov.BindContext(ctx, s))
 	if err != nil {
 		err = errors.WithMessage(err, "create CSR")
 		return

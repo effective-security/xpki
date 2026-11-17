@@ -332,7 +332,7 @@ func TestSignRequest_SAN(t *testing.T) {
 		require.NoError(t, err)
 	}
 	req.SAN = []string{"ok.example.com", "bad name", "-bad.example.com"}
-	_, err = csrProv.SignRequest(priv, &req)
+	_, err = csrProv.SignRequest(t.Context(), priv, &req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `invalid SAN "bad name": invalid character ' ' in DNS label "bad name"`)
 	assert.Contains(t, err.Error(), `invalid SAN "-bad.example.com": DNS label "-bad" starts or ends with a hyphen`)

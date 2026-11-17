@@ -144,6 +144,31 @@ func Test_SignSym(t *testing.T) {
 	assert.EqualError(t, err, "unsupported signing method: HS256")
 }
 
+// Test_SignCancelled checks that a token is not signed with an ended
+// context.
+func Test_SignCancelled(t *testing.T) {
+	t.Parallel()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	pemKey, err := certutil.EncodePrivateKeyToPEM(key)
+	require.NoError(t, err)
+	crypto, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
+	require.NoError(t, err)
+	p, err := jwt.NewProvider(t.Context(), &jwt.ProviderConfig{
+		Issuer:     "trusty.com",
+		PrivateKey: string(pemKey),
+	}, crypto)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	claims := jwt.CreateClaims("", "subject", p.Issuer(), []string{"trusty.com"}, time.Minute, nil)
+	_, err = p.Sign(ctx, claims)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = p.Sign(t.Context(), claims)
+	require.NoError(t, err)
+}
+
 func Test_SignPrivateRSA(t *testing.T) {
 	ctx := context.Background()
 	tcases := []int{2048, 3072, 4096}

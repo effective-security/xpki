@@ -71,7 +71,7 @@ var staleKeyHandleErrors = []pkcs11.Error{
 	pkcs11.CKR_KEY_HANDLE_INVALID,
 }
 
-// withKey runs f with a pooled session on the slot of obj and the current
+// withKeyCtx runs f with a pooled session on the slot of obj and the current
 // handle of obj (the refreshed one from ref when it is not nil). When f
 // fails with a staleKeyHandleErrors code and ref is not nil, the handle is
 // looked up again on the same session and f runs once more; while the
@@ -80,12 +80,7 @@ var staleKeyHandleErrors = []pkcs11.Error{
 // With the retries of withSession, f can run up to six times for one call;
 // every run is a fresh single PKCS#11 operation on the key, so this is safe
 // for Sign, Decrypt and Identify.
-func (lib *PKCS11Lib) withKey(obj *PKCS11Object, ref *objectRef, f func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error) error {
-	return lib.withKeyCtx(context.Background(), obj, ref, f)
-}
-
-// withKeyCtx is withKey with the caller's context, which bounds the wait
-// for a session (withSessionCtx).
+// ctx bounds the wait for a session (withSessionCtx).
 func (lib *PKCS11Lib) withKeyCtx(ctx context.Context, obj *PKCS11Object, ref *objectRef, f func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error) error {
 	return lib.withSessionCtx(ctx, obj.Slot, func(session pkcs11.SessionHandle) error {
 		handle := obj.handle
