@@ -8,7 +8,8 @@ import (
 	kms "cloud.google.com/go/kms/apiv1"
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -61,7 +62,7 @@ func (f *fakeKMS) CallCount(name string) int {
 
 // ListCryptoKeys returns nil: an iterator can not be built outside the kms
 // package, so listing is tested against a local gRPC server
-// (TestEnumKeysPagination and fakeKMSServer).
+// (TestListKeysShortPages and fakeKMSServer).
 func (f *fakeKMS) ListCryptoKeys(context.Context, *kmspb.ListCryptoKeysRequest, ...gax.CallOption) *kms.CryptoKeyIterator {
 	f.record("ListCryptoKeys")
 	return nil
@@ -179,3 +180,10 @@ func newProvider(t *testing.T, client gcpkmscrypto.KmsClient) *gcpkmscrypto.Prov
 	t.Helper()
 	return gcpkmscrypto.NewTestProvider(testTokenCfg(coverageKeyring), client, coverageKeyring)
 }
+
+// keyFields are the groups a v1 KeyInfo filled, which for a bare key ID
+// costs a version listing, and keyFieldsPublic the same with the public key.
+const (
+	keyFields       = cryptoprov.KeyFieldMetadata | cryptoprov.KeyFieldState
+	keyFieldsPublic = keyFields | cryptoprov.KeyFieldPublicKey
+)

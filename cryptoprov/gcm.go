@@ -5,7 +5,7 @@ import (
 	"crypto/cipher"
 
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/v2/certutil"
 )
 
 // GcmEncrypt returns encrypted blob with GCM cipher

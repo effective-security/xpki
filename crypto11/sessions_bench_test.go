@@ -1,6 +1,7 @@
 package crypto11
 
 import (
+	"context"
 	"crypto"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -88,9 +89,9 @@ func BenchmarkSession_GenRandomParallel(b *testing.B) {
 
 func BenchmarkSession_SignECDSAParallel(b *testing.B) {
 	requireP11(b)
-	priv, err := p11lib.GenerateECDSAKeyPair(elliptic.P256())
+	priv, err := p11lib.GenerateECDSAKeyPair(b.Context(), elliptic.P256())
 	require.NoError(b, err)
-	defer func() { _ = p11lib.DestroyKeyPairOnSlot(p11lib.Slot.id, string(mustKeyID(b, priv))) }()
+	defer func() { _ = p11lib.destroyKeyOnSlot(context.Background(), p11lib.Slot.id, string(mustKeyID(b, priv))) }()
 	digest := sha256.Sum256([]byte("bench"))
 
 	before := probeSessionHandle(b)

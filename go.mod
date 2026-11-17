@@ -1,4 +1,4 @@
-module github.com/effective-security/xpki
+module github.com/effective-security/xpki/v2
 
 go 1.27.4
 
@@ -6,13 +6,14 @@ require (
 	cloud.google.com/go/kms v1.37.0
 	github.com/alecthomas/kong v1.17.0
 	github.com/aws/aws-sdk-go-v2 v1.48.0
-	github.com/aws/aws-sdk-go-v2/config v1.33.18
-	github.com/aws/aws-sdk-go-v2/service/kms v1.62.6
+	github.com/aws/aws-sdk-go-v2/config v1.33.19
+	github.com/aws/aws-sdk-go-v2/service/kms v1.63.0
+	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.42.0
 	github.com/aws/smithy-go v1.28.9
 	github.com/cockroachdb/errors v1.14.0
-	github.com/effective-security/metrics v0.10.158
-	github.com/effective-security/x v1.0.111
-	github.com/effective-security/xlog v1.0.70
+	github.com/effective-security/metrics v0.10.159
+	github.com/effective-security/x v1.0.112
+	github.com/effective-security/xlog v1.0.71
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/googleapis/gax-go/v2 v2.27.0
@@ -22,7 +23,8 @@ require (
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.38.0
-	google.golang.org/api v0.313.0
+	google.golang.org/api v0.315.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261116203732-fd2c7689a808
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
@@ -36,7 +38,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.15.1 // indirect
 	cloud.google.com/go/longrunning v1.5.0 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.21.0 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.21.1 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.9 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.12 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.12 // indirect
@@ -78,8 +80,7 @@ require (
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
-	google.golang.org/genproto v0.0.0-20261110000943-09e21b237f2c // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto v0.0.0-20261116203732-fd2c7689a808 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20261116203732-fd2c7689a808 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

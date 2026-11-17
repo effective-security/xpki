@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/jwt"
 	"github.com/go-jose/go-jose/v4"
 	hjwt "github.com/go-jose/go-jose/v4/jwt"
 )

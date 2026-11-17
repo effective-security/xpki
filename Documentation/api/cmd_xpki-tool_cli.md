@@ -3,7 +3,7 @@
 # cli
 
 ```go
-import "github.com/effective-security/xpki/cmd/xpki-tool/cli"
+import "github.com/effective-security/xpki/v2/cmd/xpki-tool/cli"
 ```
 
 Package cli implements the xpki\-tool command tree: csr\-info, cert info/validate, crl info/fetch and ocsp info/fetch. Network operations honor the global \-\-timeout flag.

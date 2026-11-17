@@ -1,6 +1,7 @@
 package cryptoprov
 
 import (
+	"context"
 	"crypto"
 	"os"
 	"strings"
@@ -8,9 +9,10 @@ import (
 	"github.com/cockroachdb/errors"
 )
 
-// NewSignerFromFromFile generates a new signer from a caFile
-// and a caKey file, both PEM encoded or caKey contains PKCS#11 Uri
-func (c *Crypto) NewSignerFromFromFile(caKeyFile string) (crypto.Signer, error) {
+// NewSignerFromFromFile returns the signer of the key in caKeyFile, which
+// holds a PEM encoded key or a PKCS#11 URI; ctx is for the URI, see
+// LoadPrivateKey.
+func (c *Crypto) NewSignerFromFromFile(ctx context.Context, caKeyFile string) (crypto.Signer, error) {
 	cakey, err := os.ReadFile(caKeyFile)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "load key file")
@@ -18,17 +20,17 @@ func (c *Crypto) NewSignerFromFromFile(caKeyFile string) (crypto.Signer, error) 
 	// remove trailing space and end-of-line
 	cakey = []byte(strings.TrimSpace(string(cakey)))
 
-	s, err := c.NewSignerFromPEM(cakey)
+	s, err := c.NewSignerFromPEM(ctx, cakey)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "load key from file: %s", caKeyFile)
 	}
 	return s, nil
 }
 
-// NewSignerFromPEM generates a new crypto signer from PEM encoded blocks,
-// or caKey contains PKCS#11 Uri
-func (c *Crypto) NewSignerFromPEM(caKey []byte) (crypto.Signer, error) {
-	_, pvk, err := c.LoadPrivateKey(caKey)
+// NewSignerFromPEM returns the signer of caKey, a PEM encoded key or a
+// PKCS#11 URI; ctx is for the URI, see LoadPrivateKey.
+func (c *Crypto) NewSignerFromPEM(ctx context.Context, caKey []byte) (crypto.Signer, error) {
+	_, pvk, err := c.LoadPrivateKey(ctx, caKey)
 	if err != nil {
 		return nil, err
 	}

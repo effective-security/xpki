@@ -10,6 +10,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,9 +24,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	tagtypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
 	"github.com/aws/smithy-go"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,9 +38,14 @@ const (
 	fakeAccount = "111122223333"
 	fakeArnBase = "arn:aws:kms:" + fakeRegion + ":" + fakeAccount + ":"
 
-	// defaultListKeysLimit is the KMS ListKeys page size without Limit.
+	// defaultListKeysLimit is the KMS ListKeys page size without Limit, and
+	// defaultListLimit that of ListAliases, ListResourceTags and
+	// GetResources.
 	defaultListKeysLimit = 100
-	deletionWindow       = 30 * 24 * time.Hour
+	defaultListLimit     = 50
+	// kmsKeyResourceType is the tagging API resource type of a KMS key.
+	kmsKeyResourceType = "kms:key"
+	deletionWindow     = 30 * 24 * time.Hour
 )
 
 // fakeKMS is an in-memory KmsClient: it creates, lists, describes and signs
@@ -56,6 +65,8 @@ type fakeKMS struct {
 	createKey           func(*kms.CreateKeyInput) (*kms.CreateKeyOutput, error)
 	createAlias         func(*kms.CreateAliasInput) (*kms.CreateAliasOutput, error)
 	listKeys            func(*kms.ListKeysInput) (*kms.ListKeysOutput, error)
+	listAliases         func(*kms.ListAliasesInput) (*kms.ListAliasesOutput, error)
+	listResourceTags    func(*kms.ListResourceTagsInput) (*kms.ListResourceTagsOutput, error)
 	scheduleKeyDeletion func(*kms.ScheduleKeyDeletionInput) (*kms.ScheduleKeyDeletionOutput, error)
 	describeKey         func(*kms.DescribeKeyInput) (*kms.DescribeKeyOutput, error)
 	getPublicKey        func(*kms.GetPublicKeyInput) (*kms.GetPublicKeyOutput, error)
@@ -74,10 +85,11 @@ type fakeKMS struct {
 	peak     atomic.Int32
 }
 
-// fakeKey is a KMS key with its local key pair.
+// fakeKey is a KMS key with its local key pair and its tags.
 type fakeKey struct {
 	meta types.KeyMetadata
 	priv crypto.Signer
+	tags map[string]string
 }
 
 var _ awskmscrypto.KmsClient = (*fakeKMS)(nil)
@@ -324,6 +336,12 @@ func (f *fakeKMS) CreateKey(_ context.Context, req *kms.CreateKeyInput, _ ...fun
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if len(req.Tags) > 0 {
+		f.keys[id].tags = make(map[string]string, len(req.Tags))
+		for _, tag := range req.Tags {
+			f.keys[id].tags[aws.ToString(tag.TagKey)] = aws.ToString(tag.TagValue)
+		}
+	}
 	meta := f.keys[id].meta
 	return &kms.CreateKeyOutput{KeyMetadata: &meta}, nil
 }
@@ -391,6 +409,199 @@ func (f *fakeKMS) ListKeys(_ context.Context, req *kms.ListKeysInput, _ ...func(
 		out.NextMarker = aws.String(strconv.Itoa(end))
 	}
 	return out, nil
+}
+
+// aliasCount returns the number of aliases.
+func (f *fakeKMS) aliasCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.aliases)
+}
+
+// setTags replaces the tags of the key id.
+func (f *fakeKMS) setTags(id string, tags map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keys[id].tags = tags
+}
+
+// setAlias points the alias name, "alias/...", at the key id.
+func (f *fakeKMS) setAlias(alias, id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.aliases[alias] = id
+}
+
+// setDescription changes the description of the key id.
+func (f *fakeKMS) setDescription(id, description string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keys[id].meta.Description = aws.String(description)
+}
+
+// listWindow returns the bounds of the page of n items that a request with
+// limit (zero for the default, at most maxLimit) and marker asks for, and
+// the marker of the next page, nil on the last one.
+func listWindow(n int, limit *int32, maxLimit int, marker *string) (start, end int, next *string, err error) {
+	size := defaultListLimit
+	if limit != nil {
+		size = int(*limit)
+		if size < 1 || size > maxLimit {
+			return 0, 0, nil, validationError(fmt.Sprintf("invalid limit: %d", size))
+		}
+	}
+	if marker != nil {
+		if start, err = strconv.Atoi(*marker); err != nil || start < 0 {
+			return 0, 0, nil, &types.InvalidMarkerException{Message: aws.String("invalid marker")}
+		}
+	}
+	start = min(start, n)
+	end = min(start+size, n)
+	if end < n {
+		next = aws.String(strconv.Itoa(end))
+	}
+	return start, end, next, nil
+}
+
+// ListAliases lists the aliases in name order, 50 a page by default and at
+// most 100, as KMS does.
+func (f *fakeKMS) ListAliases(_ context.Context, req *kms.ListAliasesInput, _ ...func(*kms.Options)) (*kms.ListAliasesOutput, error) {
+	f.record("ListAliases")
+	if f.listAliases != nil {
+		return f.listAliases(req)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	names := slices.Sorted(maps.Keys(f.aliases))
+	start, end, next, err := listWindow(len(names), req.Limit, awskmscrypto.ListAliasesLimit, req.Marker)
+	if err != nil {
+		return nil, err
+	}
+	out := &kms.ListAliasesOutput{
+		NextMarker: next,
+		Truncated:  next != nil,
+	}
+	for _, name := range names[start:end] {
+		out.Aliases = append(out.Aliases, types.AliasListEntry{
+			AliasName:   aws.String(name),
+			AliasArn:    aws.String(fakeArnBase + name),
+			TargetKeyId: aws.String(f.aliases[name]),
+		})
+	}
+	return out, nil
+}
+
+// ListResourceTags lists the tags of a key in name order.
+func (f *fakeKMS) ListResourceTags(_ context.Context, req *kms.ListResourceTagsInput, _ ...func(*kms.Options)) (*kms.ListResourceTagsOutput, error) {
+	f.record("ListResourceTags")
+	if f.listResourceTags != nil {
+		return f.listResourceTags(req)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key, err := f.lookup(aws.ToString(req.KeyId))
+	if err != nil {
+		return nil, err
+	}
+	names := slices.Sorted(maps.Keys(key.tags))
+	start, end, next, err := listWindow(len(names), req.Limit, defaultListLimit, req.Marker)
+	if err != nil {
+		return nil, err
+	}
+	out := &kms.ListResourceTagsOutput{
+		NextMarker: next,
+		Truncated:  next != nil,
+	}
+	for _, name := range names[start:end] {
+		out.Tags = append(out.Tags, types.Tag{
+			TagKey:   aws.String(name),
+			TagValue: aws.String(key.tags[name]),
+		})
+	}
+	return out, nil
+}
+
+// fakeTagging is an in-memory TaggingClient over the keys of a fakeKMS: it
+// returns the keys that have tags, as the Resource Groups Tagging API does,
+// and records its requests.
+type fakeTagging struct {
+	kms *fakeKMS
+
+	mu       sync.Mutex
+	requests []*resourcegroupstaggingapi.GetResourcesInput
+
+	// getResources, when set, replaces the default behaviour.
+	getResources func(*resourcegroupstaggingapi.GetResourcesInput) (*resourcegroupstaggingapi.GetResourcesOutput, error)
+}
+
+var _ awskmscrypto.TaggingClient = (*fakeTagging)(nil)
+
+func newFakeTagging(kms *fakeKMS) *fakeTagging {
+	return &fakeTagging{kms: kms}
+}
+
+// Requests returns the GetResources requests so far.
+func (f *fakeTagging) Requests() []*resourcegroupstaggingapi.GetResourcesInput {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.requests)
+}
+
+// GetResources returns the tagged keys that pass every tag filter, in
+// creation order, 50 a page by default and at most 100.
+func (f *fakeTagging) GetResources(_ context.Context, req *resourcegroupstaggingapi.GetResourcesInput, _ ...func(*resourcegroupstaggingapi.Options)) (*resourcegroupstaggingapi.GetResourcesOutput, error) {
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	f.mu.Unlock()
+	if f.getResources != nil {
+		return f.getResources(req)
+	}
+	if !slices.Contains(req.ResourceTypeFilters, kmsKeyResourceType) {
+		return nil, validationError("the fake lists KMS keys only")
+	}
+
+	f.kms.mu.Lock()
+	defer f.kms.mu.Unlock()
+	var matched []*fakeKey
+	for _, id := range f.kms.order {
+		key := f.kms.keys[id]
+		if len(key.tags) > 0 && tagFiltersMatch(req.TagFilters, key.tags) {
+			matched = append(matched, key)
+		}
+	}
+	start, end, next, err := listWindow(len(matched), req.ResourcesPerPage, awskmscrypto.ResourcesPerPage, req.PaginationToken)
+	if err != nil {
+		return nil, err
+	}
+	out := &resourcegroupstaggingapi.GetResourcesOutput{
+		// the API returns an empty token on the last page
+		PaginationToken: aws.String(aws.ToString(next)),
+	}
+	for _, key := range matched[start:end] {
+		mapping := tagtypes.ResourceTagMapping{
+			ResourceARN: key.meta.Arn,
+		}
+		for _, name := range slices.Sorted(maps.Keys(key.tags)) {
+			mapping.Tags = append(mapping.Tags, tagtypes.Tag{
+				Key:   aws.String(name),
+				Value: aws.String(key.tags[name]),
+			})
+		}
+		out.ResourceTagMappingList = append(out.ResourceTagMappingList, mapping)
+	}
+	return out, nil
+}
+
+// tagFiltersMatch reports whether tags has the key of every filter, with one
+// of its values when the filter names any.
+func tagFiltersMatch(filters []tagtypes.TagFilter, tags map[string]string) bool {
+	for _, filter := range filters {
+		value, ok := tags[aws.ToString(filter.Key)]
+		if !ok || (len(filter.Values) > 0 && !slices.Contains(filter.Values, value)) {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *fakeKMS) ScheduleKeyDeletion(_ context.Context, req *kms.ScheduleKeyDeletionInput, _ ...func(*kms.Options)) (*kms.ScheduleKeyDeletionOutput, error) {
@@ -627,3 +838,10 @@ func (m *mockTokenCfg) Pin() string {
 func (m *mockTokenCfg) Attributes() string {
 	return m.atts
 }
+
+// keyFields are the groups a v1 KeyInfo filled, and keyFieldsPublic the same
+// with the public key.
+const (
+	keyFields       = cryptoprov.KeyFieldMetadata | cryptoprov.KeyFieldState
+	keyFieldsPublic = keyFields | cryptoprov.KeyFieldPublicKey
+)

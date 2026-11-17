@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +64,7 @@ func ringProvider(t *testing.T) (jwt.Provider, []byte) {
 	t.Helper()
 	cfg, err := jwt.LoadProviderConfig("testdata/jwtprov.json")
 	require.NoError(t, err)
-	p, err := jwt.NewProvider(cfg, nil)
+	p, err := jwt.NewProvider(t.Context(), cfg, nil)
 	require.NoError(t, err)
 	var seed string
 	for _, k := range cfg.Keys {

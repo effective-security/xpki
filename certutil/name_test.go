@@ -4,7 +4,7 @@ import (
 	"crypto/x509/pkix"
 	"testing"
 
-	"github.com/effective-security/xpki/certutil"
+	"github.com/effective-security/xpki/v2/certutil"
 	"github.com/stretchr/testify/assert"
 )
 

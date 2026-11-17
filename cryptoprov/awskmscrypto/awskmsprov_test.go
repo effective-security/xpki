@@ -16,9 +16,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/awskmscrypto"
-	"github.com/effective-security/xpki/internal/testenv"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
+	"github.com/effective-security/xpki/v2/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,7 @@ const (
 
 // Test_KmsProvider is an integration test against local-kms (XPKI-100): it
 // generates keys, checks the signatures locally, lists the keys it created
-// by prefix and schedules them for deletion.
+// by label, through their aliases, and schedules them for deletion.
 func Test_KmsProvider(t *testing.T) {
 	testenv.RequireTCP(t, "local-kms", localKMSAddr)
 	t.Setenv("AWS_ACCESS_KEY_ID", "notusedbyemulator")
@@ -54,13 +55,11 @@ func Test_KmsProvider(t *testing.T) {
 	mgr := prov.(cryptoprov.KeyManager)
 	client := awskmscrypto.Client(prov.(*awskmscrypto.Provider))
 
-	list, err := mgr.EnumTokens(false)
-	require.NoError(t, err)
-	require.NotEmpty(t, list)
-	assert.Equal(t, awskmscrypto.ProviderName, list[0].Manufacturer)
-	assert.Equal(t, "KMS", list[0].Model)
+	// KMS has one store: the provider is no cryptoprov.TokenManager
+	_, hasTokens := prov.(cryptoprov.TokenManager)
+	assert.False(t, hasTokens)
 
-	_, err = mgr.EnumKeys(mgr.CurrentSlotID(), "")
+	_, err = mgr.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{})
 	require.NoError(t, err)
 
 	// every key of this run has a unique prefix, so the listing can be exact
@@ -69,7 +68,7 @@ func Test_KmsProvider(t *testing.T) {
 	var created, signing []string
 	t.Cleanup(func() {
 		for _, keyID := range created {
-			assert.NoError(t, mgr.DestroyKeyPairOnSlot(mgr.CurrentSlotID(), keyID))
+			assert.NoError(t, mgr.DestroyKey(context.Background(), keyID))
 		}
 	})
 
@@ -83,16 +82,20 @@ func Test_KmsProvider(t *testing.T) {
 
 	for _, tc := range rsacases {
 		label := fmt.Sprintf("%sRSA_%d", prefix, tc.size)
-		pvk, err := prov.GenerateRSAKey(label, tc.size, 1)
+		pvk, err := prov.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: label,
+			Type:  certutil.KeyTypeRSA,
+			Size:  tc.size,
+		})
 		require.NoError(t, err)
 
-		keyID, keyLabel, err := prov.IdentifyKey(pvk)
+		keyID, keyLabel, err := prov.IdentifyKey(t.Context(), pvk)
 		require.NoError(t, err)
 		assert.Equal(t, label, keyLabel)
 		created = append(created, keyID)
 		signing = append(signing, keyID)
 
-		uri, _, err := prov.ExportKey(keyID)
+		uri, _, err := prov.ExportKey(t.Context(), keyID)
 		require.NoError(t, err)
 		assert.Contains(t, uri, "pkcs11:manufacturer=")
 		assert.Contains(t, uri, "model=")
@@ -133,17 +136,21 @@ func Test_KmsProvider(t *testing.T) {
 
 	for _, tc := range eccases {
 		label := fmt.Sprintf("%sECC_%s", prefix, tc.curve.Params().Name)
-		pvk, err := prov.GenerateECDSAKey(label, tc.curve)
+		pvk, err := prov.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: label,
+			Type:  certutil.KeyTypeECDSA,
+			Size:  tc.curve.Params().BitSize,
+		})
 		require.NoError(t, err)
 
-		keyID, _, err := prov.IdentifyKey(pvk)
+		keyID, _, err := prov.IdentifyKey(t.Context(), pvk)
 		require.NoError(t, err)
 		created = append(created, keyID)
 		signing = append(signing, keyID)
 
-		found, err := prov.GetKey(keyID)
+		found, err := prov.GetKey(t.Context(), keyID)
 		require.NoError(t, err)
-		foundID, foundLabel, err := prov.IdentifyKey(found)
+		foundID, foundLabel, err := prov.IdentifyKey(t.Context(), found)
 		require.NoError(t, err)
 		assert.Equal(t, keyID, foundID)
 		assert.Equal(t, label, foundLabel)
@@ -166,17 +173,28 @@ func Test_KmsProvider(t *testing.T) {
 		_, err = signer.Sign(rand.Reader, sum(other, "digest"), other)
 		require.ErrorContains(t, err, "does not support ECDSA_")
 
-		ki, err := mgr.KeyInfo(mgr.CurrentSlotID(), keyID, true)
+		ki, err := mgr.KeyInfo(t.Context(), keyID, cryptoprov.KeyFieldMetadata|cryptoprov.KeyFieldState|cryptoprov.KeyFieldPublicKey)
 		require.NoError(t, err)
 		assert.Equal(t, keyID, ki.ID)
+		assert.Contains(t, ki.Name, ":key/"+keyID)
 		assert.Equal(t, label, ki.Label)
+		assert.Equal(t, certutil.KeyTypeECDSA, ki.Type)
+		assert.Equal(t, tc.curve.Params().BitSize, ki.Size)
+		assert.Equal(t, cryptoprov.KeyUsageSign, ki.Usage)
+		assert.Equal(t, cryptoprov.KeyStateEnabled, ki.State)
 		assert.Contains(t, ki.PublicKey, "PUBLIC KEY")
 		assert.Equal(t, "SIGN_VERIFY", ki.Meta["usage"])
 	}
 
 	// an encryption key is not generated (XPKI-031) and not returned by GetKey
-	_, err = prov.GenerateRSAKey(prefix+"encrypt", 2048, 2)
-	require.EqualError(t, err, "unsupported key purpose: 2, only signing keys are supported")
+	_, err = prov.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: prefix + "encrypt",
+		Type:  certutil.KeyTypeRSA,
+		Size:  2048,
+		Usage: cryptoprov.KeyUsageEncrypt,
+	})
+	require.ErrorIs(t, err, cryptoprov.ErrNotSupported)
+	require.ErrorContains(t, err, "unsupported key usage: encrypt, only signing keys are supported")
 
 	encrypt, err := client.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:     types.KeySpecRsa2048,
@@ -186,35 +204,56 @@ func Test_KmsProvider(t *testing.T) {
 	require.NoError(t, err)
 	encryptID := aws.ToString(encrypt.KeyMetadata.KeyId)
 	created = append(created, encryptID)
-	_, err = prov.GetKey(encryptID)
-	require.EqualError(t, err, fmt.Sprintf("key %s usage ENCRYPT_DECRYPT is not valid for signing", encryptID))
+	_, err = prov.GetKey(t.Context(), encryptID)
+	require.ErrorIs(t, err, cryptoprov.ErrNotSupported)
+	require.ErrorContains(t, err, fmt.Sprintf("key %s usage ENCRYPT_DECRYPT is not valid for signing", encryptID))
 
 	// a key with another prefix is not listed
 	otherPrefix := "other_" + uuid.NewV7().String()
-	otherKey, err := prov.GenerateECDSAKey(otherPrefix, elliptic.P256())
+	otherKey, err := prov.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: otherPrefix,
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(t, err)
-	otherID, _, err := prov.IdentifyKey(otherKey)
+	otherID, _, err := prov.IdentifyKey(t.Context(), otherKey)
 	require.NoError(t, err)
 	created = append(created, otherID)
 
-	// the listing has exactly the signing keys of this run
-	keys, err := mgr.EnumKeys(mgr.CurrentSlotID(), prefix)
-	require.NoError(t, err)
-	listed := make([]string, 0, len(keys))
-	for _, key := range keys {
+	// the listing has exactly the signing keys of this run: the alias sweep
+	// finds them by their label, and the encryption key has no alias
+	req := &cryptoprov.ListKeysRequest{
+		PageSize: 3,
+		Filter: cryptoprov.KeyFilter{
+			LabelPrefix: prefix,
+			Usage:       cryptoprov.KeyUsageSign,
+			States:      []cryptoprov.KeyState{cryptoprov.KeyStateEnabled},
+		},
+		Fields: cryptoprov.KeyFieldMetadata,
+	}
+	var listed []string
+	for key, err := range cryptoprov.AllKeys(t.Context(), mgr, req) {
+		require.NoError(t, err)
 		listed = append(listed, key.ID)
 		assert.True(t, strings.HasPrefix(key.Label, prefix), key.Label)
 		assert.Equal(t, key.Label, key.Meta["description"])
+		assert.Empty(t, key.PublicKey)
 	}
 	assert.ElementsMatch(t, signing, listed, "signing keys with the prefix, without the encryption key")
 
-	keys, err = mgr.EnumKeys(mgr.CurrentSlotID(), otherPrefix)
+	// an exact label costs one DescribeKey on its alias
+	resp, err := mgr.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{
+		Filter: cryptoprov.KeyFilter{Label: otherPrefix},
+	})
 	require.NoError(t, err)
-	require.Len(t, keys, 1)
-	assert.Equal(t, otherID, keys[0].ID)
+	require.Len(t, resp.Keys, 1)
+	assert.Equal(t, otherID, resp.Keys[0].ID)
+	assert.Empty(t, resp.NextPageToken)
 
-	_, err = mgr.FindKeyPairOnSlot(0, "123412", "")
-	require.Error(t, err)
+	_, err = prov.GetKey(t.Context(), "123412")
+	require.ErrorIs(t, err, cryptoprov.ErrKeyNotFound)
+	_, err = mgr.KeyInfo(t.Context(), "123412", cryptoprov.KeyFieldMetadata)
+	require.ErrorIs(t, err, cryptoprov.ErrKeyNotFound)
 }
 
 // sum returns the hash digest of msg.

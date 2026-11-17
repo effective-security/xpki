@@ -3,7 +3,7 @@
 # dpop
 
 ```go
-import "github.com/effective-security/xpki/jwt/dpop"
+import "github.com/effective-security/xpki/v2/jwt/dpop"
 ```
 
 Package dpop implements OAuth 2.0 Demonstrating Proof of Possession \(RFC 9449\): clients build DPoP proof JWTs for HTTP requests with Signer and ForRequest; servers verify them with VerifyRequestClaims or VerifyClaimsContext and bind the resulting key thumbprint to the access token "cnf.jkt" claim.
@@ -302,7 +302,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/effective-security/xpki/jwt/dpop"
+	"github.com/effective-security/xpki/v2/jwt/dpop"
 )
 
 func main() {

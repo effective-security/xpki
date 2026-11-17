@@ -3,10 +3,10 @@
 # cli
 
 ```go
-import "github.com/effective-security/xpki/cmd/hsm-tool/cli"
+import "github.com/effective-security/xpki/v2/cmd/hsm-tool/cli"
 ```
 
-Package cli implements the hsm\-tool command tree: hsm list/info/generate/ remove and csr create/gen\-cert/sign. Providers are registered by blank imports and loaded lazily from the \-\-cfg and \-\-crypto config files.
+Package cli implements the hsm\-tool command tree: hsm key list/info/generate/remove and csr create/gen\-cert/sign. Providers are registered by blank imports and loaded lazily from the \-\-cfg and \-\-crypto config files.
 
 ## Index
 
@@ -38,6 +38,7 @@ Package cli implements the hsm\-tool command tree: hsm list/info/generate/ remov
   - [func \(a \*HsmLsKeyCmd\) Run\(ctx \*Cli\) error](<#HsmLsKeyCmd.Run>)
 - [type HsmRmKeyCmd](<#HsmRmKeyCmd>)
   - [func \(a \*HsmRmKeyCmd\) Run\(ctx \*Cli\) error](<#HsmRmKeyCmd.Run>)
+- [type KeysCmd](<#KeysCmd>)
 
 
 <a name="Cli"></a>
@@ -254,21 +255,18 @@ func (a *GenCertCmd) Run(ctx *Cli) error
 Run the command
 
 <a name="HsmCmd"></a>
-## type [HsmCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L19-L24>)
+## type [HsmCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L24-L26>)
 
 HsmCmd is the parent for HSM command
 
 ```go
 type HsmCmd struct {
-    List     HsmLsKeyCmd   `cmd:"" help:"list keys"`
-    Info     HsmKeyInfoCmd `cmd:"" help:"print key information"`
-    Generate HsmGenKeyCmd  `cmd:"" help:"generate key"`
-    Remove   HsmRmKeyCmd   `cmd:"" help:"delete key"`
+    Key KeysCmd `cmd:"" help:"key management commands"`
 }
 ```
 
 <a name="HsmGenKeyCmd"></a>
-## type [HsmGenKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L198-L205>)
+## type [HsmGenKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L379-L386>)
 
 HsmGenKeyCmd generates key
 
@@ -284,7 +282,7 @@ type HsmGenKeyCmd struct {
 ```
 
 <a name="HsmGenKeyCmd.Run"></a>
-### func \(\*HsmGenKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L208>)
+### func \(\*HsmGenKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L389>)
 
 ```go
 func (a *HsmGenKeyCmd) Run(ctx *Cli) error
@@ -293,7 +291,7 @@ func (a *HsmGenKeyCmd) Run(ctx *Cli) error
 Run the command
 
 <a name="HsmKeyInfoCmd"></a>
-## type [HsmKeyInfoCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L128-L133>)
+## type [HsmKeyInfoCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L328-L334>)
 
 HsmKeyInfoCmd prints the key info
 
@@ -303,11 +301,12 @@ type HsmKeyInfoCmd struct {
     Token  string `help:"slot token (optional)"`
     Serial string `help:"slot serial (optional)"`
     Public bool   `help:"print Public Key"`
+    Tags   bool   `help:"print the tags or cloud labels of the key"`
 }
 ```
 
 <a name="HsmKeyInfoCmd.Run"></a>
-### func \(\*HsmKeyInfoCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L136>)
+### func \(\*HsmKeyInfoCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L337>)
 
 ```go
 func (a *HsmKeyInfoCmd) Run(ctx *Cli) error
@@ -316,20 +315,27 @@ func (a *HsmKeyInfoCmd) Run(ctx *Cli) error
 Run the command
 
 <a name="HsmLsKeyCmd"></a>
-## type [HsmLsKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L27-L31>)
+## type [HsmLsKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L60-L71>)
 
 HsmLsKeyCmd prints Keys
 
 ```go
 type HsmLsKeyCmd struct {
-    Token  string `help:"specifies slot token (optional)"`
-    Serial string `help:"specifies slot serial (optional)"`
-    Prefix string `help:"specifies key label prefix (optional)"`
+    Token  string            `help:"specifies slot token (optional)"`
+    Serial string            `help:"specifies slot serial (optional)"`
+    Prefix string            `help:"specifies key label prefix (optional)"`
+    Label  string            `help:"specifies the exact key label (optional)"`
+    Usage  string            `help:"lists keys with one of the usages: sign,encrypt (optional)"`
+    Type   []string          `help:"lists keys of the types: RSA,ECDSA,ML-DSA (default: all three)"`
+    Tag    map[string]string `help:"lists keys with the tag or cloud label name=value; repeat the flag for several (not supported by PKCS#11)"`
+    State  []string          `help:"lists keys in the states: enabled,disabled,pending_deletion,destroyed,unavailable, or all (default: enabled,disabled)"`
+    Limit  int               `help:"lists at most this number of keys of a token (default: all)"`
+    All    bool              `help:"lists keys of every type, including symmetric and MAC keys"`
 }
 ```
 
 <a name="HsmLsKeyCmd.Run"></a>
-### func \(\*HsmLsKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L67>)
+### func \(\*HsmLsKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L253>)
 
 ```go
 func (a *HsmLsKeyCmd) Run(ctx *Cli) error
@@ -338,7 +344,7 @@ func (a *HsmLsKeyCmd) Run(ctx *Cli) error
 Run the command
 
 <a name="HsmRmKeyCmd"></a>
-## type [HsmRmKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L262-L266>)
+## type [HsmRmKeyCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L443-L447>)
 
 HsmRmKeyCmd deletes key
 
@@ -351,12 +357,26 @@ type HsmRmKeyCmd struct {
 ```
 
 <a name="HsmRmKeyCmd.Run"></a>
-### func \(\*HsmRmKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L269>)
+### func \(\*HsmRmKeyCmd\) [Run](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L450>)
 
 ```go
 func (a *HsmRmKeyCmd) Run(ctx *Cli) error
 ```
 
 Run the command
+
+<a name="KeysCmd"></a>
+## type [KeysCmd](<https://github.com/effective-security/xpki/blob/main/cmd/hsm-tool/cli/hsm.go#L30-L35>)
+
+KeysCmd is the parent of the key commands, "hsm key list", "info", "generate" and "remove".
+
+```go
+type KeysCmd struct {
+    List     HsmLsKeyCmd   `cmd:"" help:"list keys"`
+    Info     HsmKeyInfoCmd `cmd:"" help:"print key information"`
+    Generate HsmGenKeyCmd  `cmd:"" help:"generate key"`
+    Remove   HsmRmKeyCmd   `cmd:"" help:"delete key"`
+}
+```
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

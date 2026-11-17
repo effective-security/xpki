@@ -3,7 +3,7 @@
 # print
 
 ```go
-import "github.com/effective-security/xpki/x/print"
+import "github.com/effective-security/xpki/v2/x/print"
 ```
 
 Package print writes human\-readable descriptions of certificates, certificate requests, CRLs and OCSP responses to an io.Writer, and a JSON helper for CLI output. Timestamps are printed in local time; write errors are ignored by design because the output is for humans.

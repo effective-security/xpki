@@ -8,14 +8,15 @@ points → invariants) and the generated [API reference](../api) answers
 "what is the exact signature". Keep the three consistent: a design change
 updates the design document and the code map in the same change.
 
-| Document                                 | Package(s)                                            |
-| ---------------------------------------- | ----------------------------------------------------- |
-| [cryptoprov.md](cryptoprov.md)           | `cryptoprov` and the provider contract its backends implement |
-| [crypto11.md](crypto11.md)               | `crypto11` (PKCS#11 provider)                         |
-| [csr.md](csr.md)                         | `csr` (requests, key requests, CSR create and parse)  |
-| [authority.md](authority.md)             | `authority` (in-process CA)                           |
-| [dataprotection.md](dataprotection.md)   | `dataprotection` (AEAD protection of small payloads)  |
-| [pqc.md](pqc.md)                         | Cross-cutting: post-quantum signatures (ML-DSA, FIPS 204), with the code inventory that the [roadmap](../../ROADMAP.md) item and the [plan](../../PLAN.md) refer to |
+| Document                               | Package(s)                                                                                                                                                                          |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [cryptoprov.md](cryptoprov.md)         | `cryptoprov` and the provider contract its backends implement                                                                                                                       |
+| [crypto11.md](crypto11.md)             | `crypto11` (PKCS#11 provider)                                                                                                                                                       |
+| [csr.md](csr.md)                       | `csr` (requests, key requests, CSR create and parse)                                                                                                                                |
+| [authority.md](authority.md)           | `authority` (in-process CA)                                                                                                                                                         |
+| [dataprotection.md](dataprotection.md) | `dataprotection` (AEAD protection of small payloads)                                                                                                                                |
+| [pqc.md](pqc.md)                       | Cross-cutting: post-quantum signatures (ML-DSA, FIPS 204), with the code inventory that the [roadmap](../../ROADMAP.md) item and the [plan](../../PLAN.md) refer to                 |
+| [keymanager.md](keymanager.md)         | Cross-cutting: the v2 `KeyManager` and `KeyGenerator` contract, what each provider does for a listing, the move to module `xpki/v2` and decisions K1 to K12 (roadmap item 12, v2.0) |
 
 Conventions:
 

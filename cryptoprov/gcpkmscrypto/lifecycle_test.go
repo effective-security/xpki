@@ -2,7 +2,6 @@ package gcpkmscrypto_test
 
 import (
 	"crypto"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"sync"
@@ -12,7 +11,9 @@ import (
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -109,30 +110,38 @@ func TestCloseWaitsForInflightSign(t *testing.T) {
 			return err
 		},
 		"GetKey": func() error {
-			_, err := provider.GetKey("key")
+			_, err := provider.GetKey(t.Context(), "key")
 			return err
 		},
 		"GetKey version": func() error {
-			_, err := provider.GetKey(signKeyID)
+			_, err := provider.GetKey(t.Context(), signKeyID)
 			return err
 		},
 		"KeyInfo": func() error {
-			_, err := provider.KeyInfo(0, "key", true)
+			_, err := provider.KeyInfo(t.Context(), "key", keyFieldsPublic)
 			return err
 		},
-		"EnumKeys": func() error {
-			_, err := provider.EnumKeys(0, "")
+		"ListKeys": func() error {
+			_, err := provider.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{})
 			return err
 		},
-		"DestroyKeyPairOnSlot": func() error {
-			return provider.DestroyKeyPairOnSlot(0, signKeyID)
+		"DestroyKey": func() error {
+			return provider.DestroyKey(t.Context(), signKeyID)
 		},
-		"GenerateRSAKey": func() error {
-			_, err := provider.GenerateRSAKey("label", 2048, 1)
+		"GenerateKey RSA": func() error {
+			_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "label",
+				Type:  certutil.KeyTypeRSA,
+				Size:  2048,
+			})
 			return err
 		},
-		"GenerateECDSAKey": func() error {
-			_, err := provider.GenerateECDSAKey("label", elliptic.P256())
+		"GenerateKey ECDSA": func() error {
+			_, err := provider.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: "label",
+				Type:  certutil.KeyTypeECDSA,
+				Size:  256,
+			})
 			return err
 		},
 	} {
@@ -152,10 +161,10 @@ func TestCloseIdle(t *testing.T) {
 	assert.Equal(t, []string{"Close"}, client.Calls())
 
 	// operations that do not use the client still work
-	uri, _, err := provider.ExportKey("key")
+	uri, _, err := provider.ExportKey(t.Context(), "key")
 	require.NoError(t, err)
 	assert.Contains(t, uri, "id=key")
-	uri, _, err = provider.ExportKey(signKeyID)
+	uri, _, err = provider.ExportKey(t.Context(), signKeyID)
 	require.NoError(t, err)
 	assert.Contains(t, uri, "id="+signKeyID+";")
 }

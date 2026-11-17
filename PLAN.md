@@ -45,7 +45,7 @@ implementation easier; record larger contract work in [ROADMAP.md](ROADMAP.md).
 
 ## Batch queue
 
-No open batches. New findings get a batch here with the columns below when
+No batch is open. New findings get a batch here with the columns below when
 they are recorded in FINDINGS.md:
 
 | Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
@@ -67,7 +67,7 @@ Conventions that carry over to the next batches:
 
 ## Benchmark and race-test protocol
 
-No open batch needs a before-fix benchmark.
+No open findings batch needs a before-fix benchmark.
 
 Performance fixes require an existing-behavior reproduction plus a baseline
 before optimization. Use generated fixtures and local/fake HTTP/KMS services;
@@ -134,13 +134,13 @@ PKCS#11 v3.2 token (PQ5b, roadmap 3.1), the OCSP responder (roadmap 3.3) and
 `jwt`/`jwt/dpop` (roadmap 3.4) were implemented in v1.1 and are summarized in
 [`Documentation/RELEASE_NOTES_1.1.md`](Documentation/RELEASE_NOTES_1.1.md).
 What remains is verification that needs outside infrastructure: the batch below
-has its code and tests in place and waits for a run.
+has its code and tests in place and waits for the service.
 
 ### Remaining batches
 
-| Batch | Owner package(s) | Scope                                                                                                                                                                                                                                                                                                                                                      | Depends on                        | Regression risk                                   |
-| ----- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------- |
-| PQ7   | `gcpkmscrypto` | Run `TestLiveKMSMLDSA` once against the real service with an existing key ring (`XPKI_LIVE_GCP_KMS_KEYRING=projects/<project>/locations/<location>/keyRings/<ring>`, on `go test` directly). Fix whatever the service reports and record the result. The test creates billable keys and schedules them for deletion. Done for AWS: passed for all three parameter sets on 2026-11-09. | GCP access (none as of 2026-11-09), a key ring and an owner's approval to create keys | Low: the code paths are exercised on the fake; a live difference would change only the request shape |
+| Batch | Owner package(s) | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Depends on                                                                                                                                                              | Regression risk                                                                                      |
+| ----- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| PQ7   | `gcpkmscrypto`   | Run `TestLiveKMSMLDSA` against the real service once Cloud KMS offers ML-DSA for HSM keys (`XPKI_LIVE_GCP_KMS_KEYRING=projects/<project>/locations/<location>/keyRings/<ring>`, on `go test` directly). The run of 2026-11-12 in `us-central1` was refused for all three parameter sets: `INVALID_ARGUMENT`, "Algorithm PQ_SIGN_ML_DSA_44_EXTERNAL_MU is not supported for protection level: HSM" (reason `ALGORITHM_NOT_SUPPORTED_FOR_PROTECTION_LEVEL`). `GenerateKey` now reports that as `cryptoprov.ErrNotSupported` and the test skips on it, so it can be run again at any time. Fix whatever the service reports then and record the result. Done for AWS: passed for all three parameter sets on 2026-11-09. | Cloud KMS offering ML-DSA at the HSM protection level, which `genKey` asks for; or a decision to add a protection level setting and create ML-DSA keys as software keys | Low: the code paths are exercised on the fake; a live difference would change only the request shape |
 
 Acceptance for PQ7: for all three parameter sets on GCP, a key is
 created, a message, a μ and a message with a context are signed and verified
@@ -149,7 +149,49 @@ certificate are signed; the keys are scheduled for deletion.
 
 ### Validation protocol
 
-Run `TestLiveKMSMLDSA` in `gcpkmscrypto` against the live service; `make lint`;
+Run `TestLiveKMSMLDSA` in `gcpkmscrypto` against the live service; it skips
+while the service refuses the algorithm. `make lint`;
 `make covtest` stays above `MIN_TESTCOV=90`. Record in the PR which account and
 location signed, and update `Documentation/design/pqc.md`, the codemap and the
 status in `ROADMAP.md` in the same change.
+
+## Key management interfaces (xpki v2): remaining work
+
+Roadmap item 12, the redesign of `cryptoprov.KeyManager` and `KeyGenerator`,
+is implemented: batches KM0 to KM9 are summarized in
+[`Documentation/RELEASE_NOTES_2.0.md`](Documentation/RELEASE_NOTES_2.0.md),
+and the design with its decisions K1 to K12 is in
+[`Documentation/design/keymanager.md`](Documentation/design/keymanager.md).
+What remains needs infrastructure or a repository this work had no access
+to. None of it has code to write here unless a run finds a difference. The
+first live runs, on 2026-11-12, are recorded in the release notes
+("Validation"): the AWS listing without tag search passed in `us-west-1`,
+and the Google Cloud listing with its filters passed in `us-central1`, which
+closed the item that was KM12.
+
+### Remaining items
+
+| Item | Owner                     | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Depends on                                      | Regression risk                                                                                                     |
+| ---- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| KM10 | repository                | Cut `release-v1` from the last v1 commit (`b5001f2`) and push it, before the v2 change is merged to `main`. `settag.yml` then tags `v2.0.<n>` from `.VERSION` on `main` and `v1.1.<n>` on `release-v1`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | A maintainer with push rights                   | None for the code; without the branch v1 cannot take a fix                                                          |
+| KM11 | `cryptoprov/awskmscrypto` | Run the tag search part of `TestLiveKMSListKeys` against the real service: `XPKI_LIVE_AWS_KMS_REGION=<region> XPKI_LIVE_AWS_KMS_TAGSEARCH=true go test ./cryptoprov/awskmscrypto/ -run 'TestLiveKMSListKeys$' -count=1 -v`. It needs `tag:GetResources` and `kms:TagResource`, tags two keys of one label, waits for the Resource Groups Tagging API to list them, and finds by label the one that has no alias. The first attempt, on 2026-11-12, failed in the test itself (its tag name used the reserved `xpki-` prefix) before any key was created; the flow now also runs on the fakes (`TestLiveKMSListKeysOnFake`). The rest of the test passed live on 2026-11-12. Record the IAM policy that was enough. It creates billable keys and schedules them for deletion. | An AWS account with the two tagging permissions | Low: the request shapes follow SDK v1.62.6 and `resourcegroupstaggingapi` v1.42.0                                   |
+| KM13 | `crypto11`                | Run `make test-kryoptic` again. The run of 2026-11-12 failed in one assertion after the three parameter sets: the test still expected `GenerateKey` to return the helper's error for an unknown parameter set, which the request validation now rejects first. The assertion is corrected and runs on SoftHSM too (`TestGenerateMLDSAKeyOnSoftHSM`); the reported output shows no failure in the ML-DSA generation, signing, `KeyInfo` or listing steps, and the rerun is to confirm that.                                                                                                                                                                                                                                                                                   | The Kryoptic build (run by the maintainer)      | Low                                                                                                                 |
+| KM14 | downstream repositories   | Migrate porto first (its exported API uses `jwt` and `dpop` types), then kubeca, trustyca (`Keys.Destroy` moves to `DestroyKey`, `ExportKey` gains `ctx`), secdi and martini, with the recipe of the release notes. trusty (v0.19.164) and promptviser (v0.27.281) stay on their pins until someone moves them.                                                                                                                                                                                                                                                                                                                                                                                                                                                              | KM10; the gate below                            | Medium per repository: about 370 files import the module; the compiler finds each one                               |
+| KM15 | `cryptoprov/gcpkmscrypto` | Run `TestLiveKMSSign` once against the real service (`XPKI_LIVE_GCP_KMS_KEYRING=projects/<p>/locations/<l>/keyRings/<r> go test ./cryptoprov/gcpkmscrypto/ -run 'TestLiveKMSSign$' -count=1 -v`): for RSA 2048, 3072 and 4096 and ECDSA P-256 and P-384 it creates an HSM key, signs and verifies, loads the key by version, bare id and URI, describes it, signs a CSR and a certificate, lists it and schedules it for destruction. The flow passes on the in-process KMS (`TestLiveKMSSignOnFake`). It creates five billable HSM keys; the 4096-bit one can take a while to generate.                                                                                                                                                                                     | GCP access and a key ring                       | Low: the same code signs on the in-process KMS; a live difference would be in generation latency or a request shape |
+
+### Gate before clients migrate
+
+A client that moves to v2 rewrites every xpki import, so it should do that
+once (decision K9). Every signature item 12 planned to change has changed.
+The signing half of roadmap item 1 (`authority.Issuer.Sign`,
+`csr.Provider.SignRequest`, the `crypto.Signer` path) changes more: merge it
+first, or leave it explicitly for a later break, before KM14 starts. An
+application moves all of its xpki imports in the release in which it takes
+the porto built on v2, and a process that uses PKCS#11 links one major only.
+
+### Validation protocol
+
+KM11, KM13 and KM15 are runs: record the date, the region or token, and the
+result in `Documentation/RELEASE_NOTES_2.0.md` ("Validation") and remove the
+item here. A difference a run finds becomes a finding in FINDINGS.md with its
+batch above.

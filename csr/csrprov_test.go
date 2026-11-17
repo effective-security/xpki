@@ -4,14 +4,14 @@ import (
 	"crypto"
 	"testing"
 
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/internal/testenv"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/internal/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	// register supported
-	_ "github.com/effective-security/xpki/crypto11"
+	_ "github.com/effective-security/xpki/v2/crypto11"
 )
 
 var softHSMConfig = testenv.SoftHSMConfig()
@@ -68,7 +68,7 @@ func TestGenerateKeyAndRequest(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			cr, k, kid, err := prov.GenerateKeyAndRequest(tc.req)
+			cr, k, kid, err := prov.GenerateKeyAndRequest(t.Context(), tc.req)
 			if tc.experr != "" {
 				assert.Nil(t, k)
 				require.Error(t, err)
@@ -134,7 +134,7 @@ func TestCreateRequestAndExportKey(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			cr, k, kid, pub, err := prov.CreateRequestAndExportKey(tc.req)
+			cr, k, kid, pub, err := prov.CreateRequestAndExportKey(t.Context(), tc.req)
 			if tc.experr != "" {
 				assert.Nil(t, k)
 				require.Error(t, err)

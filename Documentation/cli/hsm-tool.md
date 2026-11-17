@@ -13,13 +13,13 @@ Flags:
   -l, --log-level="error"    Set the logging level (debug|info|warn|error)
 
 Commands:
-  hsm list        list keys
-  hsm info        print key information
-  hsm generate    generate key
-  hsm remove      delete key
-  csr create      create certificate request
-  csr gen-cert    create CSR and sign certificate
-  csr sign        sign certificate
+  hsm key list        list keys
+  hsm key info        print key information
+  hsm key generate    generate key
+  hsm key remove      delete key
+  csr create          create certificate request
+  csr gen-cert        create CSR and sign certificate
+  csr sign            sign certificate
 
 Run "hsm-tool <command> --help" for more information on a command.
 ```

@@ -52,7 +52,8 @@ H5kVbpLP+eSYMqF110qqjAo4tkgBquF6IppA+HQ66DN64+TeiXb3f2Y=
 // aq+K7aVrgHkPnWeRiG6tl+ZA
 // -----END CERTIFICATE-----`
 
-// GoDaddyIntermediateCert valid until year 2026
+// GoDaddyIntermediateCert expired on 2026-11-16; Test_IDs reads only its
+// identifiers, which do not depend on the validity period.
 var GoDaddyIntermediateCert = `-----BEGIN CERTIFICATE-----
 MIIE3jCCA8agAwIBAgICAwEwDQYJKoZIhvcNAQEFBQAwYzELMAkGA1UEBhMCVVMx
 ITAfBgNVBAoTGFRoZSBHbyBEYWRkeSBHcm91cCwgSW5jLjExMC8GA1UECxMoR28g

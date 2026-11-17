@@ -3,7 +3,7 @@
 # metricskey
 
 ```go
-import "github.com/effective-security/xpki/metricskey"
+import "github.com/effective-security/xpki/v2/metricskey"
 ```
 
 Package metricskey defines the metrics.Describe descriptors emitted by the crypto providers \(perf\_crypto\) and the certificate authority \(perf\_ca, perf\_ca\_signreq\), and the Metrics list used to register them.

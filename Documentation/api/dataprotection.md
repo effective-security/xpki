@@ -3,7 +3,7 @@
 # dataprotection
 
 ```go
-import "github.com/effective-security/xpki/dataprotection"
+import "github.com/effective-security/xpki/v2/dataprotection"
 ```
 
 Package dataprotection provides authenticated encryption of small payloads behind the Provider interface, plus helpers to protect and unprotect JSON objects as base64url strings.
@@ -137,7 +137,7 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/effective-security/xpki/dataprotection"
+	"github.com/effective-security/xpki/v2/dataprotection"
 )
 
 func main() {

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/oid"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/oid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -143,11 +143,11 @@ func TestCSRProviderInvalidRequests(t *testing.T) {
 	provider := csr.NewProvider(inmemcrypto.NewProvider())
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	_, _, _, err = provider.GenerateKeyAndRequest(&csr.CertificateRequest{})
+	_, _, _, err = provider.GenerateKeyAndRequest(t.Context(), &csr.CertificateRequest{})
 	require.EqualError(t, err, "invalid key request")
-	_, _, _, _, err = provider.CreateRequestAndExportKey(&csr.CertificateRequest{Names: []csr.X509Name{{}}})
+	_, _, _, _, err = provider.CreateRequestAndExportKey(t.Context(), &csr.CertificateRequest{Names: []csr.X509Name{{}}})
 	require.ErrorContains(t, err, "invalid request")
-	_, _, _, _, err = provider.CreateRequestAndExportKey(&csr.CertificateRequest{CommonName: "valid name"})
+	_, _, _, _, err = provider.CreateRequestAndExportKey(t.Context(), &csr.CertificateRequest{CommonName: "valid name"})
 	require.ErrorContains(t, err, "process request: invalid key request")
 	_, err = provider.SignRequest(struct{}{}, &csr.CertificateRequest{CommonName: "test"})
 	require.EqualError(t, err, "unable to convert key to crypto.Signer")

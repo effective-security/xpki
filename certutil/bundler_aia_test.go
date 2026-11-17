@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -313,7 +313,7 @@ func TestBundlerAIAResponseValidation(t *testing.T) {
 			var unknown x509.UnknownAuthorityError
 			require.ErrorAs(t, err, &unknown)
 			assert.Nil(t, chain)
-			assert.False(t, b.KnownIssuers[string(intermediate.Certificate.Signature)])
+			assert.False(t, b.IsKnownIssuer(intermediate.Certificate))
 		})
 	}
 }

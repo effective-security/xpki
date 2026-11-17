@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/errors"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +41,7 @@ func TestHardRSA(t *testing.T) {
 	var id, label string
 
 	for _, nbits := range rsaSizes {
-		priv, err = p11lib.GenerateRSAKeyPair(nbits, Signing)
+		priv, err = p11lib.GenerateRSAKeyPair(t.Context(), nbits, cryptoprov.KeyUsageSign)
 		require.NoError(t, err)
 		require.NotNil(t, priv)
 
@@ -49,21 +50,21 @@ func TestHardRSA(t *testing.T) {
 
 		testRsaSigning(t, priv, nbits)
 		// Get a fresh handle to  the key
-		id, label, err = p11lib.Identify(&priv.key.PKCS11Object)
+		id, label, err = p11lib.Identify(t.Context(), &priv.key.PKCS11Object)
 		require.NoError(t, err)
 
-		key2, err = p11lib.FindKeyPair(id, "")
+		key2, err = p11lib.FindKeyPair(t.Context(), id, "")
 		require.NoError(t, err)
 
 		testRsaSigning(t, key2.(*PKCS11PrivateKeyRSA), nbits)
-		key3, err = p11lib.FindKeyPair("", label)
+		key3, err = p11lib.FindKeyPair(t.Context(), "", label)
 
 		require.NoError(t, err)
 		testRsaSigning(t, key3.(crypto.Signer), nbits)
 	}
 
 	for _, nbits := range rsaSizes {
-		priv, err = p11lib.GenerateRSAKeyPair(nbits, Encryption)
+		priv, err = p11lib.GenerateRSAKeyPair(t.Context(), nbits, cryptoprov.KeyUsageEncrypt)
 		require.NoError(t, err)
 		require.NotNil(t, priv)
 
@@ -72,10 +73,10 @@ func TestHardRSA(t *testing.T) {
 
 		testRsaEncryption(t, priv, nbits)
 		// Get a fresh handle to  the key
-		id, _, err = p11lib.Identify(&priv.key.PKCS11Object)
+		id, _, err = p11lib.Identify(t.Context(), &priv.key.PKCS11Object)
 		require.NoError(t, err)
 
-		key2, err = p11lib.FindKeyPair(id, "")
+		key2, err = p11lib.FindKeyPair(t.Context(), id, "")
 		require.NoError(t, err)
 		require.NotNil(t, key2)
 	}
@@ -137,7 +138,7 @@ func testRsaSigningPSS(t *testing.T, key crypto.Signer, hashFunction crypto.Hash
 
 func TestHardRSA_UnsupportedOptions(t *testing.T) {
 	requireP11(t)
-	priv, err := p11lib.GenerateRSAKeyPair(2048, Signing)
+	priv, err := p11lib.GenerateRSAKeyPair(t.Context(), 2048, cryptoprov.KeyUsageSign)
 	require.NoError(t, err)
 
 	digest := make([]byte, crypto.MD5.Size())

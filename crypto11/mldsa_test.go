@@ -1,6 +1,7 @@
 package crypto11
 
 import (
+	"context"
 	"crypto"
 	"crypto/mldsa"
 	"crypto/rand"
@@ -8,9 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cockroachdb/errors"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 	"github.com/miekg/pkcs11"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,15 +124,30 @@ func TestMLDSASignOptionsWithoutToken(t *testing.T) {
 func TestGenerateMLDSAKeyOnSoftHSM(t *testing.T) {
 	requireP11(t)
 	label := "mldsa-" + t.Name()
-	priv, err := p11lib.GenerateMLDSAKey(label, mldsa.MLDSA65())
+	priv, err := p11lib.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Label: label,
+		Type:  certutil.KeyTypeMLDSA,
+		Size:  cryptoprov.MLDSA65,
+	})
 	require.Error(t, err)
 	assert.Nil(t, priv)
 	var p11Err pkcs11.Error
 	require.ErrorAs(t, err, &p11Err, "a PKCS#11 error, not a Go one: %v", err)
 
-	keys, err := p11lib.EnumKeys(p11lib.CurrentSlotID(), label)
+	keys, err := enumKeys(p11lib, p11lib.CurrentSlotID(), label)
 	require.NoError(t, err)
 	assert.Empty(t, keys, "no orphan key")
+
+	// an unknown parameter set never reaches the token: GenerateKey rejects
+	// the request, and the key pair helper returns its own error
+	_, err = p11lib.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Type: certutil.KeyTypeMLDSA,
+		Size: cryptoprov.MLDSASize(mldsa.Parameters{}),
+	})
+	require.EqualError(t, err, "invalid ML-DSA parameter set (expected 44, 65 or 87): 0")
+	_, err = p11lib.GenerateMLDSAKeyPairWithLabel(t.Context(), "", mldsa.Parameters{})
+	require.ErrorIs(t, err, errUnsupportedMLDSAParameterSet)
+	assert.NotErrorAs(t, err, &p11Err, "not a token error")
 
 	// IdentifyKey of a stale ML-DSA object is a token error, not a panic
 	key, err := mldsa.GenerateKey(mldsa.MLDSA44())
@@ -141,7 +156,7 @@ func TestGenerateMLDSAKeyOnSoftHSM(t *testing.T) {
 		key: &PKCS11PrivateKey{PKCS11Object: PKCS11Object{Slot: p11lib.Slot.id}, PubKey: key.PublicKey()},
 		lib: p11lib,
 	}
-	_, _, err = p11lib.IdentifyKey(stale)
+	_, _, err = p11lib.IdentifyKey(t.Context(), stale)
 	require.Error(t, err)
 	_, err = stale.Sign(rand.Reader, []byte("message"), nil)
 	require.Error(t, err)
@@ -165,13 +180,17 @@ func TestMLDSAOnPKCS11v32Token(t *testing.T) {
 	for _, params := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		t.Run(params.String(), func(t *testing.T) {
 			label := "mldsa-" + strings.ToLower(params.String())
-			priv, err := lib.GenerateMLDSAKey(label, params)
+			priv, err := lib.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+				Label: label,
+				Type:  certutil.KeyTypeMLDSA,
+				Size:  cryptoprov.MLDSASize(params),
+			})
 			require.NoError(t, err)
-			keyID, gotLabel, err := lib.IdentifyKey(priv)
+			keyID, gotLabel, err := lib.IdentifyKey(t.Context(), priv)
 			require.NoError(t, err)
 			assert.Equal(t, label, gotLabel)
 			defer func() {
-				require.NoError(t, lib.DestroyKeyPairOnSlot(lib.Slot.id, keyID))
+				require.NoError(t, lib.destroyKeyOnSlot(context.Background(), lib.Slot.id, keyID))
 			}()
 
 			signer := priv.(crypto.Signer)
@@ -183,7 +202,7 @@ func TestMLDSAOnPKCS11v32Token(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, mldsa.Verify(pub, message, sig, nil))
 
-			byID, err := lib.FindKeyPair(keyID, "")
+			byID, err := lib.FindKeyPair(t.Context(), keyID, "")
 			require.NoError(t, err)
 			found, ok := byID.(*PKCS11PrivateKeyMLDSA)
 			require.True(t, ok, "%T", byID)
@@ -192,29 +211,36 @@ func TestMLDSAOnPKCS11v32Token(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, mldsa.Verify(pub, message, sig, nil))
 
-			byLabel, err := lib.FindKeyPair("", label)
+			byLabel, err := lib.FindKeyPair(t.Context(), "", label)
 			require.NoError(t, err)
 			assert.True(t, pub.Equal(byLabel.(*PKCS11PrivateKeyMLDSA).Public()))
 
-			ki, err := lib.KeyInfo(lib.Slot.id, keyID, true)
+			ki, err := lib.keyInfoOnSlot(t.Context(), lib.Slot.id, keyID, keyFieldsPublic)
 			require.NoError(t, err)
 			assert.Equal(t, certutil.KeyTypeMLDSA, ki.Type)
 			assert.Contains(t, ki.PublicKey, "PUBLIC KEY")
 			assert.Equal(t, params.String(), ki.Meta[cryptoprov.MetaParameterSet])
 
-			listed, err := lib.EnumKeys(lib.Slot.id, label)
+			listed, err := enumKeys(lib, lib.Slot.id, label)
 			require.NoError(t, err)
 			require.Len(t, listed, 1)
 			assert.Equal(t, keyID, listed[0].ID)
 			assert.Equal(t, certutil.KeyTypeMLDSA, listed[0].Type)
 			assert.Equal(t, params.String(), listed[0].Meta[cryptoprov.MetaParameterSet])
 
-			uri, _, err := lib.ExportKey(keyID)
+			uri, _, err := lib.ExportKey(t.Context(), keyID)
 			require.NoError(t, err)
 			assert.Contains(t, uri, "id="+keyID)
 		})
 	}
-	// the mechanism error is distinguishable from a Go error
-	_, err = lib.GenerateMLDSAKey("", mldsa.Parameters{})
-	require.True(t, errors.Is(err, errUnsupportedMLDSAParameterSet))
+	// a parameter set this package does not know is rejected before the
+	// token is asked: by the request validation of GenerateKey, and by the
+	// key pair helper, whose error is distinguishable from a token error
+	_, err = lib.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+		Type: certutil.KeyTypeMLDSA,
+		Size: cryptoprov.MLDSASize(mldsa.Parameters{}),
+	})
+	require.EqualError(t, err, "invalid ML-DSA parameter set (expected 44, 65 or 87): 0")
+	_, err = lib.GenerateMLDSAKeyPairWithLabel(t.Context(), "", mldsa.Parameters{})
+	require.ErrorIs(t, err, errUnsupportedMLDSAParameterSet)
 }

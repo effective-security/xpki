@@ -17,8 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/metricskey"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/metricskey"
 )
 
 // signScheme is what selects a KMS signing algorithm: the key type, the RSA

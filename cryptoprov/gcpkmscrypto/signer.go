@@ -15,8 +15,8 @@ import (
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/metricskey"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/metricskey"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 

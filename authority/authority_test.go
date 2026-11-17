@@ -13,19 +13,19 @@ import (
 	"uuid"
 
 	"github.com/effective-security/x/fileutil"
-	"github.com/effective-security/xpki/authority"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/csr"
-	"github.com/effective-security/xpki/internal/testenv"
-	"github.com/effective-security/xpki/oid"
-	"github.com/effective-security/xpki/testca"
+	"github.com/effective-security/xpki/v2/authority"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/csr"
+	"github.com/effective-security/xpki/v2/internal/testenv"
+	"github.com/effective-security/xpki/v2/oid"
+	"github.com/effective-security/xpki/v2/testca"
 	"github.com/stretchr/testify/suite"
 
 	// register providers
-	_ "github.com/effective-security/xpki/crypto11"
-	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	_ "github.com/effective-security/xpki/v2/crypto11"
+	_ "github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 )
 
 var (
@@ -120,7 +120,7 @@ func (s *testSuite) TestNewAuthority() {
 	// Test empty config
 	//
 	cfg := &authority.Config{}
-	_, err := authority.NewAuthority(cfg, s.crypto)
+	_, err := authority.NewAuthority(s.T().Context(), cfg, s.crypto)
 	s.Require().Error(err)
 	s.Equal("missing Authority configuration", err.Error())
 
@@ -142,7 +142,7 @@ func (s *testSuite) TestNewAuthority() {
 		},
 	}
 
-	_, err = authority.NewAuthority(cfg3, s.crypto)
+	_, err = authority.NewAuthority(s.T().Context(), cfg3, s.crypto)
 	s.EqualError(err, `unable to create issuer: "badkey": unable to create signer: load key file: open not_found: no such file or directory`)
 
 	//
@@ -153,7 +153,7 @@ func (s *testSuite) TestNewAuthority() {
 		cfg4.Authority.Issuers[i].AIA = &authority.AIAConfig{}
 	}
 
-	a, err := authority.NewAuthority(cfg4, s.crypto)
+	a, err := authority.NewAuthority(s.T().Context(), cfg4, s.crypto)
 	s.Require().NoError(err)
 	issuers := a.Issuers()
 	s.Equal(len(cfg4.Authority.Issuers), len(issuers))
@@ -224,7 +224,7 @@ func (s *testSuite) TestShakenRoot() {
 		CommonName: "[TEST] SHAKEN Root CA",
 		KeyRequest: kr,
 	}
-	rootPEM, _, _, err := authority.NewRoot("SHAKEN_ROOT", cfg, crypto, &rootReq)
+	rootPEM, _, _, err := authority.NewRoot(s.T().Context(), "SHAKEN_ROOT", cfg, crypto, &rootReq)
 	s.Require().NoError(err)
 
 	cert, err := certutil.ParseFromPEM(rootPEM)
@@ -243,10 +243,10 @@ func (s *testSuite) TestIssuerSign() {
 		CommonName: "[TEST] Trusty Root CA",
 		KeyRequest: kr,
 	}
-	rootPEM, _, rootKey, err := authority.NewRoot("ROOT", rootCfg, crypto, &rootReq)
+	rootPEM, _, rootKey, err := authority.NewRoot(s.T().Context(), "ROOT", rootCfg, crypto, &rootReq)
 	s.Require().NoError(err)
 
-	rootSigner, err := s.crypto.NewSignerFromPEM(rootKey)
+	rootSigner, err := s.crypto.NewSignerFromPEM(s.T().Context(), rootKey)
 	s.Require().NoError(err)
 
 	cfg := &authority.IssuerConfig{
@@ -393,7 +393,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &req)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -440,7 +440,7 @@ func (s *testSuite) TestIssuerSign() {
 			KeyRequest: kr,
 		}
 
-		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &req)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -479,7 +479,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &req)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -517,7 +517,7 @@ func (s *testSuite) TestIssuerSign() {
 	// A name copied from the CSR gets the ParseSAN rules too (XPKI-059):
 	// a CSR with a malformed DNS name is rejected, not issued as given.
 	s.Run("invalid_csr_san", func() {
-		key, err := kr.Generate()
+		key, err := kr.Generate(s.T().Context())
 		s.Require().NoError(err)
 		der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
 			Subject:  pkix.Name{CommonName: "trusty.com"},
@@ -543,7 +543,7 @@ func (s *testSuite) TestIssuerSign() {
 			KeyRequest: kr,
 		}
 
-		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &req)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -574,7 +574,7 @@ func (s *testSuite) TestIssuerSign() {
 			KeyRequest: kr,
 		}
 
-		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &req)
 		s.Require().NoError(err)
 
 		// profile does not set ocsp_no_check; the extension comes from the request
@@ -612,7 +612,7 @@ func (s *testSuite) TestIssuerSign() {
 			KeyRequest: kr,
 		}
 
-		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&caReq)
+		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &caReq)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -645,7 +645,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&caReq)
+		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &caReq)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -671,7 +671,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&caReq)
+		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &caReq)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -697,7 +697,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&caReq)
+		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &caReq)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -724,7 +724,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&caReq)
+		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &caReq)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -750,7 +750,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&caReq)
+		caCsrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &caReq)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -784,7 +784,7 @@ func (s *testSuite) TestIssuerSign() {
 			},
 		}
 
-		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(&req)
+		csrPEM, _, _, _, err := csr.NewProvider(crypto).CreateRequestAndExportKey(s.T().Context(), &req)
 		s.Require().NoError(err)
 
 		sreq := csr.SignRequest{
@@ -818,7 +818,7 @@ func (s *testSuite) TestIssuerSign() {
 				},
 			},
 		}
-		crt, _, err := rootCA.GenCert(
+		crt, _, err := rootCA.GenCert(s.T().Context(),
 			crypto,
 			&req,
 			"RestrictedServer",
@@ -831,7 +831,7 @@ func (s *testSuite) TestIssuerSign() {
 		s.NoError(fileutil.FileExists(certFile))
 		s.NoError(fileutil.FileExists(keyFile))
 
-		crt, _, err = rootCA.GenCert(
+		crt, _, err = rootCA.GenCert(s.T().Context(),
 			crypto,
 			&req,
 			"RestrictedServer",

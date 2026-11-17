@@ -2,6 +2,7 @@ package authority
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"maps"
 	"slices"
@@ -11,8 +12,8 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "authority")
@@ -68,8 +69,10 @@ func (s *Authority) load() *registry {
 	return emptyRegistry
 }
 
-// NewAuthority returns new instance of Authority
-func NewAuthority(cfg *Config, crypto *cryptoprov.Crypto) (*Authority, error) {
+// NewAuthority returns new instance of Authority. ctx is for the providers
+// that resolve the pkcs11: URIs of the issuer keys
+// (cryptoprov.Crypto.LoadPrivateKey).
+func NewAuthority(ctx context.Context, cfg *Config, crypto *cryptoprov.Crypto) (*Authority, error) {
 	if cfg.Authority == nil {
 		return nil, errors.New("missing Authority configuration")
 	}
@@ -102,7 +105,7 @@ func NewAuthority(cfg *Config, crypto *cryptoprov.Crypto) (*Authority, error) {
 		}
 
 		ccfg := isscfg.Copy()
-		issuer, err := NewIssuerWithBundles(ccfg, crypto, ca.CaBundle, ca.RootBundle)
+		issuer, err := NewIssuerWithBundles(ctx, ccfg, crypto, ca.CaBundle, ca.RootBundle)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "unable to create issuer: %q", isscfg.Label)
 		}

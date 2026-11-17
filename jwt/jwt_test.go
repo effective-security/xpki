@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/effective-security/xpki/certutil"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/internal/testenv"
-	"github.com/effective-security/xpki/jwt"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/internal/testenv"
+	"github.com/effective-security/xpki/v2/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
+	_ "github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
 )
 
 // kmsConfig and localKMSAddr are the local-kms fixture (make start-local-kms)
@@ -61,31 +61,31 @@ func Test_Config(t *testing.T) {
 }
 
 func Test_Load(t *testing.T) {
-	_, err := jwt.LoadProvider("testdata/missing.json", nil)
+	_, err := jwt.LoadProvider(t.Context(), "testdata/missing.json", nil)
 	require.Error(t, err)
 	assert.Equal(t, "unable to read file: open testdata/missing.json: no such file or directory", err.Error())
 
-	_, err = jwt.LoadProvider("testdata/jwtprov_corrupted.1.json", nil)
+	_, err = jwt.LoadProvider(t.Context(), "testdata/jwtprov_corrupted.1.json", nil)
 	require.Error(t, err)
 
-	_, err = jwt.LoadProvider("testdata/jwtprov_corrupted.2.json", nil)
+	_, err = jwt.LoadProvider(t.Context(), "testdata/jwtprov_corrupted.2.json", nil)
 	require.Error(t, err)
 
-	_, err = jwt.LoadProvider("testdata/jwtprov.json", nil)
+	_, err = jwt.LoadProvider(t.Context(), "testdata/jwtprov.json", nil)
 	require.NoError(t, err)
 
-	p, err := jwt.LoadProvider("testdata/jwtprov.yaml", nil)
+	p, err := jwt.LoadProvider(t.Context(), "testdata/jwtprov.yaml", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 12*time.Hour, p.TokenExpiry())
 
-	_, err = jwt.LoadProvider("testdata/jwtprov-kms.yaml", nil)
+	_, err = jwt.LoadProvider(t.Context(), "testdata/jwtprov-kms.yaml", nil)
 	assert.EqualError(t, err, "Crypto provider not provided to load private key")
 
-	_, err = jwt.LoadProvider("", nil)
+	_, err = jwt.LoadProvider(t.Context(), "", nil)
 	assert.EqualError(t, err, "issuer not configured")
 
 	assert.Panics(t, func() {
-		jwt.MustNewProvider(&jwt.ProviderConfig{
+		jwt.MustNewProvider(t.Context(), &jwt.ProviderConfig{
 			Issuer: "issuer",
 		}, nil)
 	})
@@ -93,11 +93,11 @@ func Test_Load(t *testing.T) {
 
 func Test_SignSym(t *testing.T) {
 	ctx := context.Background()
-	p, err := jwt.LoadProvider("testdata/jwtprov.json", nil)
+	p, err := jwt.LoadProvider(ctx, "testdata/jwtprov.json", nil)
 	require.NoError(t, err)
-	p1, err := jwt.LoadProvider("testdata/jwtprov.1.json", nil)
+	p1, err := jwt.LoadProvider(ctx, "testdata/jwtprov.1.json", nil)
 	require.NoError(t, err)
-	p2, err := jwt.LoadProvider("testdata/jwtprov.2.json", nil)
+	p2, err := jwt.LoadProvider(ctx, "testdata/jwtprov.2.json", nil)
 	require.NoError(t, err)
 
 	extra := jwt.MapClaims{
@@ -157,7 +157,7 @@ func Test_SignPrivateRSA(t *testing.T) {
 		crypto, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 		require.NoError(t, err)
 
-		p, err := jwt.NewProvider(&jwt.ProviderConfig{
+		p, err := jwt.NewProvider(ctx, &jwt.ProviderConfig{
 			Issuer:     "trusty.com",
 			PrivateKey: string(pemKey),
 		}, crypto)
@@ -202,7 +202,7 @@ func Test_SignPrivateEC(t *testing.T) {
 		crypto, err := cryptoprov.New(inmemcrypto.NewProvider(), nil)
 		require.NoError(t, err)
 
-		p, err := jwt.NewProvider(&jwt.ProviderConfig{
+		p, err := jwt.NewProvider(ctx, &jwt.ProviderConfig{
 			Issuer:     "trusty.com",
 			PrivateKey: string(pemKey),
 		}, crypto)
@@ -229,12 +229,16 @@ func Test_SignPrivateKMS(t *testing.T) {
 	require.NoError(t, err)
 
 	prov := cryptoProv.Default()
-	pvk, err := prov.GenerateECDSAKey("Test_SignPrivateKMS", elliptic.P256())
+	pvk, err := prov.GenerateKey(ctx, &cryptoprov.GenerateKeyRequest{
+		Label: "Test_SignPrivateKMS",
+		Type:  certutil.KeyTypeECDSA,
+		Size:  256,
+	})
 	require.NoError(t, err)
 
-	id, _, err := prov.IdentifyKey(pvk)
+	id, _, err := prov.IdentifyKey(ctx, pvk)
 	require.NoError(t, err)
-	url, _, err := prov.ExportKey(id)
+	url, _, err := prov.ExportKey(ctx, id)
 	require.NoError(t, err)
 	/*
 		assert.NotEmpty(t, url)
@@ -243,7 +247,7 @@ func Test_SignPrivateKMS(t *testing.T) {
 		prov, pvk, err = crypto.LoadPrivateKey([]byte(url))
 	*/
 
-	p, err := jwt.NewProvider(&jwt.ProviderConfig{
+	p, err := jwt.NewProvider(ctx, &jwt.ProviderConfig{
 		Issuer:     "trusty.com",
 		PrivateKey: url,
 	}, cryptoProv)
@@ -282,7 +286,7 @@ func Test_SignPrivateKMS(t *testing.T) {
 // signature failure rather than as a claims failure (XPKI-069).
 func Test_ParseToken_SignatureBeforeClaims(t *testing.T) {
 	ctx := context.Background()
-	p, err := jwt.LoadProvider("testdata/jwtprov.json", nil)
+	p, err := jwt.LoadProvider(ctx, "testdata/jwtprov.json", nil)
 	require.NoError(t, err)
 
 	std := jwt.CreateClaims("", "denis@ekspand.com", p.Issuer(), []string{"trusty.com"}, 5*time.Minute, nil)
@@ -329,7 +333,7 @@ func Test_ParseToken_SignatureBeforeClaims(t *testing.T) {
 
 func Test_ParseToken_FractionalExp(t *testing.T) {
 	ctx := context.Background()
-	p, err := jwt.LoadProvider("testdata/jwtprov.json", nil)
+	p, err := jwt.LoadProvider(ctx, "testdata/jwtprov.json", nil)
 	require.NoError(t, err)
 
 	cfg := &jwt.VerifyConfig{
@@ -372,7 +376,7 @@ func TestProviderHeaderValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	newConfig := func(ops ...jwt.Option) (jwt.Provider, error) {
-		return jwt.NewProvider(cfg, nil, ops...)
+		return jwt.NewProvider(ctx, cfg, nil, ops...)
 	}
 	newSigner := func(ops ...jwt.Option) (jwt.Provider, error) {
 		return jwt.NewProviderFromCryptoSigner(ecKey, ops...)

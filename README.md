@@ -1,6 +1,6 @@
 # xpki
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/effective-security/xpki.svg)](https://pkg.go.dev/github.com/effective-security/xpki)
+[![Go Reference](https://pkg.go.dev/badge/github.com/effective-security/xpki/v2.svg)](https://pkg.go.dev/github.com/effective-security/xpki/v2)
 
 Go library and CLI tools for building PKI: hardware or cloud backed keys
 (PKCS#11, AWS KMS, GCP KMS), RSA, ECDSA and post-quantum ML-DSA (FIPS 204)
@@ -8,29 +8,29 @@ keys, certificate signing requests, a certificate
 authority with policy profiles, OCSP and CRL signing, certificate bundling
 and verification, and JWT/DPoP token issuance and validation.
 
-The module is `github.com/effective-security/xpki` and targets Go 1.27.
+The module is `github.com/effective-security/xpki/v2` and targets Go 1.27.
 
 ## Packages
 
-| Package                   | Purpose                                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------ |
-| `cryptoprov`              | Provider abstraction (`Provider`, `KeyManager`, `Crypto`), config loading, key URIs, PEM helpers, ML-DSA signer contract |
-| `crypto11`                | PKCS#11 provider (HSM, SoftHSM): `crypto.Signer`/`crypto.Decrypter` backed by device keys        |
-| `cryptoprov/awskmscrypto` | AWS KMS provider                                                                                 |
-| `cryptoprov/gcpkmscrypto` | Google Cloud KMS provider                                                                        |
-| `cryptoprov/inmemcrypto`  | In-memory provider for tests and development                                                     |
-| `csr`                     | CSR generation and parsing, key requests (RSA, ECDSA, ML-DSA), SAN and CRL distribution point encoding |
-| `authority`               | Certificate Authority: issuers, certificate profiles, `Sign`, OCSP and CRL signing               |
-| `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP requests, ML-DSA OCSP responses         |
-| `jwt`                     | JWT signing and verification (HMAC, RSA, ECDSA, ML-DSA), claims, static and remote JWKS key sets |
-| `jwt/dpop`                | DPoP proof creation and verification (RFC 9449)                                                  |
-| `jwt/accesstoken`         | Opaque access-token helpers on top of `jwt`                                                      |
-| `jwt/oauth2client`        | OAuth2 client for token endpoints                                                                |
-| `dataprotection`          | Symmetric AEAD protection of small payloads and JSON objects                                     |
-| `armor`                   | Armored (PEM-like) block decoding                                                                |
-| `oid`                     | Human-readable names for key usages and object identifiers                                       |
-| `x/print`                 | Pretty printers for certificates, CSRs, CRLs and OCSP responses                                  |
-| `testca`                  | Test-only CA and certificate generator                                                           |
+| Package                   | Purpose                                                                                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cryptoprov`              | Provider abstraction (`Provider`, `KeyGenerator`, `KeyManager` with paged and filtered key listings, `Crypto`), config loading, key URIs, PEM helpers, ML-DSA signer contract |
+| `crypto11`                | PKCS#11 provider (HSM, SoftHSM): `crypto.Signer`/`crypto.Decrypter` backed by device keys                                                                                     |
+| `cryptoprov/awskmscrypto` | AWS KMS provider                                                                                                                                                              |
+| `cryptoprov/gcpkmscrypto` | Google Cloud KMS provider                                                                                                                                                     |
+| `cryptoprov/inmemcrypto`  | In-memory provider for tests and development                                                                                                                                  |
+| `csr`                     | CSR generation and parsing, key requests (RSA, ECDSA, ML-DSA), SAN and CRL distribution point encoding                                                                        |
+| `authority`               | Certificate Authority: issuers, certificate profiles, `Sign`, OCSP and CRL signing                                                                                            |
+| `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP requests, ML-DSA OCSP responses                                                                                      |
+| `jwt`                     | JWT signing and verification (HMAC, RSA, ECDSA, ML-DSA), claims, static and remote JWKS key sets                                                                              |
+| `jwt/dpop`                | DPoP proof creation and verification (RFC 9449)                                                                                                                               |
+| `jwt/accesstoken`         | Opaque access-token helpers on top of `jwt`                                                                                                                                   |
+| `jwt/oauth2client`        | OAuth2 client for token endpoints                                                                                                                                             |
+| `dataprotection`          | Symmetric AEAD protection of small payloads and JSON objects                                                                                                                  |
+| `armor`                   | Armored (PEM-like) block decoding                                                                                                                                             |
+| `oid`                     | Human-readable names for key usages and object identifiers                                                                                                                    |
+| `x/print`                 | Pretty printers for certificates, CSRs, CRLs and OCSP responses                                                                                                               |
+| `testca`                  | Test-only CA and certificate generator                                                                                                                                        |
 
 See [`Documentation/codemap.md`](Documentation/codemap.md) for entry points
 and invariants per package, [`Documentation/design`](Documentation/design/README.md)
@@ -40,9 +40,9 @@ for known defects, and [`ROADMAP.md`](ROADMAP.md) for planned work.
 ## Install
 
 ```sh
-go get github.com/effective-security/xpki
-go install github.com/effective-security/xpki/cmd/hsm-tool@latest
-go install github.com/effective-security/xpki/cmd/xpki-tool@latest
+go get github.com/effective-security/xpki/v2
+go install github.com/effective-security/xpki/v2/cmd/hsm-tool@latest
+go install github.com/effective-security/xpki/v2/cmd/xpki-tool@latest
 ```
 
 ## Configuration
@@ -74,6 +74,14 @@ AWS KMS (`awskmscrypto`, manufacturer `AWSKMS`):
   "Attributes": "Endpoint=http://localhost:14555,Region=us-west-2"
 }
 ```
+
+`Attributes` are optional. Besides `Endpoint` and `Region`, they set how keys
+are listed: `TagSearch=true` answers a tag filter with the Resource Groups
+Tagging API (it needs `tag:GetResources` and `kms:TagResource`),
+`LabelSearch=scan` finds a label by describing every key instead of through
+its alias, and `DescribeConcurrency` and `MetadataCacheSize` bound the
+requests and the memory of a listing; see the package documentation of
+`awskmscrypto`.
 
 In-memory (`inmemcrypto`, manufacturer `inmem`):
 
@@ -166,9 +174,9 @@ jwks_uri: https://www.googleapis.com/oauth2/v3/certs
 
 ```go
 import (
-    "github.com/effective-security/xpki/cryptoprov"
-    _ "github.com/effective-security/xpki/crypto11"                 // registers "SoftHSM"
-    _ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"  // registers "AWSKMS"
+    "github.com/effective-security/xpki/v2/cryptoprov"
+    _ "github.com/effective-security/xpki/v2/crypto11"                 // registers "SoftHSM"
+    _ "github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"  // registers "AWSKMS"
 )
 
 crypto, err := cryptoprov.Load("/etc/xpki/softhsm.json", []string{"/etc/xpki/awskms.json"})
@@ -176,8 +184,40 @@ if err != nil {
     return err
 }
 // Load a key by PEM file or by pkcs11: URI, whichever the file holds.
-signer, err := crypto.NewSignerFromFromFile("/etc/xpki/ca.key")
+signer, err := crypto.NewSignerFromFromFile(ctx, "/etc/xpki/ca.key")
 ```
+
+### List and describe keys
+
+A provider that is a `cryptoprov.KeyManager` lists its keys by page and
+filter and fills only the fields the request asks for. `AllKeys` reads every
+page; a listing never returns a public key, `KeyInfo` does on request.
+
+```go
+km, ok := crypto.Default().(cryptoprov.KeyManager)
+if !ok {
+    return errors.New("the provider does not manage keys")
+}
+req := &cryptoprov.ListKeysRequest{
+    Filter: cryptoprov.KeyFilter{
+        LabelPrefix: "issuer-",
+        Usage:       cryptoprov.KeyUsageSign,
+        States:      []cryptoprov.KeyState{cryptoprov.KeyStateEnabled},
+    },
+    Fields: cryptoprov.KeyFieldMetadata,
+}
+for key, err := range cryptoprov.AllKeys(ctx, km, req) {
+    if err != nil {
+        return err
+    }
+    fmt.Println(key.ID, key.Label, key.Type, key.Size)
+}
+info, err := km.KeyInfo(ctx, keyID, cryptoprov.KeyFieldMetadata|cryptoprov.KeyFieldPublicKey)
+```
+
+What a listing costs on each backend, and the AWS KMS settings that keep it
+proportional to the answer (`TagSearch`, `LabelSearch`), are in
+[`Documentation/design/keymanager.md`](Documentation/design/keymanager.md).
 
 ### Create a key and CSR
 
@@ -189,7 +229,7 @@ req := &csr.CertificateRequest{
     KeyRequest: prov.NewKeyRequest("server", "ECDSA", 256, csr.SigningKey),
     Names:      []csr.X509Name{{Country: "US", Organization: "trusty.com"}},
 }
-csrPEM, priv, keyID, err := prov.GenerateKeyAndRequest(req)
+csrPEM, priv, keyID, err := prov.GenerateKeyAndRequest(ctx, req)
 ```
 
 ### Post-quantum keys (ML-DSA)
@@ -211,7 +251,7 @@ and a profile can require or forbid them with
 issues only to classical keys. An ML-DSA signer signs the message, not
 a digest: pass the message with nil options (or `*mldsa.Options`), or a
 64-byte μ with `crypto.MLDSAMu`; a digest hash is an error. Private keys
-are exported as PKCS#8 (seed form); `hsm-tool hsm generate --algo ML-DSA
+are exported as PKCS#8 (seed form); `hsm-tool hsm key generate --algo ML-DSA
 --size 65` prints one.
 
 An ML-DSA key also signs OCSP responses and JWTs. `certutil.CreateOCSPResponse`
@@ -222,8 +262,11 @@ unless `aia.delegated_ocsp_key_algo` says otherwise. `jwt` and `jwt/dpop` use th
 key, about 6 to 11 KB per proof, so check the header limits on the way.
 
 The `crypto11` support needs a PKCS#11 v3.2 token and has run on Kryoptic 1.5.4.
-The AWS KMS request shapes are verified against the live service, and the GCP KMS
-ones not yet; see [`Documentation/design/pqc.md`](Documentation/design/pqc.md).
+The AWS KMS request shapes are verified against the live service. Google Cloud
+KMS did not offer ML-DSA for HSM keys when it was tried (2026-11-12), and this
+provider creates HSM keys only, so `GenerateKey` returns
+`cryptoprov.ErrNotSupported` there and the GCP request shapes are not verified;
+see [`Documentation/design/pqc.md`](Documentation/design/pqc.md).
 
 ### Run a CA
 
@@ -232,7 +275,7 @@ cfg, err := authority.LoadConfig("/etc/xpki/ca-config.yaml")
 if err != nil {
     return err
 }
-ca, err := authority.NewAuthority(cfg, crypto)
+ca, err := authority.NewAuthority(ctx, cfg, crypto)
 if err != nil {
     return err
 }
@@ -266,7 +309,7 @@ previous one (`Force`). To verify against the platform trust store, pass
 ### Issue and verify JWTs
 
 ```go
-prov, err := jwt.LoadProvider("/etc/xpki/jwtprov.yaml", crypto)
+prov, err := jwt.LoadProvider(ctx, "/etc/xpki/jwtprov.yaml", crypto)
 if err != nil {
     return err
 }
@@ -294,7 +337,8 @@ at most once per 10s, with a 10s fetch timeout and a 1 MiB response limit
   CSRs, CRLs and OCSP responses.
 
 ```sh
-hsm-tool --cfg ~/.xpki/softhsm_unittest.json hsm list
+hsm-tool --cfg ~/.xpki/softhsm_unittest.json hsm key list
+hsm-tool --cfg /etc/xpki/awskms.json hsm key list --usage sign --prefix issuer- --limit 20
 xpki-tool cert info server.pem
 ```
 
@@ -306,7 +350,7 @@ Generating a new test PIN also requires `openssl`.
 
 `make hsmconfig` builds `bin/hsm-tool`, initializes the test token using
 `softhsm2-util`, then verifies the generated configuration and PIN with
-`bin/hsm-tool --cfg ~/.xpki/softhsm_unittest.json hsm list`.
+`bin/hsm-tool --cfg ~/.xpki/softhsm_unittest.json hsm key list`.
 OpenSC (`pkcs11-tool`) is optional: it is needed only when invoking
 `scripts/config-softhsm.sh` directly with `--list-slots` or `--list-object`.
 

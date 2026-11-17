@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/effective-security/xpki/jwt/dpop"
+	"github.com/effective-security/xpki/v2/jwt/dpop"
 )
 
 // A protected resource verifies the proof sent with a DPoP-bound access

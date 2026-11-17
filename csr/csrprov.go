@@ -1,6 +1,7 @@
 package csr
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -14,7 +15,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "csr")
@@ -48,8 +49,10 @@ func (c *Provider) NewSigningCertificateRequest(
 }
 
 // CreateRequestAndExportKey takes a certificate request and generates a key and
-// CSR from it.
-func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, key []byte, keyID string, pub crypto.PublicKey, err error) {
+// CSR from it. key is what loads the key again: its PEM encoding from a
+// provider with exportable keys, otherwise its pkcs11: URI. ctx is for the
+// provider that generates and exports the key.
+func (c *Provider) CreateRequestAndExportKey(ctx context.Context, req *CertificateRequest) (csrPEM, key []byte, keyID string, pub crypto.PublicKey, err error) {
 	err = req.Validate()
 	if err != nil {
 		err = errors.WithMessage(err, "invalid request")
@@ -58,7 +61,7 @@ func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, k
 
 	var priv crypto.PrivateKey
 
-	csrPEM, priv, keyID, err = c.GenerateKeyAndRequest(req)
+	csrPEM, priv, keyID, err = c.GenerateKeyAndRequest(ctx, req)
 	if err != nil {
 		key = nil
 		err = errors.WithMessage(err, "process request")
@@ -73,7 +76,7 @@ func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, k
 	}
 	pub = s.Public()
 
-	uri, keyBytes, err := c.provider.ExportKey(keyID)
+	uri, keyBytes, err := c.provider.ExportKey(ctx, keyID)
 	if err != nil {
 		err = errors.WithMessage(err, "key URI")
 		return
@@ -89,8 +92,9 @@ func (c *Provider) CreateRequestAndExportKey(req *CertificateRequest) (csrPEM, k
 }
 
 // GenerateKeyAndRequest takes a certificate request and generates a key and
-// CSR from it.
-func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte, priv crypto.PrivateKey, keyID string, err error) {
+// CSR from it. ctx is for the provider that generates the key; the CSR is
+// signed through crypto.Signer, which has no context.
+func (c *Provider) GenerateKeyAndRequest(ctx context.Context, req *CertificateRequest) (csrPEM []byte, priv crypto.PrivateKey, keyID string, err error) {
 	if req.KeyRequest == nil {
 		err = errors.New("invalid key request")
 		return
@@ -102,14 +106,14 @@ func (c *Provider) GenerateKeyAndRequest(req *CertificateRequest) (csrPEM []byte
 
 	logger.KV(xlog.TRACE, "algo", req.KeyRequest.Algo(), "size", req.KeyRequest.Size())
 
-	priv, err = req.KeyRequest.Generate()
+	priv, err = req.KeyRequest.Generate(ctx)
 	if err != nil {
 		err = errors.WithMessage(err, "generate key")
 		return
 	}
 
 	var label string
-	keyID, label, err = c.provider.IdentifyKey(priv)
+	keyID, label, err = c.provider.IdentifyKey(ctx, priv)
 	if err != nil {
 		err = errors.WithMessage(err, "identify key")
 		return

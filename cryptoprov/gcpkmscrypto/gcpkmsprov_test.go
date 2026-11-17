@@ -11,8 +11,9 @@ import (
 	"testing"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/certutil"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,12 +40,9 @@ func TestProviderEndToEnd(t *testing.T) {
 
 	mgr, ok := prov.(cryptoprov.KeyManager)
 	require.True(t, ok)
-	tokens, err := mgr.EnumTokens(false)
-	require.NoError(t, err)
-	require.Len(t, tokens, 1)
-	assert.Equal(t, gcpkmscrypto.ProviderName, tokens[0].Manufacturer)
-	assert.Equal(t, "KMS", tokens[0].Model)
-	assert.Equal(t, mgr.CurrentSlotID(), tokens[0].SlotID)
+	// a key ring is one store: the provider is no cryptoprov.TokenManager
+	_, hasTokens := prov.(cryptoprov.TokenManager)
+	assert.False(t, hasTokens)
 
 	var keyIDs []string
 	for _, tc := range []struct {
@@ -55,15 +53,19 @@ func TestProviderEndToEnd(t *testing.T) {
 		{3072, crypto.SHA256},
 		{4096, crypto.SHA512},
 	} {
-		pvk, err := prov.GenerateRSAKey("RSA*", tc.size, 1)
+		pvk, err := prov.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "RSA*",
+			Type:  certutil.KeyTypeRSA,
+			Size:  tc.size,
+		})
 		require.NoError(t, err)
-		keyID, label, err := prov.IdentifyKey(pvk)
+		keyID, label, err := prov.IdentifyKey(t.Context(), pvk)
 		require.NoError(t, err)
 		assert.Equal(t, "rsa", label)
 		assert.Regexp(t, `^rsa-[a-z2-7]{8}/cryptoKeyVersions/1$`, keyID)
 		keyIDs = append(keyIDs, keyID)
 
-		uri, key, err := prov.ExportKey(keyID)
+		uri, key, err := prov.ExportKey(t.Context(), keyID)
 		require.NoError(t, err)
 		assert.Equal(t, "pkcs11:manufacturer=GCPKMS;model=KMS;id="+keyID+";serial=1;type=private", uri)
 		assert.Equal(t, uri, string(key))
@@ -71,7 +73,7 @@ func TestProviderEndToEnd(t *testing.T) {
 		// the exported URI loads the same key version
 		pkuri, err := cryptoprov.ParsePrivateKeyURI(uri)
 		require.NoError(t, err)
-		loaded, err := prov.GetKey(pkuri.ID())
+		loaded, err := prov.GetKey(t.Context(), pkuri.ID())
 		require.NoError(t, err)
 		assert.Equal(t, keyID, loaded.(*gcpkmscrypto.Signer).KeyID())
 
@@ -96,14 +98,18 @@ func TestProviderEndToEnd(t *testing.T) {
 		{elliptic.P256(), crypto.SHA256},
 		{elliptic.P384(), crypto.SHA384},
 	} {
-		pvk, err := prov.GenerateECDSAKey("ECC", tc.curve)
+		pvk, err := prov.GenerateKey(t.Context(), &cryptoprov.GenerateKeyRequest{
+			Label: "ECC",
+			Type:  certutil.KeyTypeECDSA,
+			Size:  tc.curve.Params().BitSize,
+		})
 		require.NoError(t, err)
-		keyID, label, err := prov.IdentifyKey(pvk)
+		keyID, label, err := prov.IdentifyKey(t.Context(), pvk)
 		require.NoError(t, err)
 		assert.Equal(t, "ecc", label)
 		keyIDs = append(keyIDs, keyID)
 
-		loaded, err := prov.GetKey(keyID)
+		loaded, err := prov.GetKey(t.Context(), keyID)
 		require.NoError(t, err)
 		signer := loaded.(crypto.Signer)
 		pub, ok := signer.Public().(*ecdsa.PublicKey)
@@ -117,36 +123,45 @@ func TestProviderEndToEnd(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, ecdsa.VerifyASN1(pub, digest, sig))
 
-		ki, err := mgr.KeyInfo(mgr.CurrentSlotID(), keyID, true)
+		ki, err := mgr.KeyInfo(t.Context(), keyID, keyFieldsPublic)
 		require.NoError(t, err)
 		assert.Equal(t, "1", ki.CurrentVersionID)
 		assert.Equal(t, "ENABLED", ki.Meta["state"])
 		assert.Equal(t, publicPEM(t, pub), ki.PublicKey)
 	}
 
-	keys, err := mgr.EnumKeys(mgr.CurrentSlotID(), "")
+	versionListings := s.CallCount("ListCryptoKeyVersions")
+	resp, err := mgr.ListKeys(t.Context(), &cryptoprov.ListKeysRequest{})
 	require.NoError(t, err)
-	require.Len(t, keys, len(keyIDs))
-	for _, ki := range keys {
+	assert.Empty(t, resp.NextPageToken)
+	require.Len(t, resp.Keys, len(keyIDs))
+	for _, ki := range resp.Keys {
 		assert.Regexp(t, `^(rsa|ecc)-[a-z2-7]{8}$`, ki.ID)
-		assert.Contains(t, ki.Label, "protection=HSM,label=")
+		assert.Equal(t, testKeyring+"/cryptoKeys/"+ki.ID, ki.Name)
+		assert.Regexp(t, `^(rsa|ecc)$`, ki.Label)
+		assert.Equal(t, ki.Label, ki.Tags["label"])
+		assert.Equal(t, "HSM", ki.Meta["protection"])
+		assert.Equal(t, cryptoprov.KeyUsageSign, ki.Usage)
 		assert.NotNil(t, ki.CreationTime)
+		assert.Empty(t, ki.State, "the state of an asymmetric key is not read unless asked for")
 	}
+	assert.Equal(t, 1, s.CallCount("ListCryptoKeys"))
+	assert.Zero(t, s.CallCount("ListCryptoKeyVersions")-versionListings, "a listing reads no versions")
 
 	for _, keyID := range keyIDs {
-		require.NoError(t, mgr.DestroyKeyPairOnSlot(mgr.CurrentSlotID(), keyID))
+		require.NoError(t, mgr.DestroyKey(t.Context(), keyID))
 		assert.Equal(t, kmspb.CryptoKeyVersion_DESTROY_SCHEDULED, s.State(t, testKeyring+"/cryptoKeys/"+keyID))
 	}
-	_, err = prov.GetKey(keyIDs[0])
+	_, err = prov.GetKey(t.Context(), keyIDs[0])
 	require.Error(t, err)
 
-	_, err = mgr.FindKeyPairOnSlot(0, "123412", "")
-	require.Error(t, err)
+	_, err = prov.GetKey(t.Context(), "123412")
+	require.ErrorIs(t, err, cryptoprov.ErrKeyNotFound)
 
 	closer, ok := prov.(io.Closer)
 	require.True(t, ok)
 	require.NoError(t, closer.Close())
-	_, err = prov.GetKey(keyIDs[0])
+	_, err = prov.GetKey(t.Context(), keyIDs[0])
 	require.ErrorIs(t, err, gcpkmscrypto.ErrClosed)
 }
 

@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
-	"github.com/effective-security/xpki/csr"
+	"github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +61,7 @@ func TestCSRWithKMSKey(t *testing.T) {
 
 	// a generated 3072-bit key, as CreateRequestAndExportKey does
 	req := csrProv.NewSigningCertificateRequest("gen-3072", "RSA", 3072, "example.com", nil, []string{"example.com", "10.0.0.1"})
-	csrPEM, _, keyID, pub, err := csrProv.CreateRequestAndExportKey(req)
+	csrPEM, _, keyID, pub, err := csrProv.CreateRequestAndExportKey(t.Context(), req)
 	require.NoError(t, err)
 	assert.NotEmpty(t, keyID)
 	parsed := parseCSR(t, csrPEM)
@@ -86,7 +86,7 @@ func TestCSRWithKMSKey(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s.AddKey(t, "csr-"+tc.name, tc.algorithm, tc.name)
-			pk, err := provider.GetKey("csr-" + tc.name)
+			pk, err := provider.GetKey(t.Context(), "csr-"+tc.name)
 			require.NoError(t, err)
 			signer := pk.(crypto.Signer)
 			assert.Equal(t, tc.want, csr.DefaultSigAlgo(signer))

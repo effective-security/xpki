@@ -10,14 +10,14 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/ctl"
 	"github.com/effective-security/xlog"
-	"github.com/effective-security/xpki/cryptoprov"
-	"github.com/effective-security/xpki/cryptoprov/inmemcrypto"
-	"github.com/effective-security/xpki/x/print"
+	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/cryptoprov/inmemcrypto"
+	"github.com/effective-security/xpki/v2/x/print"
 
 	// register supported
-	_ "github.com/effective-security/xpki/crypto11"
-	_ "github.com/effective-security/xpki/cryptoprov/awskmscrypto"
-	_ "github.com/effective-security/xpki/cryptoprov/gcpkmscrypto"
+	_ "github.com/effective-security/xpki/v2/crypto11"
+	_ "github.com/effective-security/xpki/v2/cryptoprov/awskmscrypto"
+	_ "github.com/effective-security/xpki/v2/cryptoprov/gcpkmscrypto"
 )
 
 // Cli provides CLI context to run commands
