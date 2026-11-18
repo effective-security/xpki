@@ -145,7 +145,8 @@ func newSessionPool(slot uint, maxSessions int, ops sessionOps) *sessionPool {
 func (p *sessionPool) get(ctx context.Context) (session pkcs11.SessionHandle, reused bool, err error) {
 	if ctx.Done() != nil {
 		// wake the wait below when ctx ends; a context that cannot end
-		// (the Sign path has none) needs no watcher
+		// (context.Background, as Sign without a context uses) needs no
+		// watcher
 		stop := context.AfterFunc(ctx, func() {
 			p.mu.Lock()
 			p.cond.Broadcast()
@@ -431,6 +432,10 @@ func (lib *PKCS11Lib) runOnPooledSession(ctx context.Context, pool *sessionPool,
 	session, reused, err := pool.get(ctx)
 	if err != nil {
 		return reused, false, err
+	}
+	if err := ctx.Err(); err != nil {
+		pool.put(session, false)
+		return reused, false, errors.WithStack(err)
 	}
 	// a panic in f leaves discard set, so the session is not reused
 	discard := true

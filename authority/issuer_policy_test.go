@@ -157,7 +157,7 @@ func TestSignCSRProfileOwnedExtensions(t *testing.T) {
 			if tc.fields == nil || tc.fields.DNSNames {
 				exts[len(exts)-1] = rawSAN(t, dns...)
 			}
-			crt, _, err := issuer.Sign(csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil, exts...)})
+			crt, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil, exts...)})
 			require.NoError(t, err)
 			require.NoError(t, crt.CheckSignatureFrom(entity.Certificate))
 			assertUniqueExtensions(t, crt)
@@ -192,14 +192,14 @@ func TestSignCSRSANBypassesFieldPolicy(t *testing.T) {
 	require.NoError(t, profile.Validate())
 	issuer.AddProfile("default", profile)
 
-	crt, _, err := issuer.Sign(csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, []string{hostileDNSName})})
+	crt, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, []string{hostileDNSName})})
 	require.NoError(t, err)
 	assert.Empty(t, crt.DNSNames)
 	assert.Nil(t, certutil.FindExtension(crt.Extensions, oid.ExtensionSubjectAltName))
 
 	// with DNS names allowed from the CSR the regex still applies
 	profile.AllowedCSRFields.DNSNames = true
-	_, _, err = issuer.Sign(csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, []string{hostileDNSName})})
+	_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, []string{hostileDNSName})})
 	require.EqualError(t, err, "DNS Name does not match allowed list: "+hostileDNSName)
 }
 
@@ -229,7 +229,7 @@ func TestSignCSRExtensionAllowList(t *testing.T) {
 			profile.AllowedExtensions = tc.allowed
 			issuer.AddProfile("default", profile)
 
-			crt, data, err := issuer.Sign(csr.SignRequest{
+			crt, data, err := issuer.Sign(t.Context(), csr.SignRequest{
 				Request: policyCSR(t, entity.PrivateKey, nil, pkix.Extension{Id: customOID, Value: []byte{5, 0}}),
 			})
 			if tc.want != "" {
@@ -280,7 +280,7 @@ func TestSignCSRIssuerGeneratedExtensions(t *testing.T) {
 			}
 			issuer.AddProfile("default", profile)
 
-			crt, _, err := issuer.Sign(csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil, crlDP(t, csrCRL))})
+			crt, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil, crlDP(t, csrCRL))})
 			require.NoError(t, err)
 			assertUniqueExtensions(t, crt)
 			assert.Equal(t, tc.want, crt.CRLDistributionPoints)
@@ -324,7 +324,7 @@ func TestSignCSRIssuerGeneratedAIA(t *testing.T) {
 			profile.AllowedExtensions = []csr.OID{csr.OID(oid.ExtensionAuthorityInfoAccess)}
 			issuer.AddProfile("default", profile)
 
-			crt, _, err := issuer.Sign(csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil, aia)})
+			crt, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil, aia)})
 			require.NoError(t, err)
 			assertUniqueExtensions(t, crt)
 			assert.Equal(t, tc.want, crt.OCSPServer)
@@ -370,7 +370,7 @@ func TestSignExtensionPrecedence(t *testing.T) {
 			}
 			req.Request = policyCSR(t, entity.PrivateKey, nil, exts...)
 
-			crt, _, err := issuer.Sign(req)
+			crt, _, err := issuer.Sign(t.Context(), req)
 			require.NoError(t, err)
 			assertUniqueExtensions(t, crt)
 			require.Equal(t, 1, extensionCount(crt, customOID))
@@ -395,7 +395,7 @@ func TestSignProfileGeneratedExtensionsWin(t *testing.T) {
 	require.NoError(t, profile.Validate())
 	issuer.AddProfile("default", profile)
 
-	crt, _, err := issuer.Sign(csr.SignRequest{
+	crt, _, err := issuer.Sign(t.Context(), csr.SignRequest{
 		Request: policyCSR(t, entity.PrivateKey, nil),
 		Extensions: []csr.X509Extension{
 			{ID: csr.OID(oid.ExtensionCertificatePolicies), Value: "hex:3000"},
@@ -424,7 +424,7 @@ func TestSignRAMayOverrideOwnedExtensions(t *testing.T) {
 	require.NoError(t, profile.Validate())
 	issuer.AddProfile("default", profile)
 
-	crt, _, err := issuer.Sign(csr.SignRequest{
+	crt, _, err := issuer.Sign(t.Context(), csr.SignRequest{
 		Request: policyCSR(t, entity.PrivateKey, nil),
 		Extensions: []csr.X509Extension{{
 			ID:       csr.OID(oid.ExtensionExtendedKeyUsage),
@@ -492,7 +492,7 @@ func TestProfileValidateExtensions(t *testing.T) {
 			{ID: csr.OID(customOID), Value: "hex:0400"},
 		},
 	})
-	crt, data, err := issuer.Sign(csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil)})
+	crt, data, err := issuer.Sign(t.Context(), csr.SignRequest{Request: policyCSR(t, entity.PrivateKey, nil)})
 	require.EqualError(t, err, "duplicate profile extension: 1.2.3.4")
 	assert.Nil(t, crt)
 	assert.Nil(t, data)
@@ -578,24 +578,24 @@ func TestSignValidity(t *testing.T) {
 	request := policyCSR(t, entity.PrivateKey, nil)
 	now := time.Now().UTC().Truncate(time.Second)
 
-	crt, _, err := issuer.Sign(csr.SignRequest{Request: request, NotBefore: now, NotAfter: now.Add(time.Hour)})
+	crt, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: request, NotBefore: now, NotAfter: now.Add(time.Hour)})
 	require.NoError(t, err)
 	assert.Equal(t, now, crt.NotBefore.UTC())
 	assert.Equal(t, now.Add(time.Hour), crt.NotAfter.UTC())
 
-	crt, _, err = issuer.Sign(csr.SignRequest{Request: request, NotBefore: now, NotAfter: caNotAfter.Add(time.Hour)})
+	crt, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: request, NotBefore: now, NotAfter: caNotAfter.Add(time.Hour)})
 	require.NoError(t, err)
 	assert.Equal(t, caNotAfter.UTC(), crt.NotAfter.UTC())
 
-	crt, data, err := issuer.Sign(csr.SignRequest{Request: request, NotBefore: caNotAfter.Add(time.Hour)})
+	crt, data, err := issuer.Sign(t.Context(), csr.SignRequest{Request: request, NotBefore: caNotAfter.Add(time.Hour)})
 	require.ErrorContains(t, err, "is not before issuer NotAfter")
 	assert.Nil(t, crt)
 	assert.Nil(t, data)
 
-	_, _, err = issuer.Sign(csr.SignRequest{Request: request, NotBefore: now, NotAfter: now})
+	_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: request, NotBefore: now, NotAfter: now})
 	require.ErrorContains(t, err, "failed to populate template: invalid validity")
 
 	profile.Expiry = csr.Duration(time.Hour)
-	_, _, err = issuer.Sign(csr.SignRequest{Request: request, NotBefore: now, NotAfter: now.Add(2 * time.Hour)})
+	_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: request, NotBefore: now, NotAfter: now.Add(2 * time.Hour)})
 	require.EqualError(t, err, "failed to populate template: validity 2h0m0s exceeds profile expiry 1h0m0s")
 }

@@ -37,7 +37,9 @@ type Signer interface {
 	// iat and nbf claims are written as NumericDate whatever their Go type,
 	// time.Time included, see MapClaims.NormalizeTimeClaims; one that
 	// MapClaims.Time cannot parse is an error. The claims map is not
-	// modified.
+	// modified. ctx bounds the signature of the key
+	// (cryptoprov.SignContext): a KMS request or the wait for a PKCS#11
+	// session ends with it.
 	Sign(ctx context.Context, claims MapClaims) (string, error)
 	// PublicKey is returned for asymmetric signer
 	PublicKey() crypto.PublicKey
@@ -399,7 +401,7 @@ func (p *provider) Sign(ctx context.Context, claims MapClaims) (string, error) {
 	if err := claims.NormalizeTimeClaims(); err != nil {
 		return "", err
 	}
-	tokenString, err := p.signerInfo.signJWT(claims, p.headers)
+	tokenString, err := p.signerInfo.signJWT(ctx, claims, p.headers)
 	if err != nil {
 		return "", err
 	}

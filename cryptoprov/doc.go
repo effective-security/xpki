@@ -23,6 +23,13 @@
 // fields a mask selects and destroys it; every provider of this module is
 // one. A listing never returns a public key: KeyInfo does, on request.
 //
+// A key of these providers is also a ContextSigner, whose SignContext a KMS
+// request or a PKCS#11 session wait honours. SignContext signs with any
+// crypto.Signer under a context, and BindContext hands one to an API that
+// only calls Sign:
+//
+//	der, err := x509.CreateCertificate(rand.Reader, template, parent, pub, cryptoprov.BindContext(ctx, signer))
+//
 //	key, err := provider.GenerateKey(ctx, &cryptoprov.GenerateKeyRequest{
 //		Label: "issuer-2026",
 //		Type:  certutil.KeyTypeECDSA,

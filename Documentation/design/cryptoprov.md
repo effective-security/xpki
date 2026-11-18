@@ -113,10 +113,18 @@ Resolving a key reference (`Crypto.LoadPrivateKey`, used by
 - **`context.Context` on every interface method (v2).** The KMS backends
   pass it to their SDK requests, and `crypto11`, whose PKCS#11 calls cannot
   be cancelled, bounds the wait for a session with it. The functions that
-  load or generate a key take it too. The exception is signing:
-  `crypto.Signer` has no context, so `Signer.Sign` of the KMS backends still
-  uses `context.Background()` (roadmap item 1). The loaders (`Load`,
-  `LoadProvider`) have none either.
+  load or generate a key take it too. The loaders (`Load`, `LoadProvider`)
+  have none.
+- **A context for `crypto.Signer` through an optional interface (v2).**
+  `crypto.Signer` has no context, and `x509`, `ocsp` and TLS call only
+  `Sign`. Every key of the providers is a `ContextSigner` with
+  `SignContext(ctx, …)`, and `Sign` is `SignContext` with
+  `context.Background()`, so a key still works wherever a `crypto.Signer`
+  does. `SignContext` signs with any signer, and `BindContext` hands a
+  context to an API that only calls `Sign`; the callers bind at the call and
+  keep the key for type checks. A context carried in `SignerOpts` was
+  rejected: `x509` builds the options itself. A plain `Sign` keeps no
+  deadline of its own (the KMS SDKs have their retry limits).
 - **One generator, one listing.** v1 had a generator method per algorithm and
   an `EnumKeys` that returned every key with every field; v2 has
   `GenerateKey` with a request and `ListKeys` with pages, a filter and a
@@ -168,5 +176,5 @@ Implemented in v1.1 (see [pqc.md](pqc.md) for the cross-cutting design):
   a PKCS#8 seed-form key; the seed-and-expanded form OpenSSL writes by
   default is rejected by the standard library.
 
-Remaining: the `Provider` interfaces still take no `context.Context`
-(ROADMAP item 1).
+Every `Provider` method takes a `context.Context` (v2.0), and so does the
+signing path through `ContextSigner` (ROADMAP item 1, done in v2.0).

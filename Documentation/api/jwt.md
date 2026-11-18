@@ -201,7 +201,7 @@ func SetClaimsExpiration(claims MapClaims, expiry time.Duration)
 SetClaimsExpiration sets expiration claims
 
 <a name="VerifySignature"></a>
-## func [VerifySignature](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L318>)
+## func [VerifySignature](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L322>)
 
 ```go
 func VerifySignature(algo, signingString, signature string, key any) error
@@ -373,7 +373,7 @@ type Cnf struct {
 ```
 
 <a name="Key"></a>
-## type [Key](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L78-L82>)
+## type [Key](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L80-L84>)
 
 Key for JWT signature
 
@@ -661,7 +661,7 @@ func (n *NumericDate) UnmarshalJSON(b []byte) error
 UnmarshalJSON reads a date from its JSON representation. Integer and fractional values are accepted, quoted or not; a fractional value is truncated toward zero to whole seconds.
 
 <a name="Option"></a>
-## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L469-L471>)
+## type [Option](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L471-L473>)
 
 A Option modifies the default behavior of Provider.
 
@@ -672,7 +672,7 @@ type Option interface {
 ```
 
 <a name="WithHeaders"></a>
-### func [WithHeaders](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L108>)
+### func [WithHeaders](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L110>)
 
 ```go
 func WithHeaders(headers map[string]any) Option
@@ -681,7 +681,7 @@ func WithHeaders(headers map[string]any) Option
 WithHeaders adds JOSE headers to signed tokens or overrides the defaults, such as typ. The constructor rejects an alg header that differs from the signing algorithm, and a kid header that would stop the provider from verifying its own tokens: with configured HS256 keys it must be the signing key's ID, and for NewProviderWithSymmetricKey it must be a nonempty string.
 
 <a name="Parser"></a>
-## type [Parser](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L51-L59>)
+## type [Parser](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L53-L61>)
 
 Parser specifies JWT parser interface
 
@@ -730,7 +730,7 @@ func LoadParserConfig(file string) (*ParserConfig, error)
 LoadParserConfig returns parser configuration loaded from a file
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L72-L75>)
+## type [Provider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L74-L77>)
 
 Provider specifies JWT provider interface
 
@@ -742,7 +742,7 @@ type Provider interface {
 ```
 
 <a name="LoadProvider"></a>
-### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L159>)
+### func [LoadProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L161>)
 
 ```go
 func LoadProvider(ctx context.Context, cfgfile string, crypto *cryptoprov.Crypto) (Provider, error)
@@ -751,7 +751,7 @@ func LoadProvider(ctx context.Context, cfgfile string, crypto *cryptoprov.Crypto
 LoadProvider returns new provider from the configuration in cfgfile, see NewProvider.
 
 <a name="MustNewProvider"></a>
-### func [MustNewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L169>)
+### func [MustNewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L171>)
 
 ```go
 func MustNewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) Provider
@@ -760,7 +760,7 @@ func MustNewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptopro
 MustNewProvider returns new provider, see NewProvider, and panics when it cannot be created.
 
 <a name="NewProvider"></a>
-### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L180>)
+### func [NewProvider](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L182>)
 
 ```go
 func NewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptoprov.Crypto, ops ...Option) (Provider, error)
@@ -769,7 +769,7 @@ func NewProvider(ctx context.Context, cfg *ProviderConfig, crypto *cryptoprov.Cr
 NewProvider returns new provider that supports, both Signer and Parser. ctx is for the crypto provider that resolves a pkcs11: URI in cfg.PrivateKey \(cryptoprov.Crypto.LoadPrivateKey\); it is not kept.
 
 <a name="NewProviderFromCryptoSigner"></a>
-### func [NewProviderFromCryptoSigner](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L263>)
+### func [NewProviderFromCryptoSigner](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L265>)
 
 ```go
 func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider, error)
@@ -778,7 +778,7 @@ func NewProviderFromCryptoSigner(signer crypto.Signer, ops ...Option) (Provider,
 NewProviderFromCryptoSigner returns new from Signer
 
 <a name="NewProviderWithSymmetricKey"></a>
-### func [NewProviderWithSymmetricKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L297>)
+### func [NewProviderWithSymmetricKey](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L299>)
 
 ```go
 func NewProviderWithSymmetricKey(key []byte, ops ...Option) (Provider, error)
@@ -789,7 +789,7 @@ NewProviderWithSymmetricKey returns a provider that signs HS256 tokens with key 
 Tokens carry no kid header unless WithHeaders sets one, which must be a nonempty string. ParseToken accepts only HS256 tokens signed with key that have no kid or that kid; any other kid, including an empty or non\-string one, is rejected \(XPKI\-066, XPKI\-104\).
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L85-L100>)
+## type [ProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L87-L102>)
 
 ProviderConfig provides OAuth2 configuration
 
@@ -813,7 +813,7 @@ type ProviderConfig struct {
 ```
 
 <a name="LoadProviderConfig"></a>
-### func [LoadProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L135>)
+### func [LoadProviderConfig](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L137>)
 
 ```go
 func LoadProviderConfig(file string) (*ProviderConfig, error)
@@ -905,7 +905,7 @@ func WithRefreshCooldown(d time.Duration) RemoteKeySetOption
 WithRefreshCooldown sets the minimum interval between the end of one fetch and the start of the next; lookups for unknown kids inside that window use the cached keys. Zero or negative disables throttling. The default is DefaultJWKSRefreshCooldown.
 
 <a name="Revocation"></a>
-## type [Revocation](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L63-L69>)
+## type [Revocation](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L65-L71>)
 
 Revocation is an optional hook consulted by Parser.ParseToken after a token is verified, and used by callers to revoke tokens.
 
@@ -920,7 +920,7 @@ type Revocation interface {
 ```
 
 <a name="Signer"></a>
-## type [Signer](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L35-L48>)
+## type [Signer](<https://github.com/effective-security/xpki/blob/main/jwt/jwt.go#L35-L50>)
 
 Signer specifies JWT signer interface
 
@@ -930,7 +930,9 @@ type Signer interface {
     // iat and nbf claims are written as NumericDate whatever their Go type,
     // time.Time included, see MapClaims.NormalizeTimeClaims; one that
     // MapClaims.Time cannot parse is an error. The claims map is not
-    // modified.
+    // modified. ctx bounds the signature of the key
+    // (cryptoprov.SignContext): a KMS request or the wait for a PKCS#11
+    // session ends with it.
     Sign(ctx context.Context, claims MapClaims) (string, error)
     // PublicKey is returned for asymmetric signer
     PublicKey() crypto.PublicKey
@@ -942,7 +944,7 @@ type Signer interface {
 ```
 
 <a name="SignerInfo"></a>
-## type [SignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L135-L140>)
+## type [SignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L137-L142>)
 
 SignerInfo represents JWT signer
 
@@ -953,7 +955,7 @@ type SignerInfo struct {
 ```
 
 <a name="NewSignerInfo"></a>
-### func [NewSignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L146>)
+### func [NewSignerInfo](<https://github.com/effective-security/xpki/blob/main/jwt/sign.go#L148>)
 
 ```go
 func NewSignerInfo(signer crypto.Signer) (*SignerInfo, error)

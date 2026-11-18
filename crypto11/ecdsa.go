@@ -331,9 +331,16 @@ func (lib *PKCS11Lib) generateECDSAKeyPairOnSession(session pkcs11.SessionHandle
 //
 // PKCS#11 expects to pick its own random data where necessary for signatures, so the rand argument is ignored.
 //
-// The return value is a DER-encoded byteblock.
+// The return value is a DER-encoded byteblock. Sign is SignContext with
+// context.Background().
 func (priv *PKCS11PrivateKeyECDSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return priv.lib.dsaGeneric(&priv.key.PKCS11Object, priv.ref, pkcs11.CKM_ECDSA, digest)
+	return priv.SignContext(context.Background(), rand, digest, opts)
+}
+
+// SignContext is Sign with ctx bounding the wait for a pooled session
+// (cryptoprov.ContextSigner).
+func (priv *PKCS11PrivateKeyECDSA) SignContext(ctx context.Context, _ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
+	return priv.lib.dsaGeneric(ctx, &priv.key.PKCS11Object, priv.ref, pkcs11.CKM_ECDSA, digest)
 }
 
 // Public returns the public half of a private key.

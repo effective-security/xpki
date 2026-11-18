@@ -79,7 +79,7 @@ func serverProfiles(t *testing.T) map[string]*authority.CertProfile {
 // csrFor signs a CSR for pqServerCN with key through csr.Provider.
 func csrFor(t *testing.T, key crypto.Signer) string {
 	t.Helper()
-	csrPEM, err := csr.NewProvider(inmemcrypto.NewProvider()).SignRequest(key, &csr.CertificateRequest{
+	csrPEM, err := csr.NewProvider(inmemcrypto.NewProvider()).SignRequest(t.Context(), key, &csr.CertificateRequest{
 		CommonName: pqServerCN,
 		SAN:        []string{pqServerCN},
 	})
@@ -136,14 +136,14 @@ func TestMLDSAIssuer(t *testing.T) {
 			require.NoError(t, err)
 			pqCSR, ecCSR := csrFor(t, pqKey), csrFor(t, ecKey)
 
-			pqLeaf, _, err := issuer.Sign(csr.SignRequest{Request: pqCSR, Profile: "server"})
+			pqLeaf, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: pqCSR, Profile: "server"})
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, pqLeaf.SignatureAlgorithm)
 			assert.Equal(t, x509.MLDSA, pqLeaf.PublicKeyAlgorithm)
 			assert.True(t, pqKey.PublicKey().Equal(pqLeaf.PublicKey))
 			verifyChain(t, pqLeaf, root)
 
-			ecLeaf, _, err := issuer.Sign(csr.SignRequest{Request: ecCSR, Profile: "server"})
+			ecLeaf, _, err := issuer.Sign(t.Context(), csr.SignRequest{Request: ecCSR, Profile: "server"})
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, ecLeaf.SignatureAlgorithm)
 			assert.Equal(t, x509.ECDSA, ecLeaf.PublicKeyAlgorithm)
@@ -151,18 +151,18 @@ func TestMLDSAIssuer(t *testing.T) {
 			assert.True(t, certutil.IsPostQuantumCertificate(ecLeaf), "signed by an ML-DSA key")
 
 			// decision D7: the profile key policy
-			_, _, err = issuer.Sign(csr.SignRequest{Request: pqCSR, Profile: "pq-only"})
+			_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: pqCSR, Profile: "pq-only"})
 			require.NoError(t, err)
-			_, _, err = issuer.Sign(csr.SignRequest{Request: ecCSR, Profile: "pq-only"})
+			_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: ecCSR, Profile: "pq-only"})
 			require.EqualError(t, err, "public key algorithm ECDSA is not allowed by profile pq-only")
-			_, _, err = issuer.Sign(csr.SignRequest{Request: ecCSR, Profile: "classical-only"})
+			_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: ecCSR, Profile: "classical-only"})
 			require.NoError(t, err)
-			_, _, err = issuer.Sign(csr.SignRequest{Request: pqCSR, Profile: "classical-only"})
+			_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: pqCSR, Profile: "classical-only"})
 			require.EqualError(t, err, "public key algorithm ML-DSA is not allowed by profile classical-only")
 
 			// proofs sign the message with the ML-DSA key
 			data := []byte("proof payload")
-			proof, err := issuer.SignProof(data)
+			proof, err := issuer.SignProof(t.Context(), data)
 			require.NoError(t, err)
 			require.NoError(t, issuer.VerifyProof(data, proof))
 			require.ErrorContains(t, issuer.VerifyProof([]byte("tampered"), proof), "invalid ML-DSA signature")
@@ -199,7 +199,7 @@ func TestClassicalIssuerSignsMLDSALeaf(t *testing.T) {
 
 	pqKey, err := mldsa.GenerateKey(mldsa.MLDSA87())
 	require.NoError(t, err)
-	leaf, leafPEM, err := issuer.Sign(csr.SignRequest{Request: csrFor(t, pqKey), Profile: "server"})
+	leaf, leafPEM, err := issuer.Sign(t.Context(), csr.SignRequest{Request: csrFor(t, pqKey), Profile: "server"})
 	require.NoError(t, err)
 	assert.Equal(t, x509.ECDSAWithSHA256, leaf.SignatureAlgorithm)
 	assert.Equal(t, x509.MLDSA, leaf.PublicKeyAlgorithm)
@@ -212,7 +212,7 @@ func TestClassicalIssuerSignsMLDSALeaf(t *testing.T) {
 	assert.Equal(t, "CERTIFICATE", block.Type)
 
 	// the leaf key signs a CSR x509 accepts, and the classical policy rejects it
-	_, _, err = issuer.Sign(csr.SignRequest{Request: csrFor(t, pqKey), Profile: "classical-only"})
+	_, _, err = issuer.Sign(t.Context(), csr.SignRequest{Request: csrFor(t, pqKey), Profile: "classical-only"})
 	require.EqualError(t, err, "public key algorithm ML-DSA is not allowed by profile classical-only")
 }
 
@@ -253,11 +253,11 @@ func TestMLDSAIssuerOCSP(t *testing.T) {
 		}, rootPEM, nil, nil, signer)
 		require.NoError(t, err)
 
-		responder, err := direct.CreateDelegatedOCSPSigner()
+		responder, err := direct.CreateDelegatedOCSPSigner(t.Context())
 		require.NoError(t, err)
 		assert.True(t, certutil.IsPostQuantumKey(responder.Signer), "the CA key")
 
-		der, err := direct.SignOCSP(request)
+		der, err := direct.SignOCSP(t.Context(), request)
 		require.NoError(t, err)
 		response, err := certutil.ParseOCSPResponse(der, root)
 		require.NoError(t, err)
@@ -287,14 +287,14 @@ func TestMLDSAIssuerOCSP(t *testing.T) {
 		}, rootPEM, nil, nil, signer)
 		require.NoError(t, err)
 
-		responder, err := delegating.CreateDelegatedOCSPSigner()
+		responder, err := delegating.CreateDelegatedOCSPSigner(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, x509.MLDSA65, responder.Cert.SignatureAlgorithm, "issued by the ML-DSA CA")
 		assert.Equal(t, x509.ECDSA, responder.Cert.PublicKeyAlgorithm, "classical responder key")
 		assert.False(t, certutil.IsPostQuantumKey(responder.Signer))
 		require.NoError(t, responder.Cert.CheckSignatureFrom(root))
 
-		der, err := delegating.SignOCSP(request)
+		der, err := delegating.SignOCSP(t.Context(), request)
 		require.NoError(t, err)
 		// x/crypto reads it: the response signature is classical, and Go 1.27
 		// verifies the ML-DSA signature on the responder certificate
@@ -333,12 +333,12 @@ func TestMLDSAIssuerOCSP(t *testing.T) {
 			}, rootPEM, nil, nil, signer)
 			require.NoError(t, err)
 
-			responder, err := delegating.CreateDelegatedOCSPSigner()
+			responder, err := delegating.CreateDelegatedOCSPSigner(t.Context())
 			require.NoError(t, err)
 			assert.Equal(t, x509.MLDSA, responder.Cert.PublicKeyAlgorithm)
 			assert.True(t, certutil.IsPostQuantumKey(responder.Signer))
 
-			der, err := delegating.SignOCSP(request)
+			der, err := delegating.SignOCSP(t.Context(), request)
 			require.NoError(t, err)
 			response, err := certutil.ParseOCSPResponse(der, root)
 			require.NoError(t, err)
@@ -372,7 +372,7 @@ func TestClassicalIssuerMLDSAResponder(t *testing.T) {
 	}, rootPEM, nil, nil, signer)
 	require.NoError(t, err)
 
-	der, err := issuer.SignOCSP(&authority.OCSPSignRequest{
+	der, err := issuer.SignOCSP(t.Context(), &authority.OCSPSignRequest{
 		SerialNumber: big.NewInt(9),
 		Status:       authority.OCSPStatusGood,
 	})
@@ -514,7 +514,7 @@ func TestDelegatedOCSPKeyConfig(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			responder, err := issuer.CreateDelegatedOCSPSigner()
+			responder, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 			require.NoError(t, err)
 			assert.Equal(t, tc.keyAlgo, responder.Cert.PublicKeyAlgorithm)
 		})
@@ -695,7 +695,7 @@ func TestMLDSAKeyUsage(t *testing.T) {
 			}, rootPEM, nil, nil, signer)
 			require.NoError(t, err)
 
-			leaf, _, err := issuer.Sign(csr.SignRequest{
+			leaf, _, err := issuer.Sign(t.Context(), csr.SignRequest{
 				Request:    pqCSR,
 				Profile:    tc.name,
 				Extensions: tc.requestExt,
@@ -710,7 +710,7 @@ func TestMLDSAKeyUsage(t *testing.T) {
 			}
 
 			if tc.classicalKU != 0 {
-				ecLeaf, _, err := issuer.Sign(csr.SignRequest{
+				ecLeaf, _, err := issuer.Sign(t.Context(), csr.SignRequest{
 					Request: ecCSR,
 					Profile: tc.name,
 				})
@@ -787,7 +787,7 @@ func TestMLDSAKeyUsage(t *testing.T) {
 			Profiles: profiles,
 		}, rootPEM, nil, nil, signer)
 		require.NoError(t, err)
-		responder, err := issuer.CreateDelegatedOCSPSigner()
+		responder, err := issuer.CreateDelegatedOCSPSigner(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, x509.ECDSA, responder.Cert.PublicKeyAlgorithm)
 		assert.Equal(t, x509.KeyUsageDigitalSignature|x509.KeyUsageKeyEncipherment, responder.Cert.KeyUsage)
@@ -806,7 +806,7 @@ func TestMLDSAKeyUsage(t *testing.T) {
 		}, rootPEM, nil, nil, signer)
 		require.NoError(t, err)
 		pqIssuer.AddProfile("ocsp", withUsage)
-		_, err = pqIssuer.CreateDelegatedOCSPSigner()
+		_, err = pqIssuer.CreateDelegatedOCSPSigner(t.Context())
 		require.ErrorContains(t, err, forbiddenMessage+"key encipherment")
 	})
 }

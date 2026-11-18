@@ -210,10 +210,17 @@ func (lib *PKCS11Lib) generateRSAKeyPairOnSession(
 // *rsa.OAEPOptions, OAEP decryption is performed.
 //
 // The underlying PKCS#11 implementation may impose further restrictions.
+// Decrypt is DecryptContext with context.Background().
 func (priv *PKCS11PrivateKeyRSA) Decrypt(rand io.Reader, ciphertext []byte, options crypto.DecrypterOpts) (plaintext []byte, err error) {
+	return priv.DecryptContext(context.Background(), rand, ciphertext, options)
+}
+
+// DecryptContext is Decrypt with ctx bounding the wait for a pooled session
+// (cryptoprov.ContextDecrypter).
+func (priv *PKCS11PrivateKeyRSA) DecryptContext(ctx context.Context, _ io.Reader, ciphertext []byte, options crypto.DecrypterOpts) (plaintext []byte, err error) {
 	logger.Trace("PKCS11PrivateKeyRSA.Decrypt")
 
-	err = priv.lib.withKey(&priv.key.PKCS11Object, priv.ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+	err = priv.lib.withKeyCtx(ctx, &priv.key.PKCS11Object, priv.ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 		if options == nil {
 			plaintext, err = priv.lib.decryptPKCS1v15(session, handle, ciphertext, 0)
 		} else {
@@ -351,9 +358,16 @@ func (lib *PKCS11Lib) signPKCS1v15(session pkcs11.SessionHandle, key pkcs11.Obje
 // rsa.PSSSaltLengthEqualsHash uses the hash length, and a positive value is
 // used as-is. For PKCS#1 v1.5 the hash must be one of SHA-1, SHA-224,
 // SHA-256, SHA-384 or SHA-512; other hashes are rejected. The underlying
-// PKCS#11 implementation may impose further restrictions.
+// PKCS#11 implementation may impose further restrictions. Sign is
+// SignContext with context.Background().
 func (priv *PKCS11PrivateKeyRSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	err = priv.lib.withKey(&priv.key.PKCS11Object, priv.ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
+	return priv.SignContext(context.Background(), rand, digest, opts)
+}
+
+// SignContext is Sign with ctx bounding the wait for a pooled session
+// (cryptoprov.ContextSigner).
+func (priv *PKCS11PrivateKeyRSA) SignContext(ctx context.Context, _ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	err = priv.lib.withKeyCtx(ctx, &priv.key.PKCS11Object, priv.ref, func(session pkcs11.SessionHandle, handle pkcs11.ObjectHandle) error {
 		switch typ := opts.(type) {
 		case *rsa.PSSOptions:
 			signature, err = priv.lib.signPSS(session, priv, handle, digest, typ)

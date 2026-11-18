@@ -27,9 +27,9 @@ flowchart TD
     C -->|"NewIssuerWithBundles(cfg, *cryptoprov.Crypto)"| I["Issuer<br/>signer (crypto.Signer), sigAlgo, bundle,<br/>AIA/CRL/OCSP URLs, keyHash/nameHash, keyInfo,<br/>profiles (RWMutex), OCSP responders"]
     K["cryptoprov.Crypto.NewSignerFromFromFile<br/>(PEM or pkcs11: URI)"] --> I
     B["certutil.VerifyBundleFromPEM<br/>(cert, CA bundle, root bundle)"] --> I
-    I --> S["Issuer.Sign(csr.SignRequest) → *x509.Certificate, PEM"]
-    I --> O["Issuer.SignOCSP → DER response<br/>caResponder (CA key) or delegated responder"]
-    I --> P["SignProof / VerifyProof<br/>detached signature over data"]
+    I --> S["Issuer.Sign(ctx, csr.SignRequest) → *x509.Certificate, PEM"]
+    I --> O["Issuer.SignOCSP(ctx, …) → DER response<br/>caResponder (CA key) or delegated responder"]
+    I --> P["SignProof(ctx, …) / VerifyProof<br/>detached signature over data"]
     R["NewRoot(profile, cfg, provider, req)"] -->|"csr.Provider.GenerateKeyAndRequest → self-sign"| S
 ```
 
@@ -39,7 +39,7 @@ flowchart TD
 | `Authority`             | `authority.go`  | Registry of issuers and profiles with lock-free lookups; copy-on-write under a mutex for `AddIssuer`/`AddProfile`.                                        |
 | `Issuer`                | `issuer.go`     | One signing key and chain. `sigAlgo` is fixed at construction by `csr.DefaultSigAlgo(signer)`; `keyInfo` (type, size, hash) by `certutil.NewKeyInfo`; `keyHash`/`nameHash` per hash for OCSP `CertID` matching. |
 | `Issuer.Sign`           | `issuer.go`     | The issuance pipeline: parse and verify CSR, copy permitted fields, merge RA subject, regex checks, extension precedence (profile > RA > CSR), `fillTemplate`, `x509.CreateCertificate`. |
-| OCSP responders         | `ocsp.go`       | `caResponder` (immutable) and a delegated responder (atomic snapshot, renewed under `renewLock`, in-memory key, P-256 by default, issued by `Sign` with the delegated profile). `SignOCSP` builds the response with `certutil.CreateOCSPResponse`. |
+| OCSP responders         | `ocsp.go`       | `caResponder` (immutable) and a delegated responder (atomic snapshot, renewed one at a time apart from its callers, in a renewal call they share, in-memory key, P-256 by default, issued by `Sign` with the delegated profile). `SignOCSP` builds the response with `certutil.CreateOCSPResponse`. |
 | `NewRoot`, `Issuer.GenCert` | `root.go`, `util.go` | Bootstrap: generate a key through a `cryptoprov.Provider`, build a CSR with `csr`, self-sign (root) or sign with an issuer (GenCert), write files (`.key` 0600, existing files renamed `.bak`). |
 
 ## Main flow: issuing a certificate
@@ -84,7 +84,10 @@ sequenceDiagram
 - **OCSP never falls back to the CA key when delegated.** A delegated
   responder that cannot be renewed yields an error, not a CA-signed
   response (XPKI-051/052/053). Renewal is single-flight and callers with
-  a still-valid responder never wait.
+  a still-valid responder never wait. It runs apart from the request that
+  starts it, under a one-minute bound of its own: a request deadline shorter
+  than a KMS signature or a key generation neither aborts it nor starts
+  another one.
 - **Validity is rejected, not adjusted** (XPKI-054), except for clipping
   to the issuer's `NotAfter`, which is the only safe adjustment.
 - **Hash choices.** `supportedKeyHash` (SHA-1, SHA-256, SHA-384, SHA-512)

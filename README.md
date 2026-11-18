@@ -283,7 +283,7 @@ issuer, err := ca.GetIssuerByProfile("server")
 if err != nil {
     return err
 }
-cert, certPEM, err := issuer.Sign(csr.SignRequest{
+cert, certPEM, err := issuer.Sign(ctx, csr.SignRequest{
     Request: string(csrPEM),
     Profile: "server",
     SAN:     []string{"localhost"},

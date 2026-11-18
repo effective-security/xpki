@@ -72,7 +72,7 @@ func NewRoot(ctx context.Context, profile string, cfg *Config, provider cryptopr
 		},
 	}
 
-	_, certPEM, err = issuer.Sign(sreq)
+	_, certPEM, err = issuer.Sign(ctx, sreq)
 	if err != nil {
 		err = errors.WithMessage(err, "sign request")
 		return

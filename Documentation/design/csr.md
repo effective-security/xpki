@@ -33,8 +33,8 @@ flowchart LR
     R["CertificateRequest (JSON/YAML or code)"] --> V["Validate (common name)"]
     V --> G["KeyRequest.Generate<br/>validate size → provider.Generate*Key"]
     G --> I["provider.IdentifyKey → keyID, label"]
-    I --> S["SignRequest(priv, req)<br/>subject, ParseSAN, extensions,<br/>SignatureAlgorithm = DefaultSigAlgo(priv)"]
-    S --> X["x509.CreateCertificateRequest"]
+    I --> S["SignRequest(ctx, priv, req)<br/>subject, ParseSAN, extensions,<br/>SignatureAlgorithm = DefaultSigAlgo(priv)"]
+    S --> X["x509.CreateCertificateRequest<br/>with cryptoprov.BindContext(ctx, priv)"]
     X --> PEM["CERTIFICATE REQUEST PEM"]
     I --> E["provider.ExportKey(keyID)<br/>PEM bytes (exportable) or pkcs11: URI"]
 ```

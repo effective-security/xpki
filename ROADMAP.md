@@ -18,7 +18,7 @@ is deliberately not started, `Done` shipped in the named version.
 
 | #    | Work item                                                                                              | Status                                                                                 |
 | ---- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| 1    | [Provider interface: context propagation](#1-provider-interface-context-propagation)                   | Open: the signing path (loading and generation shipped in v2.0)                        |
+| 1    | Provider interface: context propagation                                                                | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 2    | [KMS encryption keys](#2-kms-encryption-keys)                                                          | Open                                                                                   |
 | 3    | [Post-quantum signatures: ML-DSA (FIPS 204)](#3-post-quantum-signatures-ml-dsa-fips-204)               | See 3.1 to 3.7                                                                         |
 | 3.1  | `crypto11` verification on a PKCS#11 v3.2 token                                                        | Done (v1.1, [release notes](Documentation/RELEASE_NOTES_1.1.md))                       |
@@ -32,7 +32,7 @@ is deliberately not started, `Done` shipped in the named version.
 | 4.1  | Shared `ReplayCache` implementation                                                                    | Open                                                                                   |
 | 4.2  | Server-issued nonces                                                                                   | Open                                                                                   |
 | 5    | [JWKS client hardening](#5-jwks-client-hardening)                                                      | Open                                                                                   |
-| 6    | [PKCS#11 session management](#6-pkcs11-session-management)                                             | Open                                                                                   |
+| 6    | PKCS#11 session management                                                                             | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 7    | [certutil bundler concurrency](#7-certutil-bundler-concurrency)                                        | Open                                                                                   |
 | 8    | [Dependency hygiene](#8-dependency-hygiene)                                                            | See 8.1 and 8.2                                                                        |
 | 8.1  | Replace `gopkg.in/yaml.v3`                                                                             | Open                                                                                   |
@@ -42,23 +42,6 @@ is deliberately not started, `Done` shipped in the named version.
 | 10.1 | Regenerate `cmd/*/README.md` from `--help`                                                             | Open                                                                                   |
 | 11   | [OCSP responder authorization](#11-ocsp-responder-authorization)                                       | Open                                                                                   |
 | 12   | [Key management interfaces (v2)](#12-key-management-interfaces-keymanager-and-keygenerator-v2)         | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md)); live runs in PLAN.md |
-
-## 1. Provider interface: context propagation
-
-v2.0 gave every `cryptoprov.KeyGenerator` and `KeyManager` method a
-`context.Context` and threaded it through the functions that load or
-generate a key (`Crypto.LoadPrivateKey`, `csr.KeyRequest.Generate`,
-`authority.NewIssuer`, `jwt.NewProvider` and their siblings). What remains is
-the signing path: `crypto.Signer` has no context, so `Signer.Sign` of
-`awskmscrypto` and `gcpkmscrypto` still calls the SDK with
-`context.Background()` and can hang on a network stall, and
-`authority.Issuer.Sign`, `csr.Provider.SignRequest`, the CRL and OCSP signers
-and `jwt` have no way to hand theirs to a KMS signer. Related: XPKI-024.
-
-It changes exported signatures, so it should land in v2 before porto and the
-applications migrate (decision K9 of
-[`Documentation/design/keymanager.md`](Documentation/design/keymanager.md);
-the gate is in PLAN.md).
 
 ## 2. KMS encryption keys
 
@@ -121,14 +104,6 @@ refresh cooldown (v1.0). Remaining: TTL-based background refresh (honouring
 `Cache-Control`), so removed keys expire and new keys are picked up before the
 first miss, and `ParserConfig` fields for the `RemoteKeySet` options, which
 `NewParser` currently leaves at the defaults.
-
-## 6. PKCS#11 session management
-
-Remaining after v2.0: the borrow of `Sign` and `Decrypt` still waits at the
-session limit without a deadline, since `crypto.Signer` has no context; it
-follows item 1. The key generation, lookup and management calls borrow with
-their context since v2.0, which also removed `BytesToUlong` and made
-`PKCS11Object.Handle` an accessor.
 
 ## 7. certutil bundler concurrency
 

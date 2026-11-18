@@ -1,6 +1,7 @@
 package awskmscrypto_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -391,4 +392,37 @@ func TestSignerAccessors(t *testing.T) {
 	given[0] = types.SigningAlgorithmSpecSm2dsa
 	expected := []types.SigningAlgorithmSpec{types.SigningAlgorithmSpecEcdsaSha256}
 	assert.Equal(t, expected, fromList.SigningAlgorithms(), "the list is copied by NewSigner")
+}
+
+// TestSignerSignContext checks that an ended context fails before the KMS
+// request, and that a context that ends during the request is reported as
+// such whatever the SDK returns.
+func TestSignerSignContext(t *testing.T) {
+	t.Parallel()
+	client := newFakeKMS()
+	signer, _ := signerFor(t, client, types.KeySpecEccNistP256)
+	digest := sum(crypto.SHA256, "to be signed")
+
+	sig, err := signer.SignContext(t.Context(), rand.Reader, digest, crypto.SHA256)
+	require.NoError(t, err)
+	assert.True(t, ecdsa.VerifyASN1(signer.Public().(*ecdsa.PublicKey), digest, sig))
+	before := client.CallCount("Sign")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = signer.SignContext(ctx, rand.Reader, digest, crypto.SHA256)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, before, client.CallCount("Sign"), "a request was sent with an ended context")
+
+	ctx, cancel = context.WithCancel(t.Context())
+	defer cancel()
+	cause := errors.New("request interrupted")
+	client.sign = func(*kms.SignInput) (*kms.SignOutput, error) {
+		cancel()
+		return nil, cause
+	}
+	_, err = signer.SignContext(ctx, rand.Reader, digest, crypto.SHA256)
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, cause)
+	assert.EqualError(t, err, "unable to sign: request interrupted")
 }

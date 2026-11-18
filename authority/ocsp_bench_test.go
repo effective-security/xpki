@@ -32,7 +32,7 @@ func BenchmarkSignOCSP(b *testing.B) {
 			b.ReportAllocs()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					if _, err := issuer.SignOCSP(req); err != nil {
+					if _, err := issuer.SignOCSP(b.Context(), req); err != nil {
 						b.Fatal(err)
 					}
 				}
@@ -42,7 +42,7 @@ func BenchmarkSignOCSP(b *testing.B) {
 			b.ReportAllocs()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					if _, err := issuer.CreateDelegatedOCSPSigner(); err != nil {
+					if _, err := issuer.CreateDelegatedOCSPSigner(b.Context()); err != nil {
 						b.Fatal(err)
 					}
 				}
@@ -56,13 +56,13 @@ func BenchmarkSignOCSP(b *testing.B) {
 // every responder is short-lived and renewal waits for the retry interval.
 func BenchmarkDelegatedOCSPRetryWindow(b *testing.B) {
 	issuer, _, _ := delegatedTestIssuer(b, testca.NotAfter(time.Now().Add(delegatedOCSPTTL/2)))
-	if _, err := issuer.CreateDelegatedOCSPSigner(); err != nil {
+	if _, err := issuer.CreateDelegatedOCSPSigner(b.Context()); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if _, err := issuer.delegatedResponder(time.Now(), true); err != nil {
+			if _, err := issuer.delegatedResponder(b.Context(), time.Now(), true); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -76,7 +76,7 @@ func BenchmarkDelegatedOCSPCreate(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		issuer.delegated.Store(nil)
-		if _, err := issuer.CreateDelegatedOCSPSigner(); err != nil {
+		if _, err := issuer.CreateDelegatedOCSPSigner(b.Context()); err != nil {
 			b.Fatal(err)
 		}
 	}

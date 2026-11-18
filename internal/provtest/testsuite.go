@@ -4,14 +4,20 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
+	"math/big"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/effective-security/xpki/v2/certutil"
 	"github.com/effective-security/xpki/v2/cryptoprov"
+	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -708,6 +714,88 @@ func (s *Suite) TestCancelledContext() {
 	for key, err := range cryptoprov.AllKeys(ctx, s.km, &cryptoprov.ListKeysRequest{}) {
 		s.Require().ErrorIs(err, context.Canceled, "AllKeys")
 		s.Nil(key)
+	}
+}
+
+// TestSignContext checks that every signing key is a
+// cryptoprov.ContextSigner that signs under a live context, through
+// BindContext as x509 calls it, and fails with a cancelled one; and that an
+// encryption key is a cryptoprov.ContextDecrypter that does the same.
+func (s *Suite) TestSignContext() {
+	cancelled, cancel := context.WithCancel(s.ctx())
+	cancel()
+
+	for _, key := range s.keys {
+		s.Run(key.label, func() {
+			if key.req.KeyUsage() == cryptoprov.KeyUsageEncrypt {
+				s.checkDecryptContext(key, cancelled)
+				return
+			}
+			signer, ok := key.key.(cryptoprov.ContextSigner)
+			s.Require().True(ok, "%T is not a cryptoprov.ContextSigner", key.key)
+
+			template := &x509.Certificate{
+				SerialNumber:       big.NewInt(1),
+				Subject:            pkix.Name{CommonName: key.label},
+				NotBefore:          time.Now().Add(-time.Minute),
+				NotAfter:           time.Now().Add(time.Hour),
+				SignatureAlgorithm: csr.DefaultSigAlgo(signer),
+			}
+			der, err := x509.CreateCertificate(rand.Reader, template, template, signer.Public(), cryptoprov.BindContext(s.ctx(), signer))
+			s.Require().NoError(err)
+			cert, err := x509.ParseCertificate(der)
+			s.Require().NoError(err)
+			s.Require().NoError(cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature))
+
+			_, err = x509.CreateCertificate(rand.Reader, template, template, signer.Public(), cryptoprov.BindContext(cancelled, signer))
+			s.Require().ErrorIs(err, context.Canceled, "BindContext")
+			opts := signOpts(cert.SignatureAlgorithm)
+			digest := cert.RawTBSCertificate
+			if hash := opts.HashFunc(); hash != 0 {
+				h := hash.New()
+				h.Write(digest)
+				digest = h.Sum(nil)
+			}
+			_, err = signer.SignContext(cancelled, rand.Reader, digest, opts)
+			s.Require().ErrorIs(err, context.Canceled, "SignContext")
+		})
+	}
+}
+
+// checkDecryptContext decrypts an OAEP (SHA-1, which every backend has)
+// ciphertext with key under a live context and checks that a cancelled one
+// fails.
+func (s *Suite) checkDecryptContext(key *testKey, cancelled context.Context) {
+	decrypter, ok := key.key.(cryptoprov.ContextDecrypter)
+	s.Require().True(ok, "%T is not a cryptoprov.ContextDecrypter", key.key)
+	pub, ok := decrypter.Public().(*rsa.PublicKey)
+	s.Require().True(ok, "%T is not an RSA public key", decrypter.Public())
+
+	plaintext := []byte(key.label)
+	ciphertext, err := rsa.EncryptOAEP(sha1.New(), rand.Reader, pub, plaintext, nil)
+	s.Require().NoError(err)
+	opts := &rsa.OAEPOptions{Hash: crypto.SHA1}
+	decrypted, err := decrypter.DecryptContext(s.ctx(), rand.Reader, ciphertext, opts)
+	s.Require().NoError(err)
+	s.Equal(plaintext, decrypted)
+
+	_, err = decrypter.DecryptContext(cancelled, rand.Reader, ciphertext, opts)
+	s.Require().ErrorIs(err, context.Canceled, "DecryptContext")
+}
+
+// signOpts returns the options x509 passes to a signer for algo: the hash of
+// a classical algorithm, whose digest the signer takes, or zero for ML-DSA,
+// which signs the message.
+func signOpts(algo x509.SignatureAlgorithm) crypto.SignerOpts {
+	switch algo {
+	case x509.SHA384WithRSA, x509.ECDSAWithSHA384:
+		return crypto.SHA384
+	case x509.SHA512WithRSA, x509.ECDSAWithSHA512:
+		return crypto.SHA512
+	case x509.MLDSA44, x509.MLDSA65, x509.MLDSA87:
+		return crypto.Hash(0)
+	default:
+		return crypto.SHA256
 	}
 }
 

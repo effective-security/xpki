@@ -149,10 +149,10 @@ func TestCSRProviderInvalidRequests(t *testing.T) {
 	require.ErrorContains(t, err, "invalid request")
 	_, _, _, _, err = provider.CreateRequestAndExportKey(t.Context(), &csr.CertificateRequest{CommonName: "valid name"})
 	require.ErrorContains(t, err, "process request: invalid key request")
-	_, err = provider.SignRequest(struct{}{}, &csr.CertificateRequest{CommonName: "test"})
+	_, err = provider.SignRequest(t.Context(), struct{}{}, &csr.CertificateRequest{CommonName: "test"})
 	require.EqualError(t, err, "unable to convert key to crypto.Signer")
 	for _, value := range []string{"hex:zz", "base64:%%%"} {
-		_, err = provider.SignRequest(key, &csr.CertificateRequest{
+		_, err = provider.SignRequest(t.Context(), key, &csr.CertificateRequest{
 			CommonName: "test",
 			Extensions: []csr.X509Extension{{
 				ID:    csr.OID{1, 2, 3},
@@ -163,10 +163,10 @@ func TestCSRProviderInvalidRequests(t *testing.T) {
 	}
 	// an invalid SAN fails the request instead of being skipped (XPKI-059)
 	req := provider.NewSigningCertificateRequest("test", "ecdsa", 256, "test", nil, []string{"https://%zz", "127.0.0.1", "user@example.test", "https://host.example.test/path", "host.example.test"})
-	_, err = provider.SignRequest(key, req)
+	_, err = provider.SignRequest(t.Context(), key, req)
 	require.ErrorContains(t, err, `invalid SAN "https://%zz": invalid URI: parse "https://%zz": invalid URL escape "%zz"`)
 	req.SAN = req.SAN[1:]
-	data, err := provider.SignRequest(key, req)
+	data, err := provider.SignRequest(t.Context(), key, req)
 	require.NoError(t, err)
 	cert, err := csr.ParsePEM(data)
 	require.NoError(t, err)

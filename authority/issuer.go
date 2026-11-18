@@ -107,11 +107,12 @@ type Issuer struct {
 	delegated atomic.Pointer[OCSPResponder]
 	// renewal is the outcome of the last delegated issuance attempt.
 	renewal atomic.Pointer[ocspRenewal]
-	// renewLock serializes delegated responder issuance.
-	// Lock order: renewLock, then lock (XPKI-051).
-	renewLock sync.Mutex
-	// renewWaitHook, if set by tests, runs after a caller reads renewal and
-	// before it waits for renewLock.
+	// renewing is the delegated responder renewal in progress, if any: one
+	// runs at a time, and every caller that waits for it shares its outcome
+	// (XPKI-051).
+	renewing atomic.Pointer[ocspRenewCall]
+	// renewWaitHook, if set by tests, runs after a caller that will wait
+	// for a renewal reads renewal, before it joins one.
 	renewWaitHook func()
 
 	// lock guards cfg.Profiles.
@@ -255,7 +256,7 @@ func NewIssuerWithBundles(ctx context.Context, cfg *IssuerConfig, prov *cryptopr
 	if err != nil {
 		return nil, err
 	}
-	_, err = issuer.CreateDelegatedOCSPSigner()
+	_, err = issuer.CreateDelegatedOCSPSigner(ctx)
 	if err != nil {
 		return nil, errors.WithMessage(err, "unable to create delegated OCSP responder")
 	}
@@ -379,20 +380,21 @@ func CreateIssuer(cfg *IssuerConfig, certBytes, intCAbytes, rootBytes []byte, si
 
 // SignProof returns base64 URL encoded signature of the data: PKCS#1 v1.5
 // or ECDSA over the hash of the issuer's key (KeyInfo.Hash), or a pure
-// ML-DSA signature of data itself.
-func (ca *Issuer) SignProof(data []byte) (string, error) {
+// ML-DSA signature of data itself. ctx bounds the signature
+// (cryptoprov.SignContext).
+func (ca *Issuer) SignProof(ctx context.Context, data []byte) (string, error) {
 	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_proof")
 
 	var sig []byte
 	var err error
 	if ca.keyInfo.Type == certutil.KeyTypeMLDSA {
 		// ML-DSA signs the message, not a digest
-		sig, err = ca.signer.Sign(rand.Reader, data, nil)
+		sig, err = cryptoprov.SignContext(ctx, ca.signer, rand.Reader, data, nil)
 	} else {
 		hasher := ca.keyInfo.Hash
 		h := hasher.New()
 		h.Write(data)
-		sig, err = ca.signer.Sign(rand.Reader, h.Sum(nil), hasher)
+		sig, err = cryptoprov.SignContext(ctx, ca.signer, rand.Reader, h.Sum(nil), hasher)
 	}
 	if err != nil {
 		return "", errors.WithMessagef(err, "unable to sign proof")
@@ -437,8 +439,10 @@ func (ca *Issuer) VerifyProof(data []byte, proof string) error {
 }
 
 // Sign signs a new certificate based on the PEM-encoded
-// certificate request with the specified profile.
-func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error) {
+// certificate request with the specified profile. ctx bounds the signature
+// of the CA key (cryptoprov.BindContext): a KMS request or the wait for a
+// PKCS#11 session ends with it.
+func (ca *Issuer) Sign(ctx context.Context, raReq csr.SignRequest) (*x509.Certificate, []byte, error) {
 	profileName := raReq.Profile
 	if profileName == "" {
 		profileName = "default"
@@ -447,12 +451,12 @@ func (ca *Issuer) Sign(raReq csr.SignRequest) (*x509.Certificate, []byte, error)
 	if profile == nil {
 		return nil, nil, errors.New("unsupported profile: " + profileName)
 	}
-	return ca.signWithProfile(raReq, profileName, profile)
+	return ca.signWithProfile(ctx, raReq, profileName, profile)
 }
 
 // signWithProfile signs raReq with profile, a snapshot looked up by
 // profileName, so that a caller can validate the exact profile it signs with.
-func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, profile *CertProfile) (*x509.Certificate, []byte, error) {
+func (ca *Issuer) signWithProfile(ctx context.Context, raReq csr.SignRequest, profileName string, profile *CertProfile) (*x509.Certificate, []byte, error) {
 	defer metricskey.PerfCAOperation.MeasureSince(time.Now(), ca.label, "sign_cert")
 
 	requesterCsrTemplate, err := csr.ParsePEM([]byte(raReq.Request))
@@ -706,7 +710,7 @@ func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, pro
 
 	var certTBS = safeTemplate
 
-	signedCertPEM, err := ca.sign(&certTBS)
+	signedCertPEM, err := ca.sign(ctx, &certTBS)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
@@ -722,7 +726,9 @@ func (ca *Issuer) signWithProfile(raReq csr.SignRequest, profileName string, pro
 	return crt, signedCertPEM, nil
 }
 
-func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
+// sign signs template with the CA key under ctx; a nil bundle makes it a
+// self-signed CA certificate.
+func (ca *Issuer) sign(ctx context.Context, template *x509.Certificate) ([]byte, error) {
 	var caCert *x509.Certificate
 
 	if ca.bundle == nil {
@@ -747,7 +753,7 @@ func (ca *Issuer) sign(template *x509.Certificate) ([]byte, error) {
 		}
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, template, caCert, template.PublicKey, ca.signer)
+	derBytes, err := x509.CreateCertificate(rand.Reader, template, caCert, template.PublicKey, cryptoprov.BindContext(ctx, ca.signer))
 	if err != nil {
 		return nil, errors.Wrap(err, "create certificate")
 	}

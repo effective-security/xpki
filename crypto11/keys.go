@@ -274,9 +274,15 @@ func (p *privateKeyGen) Public() crypto.PublicKey {
 	return p.PubKey
 }
 
+// Sign is SignContext with context.Background().
 func (p *privateKeyGen) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	return p.SignContext(context.Background(), rand, digest, opts)
+}
+
+// SignContext signs with the key under ctx (cryptoprov.ContextSigner).
+func (p *privateKeyGen) SignContext(ctx context.Context, rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	if signer, ok := p.PrivateKey.(crypto.Signer); ok {
-		b, err := signer.Sign(rand, digest, opts)
+		b, err := cryptoprov.SignContext(ctx, signer, rand, digest, opts)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
@@ -289,9 +295,16 @@ func (p *privateKeyGen) Sign(rand io.Reader, digest []byte, opts crypto.SignerOp
 // Decrypt decrypts ciphertext with priv.
 // If opts is nil or of type *PKCS1v15DecryptOptions then PKCS#1 v1.5 decryption is performed.
 // Otherwise opts must have type *OAEPOptions and OAEP decryption is done.
+// Decrypt is DecryptContext with context.Background().
 func (p *privateKeyGen) Decrypt(rand io.Reader, ciphertext []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error) {
+	return p.DecryptContext(context.Background(), rand, ciphertext, opts)
+}
+
+// DecryptContext decrypts with the key under ctx
+// (cryptoprov.ContextDecrypter).
+func (p *privateKeyGen) DecryptContext(ctx context.Context, rand io.Reader, ciphertext []byte, opts crypto.DecrypterOpts) ([]byte, error) {
 	if decrypter, ok := p.PrivateKey.(crypto.Decrypter); ok {
-		b, err := decrypter.Decrypt(rand, ciphertext, opts)
+		b, err := cryptoprov.DecryptContext(ctx, decrypter, rand, ciphertext, opts)
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
