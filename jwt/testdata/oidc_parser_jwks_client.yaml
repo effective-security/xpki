@@ -1,0 +1,9 @@
+issuer: https://accounts.google.com
+jwks_uri: https://www.googleapis.com/oauth2/v3/certs
+jwks_client:
+  refresh_cooldown: 0s
+  fetch_timeout: 3s
+  max_response_size: 4096
+  min_cache_ttl: 1m
+  max_cache_ttl: 10m
+  stale_if_error: 0s

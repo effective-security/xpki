@@ -31,7 +31,7 @@ is deliberately not started, `Done` shipped in the named version.
 | 4    | [DPoP: replay protection and access-token binding](#4-dpop-replay-protection-and-access-token-binding) | See 4.1 and 4.2                                                                        |
 | 4.1  | Shared `ReplayCache` implementation                                                                    | Open                                                                                   |
 | 4.2  | Server-issued nonces                                                                                   | Open                                                                                   |
-| 5    | [JWKS client hardening](#5-jwks-client-hardening)                                                      | Open                                                                                   |
+| 5    | JWKS client hardening                                                                                  | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 6    | PKCS#11 session management                                                                             | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 7    | [certutil bundler concurrency](#7-certutil-bundler-concurrency)                                        | Open                                                                                   |
 | 8    | [Dependency hygiene](#8-dependency-hygiene)                                                            | See 8.1 and 8.2                                                                        |
@@ -96,14 +96,6 @@ work, each item its own change when wanted:
 - **4.2** server-issued nonces (RFC 9449 §8/§9): generating and rotating
   `DPoP-Nonce` values and the `use_dpop_nonce` error. `ExpectedNonce`
   compares only a caller-provided value today.
-
-## 5. JWKS client hardening
-
-`jwt.RemoteKeySet` has an injected client, a timeout, a body limit and a
-refresh cooldown (v1.0). Remaining: TTL-based background refresh (honouring
-`Cache-Control`), so removed keys expire and new keys are picked up before the
-first miss, and `ParserConfig` fields for the `RemoteKeySet` options, which
-`NewParser` currently leaves at the defaults.
 
 ## 7. certutil bundler concurrency
 

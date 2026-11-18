@@ -5,7 +5,8 @@
 //     and ML-DSA per RFC 9964)
 //   - JWT parsing and validation with configurable verification options
 //   - JWKS (JSON Web Key Set) for key management and distribution, including
-//     RFC 9964 AKP keys
+//     RFC 9964 AKP keys; RemoteKeySet caches a remote JWKS document for the
+//     lifetime its response states and refreshes it in the background
 //
 // Subpackages: dpop (RFC 9449 proofs), accesstoken (opaque encrypted tokens),
 // oauth2client (identity-provider client registry).

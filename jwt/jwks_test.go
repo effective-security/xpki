@@ -11,6 +11,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,7 @@ func TestParserConfig(t *testing.T) {
 	assert.Equal(t, "https://accounts.google.com", cfg3.Issuer)
 	assert.Equal(t, "https://www.googleapis.com/oauth2/v3/certs", cfg3.JWKSURI)
 	assert.Nil(t, cfg3.JWKeySet)
+	assert.Nil(t, cfg3.JWKSClient)
 }
 
 func Test_ParseJwks(t *testing.T) {
@@ -311,10 +313,14 @@ func TestParserKeySelection(t *testing.T) {
 type jwksServer struct {
 	*httptest.Server
 	hits atomic.Int32
+	// active counts requests being answered; maxActive is its peak.
+	active    atomic.Int32
+	maxActive atomic.Int32
 
 	mu     sync.Mutex
 	body   []byte
 	status int
+	header http.Header   // sent with every response
 	gate   chan struct{} // when non-nil, requests block until it is closed
 }
 
@@ -324,16 +330,25 @@ func newJWKSServer(t *testing.T, keys ...jose.JSONWebKey) *jwksServer {
 	s.setKeys(t, keys...)
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.hits.Add(1)
+		active := s.active.Add(1)
+		for peak := s.maxActive.Load(); active > peak && !s.maxActive.CompareAndSwap(peak, active); {
+			peak = s.maxActive.Load()
+		}
 		s.mu.Lock()
-		body, status, gate := s.body, s.status, s.gate
+		body, status, header, gate := s.body, s.status, s.header.Clone(), s.gate
 		s.mu.Unlock()
 		if gate != nil {
 			select {
 			case <-gate:
 			case <-r.Context().Done():
+				s.active.Add(-1)
 				return
 			}
 		}
+		// Leave before the response is written, so a client cannot start its
+		// next request while this one still counts as active.
+		s.active.Add(-1)
+		maps.Copy(w.Header(), header)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write(body)
@@ -353,6 +368,15 @@ func (s *jwksServer) setBody(status int, body []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.status, s.body = status, body
+}
+
+func (s *jwksServer) setHeader(key string, values ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.header == nil {
+		s.header = http.Header{}
+	}
+	s.header[http.CanonicalHeaderKey(key)] = values
 }
 
 func (s *jwksServer) setGate(gate chan struct{}) {
@@ -426,7 +450,9 @@ func TestRemoteKeySetRefresh(t *testing.T) {
 		srv := newJWKSServer(t, keyA)
 		gate := make(chan struct{})
 		srv.setGate(gate)
-		ks := jwt.NewRemoteKeySet(ctx, srv.URL, jwt.WithFetchTimeout(100*time.Millisecond), jwt.WithRefreshCooldown(0))
+		// The timeout also bounds the fetch from the recovered endpoint below,
+		// so it leaves room for a loaded -race run with GOMAXPROCS=1.
+		ks := jwt.NewRemoteKeySet(ctx, srv.URL, jwt.WithFetchTimeout(time.Second), jwt.WithRefreshCooldown(0))
 		start := time.Now()
 		key, err := ks.GetKey(ctx, "a")
 		require.ErrorContains(t, err, "unable to fetch JWKS key: failed to fetch keys: ")

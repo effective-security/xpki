@@ -105,9 +105,10 @@ consumers. Nothing in the library imports `cmd/`.
 | Randomness                                 | `certutil/random.go`                                                                         | `Random`, `RandomString`, `RandReader`                                                                                                                                                                                                                                                                                                                        |
 | JWT provider (sign + verify)               | `jwt/jwt.go`                                                                                 | `ProviderConfig`, `LoadProvider(ctx, …)`, `NewProvider(ctx, …)`, `MustNewProvider(ctx, …)`, `NewProviderFromCryptoSigner`, `NewProviderWithSymmetricKey`, `WithHeaders`                                                                                                                                                                                       |
 | JWT signing internals                      | `jwt/sign.go`                                                                                | `NewSignerInfo`, `VerifySignature`, `mldsaParameterSets`, `mldsaKeyFits`                                                                                                                                                                                                                                                                                      |
-| JWT parsing (third-party tokens)           | `jwt/parser.go`                                                                              | `ParserConfig`, `LoadParserConfig`, `NewParser`, `TokenParser`, `Keyfunc`                                                                                                                                                                                                                                                                                     |
+| JWT parsing (third-party tokens)           | `jwt/parser.go`                                                                              | `ParserConfig` (`JWKSClient`), `RemoteKeySetConfig` (`Options`), `LoadParserConfig`, `NewParser`, `TokenParser`, `Keyfunc`                                                                                                                                                                                                                                    |
 | Claims                                     | `jwt/claims.go`                                                                              | `Claims`, `MapClaims`, `NumericDate`, `Audience`, `CreateClaims`, `SetClaimsExpiration`, `TimeNowFn`                                                                                                                                                                                                                                                          |
-| JWKS key sets                              | `jwt/jwks.go`                                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`                                                                                                                                                                                                                                       |
+| JWKS key sets                              | `jwt/jwks.go`                                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`, `WithFetchTimeout`, `WithMaxResponseSize`, `WithMinCacheTTL`, `WithMaxCacheTTL`, `WithStaleIfError`                                                                                                                                  |
+| JWKS cache lifetime, refresh, stale keys   | `jwt/httpcache.go`, `jwt/jwks.go`                                                            | `cacheLifetime` (Cache-Control `max-age`, `Expires`), `responseAge` (`Age`, `Date`), `RemoteKeySet.cacheTTL`, `refreshAhead`, `outcomeLocked`, `DefaultJWKSMinCacheTTL`, `DefaultJWKSMaxCacheTTL`, `DefaultJWKSStaleIfError`                                                                                                                                  |
 | DPoP proof create / verify                 | `jwt/dpop/signer.go`, `jwt/dpop/verify.go`                                                   | `NewSigner`, `ForRequest`, `VerifyRequestClaims`, `VerifyClaims`, `VerifyClaimsContext`, `AccessTokenHash`, `GetTokenInfo`                                                                                                                                                                                                                                    |
 | DPoP replay cache (`jti`)                  | `jwt/dpop/replay.go`                                                                         | `ReplayCache`, `NewMemoryReplayCache`, `ErrReplay`, `ErrReplayCacheFull`                                                                                                                                                                                                                                                                                      |
 | DPoP `htu` request URI / normalization     | `jwt/dpop/htu.go`                                                                            | `VerifyConfig.ExternalURL`, `requestURI`, `normalizeHTU`                                                                                                                                                                                                                                                                                                      |
@@ -1381,9 +1382,10 @@ ML-DSA-44/65/87 (RFC 9964).
 | `token.go`  | `Token`, `VerifyConfig`, `ValidClaims`, `DecodeSegment`/`EncodeSegment`                                                                                                                 |
 | `jwt.go`    | Interfaces, `ProviderConfig`, `LoadProvider`, `NewProvider`, `MustNewProvider`, `NewProviderFromCryptoSigner`, `NewProviderWithSymmetricKey`, `WithHeaders`, `provider.Sign/ParseToken` |
 | `sign.go`   | `SignerInfo`, alg selection from key, HMAC signer (constant-time verify), `VerifySignature`                                                                                             |
-| `parser.go` | `TokenParser` (`Parse`, `ParseWithClaims`, `ParseUnverified`), `ParserConfig`, `NewParser` (JWKS-backed)                                                                                |
+| `parser.go` | `TokenParser` (`Parse`, `ParseWithClaims`, `ParseUnverified`), `ParserConfig`, `RemoteKeySetConfig` (`jwks_client`), `NewParser` (JWKS-backed)                                          |
 | `claims.go` | `Claims`, `MapClaims` getters/validation, `NumericDate`, `Audience`, `CreateClaims`, `TimeNowFn`, `DefaultTimeSkew`                                                                     |
-| `jwks.go`   | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet` (lazy fetch, inflight coalescing, refresh cooldown), `RemoteKeySetOption`s, `ErrKeyNotFound`, `ErrAmbiguousKey`              |
+| `jwks.go`   | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet` (lazy fetch, cache lifetime, background refresh, stale keys on error, inflight coalescing, refresh cooldown), `RemoteKeySetOption`s, `ErrKeyNotFound`, `ErrAmbiguousKey` |
+| `httpcache.go` | `cacheLifetime`: the freshness lifetime that JWKS response headers state for a private cache (RFC 9111)                                                                                 |
 
 ### Invariants
 
@@ -1456,11 +1458,37 @@ ML-DSA-44/65/87 (RFC 9964).
   initialized `*mldsa.PublicKey`; anything
   else fails every lookup. `parser.ParseToken` passes the token alg through
   `AlgorithmKeySet.GetKeyForAlgorithm`; plain `GetKey` checks only `use`.
-- `RemoteKeySet` (XPKI-070) refetches when no cached key fits the lookup, at
-  most once per `WithRefreshCooldown` (default 10s, measured from the end of
-  the previous fetch, successful or not; 0 disables). Inside the cooldown a
-  miss fails from the cache, or with the last fetch error when nothing is
-  cached. Each fetch is bounded by `WithFetchTimeout` (default 10s, applied
+- `RemoteKeySet` cache lifetime (roadmap item 5): a successful fetch caches
+  the keys for the lifetime its response states to a private cache
+  (`cacheLifetime`: `max-age`, else `Expires` minus `Date`, less the
+  response age, `responseAge`: the greater of `Age` and now minus `Date`,
+  RFC 9111 §4.2.3, so a response that is already stale when it arrives gets
+  the minimum; `no-cache`, `no-store` and invalid values state zero; `s-maxage` and other
+  directives are ignored), bounded by `WithMinCacheTTL` (default 5m) and
+  `WithMaxCacheTTL` (default 1h, also the lifetime when none is stated), and
+  never shorter than the cooldown, so the expiry never finds the refresh
+  throttled. State under `mu`: `expiresAt`, `refreshAt` (expiry minus a
+  quarter of the lifetime) and `serveUntil` (`expiresAt`, or `expiresAt` +
+  `WithStaleIfError`, default 24h, after a fetch that failed at or after
+  `refreshAt`; an earlier, miss-driven failure grants no grace, so a lookup
+  after the expiry still waits for a fetch). A lookup before
+  `serveUntil` uses the cache without waiting; at or after `refreshAt` it
+  also starts a background fetch (`refreshAhead`) when none is in flight and
+  the cooldown has passed, so a failing endpoint is retried once per
+  cooldown while the keys are served. A lookup at or after `serveUntil`
+  waits for a fetch. `outcomeLocked` is what a lookup that cannot wait for
+  another fetch gets: the cached keys with the last fetch error, if any,
+  while they may be served, else no keys and `JWKS keys expired at <time>:
+  <fetch error>`. `GetKeyForAlgorithm` returns the fetch error only when no
+  returned key fits. The background fetch is the same `refresh` goroutine as
+  a miss-driven one, bounded by the fetch timeout; there is no ticker, so an
+  unused set starts no goroutine. A failed fetch with cached keys logs a
+  WARNING (`reason=jwks_refresh`).
+- `RemoteKeySet` (XPKI-070) refetches when no usable cached key fits the
+  lookup, at most once per `WithRefreshCooldown` (default 10s, measured from
+  the end of the previous fetch, successful or not; 0 disables). Inside the
+  cooldown a miss fails from the cache, or with `JWKS refresh throttled after
+  failure: <outcome error>`. Each fetch is bounded by `WithFetchTimeout` (default 10s, applied
   as a context deadline even with an injected `WithHTTPClient`) and
   `WithMaxResponseSize` (default 1 MiB, larger bodies rejected); response
   bodies are never echoed in errors. The shared fetch runs on the set's
@@ -1470,7 +1498,12 @@ ML-DSA-44/65/87 (RFC 9964).
   completed fetch (`keysFromCache` returns the counter) shares that fetch's
   result instead of starting another, so coalescing holds with cooldown 0.
   The read limit is `maxResponseSize+1` except at `math.MaxInt64`.
-  `NewParser` uses the defaults. `ParseWithClaims` verifies the signature before
+  `NewParser` passes `ParserConfig.JWKSClient.Options()` (nil: the defaults);
+  in `RemoteKeySetConfig` a zero field keeps the option's default, so the two
+  options for which zero means something, `refresh_cooldown` and
+  `stale_if_error`, are pointers (`"0s"` disables throttling or the grace
+  period). Durations are `csr.Duration` (JSON numbers are seconds).
+  `ParseWithClaims` verifies the signature before
   validating claims. `MapClaims.Int/Int64/UInt64` return 0 (DEBUG log) on
   overflow, negative-to-unsigned, or parse failure. `NumericDate` and
   `MapClaims.Time` accept fractional seconds and truncate to whole seconds
@@ -1500,10 +1533,23 @@ and parser round trips in both directions with go-jose as the independent RFC 99
 implementation, `AKP` JWKS (static and over HTTP), key selection, the algorithm pin,
 and verification failures. `jwks_test.go` has table tests for key selection, parser round trips with
 kid-less tokens and `PublicKeys`, and `RemoteKeySet` behavior against a
-local `httptest` JWKS server (`jwksServer`: mutable body/status and a request
-gate for stalled fetches). `jwks_internal_test.go` drives the cooldown with
-the unexported `RemoteKeySet.now` clock and calls `keysFromRemote` with a stale
-snapshot count. `jwks_bench_test.go`
+local `httptest` JWKS server (`jwksServer`: mutable body/status, a request
+gate for stalled fetches, response headers, and `maxActive`, the peak of
+requests answered at once). `jwks_cache_test.go` covers
+the cache lifetime: header-derived lifetimes and their bounds, the background
+refresh ahead (not before the last quarter, it does not wait, picks up an
+added key, drops a removed one), the wait after expiry, an early miss-driven
+failure that grants no grace, the stale-if-error grace period and its end,
+and a concurrent run across expiries that checks fetches never overlap; it
+drives a manual
+`testClock` through `export_test.go` (`SetClock`, `Fetches`, `CacheTTL`,
+`Inflight`), and pins the response `Date` to the clock where a test sends
+cache headers. `httpcache_test.go` is the `cacheLifetime` header table.
+`jwks_internal_test.go` drives the cooldown with
+the unexported `RemoteKeySet.now` clock, calls `keysFromRemote` with a stale
+snapshot count, and checks the option defaults and `ParserConfig.JWKSClient`
+(`testdata/oidc_parser_jwks_client.yaml`, JSON, absent and negative values).
+`jwks_bench_test.go`
 (`BenchmarkRemoteKeySet`) reports `fetches/op` for known, repeated-unknown
 and parallel unique-unknown kids.
 
