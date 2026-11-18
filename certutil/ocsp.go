@@ -8,11 +8,15 @@ import (
 	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"io"
+	"math/big"
 	"reflect"
+	"slices"
+	"time"
 
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xpki/v2/internal/signctx"
@@ -25,6 +29,38 @@ var mldsaSignatureOIDs = map[x509.SignatureAlgorithm]asn1.ObjectIdentifier{
 	x509.MLDSA44: {2, 16, 840, 1, 101, 3, 4, 3, 17},
 	x509.MLDSA65: {2, 16, 840, 1, 101, 3, 4, 3, 18},
 	x509.MLDSA87: {2, 16, 840, 1, 101, 3, 4, 3, 19},
+}
+
+// ocspHashes maps the CertID hash algorithms golang.org/x/crypto/ocsp reads
+// to their hashes, by OID.
+var ocspHashes = map[string]crypto.Hash{
+	"1.3.14.3.2.26":          crypto.SHA1,
+	"2.16.840.1.101.3.4.2.1": crypto.SHA256,
+	"2.16.840.1.101.3.4.2.2": crypto.SHA384,
+	"2.16.840.1.101.3.4.2.3": crypto.SHA512,
+}
+
+// ocspResponseData is the ResponseData of RFC 6960 §4.2.1, decoded up to the
+// CertID of each response; encoding/asn1 ignores the trailing fields.
+type ocspResponseData struct {
+	Version     int `asn1:"optional,default:0,explicit,tag:0"`
+	ResponderID asn1.RawValue
+	ProducedAt  asn1.RawValue
+	Responses   []ocspSingleResponse
+}
+
+// ocspSingleResponse is the SingleResponse of RFC 6960 §4.2.1, decoded up to
+// its CertID.
+type ocspSingleResponse struct {
+	CertID ocspCertID
+}
+
+// ocspCertID is the CertID of RFC 6960 §4.1.1.
+type ocspCertID struct {
+	HashAlgorithm  pkix.AlgorithmIdentifier
+	IssuerNameHash []byte
+	IssuerKeyHash  []byte
+	SerialNumber   *big.Int
 }
 
 // ocspResponseASN1 is the OCSPResponse of RFC 6960 §4.2.1.
@@ -234,8 +270,8 @@ func ParseOCSPResponse(der []byte, issuer *x509.Certificate) (*ocsp.Response, er
 // Like golang.org/x/crypto/ocsp, it does not check that an embedded certificate
 // is authorized to answer for the issuer (the OCSP signing EKU of RFC 6960
 // §4.2.2.2) or is within its validity, or that the CertID names the issuer: any
-// certificate the issuer signed can sign an accepted response. Those checks are
-// left to the service that relies on the result (ROADMAP item 11).
+// certificate the issuer signed can sign an accepted response. A caller that
+// relies on the status checks that with VerifyOCSPResponder.
 func ParseOCSPResponseForCert(der []byte, cert, issuer *x509.Certificate) (*ocsp.Response, error) {
 	outer, basic, ok := decodeBasicOCSPResponse(der)
 	var algo x509.SignatureAlgorithm
@@ -295,11 +331,133 @@ func ParseOCSPResponseForCert(der []byte, cert, issuer *x509.Certificate) (*ocsp
 	return res, nil
 }
 
+// VerifyOCSPResponder checks that res, a response read by ParseOCSPResponse,
+// ParseOCSPResponseForCert or golang.org/x/crypto/ocsp, answers for a
+// certificate of issuer and was signed by a responder that RFC 6960 §4.2.2.2
+// authorizes to answer for it. The parsers check only signatures, so without
+// this check any certificate the issuer signed, a client certificate for
+// example, can sign a good status for any serial number of the issuer. The
+// rules, for classical and ML-DSA responses alike:
+//
+//   - with no embedded certificate, or one with the issuer's key, the
+//     issuer's key must verify the response;
+//   - any other embedded certificate (the first, the one the parsers use) is
+//     a delegated responder: its issuer name and signature are the issuer's, it
+//     has the OCSP signing extended key usage (anyExtendedKeyUsage does not
+//     count), it is valid now, and its key must verify the response;
+//   - the CertID of the status res reports, the first response for
+//     res.SerialNumber, carries the hashes of the issuer's name and key.
+//
+// The signatures are verified again, so res read without an issuer is
+// checked too. A responder is checked against the current time rather than
+// ThisUpdate, so the key of an expired responder cannot sign a response
+// dated within its validity. The caller still checks the issuer itself (its
+// chain, validity and revocation), the revocation of a delegated responder
+// that lacks id-pkix-ocsp-nocheck, the freshness of ThisUpdate and
+// NextUpdate, and a responder it trusts locally (the first case of
+// §4.2.2.2), which this function rejects unless it is the issuer.
+func VerifyOCSPResponder(res *ocsp.Response, issuer *x509.Certificate) error {
+	if res == nil {
+		return errors.New("OCSP response is nil")
+	}
+	if issuer == nil {
+		return errors.New("issuer certificate is nil")
+	}
+
+	responder := issuer
+	if crt := res.Certificate; crt != nil && !bytes.Equal(crt.RawSubjectPublicKeyInfo, issuer.RawSubjectPublicKeyInfo) {
+		if err := checkDelegatedOCSPResponder(crt, issuer, time.Now()); err != nil {
+			return err
+		}
+		responder = crt
+	}
+	if err := res.CheckSignatureFrom(responder); err != nil {
+		return errors.WithMessage(err, "bad OCSP signature")
+	}
+	return checkOCSPCertID(res, issuer)
+}
+
+// checkDelegatedOCSPResponder checks that crt, the certificate embedded in a
+// response, is a responder issuer delegated OCSP signing to, valid at now.
+func checkDelegatedOCSPResponder(crt, issuer *x509.Certificate, now time.Time) error {
+	if !bytes.Equal(crt.RawIssuer, issuer.RawSubject) {
+		return errors.New("OCSP responder certificate is not issued by the issuer")
+	}
+	if len(crt.UnhandledCriticalExtensions) != 0 {
+		return errors.Errorf("OCSP responder certificate has unhandled critical extensions: %v", crt.UnhandledCriticalExtensions)
+	}
+	if !IsOCSPSigner(crt) {
+		return errors.New("OCSP responder certificate has no OCSP signing extended key usage")
+	}
+	if now.Before(crt.NotBefore) || now.After(crt.NotAfter) {
+		return errors.Errorf("OCSP responder certificate is not valid now: valid from %s to %s",
+			crt.NotBefore.UTC().Format(time.RFC3339), crt.NotAfter.UTC().Format(time.RFC3339))
+	}
+	// SHA-1 accepted, as by the parsers and CreateOCSPRequest
+	if err := issuer.CheckSignature(crt.SignatureAlgorithm, crt.RawTBSCertificate, crt.Signature); err != nil {
+		return errors.WithMessage(err, "OCSP responder certificate is not signed by the issuer")
+	}
+	return nil
+}
+
+// checkOCSPCertID checks that the CertID of the status res reports, the first
+// response for res.SerialNumber in the signed response data, names issuer.
+func checkOCSPCertID(res *ocsp.Response, issuer *x509.Certificate) error {
+	if res.SerialNumber == nil {
+		return errors.New("OCSP response has no serial number")
+	}
+	var data ocspResponseData
+	rest, err := asn1.Unmarshal(res.TBSResponseData, &data)
+	if err != nil {
+		return errors.WithMessage(err, "unable to decode the OCSP response data")
+	}
+	if len(rest) > 0 {
+		return errors.New("trailing data in the OCSP response data")
+	}
+	idx := slices.IndexFunc(data.Responses, func(r ocspSingleResponse) bool {
+		return r.CertID.SerialNumber.Cmp(res.SerialNumber) == 0
+	})
+	if idx < 0 {
+		return errors.Errorf("OCSP response has no status for serial number %s", res.SerialNumber)
+	}
+	certID := data.Responses[idx].CertID
+	oid := certID.HashAlgorithm.Algorithm.String()
+	hash, ok := ocspHashes[oid]
+	if !ok {
+		return errors.Errorf("unsupported OCSP CertID hash algorithm: %s", oid)
+	}
+	nameHash, keyHash, err := ocspIssuerHashes(issuer, hash)
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare(certID.IssuerNameHash, nameHash) != 1 ||
+		subtle.ConstantTimeCompare(certID.IssuerKeyHash, keyHash) != 1 {
+		return errors.New("OCSP response CertID does not match the issuer")
+	}
+	return nil
+}
+
+// ocspIssuerHashes returns the CertID hashes of issuer (RFC 6960 §4.1.1):
+// the hash of its DER encoded subject name and the hash of the value of its
+// subjectPublicKey BIT STRING, without tag, length and unused bits.
+func ocspIssuerHashes(issuer *x509.Certificate, hash crypto.Hash) (nameHash, keyHash []byte, err error) {
+	var publicKeyInfo struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if _, err := asn1.Unmarshal(issuer.RawSubjectPublicKeyInfo, &publicKeyInfo); err != nil {
+		return nil, nil, errors.WithMessage(err, "unable to decode the issuer public key")
+	}
+	return Digest(hash, issuer.RawSubject), Digest(hash, publicKeyInfo.PublicKey.RightAlign()), nil
+}
+
 // CreateOCSPRequest returns the DER encoded OCSP request for crt issued by
-// issuer, hashing the issuer key with hash. A nil crt or issuer or an
+// issuer, hashing the issuer name and key with hash. A nil crt or issuer or an
 // unavailable hash returns an error before any work (XPKI-103), and so does
 // an issuer whose subject is not crt's issuer name or whose key did not sign
 // crt (XPKI-121). The signature check accepts SHA-1 and applies no CA policy.
+// The request is the one ocsp.CreateRequest builds, issuerNameHash included,
+// which was empty up to v2.0.324 (XPKI-131).
 func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte, error) {
 	if crt == nil {
 		return nil, errors.New("certificate is nil")
@@ -317,25 +475,15 @@ func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte,
 		return nil, errors.WithMessage(err, "invalid chain: issuer did not sign the certificate")
 	}
 
-	// OCSP requires Hash of the Key without Tag:
-	/// issuerKeyHash is the hash of the issuer's public key.  The hash
-	// shall be calculated over the value (excluding tag and length) of
-	// the subject public key field in the issuer's certificate.
-	var publicKeyInfo struct {
-		Algorithm pkix.AlgorithmIdentifier
-		PublicKey asn1.BitString
-	}
-	_, err := asn1.Unmarshal(issuer.RawSubjectPublicKeyInfo, &publicKeyInfo)
+	nameHash, keyHash, err := ocspIssuerHashes(issuer, hash)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
-
-	pub := publicKeyInfo.PublicKey.RightAlign()
-
 	req := ocsp.Request{
-		HashAlgorithm: hash,
-		SerialNumber:  crt.SerialNumber,
-		IssuerKeyHash: Digest(hash, pub),
+		HashAlgorithm:  hash,
+		IssuerNameHash: nameHash,
+		IssuerKeyHash:  keyHash,
+		SerialNumber:   crt.SerialNumber,
 	}
 
 	der, err := req.Marshal()

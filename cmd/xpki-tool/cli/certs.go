@@ -296,7 +296,11 @@ func (a *CertValidateCmd) Run(ctx *Cli) error {
 	return nil
 }
 
-// OCSPValidation calls OCSP server and validate certificate
+// OCSPValidation asks the OCSP server at rawURL for the status of crt and
+// returns it with the response. The response must be signed by issuer or a
+// responder issuer authorized (certutil.VerifyOCSPResponder), name issuer in
+// its CertID, and not be past its NextUpdate; otherwise the status is
+// ocsp.Unknown with an error.
 func OCSPValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, []byte, error) {
 	logger.KV(xlog.DEBUG, "fetching", "ocsp", "url", rawURL)
 
@@ -310,11 +314,13 @@ func OCSPValidation(ctx context.Context, client *http.Client, crt *x509.Certific
 		return ocsp.Unknown, nil, err
 	}
 
-	// the responder's authorization is not checked (ROADMAP item 11)
 	res, err := certutil.ParseOCSPResponseForCert(der, crt, issuer)
 	if err != nil {
 		logger.KV(xlog.DEBUG, "ocsp", string(der))
 		return ocsp.Unknown, der, errors.WithMessagef(err, "failed to parse OCSP")
+	}
+	if err := certutil.VerifyOCSPResponder(res, issuer); err != nil {
+		return ocsp.Unknown, der, errors.WithMessage(err, "invalid OCSP response")
 	}
 
 	if !res.NextUpdate.IsZero() && res.NextUpdate.Before(time.Now()) {

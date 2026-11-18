@@ -463,13 +463,16 @@ func TestParseOCSPResponseOpenSSL(t *testing.T) {
 			}
 
 			// the response answers a request for this certificate: serial and
-			// hash algorithm, the fields ocsp.Response exposes (ROADMAP item 11)
+			// hash algorithm, the fields ocsp.Response exposes
 			req, err := certutil.CreateOCSPRequest(leaf, ca, crypto.SHA1)
 			require.NoError(t, err)
 			parsed, err := ocsp.ParseRequest(req)
 			require.NoError(t, err)
 			assert.Equal(t, parsed.SerialNumber, res.SerialNumber)
 			assert.Equal(t, parsed.HashAlgorithm, res.IssuerHash)
+			// OpenSSL's CertID hashes match the issuer, and its delegated
+			// responder carries the OCSP signing extended key usage
+			require.NoError(t, certutil.VerifyOCSPResponder(res, ca))
 
 			// an issuer that signed neither the response nor the responder
 			other, _ := mldsaCA(t, mldsa.MLDSA65())

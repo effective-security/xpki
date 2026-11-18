@@ -43,7 +43,7 @@ Package cli implements the xpki\-tool command tree: csr\-info, cert info/validat
 
 
 <a name="CRLValidation"></a>
-## func [CRLValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L328>)
+## func [CRLValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L334>)
 
 ```go
 func CRLValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, crlURL string) (int, error)
@@ -52,13 +52,13 @@ func CRLValidation(ctx context.Context, client *http.Client, crt *x509.Certifica
 CRLValidation calls CRL Endpoint and check certificate in CRL
 
 <a name="OCSPValidation"></a>
-## func [OCSPValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L300>)
+## func [OCSPValidation](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/certs.go#L304>)
 
 ```go
 func OCSPValidation(ctx context.Context, client *http.Client, crt *x509.Certificate, issuer *x509.Certificate, rawURL string) (int, []byte, error)
 ```
 
-OCSPValidation calls OCSP server and validate certificate
+OCSPValidation asks the OCSP server at rawURL for the status of crt and returns it with the response. The response must be signed by issuer or a responder issuer authorized \(certutil.VerifyOCSPResponder\), name issuer in its CertID, and not be past its NextUpdate; otherwise the status is ocsp.Unknown with an error.
 
 <a name="CRLCmd"></a>
 ## type [CRLCmd](<https://github.com/effective-security/xpki/blob/main/cmd/xpki-tool/cli/crl.go#L17-L20>)

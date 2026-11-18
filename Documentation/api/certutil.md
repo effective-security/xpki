@@ -79,6 +79,7 @@ chain, err := b.BundleContext(ctx, []*x509.Certificate{leaf}, nil)
 - [func SHA256Hex\(data \[\]byte\) string](<#SHA256Hex>)
 - [func StrToHashAlgo\(algo string\) crypto.Hash](<#StrToHashAlgo>)
 - [func VerifyBundleFromPEM\(certPEM, intCAPEM, rootPEM \[\]byte, opt ...Option\) \(bundle \*Bundle, status \*BundleStatus, err error\)](<#VerifyBundleFromPEM>)
+- [func VerifyOCSPResponder\(res \*ocsp.Response, issuer \*x509.Certificate\) error](<#VerifyOCSPResponder>)
 - [type Bundle](<#Bundle>)
   - [func SortBundlesByExpiration\(bundles \[\]\*Bundle\) \[\]\*Bundle](<#SortBundlesByExpiration>)
   - [func \(b \*Bundle\) ExpiresInHours\(\) time.Duration](<#Bundle.ExpiresInHours>)
@@ -158,16 +159,16 @@ func BuildBundle(c *Chain) (bundle *Bundle, status *BundleStatus, err error)
 BuildBundle returns the Bundle and BundleStatus of a Chain built by a Bundler. A nil c or c.Cert returns an error; a nil c.Status is treated as an empty status, and a nil c.Root \(a Force chain\) leaves RootCert and RootCertPEM empty \(XPKI\-042\).
 
 <a name="CreateOCSPRequest"></a>
-## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L303>)
+## func [CreateOCSPRequest](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L458>)
 
 ```go
 func CreateOCSPRequest(crt, issuer *x509.Certificate, hash crypto.Hash) ([]byte, error)
 ```
 
-CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer key with hash. A nil crt or issuer or an unavailable hash returns an error before any work \(XPKI\-103\), and so does an issuer whose subject is not crt's issuer name or whose key did not sign crt \(XPKI\-121\). The signature check accepts SHA\-1 and applies no CA policy.
+CreateOCSPRequest returns the DER encoded OCSP request for crt issued by issuer, hashing the issuer name and key with hash. A nil crt or issuer or an unavailable hash returns an error before any work \(XPKI\-103\), and so does an issuer whose subject is not crt's issuer name or whose key did not sign crt \(XPKI\-121\). The signature check accepts SHA\-1 and applies no CA policy. The request is the one ocsp.CreateRequest builds, issuerNameHash included, which was empty up to v2.0.324 \(XPKI\-131\).
 
 <a name="CreateOCSPResponse"></a>
-## func [CreateOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L97>)
+## func [CreateOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L133>)
 
 ```go
 func CreateOCSPResponse(ctx context.Context, issuer, responderCert *x509.Certificate, template ocsp.Response, signer crypto.Signer) ([]byte, error)
@@ -486,7 +487,7 @@ func ParseHexDigestWithPrefix(digest string) (hash.Hash, []byte, error)
 ParseHexDigestWithPrefix parses encoded digest in \{alg\}:\{hex\} format
 
 <a name="ParseOCSPResponse"></a>
-## func [ParseOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L218>)
+## func [ParseOCSPResponse](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L254>)
 
 ```go
 func ParseOCSPResponse(der []byte, issuer *x509.Certificate) (*ocsp.Response, error)
@@ -495,7 +496,7 @@ func ParseOCSPResponse(der []byte, issuer *x509.Certificate) (*ocsp.Response, er
 ParseOCSPResponse parses and verifies a DER encoded OCSP response that holds one status, as ParseOCSPResponseForCert with no certificate.
 
 <a name="ParseOCSPResponseForCert"></a>
-## func [ParseOCSPResponseForCert](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L239>)
+## func [ParseOCSPResponseForCert](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L275>)
 
 ```go
 func ParseOCSPResponseForCert(der []byte, cert, issuer *x509.Certificate) (*ocsp.Response, error)
@@ -503,7 +504,7 @@ func ParseOCSPResponseForCert(der []byte, cert, issuer *x509.Certificate) (*ocsp
 
 ParseOCSPResponseForCert parses a DER encoded OCSP response and returns the status of cert, as ocsp.ParseResponseForCert does, and also verifies a response signed with ML\-DSA, which that function cannot. A response with an embedded certificate is verified with that certificate's key and, when issuer is set, the certificate with the issuer's key; without one, the response is verified with the issuer's key when issuer is set. With no embedded certificate and no issuer the signature is not checked. A status other than successful is an ocsp.ResponseError in the error chain, and a signature that does not verify an ocsp.ParseError, for ML\-DSA too. Response.SignatureAlgorithm is x509.MLDSA44, MLDSA65 or MLDSA87 for an ML\-DSA response, so Response.CheckSignatureFrom works on it.
 
-Like golang.org/x/crypto/ocsp, it does not check that an embedded certificate is authorized to answer for the issuer \(the OCSP signing EKU of RFC 6960 §4.2.2.2\) or is within its validity, or that the CertID names the issuer: any certificate the issuer signed can sign an accepted response. Those checks are left to the service that relies on the result \(ROADMAP item 11\).
+Like golang.org/x/crypto/ocsp, it does not check that an embedded certificate is authorized to answer for the issuer \(the OCSP signing EKU of RFC 6960 §4.2.2.2\) or is within its validity, or that the CertID names the issuer: any certificate the issuer signed can sign an accepted response. A caller that relies on the status checks that with VerifyOCSPResponder.
 
 <a name="ParsePrivateKeyDER"></a>
 ## func [ParsePrivateKeyDER](<https://github.com/effective-security/xpki/blob/main/certutil/pem.go#L377>)
@@ -639,6 +640,21 @@ func VerifyBundleFromPEM(certPEM, intCAPEM, rootPEM []byte, opt ...Option) (bund
 ```
 
 VerifyBundleFromPEM constructs and verifies the cert chain
+
+<a name="VerifyOCSPResponder"></a>
+## func [VerifyOCSPResponder](<https://github.com/effective-security/xpki/blob/main/certutil/ocsp.go#L359>)
+
+```go
+func VerifyOCSPResponder(res *ocsp.Response, issuer *x509.Certificate) error
+```
+
+VerifyOCSPResponder checks that res, a response read by ParseOCSPResponse, ParseOCSPResponseForCert or golang.org/x/crypto/ocsp, answers for a certificate of issuer and was signed by a responder that RFC 6960 §4.2.2.2 authorizes to answer for it. The parsers check only signatures, so without this check any certificate the issuer signed, a client certificate for example, can sign a good status for any serial number of the issuer. The rules, for classical and ML\-DSA responses alike:
+
+- with no embedded certificate, or one with the issuer's key, the issuer's key must verify the response;
+- any other embedded certificate \(the first, the one the parsers use\) is a delegated responder: its issuer name and signature are the issuer's, it has the OCSP signing extended key usage \(anyExtendedKeyUsage does not count\), it is valid now, and its key must verify the response;
+- the CertID of the status res reports, the first response for res.SerialNumber, carries the hashes of the issuer's name and key.
+
+The signatures are verified again, so res read without an issuer is checked too. A responder is checked against the current time rather than ThisUpdate, so the key of an expired responder cannot sign a response dated within its validity. The caller still checks the issuer itself \(its chain, validity and revocation\), the revocation of a delegated responder that lacks id\-pkix\-ocsp\-nocheck, the freshness of ThisUpdate and NextUpdate, and a responder it trusts locally \(the first case of §4.2.2.2\), which this function rejects unless it is the issuer.
 
 <a name="Bundle"></a>
 ## type [Bundle](<https://github.com/effective-security/xpki/blob/main/certutil/bundle.go#L41-L56>)

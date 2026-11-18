@@ -228,5 +228,5 @@ Start here instead of grepping the tree.
 
 ## IMPORTANT
 
-- Do not commit or ask to commit any changes unless you have explicit instructions to do so..
+- Do not commit or ask to commit any changes unless you have explicit instructions to do so.
 - Review your changes before declaring current task as DONE.

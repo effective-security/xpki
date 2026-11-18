@@ -9,7 +9,8 @@ was shaped for cloud KMS and still fits a PKCS#11 token. It is roadmap item
 K12 are in [`Documentation/design/keymanager.md`](design/keymanager.md).
 The signing path takes a context too (roadmap item 1): every key of the
 providers is a `cryptoprov.ContextSigner`, and the functions that sign with
-a CA or CSR key take `ctx`.
+a CA or CSR key take `ctx`. `certutil.VerifyOCSPResponder` checks that an
+OCSP response comes from a responder the CA authorized (roadmap item 11).
 
 It is a **breaking** release for every client: the module path is
 `github.com/effective-security/xpki/v2`. v1 continues on the `release-v1`
@@ -212,6 +213,23 @@ not available: the service does not offer it for HSM keys, see "Constraints".
   signs through the bound `Sign` with the context. `authority`,
   `csr`, `certutil` and `jwt` sign this way; `jwt.Signer.Sign` and the `dpop`
   signer already had a `ctx`, which now reaches the key.
+- **OCSP responder authorization** (roadmap item 11).
+  `certutil.VerifyOCSPResponder(res, issuer)` checks a response read by
+  `ParseOCSPResponse[ForCert]` or `golang.org/x/crypto/ocsp` against RFC 6960
+  §4.2.2.2, for classical and ML-DSA responses alike. The response must be
+  signed by the issuer, or by a responder certificate that the issuer issued
+  with the OCSP signing extended key usage (`anyExtendedKeyUsage` does not
+  count) and that is valid at the time of the check. The CertID of the
+  reported status must carry the hashes of the issuer's name and key. The
+  parsers, which are unchanged, check signatures only: any certificate of
+  the CA, a client certificate for example, could sign a `good` status they
+  accept, for any serial number of the CA. The responder is checked at the
+  current time, not at `ThisUpdate` as the roadmap first proposed, so the key
+  of an expired responder cannot sign a response dated within its validity.
+  `xpki-tool cert validate --revocation` and `ocsp fetch` apply the check: a
+  response from a responder the CA did not authorize, or for another issuer,
+  is an error (`invalid OCSP response: …`) with the status unknown. `ocsp
+  info` still checks the signature only.
 - **Paged, filtered listings.** `ListKeysRequest` has `PageSize`, `PageToken`,
   `Filter` (`Usage`, `Types`, `Label`, `LabelPrefix`, `Tags`, `States`) and
   `Fields`. `AllKeys(ctx, km, req)` iterates over every page. A page can be
@@ -291,6 +309,13 @@ not available: the service does not offer it for HSM keys, see "Constraints".
   which generates a root and a leaf signed with SHA-256 (verifies) and with
   SHA-1 (rejected as an insecure algorithm) at test time, so it cannot expire.
   No library change; clients change nothing.
+- **XPKI-131** (`certutil`, correctness): `CreateOCSPRequest` hashed the
+  issuer key but sent an empty `issuerNameHash` in the CertID. A responder
+  that matches the whole CertID could not find the certificate, and one that
+  copies the CertID of the request into the response returned one that
+  `VerifyOCSPResponder` rejects. The request now carries the hash of the
+  issuer's subject and is byte for byte the one `ocsp.CreateRequest` builds.
+  Clients change nothing.
 
 ## Performance
 
@@ -424,6 +449,15 @@ v1 path; check the diff for one outside an import block.
 - An implementer of a key for `cryptoprov` adds `SignContext` (and
   `DecryptContext` for a decrypter) and makes `Sign` call it with
   `context.Background()`; `internal/provtest` (`TestSignContext`) checks it.
+- A service that relies on an OCSP status calls
+  `certutil.VerifyOCSPResponder(res, issuer)` after parsing the response, and
+  still checks `ThisUpdate`, `NextUpdate` and the chain of the issuer. A
+  responder that the service trusts by local configuration rather than by an
+  OCSP signing certificate from the CA needs the service's own check, since
+  `VerifyOCSPResponder` rejects it.
+- A script that reads `xpki-tool cert validate --revocation` or `ocsp fetch`
+  output sees `ERROR: invalid OCSP response: …` where it saw a status for a
+  responder its CA did not authorize.
 
 ## Validation
 

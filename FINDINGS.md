@@ -9,16 +9,16 @@ fixed, remove it from this file and `PLAN.md`, and summarize it in the
 release notes of the next version (`Documentation/RELEASE_NOTES_<version>.md`).
 A finding spanning several packages stays here until every portion is fixed.
 IDs are never reused; gaps are fixed or removed findings. The next free ID is
-**XPKI-131**. Findings fixed in v1.0 are listed in
+**XPKI-132**. Findings fixed in v1.0 are listed in
 [`Documentation/RELEASE_NOTES_1.0.md`](Documentation/RELEASE_NOTES_1.0.md);
-their full records are in git history. XPKI-126 became
-[roadmap item 11](ROADMAP.md#11-ocsp-responder-authorization), and XPKI-127 and
+their full records are in git history. XPKI-126 became roadmap item 11, done in v2.0
+([`Documentation/RELEASE_NOTES_2.0.md`](Documentation/RELEASE_NOTES_2.0.md)), and XPKI-127 and
 XPKI-128 are fixed in
 [`Documentation/RELEASE_NOTES_1.1.md`](Documentation/RELEASE_NOTES_1.1.md).
 XPKI-129 is fixed in v2 by
 [`Documentation/RELEASE_NOTES_2.0.md`](Documentation/RELEASE_NOTES_2.0.md); it
 is still present on the `release-v1` branch, where it is fixed on request.
-XPKI-130 is fixed in v2 by the same release notes.
+XPKI-130 and XPKI-131 are fixed in v2 by the same release notes.
 
 ## Status
 

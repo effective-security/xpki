@@ -64,6 +64,7 @@ func TestSignOCSPResponses(t *testing.T) {
 			require.NoError(t, err)
 			response, err := ocsp.ParseResponse(der, entity.Certificate)
 			require.NoError(t, err)
+			require.NoError(t, certutil.VerifyOCSPResponder(response, entity.Certificate))
 			assert.Equal(t, tc.code, response.Status)
 			assert.Equal(t, big.NewInt(42), response.SerialNumber)
 			assert.Equal(t, thisUpdate, response.ThisUpdate)

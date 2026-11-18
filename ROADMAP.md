@@ -40,7 +40,7 @@ is deliberately not started, `Done` shipped in the named version.
 | 9    | [dataprotection: versioned blobs and key rotation](#9-dataprotection-versioned-blobs-and-key-rotation) | Open                                                                                   |
 | 10   | [Tooling and CI](#10-tooling-and-ci)                                                                   | See 10.1                                                                               |
 | 10.1 | Regenerate `cmd/*/README.md` from `--help`                                                             | Open                                                                                   |
-| 11   | [OCSP responder authorization](#11-ocsp-responder-authorization)                                       | Open                                                                                   |
+| 11   | OCSP responder authorization                                                                           | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 12   | [Key management interfaces (v2)](#12-key-management-interfaces-keymanager-and-keygenerator-v2)         | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md)); live runs in PLAN.md |
 
 ## 2. KMS encryption keys
@@ -136,27 +136,6 @@ accepting the legacy unversioned blob during migration.
 
 - **10.1** Regenerate `cmd/*/README.md` from `--help` output and add per-command
   examples.
-
-## 11. OCSP responder authorization
-
-RFC 6960 §4.2.2.2 has the relying party reject a response unless its signer is
-the CA itself or a certificate the CA issued with `id-kp-OCSPSigning`. That
-decision belongs to the service that reads the response: `xpki` is a library, so
-`certutil.ParseOCSPResponseForCert` does what `golang.org/x/crypto/ocsp` does and
-checks signatures only, not the responder's EKU or validity, and matches a
-response by serial number, not the issuer hashes of its CertID. Any certificate
-from a CA, such as a client certificate, can therefore sign a `good` this function
-accepts, for any serial number of that CA (verified on 2026-11-09 with a
-`clientAuth`-only leaf, through `ocsp.ParseResponse` with ECDSA and
-`certutil.ParseOCSPResponse` with ML-DSA). Recorded earlier as XPKI-126.
-
-Give services a helper so that each does not write this check: an opt-in
-`certutil.VerifyOCSPResponder`, leaving `ParseOCSPResponse` as it is, for
-classical and ML-DSA alike. An embedded certificate other than the issuer itself
-must carry the OCSP signing EKU and be valid at `ThisUpdate`, and the CertID
-hashes must match the issuer (`ocsp.Response` does not expose them, so this needs
-the local decode). Use it in `xpki-tool cert validate --revocation`
-(`OCSPValidation`), which trusts the parsed response and checks only `NextUpdate`.
 
 ## 12. Key management interfaces: `KeyManager` and `KeyGenerator` (v2)
 
