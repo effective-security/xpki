@@ -21,7 +21,7 @@ The module is `github.com/effective-security/xpki/v2` and targets Go 1.27.
 | `cryptoprov/inmemcrypto`  | In-memory provider for tests and development                                                                                                                                  |
 | `csr`                     | CSR generation and parsing, key requests (RSA, ECDSA, ML-DSA), SAN and CRL distribution point encoding                                                                        |
 | `authority`               | Certificate Authority: issuers, certificate profiles, `Sign`, OCSP and CRL signing                                                                                            |
-| `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP requests, ML-DSA OCSP responses                                                                                      |
+| `certutil`                | Certificate, PEM, chain and bundle helpers, hashes, OCSP requests, ML-DSA OCSP responses, OCSP responder authorization                                                        |
 | `jwt`                     | JWT signing and verification (HMAC, RSA, ECDSA, ML-DSA), claims, static and remote JWKS key sets                                                                              |
 | `jwt/dpop`                | DPoP proof creation and verification (RFC 9449)                                                                                                                               |
 | `jwt/accesstoken`         | Opaque access-token helpers on top of `jwt`                                                                                                                                   |
@@ -305,6 +305,27 @@ bundle, status, err := certutil.LoadAndVerifyBundleFromPEM(
 Without a root file the bundler only checks that each certificate signs the
 previous one (`Force`). To verify against the platform trust store, pass
 `certutil.WithSystemRoots(true)`; system roots are never trusted implicitly.
+
+### Check an OCSP response
+
+```go
+res, err := certutil.ParseOCSPResponseForCert(der, cert, issuer)
+if err != nil {
+    return err
+}
+// the CA or a responder it authorized signed it, for a certificate of issuer
+if err := certutil.VerifyOCSPResponder(res, issuer); err != nil {
+    return err
+}
+if !res.NextUpdate.IsZero() && res.NextUpdate.Before(time.Now()) {
+    return errors.New("OCSP response is expired")
+}
+status := res.Status // ocsp.Good, ocsp.Revoked or ocsp.Unknown
+```
+
+The parsers check signatures only, as `golang.org/x/crypto/ocsp` does: without
+`VerifyOCSPResponder` any certificate the CA issued can sign a status they
+accept.
 
 ### Issue and verify JWTs
 

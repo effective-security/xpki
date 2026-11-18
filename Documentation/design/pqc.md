@@ -38,9 +38,9 @@ AWS KMS, GCP KMS, CLI and documentation), and these after the first tags
   by default because x/crypto verifies that signature. Under an ML-DSA CA the
   responder's certificate still carries an ML-DSA signature, so a client with no
   ML-DSA at all cannot validate the response whichever key signs it.
-  Whether a responder is authorized is left to the service reading the
-  response, as in x/crypto
-  ([roadmap 11](../../ROADMAP.md#11-ocsp-responder-authorization)).
+  The parsers check signatures only, as in x/crypto; whether a responder is
+  authorized is checked by `certutil.VerifyOCSPResponder` (v2.0, roadmap item
+  11, [release notes](../RELEASE_NOTES_2.0.md)).
 - **Second milestone**: `jwt` and `jwt/dpop` sign and verify `ML-DSA-44/65/87`
   (RFC 9964) and read `AKP` JWKs; `oauth2client.Client.PublicKey` is a
   `crypto.PublicKey`. `dpop.GenerateKey` stays P-256: a proof that size is

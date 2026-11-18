@@ -101,6 +101,7 @@ consumers. Nothing in the library imports `cmd/`.
 | Post-quantum detection                     | `certutil/pqc.go`                                                                            | `IsPostQuantumKey`, `IsPostQuantumCertificate`, `IsPostQuantumSignatureAlgorithm`, `KeyTypeRSA/ECDSA/MLDSA`                                                                                                                                                                                                                                                   |
 | OCSP request, extensions                   | `certutil/ocsp.go`, `certutil/extensions.go`                                                 | `CreateOCSPRequest`, `FindExtension`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                                                                                                                                                                                                                                                        |
 | OCSP response create / verify (ML-DSA too) | `certutil/ocsp.go`                                                                           | `CreateOCSPResponse`, `ParseOCSPResponse`, `ParseOCSPResponseForCert`                                                                                                                                                                                                                                                                                         |
+| OCSP responder authorization, CertID check | `certutil/ocsp.go`                                                                           | `VerifyOCSPResponder` (`checkDelegatedOCSPResponder`, `checkOCSPCertID`, `ocspIssuerHashes`); used by `xpki-tool` `OCSPValidation`                                                                                                                                                                                                                         |
 | Randomness                                 | `certutil/random.go`                                                                         | `Random`, `RandomString`, `RandReader`                                                                                                                                                                                                                                                                                                                        |
 | JWT provider (sign + verify)               | `jwt/jwt.go`                                                                                 | `ProviderConfig`, `LoadProvider(ctx, …)`, `NewProvider(ctx, …)`, `MustNewProvider(ctx, …)`, `NewProviderFromCryptoSigner`, `NewProviderWithSymmetricKey`, `WithHeaders`                                                                                                                                                                                       |
 | JWT signing internals                      | `jwt/sign.go`                                                                                | `NewSignerInfo`, `VerifySignature`, `mldsaParameterSets`, `mldsaKeyFits`                                                                                                                                                                                                                                                                                      |
@@ -1223,7 +1224,7 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
 | `keyinfo.go`    | `KeyInfo`, `NewKeyInfo` (RSA/ECDSA/ML-DSA from signer, decrypter or JWK; ML-DSA: `Type` `ML-DSA`, `KeySize` 44/65/87, `Hash` 0), `KeyTypeRSA/ECDSA/MLDSA`       |
 | `pqc.go`        | `IsPostQuantumKey` (key, signer, decrypter; nil-safe), `IsPostQuantumSignatureAlgorithm`, `IsPostQuantumCertificate` (key or signature algorithm)                 |
 | `name.go`       | `NameToString` (OpenSSL-style DN)                                                                                                                               |
-| `ocsp.go`       | `CreateOCSPRequest` (nil certificate/issuer or unavailable hash is an error; the issuer must carry crt's issuer name and its key must verify crt's signature, SHA-1 allowed, XPKI-121); `CreateOCSPResponse`, `ParseOCSPResponse[ForCert]` (ML-DSA, see invariants) |
+| `ocsp.go`       | `CreateOCSPRequest` (nil certificate/issuer or unavailable hash is an error; the issuer must carry crt's issuer name and its key must verify crt's signature, SHA-1 allowed, XPKI-121; CertID with both issuer hashes, XPKI-131); `CreateOCSPResponse`, `ParseOCSPResponse[ForCert]` (ML-DSA, see invariants); `VerifyOCSPResponder` (responder authorization and CertID, see invariants) |
 | `extensions.go` | `FindExtension*`, `IsOCSPSigner`, `HasOCSPNoCheck`                                                                                                              |
 | `random.go`     | `RandReader`, `Random`, `RandomString` (panic on RNG failure)                                                                                                   |
 
@@ -1241,10 +1242,31 @@ Certificate, PEM, key and chain helpers plus a CFSSL-derived bundler.
   copy without certificates and with no issuer, then verifies by its rules: an
   embedded certificate (the first) must verify the response and, when `issuer`
   is set, be signed by it; otherwise `issuer` verifies the response when set. A
-  failed check is an `ocsp.ParseError`, as in x/crypto. The EKU and validity of
-  a responder and the issuer hashes of the CertID are not checked, also as in
-  x/crypto: that is left to the service reading the response (ROADMAP 11).
-  `CreateOCSPResponse` returns an error for a nil or typed
+  failed check is an `ocsp.ParseError`, as in x/crypto. The parsers do not
+  check the EKU and validity of a responder or the issuer hashes of the
+  CertID, also as in x/crypto.
+- OCSP responder authorization (roadmap item 11, RFC 6960 §4.2.2.2): the
+  opt-in `VerifyOCSPResponder(res, issuer)` checks a parsed response,
+  classical or ML-DSA, from either parser. With no embedded certificate, or
+  one with the issuer's SPKI, the issuer's key verifies the response. Any
+  other embedded certificate is a delegated responder
+  (`checkDelegatedOCSPResponder`): its issuer name is the issuer's subject, it
+  has `id-kp-OCSPSigning` (`IsOCSPSigner`; `anyExtendedKeyUsage` does not
+  count), it is valid at `time.Now()` (deliberately not at `ThisUpdate`, so
+  an expired responder's key cannot backdate a response), the issuer's key
+  verifies it (`CheckSignature`, SHA-1 accepted) and its key verifies the
+  response. The signatures are verified again, so a response parsed without
+  an issuer is covered. `checkOCSPCertID` decodes `res.TBSResponseData` (the
+  signed bytes) into `ocspResponseData` and takes the first response for
+  `res.SerialNumber`, the one both parsers report. Its CertID hash must be
+  SHA-1/256/384/512 (`ocspHashes`), and its name and key hashes must equal
+  `ocspIssuerHashes(issuer)`, compared in constant time. The function does
+  not check the ResponderID, the issuer's own chain or validity, the
+  freshness of `ThisUpdate`/`NextUpdate`, or a locally trusted responder.
+  `CreateOCSPRequest` shares `ocspIssuerHashes` and sends `issuerNameHash`,
+  which was empty up to v2.0.324 (XPKI-131), so its request is byte for byte
+  that of `ocsp.CreateRequest`.
+- `CreateOCSPResponse` returns an error for a nil or typed
   nil signer and an uninitialized ML-DSA key. It takes `ctx` (v2): a classical
   key signs through `ocsp.CreateResponse` with `signctx.Bind`, an ML-DSA key
   through `signctx.Sign`, so an ended context fails either way before the key
@@ -1318,6 +1340,13 @@ key Go rejects; its README has the commands), checked by `pqc_test.go` together
 with the detection helpers and mixed classical/ML-DSA chains from `testca`, and
 by `ocsp_mldsa_test.go`, which also round-trips responses for every parameter set
 and status, records what x/crypto cannot do, and rejects hostile responses.
+`ocsp_responder_test.go` runs every `VerifyOCSPResponder` rule for ECDSA and
+ML-DSA keys on responses the parsers accept (a client certificate, any or no
+EKU, an expired or future responder, a responder of another CA or of the CA
+name with another key, CertIDs naming another name or key, every CertID
+hash), plus the input errors on re-signed response data; the OpenSSL vectors
+and the `authority` OCSP tests (`parseDelegated`, `mldsa_test.go`,
+`ocsp_coverage_test.go`) pass it too.
 `TestKeyInfoKMS` is the only fixture test: it is gated with
 `testenv.RequireTCP` on local-kms `:14556`; `TestKeyInfoOpaqueKeys` covers
 opaque signers without KMS. `bundle_input_test.go` covers the nil/empty
@@ -1651,12 +1680,17 @@ conflicts/overrides; it makes no network requests.
   `--with-aia`), `crl info`, `crl fetch` (needs `--output` or `--print`;
   errors when no selected certificate has a CRL distribution point),
   `ocsp info` (`--issuer` PEM verifies the response signature, ML-DSA included,
-  through `certutil.ParseOCSPResponse`), `ocsp fetch`
+  through `certutil.ParseOCSPResponse`; it does not check the responder's
+  authorization), `ocsp fetch`
   (error when the certificate has no OCSP URL; every endpoint is tried and
   each failure is printed as `<url> : ERROR: ...`; one valid response is a
   success, and when all fail it returns `no valid OCSP response from N
-  endpoint(s)` listing each `<url>: <reason>`, XPKI-102). HTTP helpers take
-  the CLI context; output paths use `filepath.Join`.
+  endpoint(s)` listing each `<url>: <reason>`, XPKI-102). `cert validate
+  --revocation` and `ocsp fetch` read each response with `OCSPValidation`,
+  which requires `certutil.VerifyOCSPResponder` to pass (`invalid OCSP
+  response: …`, status unknown) and the response not to be past
+  `NextUpdate`. HTTP helpers take the CLI context; output paths use
+  `filepath.Join`.
 - Exit codes: kong parse error → 80; `Run` error → 1; panic → 2. `-` as a
   file name reads stdin.
 - Tests: `cmd/hsm-tool/cli` uses testify mocks for providers, plus `csr_test.go`
@@ -1703,7 +1737,10 @@ responder answers per certificate serial, so `TestOCSPFetchEndpointPolicy`
 asserts that `ocsp fetch` fails when every endpoint fails and succeeds when
 one answers (XPKI-102); `cmd/xpki-tool/main_test.go` checks the exit status
 1. It also asserts that a nil certificate or issuer returns the `CreateOCSPRequest` error
-with `ocsp.Unknown` and no HTTP request (XPKI-103). Fixtures use `t.TempDir()`. In
+with `ocsp.Unknown` and no HTTP request (XPKI-103). `ocsp_responder_test.go`
+(`TestOCSPValidationResponder`) has `OCSPValidation` accept the CA and an
+OCSP signing responder and reject a client certificate of the same CA.
+Fixtures use `t.TempDir()`. In
 `cmd/xpki-tool/cli/suite_test.go`, `testSuite.SetupSuite` allocates a unique
 directory on the suite's parent test; Go removes it after all suite subtests
 finish. Overlapping CLI test processes cannot overwrite or remove one

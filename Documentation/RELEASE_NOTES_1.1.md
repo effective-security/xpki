@@ -180,7 +180,8 @@ certificates, CRLs and proofs. Anyone already on them also gets these changes:
   is left to the service that reads the response: any certificate the issuer
   signed can sign a response this function accepts, for classical and ML-DSA
   responses alike. `xpki-tool cert validate --revocation` does not check it
-  either. See [roadmap item 11](../ROADMAP.md#11-ocsp-responder-authorization).
+  either. v2.0 adds the check as `certutil.VerifyOCSPResponder` (roadmap item
+  11, [release notes](RELEASE_NOTES_2.0.md)).
 - **Token size**: an ML-DSA JWT or DPoP proof with the public key in its header
   is about 6 KB (ML-DSA-44), 8 KB (ML-DSA-65) or 11 KB (ML-DSA-87), which can
   exceed the header limit of an HTTP server or proxy.

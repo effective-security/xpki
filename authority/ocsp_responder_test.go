@@ -197,6 +197,8 @@ func parseDelegated(t *testing.T, der []byte, issuer *x509.Certificate) (*ocsp.R
 	require.NoError(t, err)
 	require.NotNil(t, response.Certificate)
 	require.NoError(t, response.CheckSignatureFrom(response.Certificate))
+	// a relying party that checks the responder accepts it (ROADMAP item 11)
+	require.NoError(t, certutil.VerifyOCSPResponder(response, issuer))
 	return response, response.Certificate
 }
 

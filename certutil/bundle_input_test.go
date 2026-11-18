@@ -1,7 +1,6 @@
 package certutil_test
 
 import (
-	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
@@ -262,12 +261,16 @@ func TestCreateOCSPRequestInput(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, hash, req.HashAlgorithm)
 			assert.Equal(t, 0, leaf.SerialNumber.Cmp(req.SerialNumber))
-			// The issuer name hash matches the one a response is built for.
+			// The CertID hashes are those of x/crypto, the ones a response is
+			// built for; the name hash was empty before (XPKI-131).
 			want, err := ocsp.CreateRequest(leaf, issuer, &ocsp.RequestOptions{Hash: hash})
 			require.NoError(t, err)
 			wantReq, err := ocsp.ParseRequest(want)
 			require.NoError(t, err)
-			assert.True(t, bytes.Equal(wantReq.IssuerKeyHash, req.IssuerKeyHash))
+			assert.Len(t, req.IssuerNameHash, hash.Size())
+			assert.Equal(t, wantReq.IssuerNameHash, req.IssuerNameHash)
+			assert.Equal(t, wantReq.IssuerKeyHash, req.IssuerKeyHash)
+			assert.Equal(t, want, der)
 		})
 	}
 }
