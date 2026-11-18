@@ -11,6 +11,9 @@ The signing path takes a context too (roadmap item 1): every key of the
 providers is a `cryptoprov.ContextSigner`, and the functions that sign with
 a CA or CSR key take `ctx`. `certutil.VerifyOCSPResponder` checks that an
 OCSP response comes from a responder the CA authorized (roadmap item 11).
+`jwt.RemoteKeySet` gives fetched JWKS keys a lifetime and refreshes them
+before it ends, so keys an issuer removes stop being accepted (roadmap item
+5).
 
 It is a **breaking** release for every client: the module path is
 `github.com/effective-security/xpki/v2`. v1 continues on the `release-v1`
@@ -171,6 +174,12 @@ not available: the service does not offer it for HSM keys, see "Constraints".
 
 - `NewProvider`, `LoadProvider` and `MustNewProvider` take `ctx` as their
   first argument.
+- `RemoteKeySet`, which `NewParser` uses for a `jwks_uri`, no longer keeps
+  fetched keys for the life of the process: it fetches the document again
+  when its cache lifetime ends (1 hour at most by default) and stops
+  accepting the keys the issuer removed. When the endpoint cannot be reached,
+  it keeps the expired keys for 24 hours and then rejects every token until a
+  fetch succeeds; v1 verified with the last keys it had.
 
 ### certutil
 
@@ -230,6 +239,37 @@ not available: the service does not offer it for HSM keys, see "Constraints".
   response from a responder the CA did not authorize, or for another issuer,
   is an error (`invalid OCSP response: …`) with the status unknown. `ocsp
   info` still checks the signature only.
+- **JWKS key lifetime** (roadmap item 5). `jwt.RemoteKeySet` caches a
+  fetched JWKS document for the lifetime its response states
+  (`Cache-Control: max-age`, else `Expires`), less the age of the response
+  (the greater of `Age` and the time since its `Date`), bounded by 5 minutes and 1 hour
+  (`WithMinCacheTTL`, `WithMaxCacheTTL`; 1 hour when the response states
+  none). A lookup in the last quarter of that lifetime fetches the document
+  in the background and is answered from the cache, so a key that the issuer
+  adds is known before a token needs it and a key it removes stops being
+  accepted, without a request waiting for the endpoint. A lookup after the
+  expiry waits for the fetch. Once a fetch in the last quarter or after the
+  expiry has failed, the expired keys stay in use for 24 hours
+  (`WithStaleIfError`; 0 fails at the expiry), each lookup retrying in the
+  background at most once per refresh cooldown, and each failed fetch logs a
+  WARNING; after that, lookups fail with `JWKS keys expired at <time>: <fetch
+  error>`. A fetch for an unknown kid that fails earlier grants no such
+  grace. Nothing runs while the set is unused.
+  `NewParser` takes the `RemoteKeySet` options from
+  `ParserConfig.JWKSClient`; the values below are the defaults:
+
+  ```yaml
+  issuer: https://accounts.google.com
+  jwks_uri: https://www.googleapis.com/oauth2/v3/certs
+  jwks_client:
+    refresh_cooldown: 10s # "0s" disables throttling
+    fetch_timeout: 10s
+    max_response_size: 1048576
+    min_cache_ttl: 5m
+    max_cache_ttl: 1h
+    stale_if_error: 24h # "0s" rejects tokens once the keys expire and a fetch fails
+  ```
+
 - **Paged, filtered listings.** `ListKeysRequest` has `PageSize`, `PageToken`,
   `Filter` (`Usage`, `Types`, `Label`, `LabelPrefix`, `Tags`, `States`) and
   `Fields`. `AllKeys(ctx, km, req)` iterates over every page. A page can be
@@ -458,6 +498,12 @@ v1 path; check the diff for one outside an import block.
 - A script that reads `xpki-tool cert validate --revocation` or `ocsp fetch`
   output sees `ERROR: invalid OCSP response: …` where it saw a status for a
   responder its CA did not authorize.
+- A service that verifies tokens against a `jwks_uri` (`jwt.NewParser` or
+  `NewRemoteKeySet`) must reach it at least once per cache lifetime, and
+  within 24 hours of an expiry while it fails. One that cannot sets
+  `jwks_client.max_cache_ttl` and `stale_if_error`, or configures a static
+  `jwks`. A service that builds a parser per request should build it once:
+  each parser has its own key cache.
 
 ## Validation
 
@@ -545,3 +591,27 @@ package, 93.1% total (7975 of 8570 statements); `make lint` (0 issues) and
 and cancels on `inmemcrypto`, `testprov`, `crypto11` (SoftHSM), the AWS fake
 KMS and the in-process Google Cloud KMS; the real AWS and Google Cloud KMS
 were not run for this change.
+
+JWKS key lifetime (roadmap item 5), run on 2026-11-18 with Go 1.27.4,
+SoftHSM 2.6.1 and both `local-kms` 3.11.7 containers: `make covtest` passes
+every package, 93.1% total (8105 of 8705 statements), 617 tests; `make lint`
+(0 issues) and `make test RACE=true` pass. On the previous commit, a key
+removed from a document served with `Cache-Control: max-age=60` was still
+accepted 30 days later without another fetch;
+`TestRemoteKeySetExpiredKeysWaitForRefresh` covers that case now. A review
+found that an early fetch failure for an unknown kid granted the grace
+period; only a failure at or after the refresh point does now
+(`TestRemoteKeySetEarlyFailureGrantsNoGrace`). Removing that condition, or
+the check that a background refresh waits for the last quarter, fails the
+tests. The `RemoteKeySet` tests passed 120 times under the race detector at
+`-cpu 1,2,4,8` (30 each), and a concurrent run checks that fetches never
+overlap. The fetch timeout of the existing stalled-endpoint test was raised
+from 100 ms to 1 s: at `-cpu 1` the fetch from the recovered endpoint missed
+the 100 ms deadline in 2 to 3 of 120 runs once the new tests shared the CPU.
+The pull request review found that the time since the response `Date` was
+not counted in its age: a response dated 11:00 with `Expires: 11:30`,
+received at 12:00, was cached for 30 more minutes. The age is now the
+greater of `Age` and that apparent age (RFC 9111 §4.2.3), and such a
+response gets the 5-minute minimum. The tests run against a local
+`httptest` server with a manual clock; no real identity provider was
+used.

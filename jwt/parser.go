@@ -10,15 +10,64 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/x/configloader"
 	"github.com/effective-security/xlog"
+	"github.com/effective-security/xpki/v2/csr"
 	jose "github.com/go-jose/go-jose/v4"
 )
 
 // ParserConfig provides JWT parser configuration
 type ParserConfig struct {
 	// Issuer specifies issuer claim
-	Issuer   string              `json:"issuer" yaml:"issuer"`
-	JWKSURI  string              `json:"jwks_uri" yaml:"jwks_uri"`
+	Issuer string `json:"issuer" yaml:"issuer"`
+	// JWKSURI is the URL of the JWKS document that NewParser verifies with,
+	// through a RemoteKeySet, when JWKeySet is not set.
+	JWKSURI string `json:"jwks_uri" yaml:"jwks_uri"`
+	// JWKeySet is a static key set; it takes precedence over JWKSURI.
 	JWKeySet *jose.JSONWebKeySet `json:"jwks" yaml:"jwks"`
+	// JWKSClient tunes the RemoteKeySet that NewParser creates for JWKSURI.
+	// Nil keeps every default.
+	JWKSClient *RemoteKeySetConfig `json:"jwks_client,omitempty" yaml:"jwks_client,omitempty"`
+}
+
+// RemoteKeySetConfig is the configuration file form of the
+// RemoteKeySetOptions. An absent field keeps the default of its option, and
+// so does zero in a field that is not a pointer; any other value, a negative
+// one included, is passed to the option.
+type RemoteKeySetConfig struct {
+	// RefreshCooldown is WithRefreshCooldown; "0s" disables throttling.
+	RefreshCooldown *csr.Duration `json:"refresh_cooldown,omitempty" yaml:"refresh_cooldown,omitempty"`
+	// FetchTimeout is WithFetchTimeout.
+	FetchTimeout csr.Duration `json:"fetch_timeout,omitempty" yaml:"fetch_timeout,omitempty"`
+	// MaxResponseSize is WithMaxResponseSize, in bytes.
+	MaxResponseSize int64 `json:"max_response_size,omitempty" yaml:"max_response_size,omitempty"`
+	// MinCacheTTL is WithMinCacheTTL.
+	MinCacheTTL csr.Duration `json:"min_cache_ttl,omitempty" yaml:"min_cache_ttl,omitempty"`
+	// MaxCacheTTL is WithMaxCacheTTL.
+	MaxCacheTTL csr.Duration `json:"max_cache_ttl,omitempty" yaml:"max_cache_ttl,omitempty"`
+	// StaleIfError is WithStaleIfError; "0s" fails lookups as soon as the
+	// keys expire and a refresh has failed.
+	StaleIfError *csr.Duration `json:"stale_if_error,omitempty" yaml:"stale_if_error,omitempty"`
+}
+
+// Options returns the RemoteKeySetOptions that c configures, for
+// NewRemoteKeySet. A nil c returns none.
+func (c *RemoteKeySetConfig) Options() []RemoteKeySetOption {
+	if c == nil {
+		return nil
+	}
+	// These options keep their default for zero.
+	opts := []RemoteKeySetOption{
+		WithFetchTimeout(c.FetchTimeout.TimeDuration()),
+		WithMaxResponseSize(c.MaxResponseSize),
+		WithMinCacheTTL(c.MinCacheTTL.TimeDuration()),
+		WithMaxCacheTTL(c.MaxCacheTTL.TimeDuration()),
+	}
+	if c.RefreshCooldown != nil {
+		opts = append(opts, WithRefreshCooldown(c.RefreshCooldown.TimeDuration()))
+	}
+	if c.StaleIfError != nil {
+		opts = append(opts, WithStaleIfError(c.StaleIfError.TimeDuration()))
+	}
+	return opts
 }
 
 // Keyfunc is a callback function to supply the key for verification.
@@ -165,7 +214,10 @@ func LoadParserConfig(file string) (*ParserConfig, error) {
 	return &config, nil
 }
 
-// NewParser returns Parser
+// NewParser returns a Parser that verifies tokens with cfg.JWKeySet, or with
+// the JWKS document at cfg.JWKSURI, fetched by a RemoteKeySet configured by
+// cfg.JWKSClient. Create one Parser per configuration and reuse it, so its
+// key cache is shared.
 func NewParser(cfg *ParserConfig) (Parser, error) {
 	p := &parser{
 		issuer: cfg.Issuer,
@@ -177,7 +229,7 @@ func NewParser(cfg *ParserConfig) (Parser, error) {
 	if cfg.JWKeySet != nil {
 		p.verifier = &StaticKeySet{KeySet: cfg.JWKeySet.Keys}
 	} else if cfg.JWKSURI != "" {
-		p.verifier = NewRemoteKeySet(context.Background(), cfg.JWKSURI)
+		p.verifier = NewRemoteKeySet(context.Background(), cfg.JWKSURI, cfg.JWKSClient.Options()...)
 	}
 	return p, nil
 }
