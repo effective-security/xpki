@@ -28,9 +28,9 @@ is deliberately not started, `Done` shipped in the named version.
 | 3.5  | Composite/hybrid signatures                                                                            | Later                                                                                  |
 | 3.6  | SLH-DSA (FIPS 205)                                                                                     | Later                                                                                  |
 | 3.7  | ML-KEM (FIPS 203)                                                                                      | Later                                                                                  |
-| 4    | [DPoP: replay protection and access-token binding](#4-dpop-replay-protection-and-access-token-binding) | See 4.1 and 4.2                                                                        |
-| 4.1  | Shared `ReplayCache` implementation                                                                    | Open                                                                                   |
-| 4.2  | Server-issued nonces                                                                                   | Open                                                                                   |
+| 4    | DPoP: replay protection and access-token binding                                                       | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
+| 4.1  | Shared `ReplayCache` implementation                                                                    | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
+| 4.2  | Server-issued nonces                                                                                   | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 5    | JWKS client hardening                                                                                  | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 6    | PKCS#11 session management                                                                             | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 7    | [certutil bundler concurrency](#7-certutil-bundler-concurrency)                                        | Open                                                                                   |
@@ -85,17 +85,6 @@ work, each item its own change when wanted:
 - **3.5 Composite/hybrid signatures**: draft-ietf-lamps-pq-composite-sigs.
 - **3.6 SLH-DSA**: FIPS 205.
 - **3.7 ML-KEM**: FIPS 203, `crypto/mlkem`, for `dataprotection` or TLS.
-
-## 4. DPoP: replay protection and access-token binding
-
-`dpop.VerifyConfig` has an opt-in `ReplayCache` (in-memory only), `ath` and
-`cnf.jkt` binding, and a trusted `ExternalURL` (v1.0). Remaining:
-
-- **4.1** a shared `ReplayCache` implementation (for example Redis `SET NX` with
-  an expiry) for servers with several instances;
-- **4.2** server-issued nonces (RFC 9449 §8/§9): generating and rotating
-  `DPoP-Nonce` values and the `use_dpop_nonce` error. `ExpectedNonce`
-  compares only a caller-provided value today.
 
 ## 7. certutil bundler concurrency
 

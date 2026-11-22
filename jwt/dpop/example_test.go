@@ -1,12 +1,15 @@
 package dpop_test
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 
 	"github.com/effective-security/xpki/v2/jwt/dpop"
 )
@@ -46,4 +49,40 @@ func ExampleVerifyRequestClaims() {
 	// Output:
 	// <nil> https://api.example.com/v1/items
 	// dpop: proof rejected: dpop: proof replayed
+}
+
+// A server that issues nonces answers a proof without one, or with a stale
+// one, with a use_dpop_nonce error and a fresh nonce in the DPoP-Nonce
+// header; the client signs a new proof with that nonce and keeps using it
+// until the server sends another.
+func ExampleHMACNonceSource() {
+	secret := make([]byte, dpop.MinNonceSecretSize)
+	_, _ = rand.Read(secret) // the same secret on every instance of the server
+	nonces, _ := dpop.NewHMACNonceSource(dpop.HMACNonceConfig{
+		Secrets: [][]byte{secret},
+		Label:   "api.example.com",
+	})
+	cfg := dpop.VerifyConfig{NonceSource: nonces}
+
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	signer, _ := dpop.NewSigner(key)
+	u, _ := url.Parse("https://api.example.com/v1/items")
+	ctx := context.Background()
+
+	proof, _ := signer.Sign(ctx, http.MethodGet, u, nil)
+	_, err := dpop.VerifyClaims(cfg, proof, http.MethodGet, u.String())
+	if errors.Is(err, dpop.ErrUseDPoPNonce) {
+		// a resource server answers HTTP 401 with WWW-Authenticate:
+		// dpop.UseDPoPNonceChallenge, an authorization server HTTP 400 with
+		// the error code dpop.ErrorUseDPoPNonce; both set the nonce header
+		nonce, _ := nonces.Nonce(ctx)
+		fmt.Println(err, "->", dpop.NonceHTTPHeader)
+
+		proof, _ = signer.Sign(ctx, http.MethodGet, u, map[string]any{dpop.ClaimNonce: nonce})
+	}
+	_, err = dpop.VerifyClaims(cfg, proof, http.MethodGet, u.String())
+	fmt.Println(err)
+	// Output:
+	// dpop: claim not found: nonce -> DPoP-Nonce
+	// <nil>
 }

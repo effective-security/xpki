@@ -110,7 +110,8 @@ consumers. Nothing in the library imports `cmd/`.
 | JWKS key sets                              | `jwt/jwks.go`                                                                                | `KeySet`, `AlgorithmKeySet`, `StaticKeySet`, `RemoteKeySet`, `NewRemoteKeySet`, `WithHTTPClient`, `WithRefreshCooldown`, `WithFetchTimeout`, `WithMaxResponseSize`, `WithMinCacheTTL`, `WithMaxCacheTTL`, `WithStaleIfError`                                                                                                                                  |
 | JWKS cache lifetime, refresh, stale keys   | `jwt/httpcache.go`, `jwt/jwks.go`                                                            | `cacheLifetime` (Cache-Control `max-age`, `Expires`), `responseAge` (`Age`, `Date`), `RemoteKeySet.cacheTTL`, `refreshAhead`, `outcomeLocked`, `DefaultJWKSMinCacheTTL`, `DefaultJWKSMaxCacheTTL`, `DefaultJWKSStaleIfError`                                                                                                                                  |
 | DPoP proof create / verify                 | `jwt/dpop/signer.go`, `jwt/dpop/verify.go`                                                   | `NewSigner`, `ForRequest`, `VerifyRequestClaims`, `VerifyClaims`, `VerifyClaimsContext`, `AccessTokenHash`, `GetTokenInfo`                                                                                                                                                                                                                                    |
-| DPoP replay cache (`jti`)                  | `jwt/dpop/replay.go`                                                                         | `ReplayCache`, `NewMemoryReplayCache`, `ErrReplay`, `ErrReplayCacheFull`                                                                                                                                                                                                                                                                                      |
+| DPoP replay cache (`jti`)                  | `jwt/dpop/replay.go`                                                                         | `ReplayCache`, `NewMemoryReplayCache`, `NewSharedReplayCache`, `SharedReplayCacheConfig`, `ReplayStore`, `ReplayStoreFunc`, `ErrReplay`, `ErrReplayCacheFull`                                                                                                                                                                                                 |
+| DPoP server nonces (`DPoP-Nonce`)          | `jwt/dpop/nonce.go`                                                                          | `VerifyConfig.NonceSource`, `NonceSource`, `NewHMACNonceSource`, `HMACNonceConfig`, `ErrUseDPoPNonce`, `NonceHTTPHeader`, `ClaimNonce`, `ErrorUseDPoPNonce`, `UseDPoPNonceChallenge`                                                                                                                                                                          |
 | DPoP `htu` request URI / normalization     | `jwt/dpop/htu.go`                                                                            | `VerifyConfig.ExternalURL`, `requestURI`, `normalizeHTU`                                                                                                                                                                                                                                                                                                      |
 | DPoP keys                                  | `jwt/dpop/keys.go`                                                                           | `GenerateKey`, `LoadKey`, `SaveKey`, `Thumbprint`                                                                                                                                                                                                                                                                                                             |
 | Opaque access tokens                       | `jwt/accesstoken/accesstoken.go`                                                             | `New`, `Provider`, `WithTokenExpiry`, `WithAllowNoExpiry`, `TokenPrefix`                                                                                                                                                                                                                                                                                      |
@@ -1575,7 +1576,8 @@ and parallel unique-unknown kids.
   rejects a key type/curve that does not fit the alg), and claims are
   decoded case-sensitively like `GetTokenInfo`; then
   `jti`/`htm`/`htu`/`iat` present, `htu` equal after `htu.go`
-  normalization, `iat` within 10m, exp/nbf, optional iss/sub/aud/nonce,
+  normalization, `iat` within 10m, exp/nbf, optional iss/sub/aud, the
+  nonce (`NonceSource`, or the caller's `ExpectedNonce`; never both),
   `ath` when `VerifyConfig.AccessToken` is set (which requires
   `ExpectedThumbprint`: `ath` alone is computable by a token thief), proof
   thumbprint equal to `ExpectedThumbprint` (constant time), and last `ReplayCache.Add`, so only a
@@ -1585,6 +1587,35 @@ and parallel unique-unknown kids.
   earlier, inclusive. `replay.go` `MemoryReplayCache`: one mutex, map plus
   expiry min-heap, evicts entries whose expiry is before now on every `Add`, fails closed with
   `ErrReplayCacheFull` at capacity (default 100000), clock `TimeNowFn`.
+  `SharedReplayCache` (v2.0, roadmap 4.1): one `ReplayStore.SetIfAbsent`
+  (Redis `SET NX PX`; go-redis fits `ReplayStoreFunc`) per `Add`, key
+  `KeyPrefix` (default `dpop:jti:`) + the replay key, relative TTL =
+  expiresAt − now + `ClockSkew` (default 1m, the clock difference allowed
+  between instances) + 1 ns, because the deadline is inclusive and a store
+  may drop a key at the instant its TTL ends; saturated instead of wrapping,
+  rounded up to the millisecond and at least 1 ms; `false` is `ErrReplay`, a store error
+  rejects the proof (fail closed). The store must keep a key for its whole
+  TTL (Redis `maxmemory-policy noeviction` or a dedicated instance). No Redis
+  dependency in the module: the store adapter is the caller's. A zero-value
+  or nil cache, and a nil `ReplayStoreFunc`, are errors, not panics.
+  `nonce.go` (v2.0, roadmap 4.2): `NonceSource` (`Nonce`, `VerifyNonce`);
+  every nonce rejection, and an `ExpectedNonce` mismatch, is an error that
+  `errors.Is` (stdlib and cockroachdb) matches to `ErrUseDPoPNonce` with the
+  reason as its message (`nonceError`). `HMACNonceSource` is stateless:
+  nonce = base64url(version 1 ‖ window uint64 ‖ HMAC-SHA256(secret,
+  `xpki/dpop/nonce/v1` ‖ 0 ‖ `Label` ‖ 0 ‖ rotation ns uint64 ‖ window)[:16]),
+  34 characters, all numbers big-endian, window = now / `Rotation` (default
+  5m, 1s to 1h; every instance uses the same secrets, label and rotation);
+  accepted for its window
+  and the next, and for the window after the current one (an instance whose
+  clock runs ahead); the first secret issues, every secret verifies, and the
+  whole string is compared in constant time, so only the exact encoding
+  passes. `Label` keeps an authorization server and a resource server apart
+  (RFC 9449 §9). The nonce is checked where `ExpectedNonce` was, before
+  `ath`, the thumbprint and the replay cache, so a rejected proof never
+  consumes its jti; `iat` and `exp` are still checked. A source error that
+  is not a nonce rejection is wrapped `dpop: unable to verify nonce`; a
+  zero-value or nil `HMACNonceSource` returns an error.
   `htu.go`: `VerifyRequestClaims` builds the request URI from
   `ExternalURL` (trusted `scheme://host[:port]`, validated per call), else
   URL scheme/host, then `req.Host`, with https for an empty scheme; query and
@@ -1654,9 +1685,23 @@ binding and the replay cache, and `AKP` keys through `SaveKey`/`LoadKey`.
 duplicates, store error, retention), ath/cnf.jkt binding, server-style
 requests for htu, and a real-signature matrix for every allowed alg;
 `htu_internal_test.go` tables the normalizer; `example_test.go` compiles the
-`doc.go` sample; `verify_bench_test.go` has `BenchmarkVerifyClaims`,
-`BenchmarkVerifyClaimsReplayCache` and `BenchmarkMemoryReplayCache`. Only
-the non-parallel `TestMemoryReplayCache_Expiry` replaces `dpop.TimeNowFn`.
+`doc.go` sample and the nonce challenge and retry (`ExampleHMACNonceSource`);
+`verify_bench_test.go` has `BenchmarkVerifyClaims`,
+`BenchmarkVerifyClaimsReplayCache` and `BenchmarkMemoryReplayCache`.
+`replay_shared_test.go` runs `SharedReplayCache` on `fakeStore` (an
+in-process store shared by two caches, as Redis is by two instances, with a
+clock of its own; a key is gone at the instant its TTL ends): TTL rounding
+and clock skew, prefix, fail closed, a replay across instances, an instance
+exactly `ClockSkew` behind at its last accepting instant
+(`TestSharedReplayCache_ClockSkewBoundary`) and 32 simultaneous
+verifications. `nonce_test.go` covers the nonce format (a
+known answer computed independently, `TestHMACNonceSource_KnownAnswer`) and
+its rejections (non-canonical base64 included), labels, secret rotation,
+windows, uninitialized sources, `VerifyClaims` with nonces, the request
+context, and an `httptest` challenge and retry. The non-parallel
+`TestMemoryReplayCache_Expiry`, `TestSharedReplayCache_TTL`,
+`TestSharedReplayCache_ClockSkewBoundary`, `TestHMACNonceSource_Windows` and
+`TestHMACNonceSource_KnownAnswer` replace `dpop.TimeNowFn`.
 `oauth2client/request_coverage_test.go` checks token-request authentication,
 context cancellation, preservation of caller-owned form values, and registry
 conflicts/overrides; it makes no network requests.

@@ -8,7 +8,7 @@ import "github.com/effective-security/xpki/v2/jwt/dpop"
 
 Package dpop implements OAuth 2.0 Demonstrating Proof of Possession \(RFC 9449\): clients build DPoP proof JWTs for HTTP requests with Signer and ForRequest; servers verify them with VerifyRequestClaims or VerifyClaimsContext and bind the resulting key thumbprint to the access token "cnf.jkt" claim.
 
-Verification is opt\-in beyond the proof itself. Set VerifyConfig.ReplayCache \(NewMemoryReplayCache for one process, or a shared store\) to reject a replayed jti; without it replay detection is the caller's job. At a protected resource set both AccessToken, to require a matching "ath" claim, and ExpectedThumbprint, to the token "cnf.jkt"; these are per\-request values, so set them on a copy of a shared config. Set ExternalURL when the server's public scheme or host differs from the request it receives:
+Verification is opt\-in beyond the proof itself. Set VerifyConfig.ReplayCache to reject a replayed jti: NewMemoryReplayCache for one process, or NewSharedReplayCache over a store that all instances of the server share, such as Redis \(SET NX with an expiry\); without it replay detection is the caller's job. At a protected resource set both AccessToken, to require a matching "ath" claim, and ExpectedThumbprint, to the token "cnf.jkt"; these are per\-request values, so set them on a copy of a shared config. Set ExternalURL when the server's public scheme or host differs from the request it receives:
 
 ```
 cfg := dpop.VerifyConfig{
@@ -19,6 +19,8 @@ cfg := dpop.VerifyConfig{
 }
 res, err := dpop.VerifyRequestClaims(cfg, req)
 ```
+
+Set VerifyConfig.NonceSource to require server\-provided nonces \(RFC 9449 §8 and §9\), which bound the age of a proof by the server's clock and stop proofs generated in advance. NewHMACNonceSource needs no store: every instance with the same secrets, label and rotation issues and accepts the same nonces. A proof without a recent nonce fails with an error that errors.Is matches to ErrUseDPoPNonce; the server answers it with NonceSource.Nonce in the NonceHTTPHeader \(DPoP\-Nonce\) header, as an HTTP 400 error with the code ErrorUseDPoPNonce from an authorization server or an HTTP 401 with UseDPoPNonceChallenge from a resource server, and the client retries with map\[string\]any\{dpop.ClaimNonce: nonce\} as the ForRequest extra claims. A server may also send a new nonce in any other response, for example when NonceSource.Nonce differs from the nonce claim of the proof it just accepted, which saves clients the use\_dpop\_nonce round trip when the nonce changes; responses that carry one should not be cached.
 
 A proof can be signed with an ML\-DSA key \(NewSigner with any crypto.Signer whose public key is an \*mldsa.PublicKey\): RFC 9964 algorithms are accepted, and the embedded jwk is an AKP key. An ML\-DSA proof carries the public key and the signature, about 6 KB with ML\-DSA\-44, 8 KB with ML\-DSA\-65 and 11 KB with ML\-DSA\-87, which can exceed the header limit of an HTTP server or proxy.
 
@@ -36,15 +38,28 @@ Clients add the "ath" claim with map\[string\]any\{dpop.ClaimAccessTokenHash: dp
 - [func SaveKey\(folder string, k \*jose.JSONWebKey\) \(string, error\)](<#SaveKey>)
 - [func SetCnfClaim\(claims map\[string\]any, thumbprint string\)](<#SetCnfClaim>)
 - [func Thumbprint\(k \*jose.JSONWebKey\) \(string, error\)](<#Thumbprint>)
+- [type HMACNonceConfig](<#HMACNonceConfig>)
+- [type HMACNonceSource](<#HMACNonceSource>)
+  - [func NewHMACNonceSource\(cfg HMACNonceConfig\) \(\*HMACNonceSource, error\)](<#NewHMACNonceSource>)
+  - [func \(s \*HMACNonceSource\) Nonce\(\_ context.Context\) \(string, error\)](<#HMACNonceSource.Nonce>)
+  - [func \(s \*HMACNonceSource\) VerifyNonce\(\_ context.Context, nonce string\) error](<#HMACNonceSource.VerifyNonce>)
 - [type MemoryReplayCache](<#MemoryReplayCache>)
   - [func NewMemoryReplayCache\(maxEntries int\) \*MemoryReplayCache](<#NewMemoryReplayCache>)
   - [func \(c \*MemoryReplayCache\) Add\(\_ context.Context, key string, expiresAt time.Time\) error](<#MemoryReplayCache.Add>)
   - [func \(c \*MemoryReplayCache\) Len\(\) int](<#MemoryReplayCache.Len>)
+- [type NonceSource](<#NonceSource>)
 - [type ReplayCache](<#ReplayCache>)
+- [type ReplayStore](<#ReplayStore>)
+- [type ReplayStoreFunc](<#ReplayStoreFunc>)
+  - [func \(f ReplayStoreFunc\) SetIfAbsent\(ctx context.Context, key string, ttl time.Duration\) \(bool, error\)](<#ReplayStoreFunc.SetIfAbsent>)
 - [type Result](<#Result>)
   - [func VerifyClaims\(cfg VerifyConfig, phdr, httpMethod, httpURI string\) \(\*Result, error\)](<#VerifyClaims>)
   - [func VerifyClaimsContext\(ctx context.Context, cfg VerifyConfig, phdr, httpMethod, httpURI string\) \(\*Result, error\)](<#VerifyClaimsContext>)
   - [func VerifyRequestClaims\(cfg VerifyConfig, req \*http.Request\) \(\*Result, error\)](<#VerifyRequestClaims>)
+- [type SharedReplayCache](<#SharedReplayCache>)
+  - [func NewSharedReplayCache\(store ReplayStore, cfg SharedReplayCacheConfig\) \(\*SharedReplayCache, error\)](<#NewSharedReplayCache>)
+  - [func \(c \*SharedReplayCache\) Add\(ctx context.Context, key string, expiresAt time.Time\) error](<#SharedReplayCache.Add>)
+- [type SharedReplayCacheConfig](<#SharedReplayCacheConfig>)
 - [type Signer](<#Signer>)
   - [func NewSigner\(s crypto.Signer\) \(Signer, error\)](<#NewSigner>)
 - [type TokenInfo](<#TokenInfo>)
@@ -88,6 +103,62 @@ const (
 )
 ```
 
+<a name="NonceHTTPHeader"></a>
+
+```go
+const (
+    // NonceHTTPHeader is the response header that carries a server-provided
+    // nonce (RFC 9449 §8). A response has at most one, and a response that
+    // carries it should be uncacheable (Cache-Control: no-store).
+    NonceHTTPHeader = "DPoP-Nonce"
+    // ClaimNonce is the proof claim that carries the server-provided nonce.
+    // Clients add it to the ForRequest extra claims:
+    // map[string]any{dpop.ClaimNonce: nonce}.
+    ClaimNonce = "nonce"
+    // ErrorUseDPoPNonce is the OAuth error code of a response that asks the
+    // client to retry with the nonce in the DPoP-Nonce header: an HTTP 400
+    // error response from an authorization server (RFC 9449 §8), or an HTTP
+    // 401 with UseDPoPNonceChallenge from a resource server (§9).
+    ErrorUseDPoPNonce = "use_dpop_nonce"
+    // UseDPoPNonceChallenge is the WWW-Authenticate value of a resource
+    // server's HTTP 401 response that asks for a nonce (RFC 9449 §9).
+    UseDPoPNonceChallenge = `DPoP error="use_dpop_nonce", error_description="Resource server requires nonce in DPoP proof"`
+)
+```
+
+<a name="DefaultNonceRotation"></a>
+
+```go
+const (
+    // DefaultNonceRotation is how often HMACNonceSource issues a new nonce
+    // when HMACNonceConfig.Rotation is zero.
+    DefaultNonceRotation = 5 * time.Minute
+    // MinNonceRotation is the shortest HMACNonceConfig.Rotation.
+    MinNonceRotation = time.Second
+    // MaxNonceRotation is the longest HMACNonceConfig.Rotation: a nonce is
+    // meant to limit the life of a proof to minutes (RFC 9449 §11.1).
+    MaxNonceRotation = time.Hour
+    // MinNonceSecretSize is the minimum size in bytes of every
+    // HMACNonceConfig secret.
+    MinNonceSecretSize = 32
+)
+```
+
+<a name="DefaultReplayKeyPrefix"></a>
+
+```go
+const (
+    // DefaultReplayKeyPrefix is the prefix SharedReplayCache puts before
+    // every key it stores when SharedReplayCacheConfig.KeyPrefix is empty.
+    DefaultReplayKeyPrefix = "dpop:jti:"
+    // DefaultReplayClockSkew is how long SharedReplayCache keeps a key
+    // beyond the expiry the verifier asked for when
+    // SharedReplayCacheConfig.ClockSkew is zero. It covers the clock
+    // differences between the instances that share the store.
+    DefaultReplayClockSkew = time.Minute
+)
+```
+
 <a name="DefaultReplayCacheSize"></a>DefaultReplayCacheSize is the capacity used by NewMemoryReplayCache when the requested size is not positive. Size the cache as peak accepted proofs per second times the acceptance window \(DefaultExpiration plus jwt.DefaultTimeSkew\).
 
 ```go
@@ -107,6 +178,12 @@ var (
     // is still unexpired. The proof is rejected (fail closed).
     ErrReplayCacheFull = errors.New("dpop: replay cache is full")
 )
+```
+
+<a name="ErrUseDPoPNonce"></a>ErrUseDPoPNonce is matched by errors.Is for a proof that VerifyClaims rejects because its nonce claim is missing, unknown or stale. The server answers with a fresh nonce in the DPoP\-Nonce header and the ErrorUseDPoPNonce error code, and the client retries with that nonce.
+
+```go
+var ErrUseDPoPNonce = errors.New("dpop: server nonce required")
 ```
 
 <a name="TimeNowFn"></a>TimeNowFn to override in unit tests
@@ -187,8 +264,134 @@ func Thumbprint(k *jose.JSONWebKey) (string, error)
 
 Thumbprint returns key thumbprint. An invalid key, such as an uninitialized ML\-DSA key, on which go\-jose panics, is an error.
 
+<a name="HMACNonceConfig"></a>
+## type [HMACNonceConfig](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/nonce.go#L108-L126>)
+
+HMACNonceConfig configures NewHMACNonceSource.
+
+```go
+type HMACNonceConfig struct {
+    // Secrets are the HMAC keys, each at least MinNonceSecretSize bytes from
+    // crypto/rand. The first issues nonces; every one is accepted. Every
+    // instance of a server uses the same list. To rotate, append the new
+    // secret on every instance, then move it first on every instance, and
+    // remove the old one 2 * Rotation, plus the clock difference between the
+    // instances, after the last instance moved it.
+    Secrets [][]byte
+    // Rotation is how often a new nonce is issued; zero means
+    // DefaultNonceRotation, and it must be between MinNonceRotation and
+    // MaxNonceRotation. It is part of the nonce MAC: every instance uses the
+    // same value, and a change rejects the nonces in use once.
+    Rotation time.Duration
+    // Label keeps apart the nonces of servers that share secrets, such as
+    // an authorization server and a resource server, whose nonces must not
+    // be accepted by each other (RFC 9449 §9). Every instance of a server
+    // uses the same label.
+    Label string
+}
+```
+
+<a name="HMACNonceSource"></a>
+## type [HMACNonceSource](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/nonce.go#L140-L144>)
+
+HMACNonceSource is a NonceSource that needs no store: a nonce is the number of the time window it was issued in, authenticated with HMAC\-SHA256 under a secret that every instance of the server shares. All clients get the same nonce during a window: RFC 9449 leaves the scheme to the server \(§8\) and lets a nonce be used for more than one proof \(§11.1\), and the nonce cannot be predicted without the secret. A nonce is accepted in its own window and the next, so for at least Rotation and less than 2 \* Rotation after it was issued; a nonce of the window after the current one, which an instance whose clock runs ahead issues, is accepted as well. The nonce bounds the age of a proof by the server's clock; the iat and exp claims are still checked. It uses TimeNowFn as its clock and is safe for concurrent use.
+
+```go
+type HMACNonceSource struct {
+    // contains filtered or unexported fields
+}
+```
+
+<details><summary>Example</summary>
+<p>
+
+A server that issues nonces answers a proof without one, or with a stale one, with a use\_dpop\_nonce error and a fresh nonce in the DPoP\-Nonce header; the client signs a new proof with that nonce and keeps using it until the server sends another.
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+
+	"github.com/effective-security/xpki/v2/jwt/dpop"
+)
+
+func main() {
+	secret := make([]byte, dpop.MinNonceSecretSize)
+	_, _ = rand.Read(secret) // the same secret on every instance of the server
+	nonces, _ := dpop.NewHMACNonceSource(dpop.HMACNonceConfig{
+		Secrets: [][]byte{secret},
+		Label:   "api.example.com",
+	})
+	cfg := dpop.VerifyConfig{NonceSource: nonces}
+
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	signer, _ := dpop.NewSigner(key)
+	u, _ := url.Parse("https://api.example.com/v1/items")
+	ctx := context.Background()
+
+	proof, _ := signer.Sign(ctx, http.MethodGet, u, nil)
+	_, err := dpop.VerifyClaims(cfg, proof, http.MethodGet, u.String())
+	if errors.Is(err, dpop.ErrUseDPoPNonce) {
+		// a resource server answers HTTP 401 with WWW-Authenticate:
+		// dpop.UseDPoPNonceChallenge, an authorization server HTTP 400 with
+		// the error code dpop.ErrorUseDPoPNonce; both set the nonce header
+		nonce, _ := nonces.Nonce(ctx)
+		fmt.Println(err, "->", dpop.NonceHTTPHeader)
+
+		proof, _ = signer.Sign(ctx, http.MethodGet, u, map[string]any{dpop.ClaimNonce: nonce})
+	}
+	_, err = dpop.VerifyClaims(cfg, proof, http.MethodGet, u.String())
+	fmt.Println(err)
+}
+```
+
+#### Output
+
+```
+dpop: claim not found: nonce -> DPoP-Nonce
+<nil>
+```
+
+</p>
+</details>
+
+<a name="NewHMACNonceSource"></a>
+### func [NewHMACNonceSource](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/nonce.go#L148>)
+
+```go
+func NewHMACNonceSource(cfg HMACNonceConfig) (*HMACNonceSource, error)
+```
+
+NewHMACNonceSource returns an HMACNonceSource for cfg. The secrets are copied.
+
+<a name="HMACNonceSource.Nonce"></a>
+### func \(\*HMACNonceSource\) [Nonce](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/nonce.go#L174>)
+
+```go
+func (s *HMACNonceSource) Nonce(_ context.Context) (string, error)
+```
+
+Nonce returns the nonce of the current window; see NonceSource.
+
+<a name="HMACNonceSource.VerifyNonce"></a>
+### func \(\*HMACNonceSource\) [VerifyNonce](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/nonce.go#L182>)
+
+```go
+func (s *HMACNonceSource) VerifyNonce(_ context.Context, nonce string) error
+```
+
+VerifyNonce checks nonce; see NonceSource and HMACNonceSource.
+
 <a name="MemoryReplayCache"></a>
-## type [MemoryReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L63-L68>)
+## type [MemoryReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L86-L91>)
 
 MemoryReplayCache is a bounded, process\-local ReplayCache. Expired entries are evicted before a new key is admitted; when the cache is still full the new proof is rejected with ErrReplayCacheFull. Failing closed means a client that can mint valid proofs \(at a token endpoint, any client\) can fill the cache and have other proofs rejected for up to the acceptance window; size it for peak load and rate\-limit proof sources. It uses TimeNowFn as its clock.
 
@@ -199,7 +402,7 @@ type MemoryReplayCache struct {
 ```
 
 <a name="NewMemoryReplayCache"></a>
-### func [NewMemoryReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L72>)
+### func [NewMemoryReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L95>)
 
 ```go
 func NewMemoryReplayCache(maxEntries int) *MemoryReplayCache
@@ -208,7 +411,7 @@ func NewMemoryReplayCache(maxEntries int) *MemoryReplayCache
 NewMemoryReplayCache returns a MemoryReplayCache holding at most maxEntries unexpired proofs, or DefaultReplayCacheSize when maxEntries is not positive.
 
 <a name="MemoryReplayCache.Add"></a>
-### func \(\*MemoryReplayCache\) [Add](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L83>)
+### func \(\*MemoryReplayCache\) [Add](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L106>)
 
 ```go
 func (c *MemoryReplayCache) Add(_ context.Context, key string, expiresAt time.Time) error
@@ -217,7 +420,7 @@ func (c *MemoryReplayCache) Add(_ context.Context, key string, expiresAt time.Ti
 Add records key until expiresAt; see ReplayCache.
 
 <a name="MemoryReplayCache.Len"></a>
-### func \(\*MemoryReplayCache\) [Len](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L104>)
+### func \(\*MemoryReplayCache\) [Len](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L127>)
 
 ```go
 func (c *MemoryReplayCache) Len() int
@@ -225,8 +428,28 @@ func (c *MemoryReplayCache) Len() int
 
 Len returns the number of retained entries, including entries that have expired but were not evicted yet.
 
+<a name="NonceSource"></a>
+## type [NonceSource](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/nonce.go#L94-L105>)
+
+NonceSource issues the nonces of a server and checks the nonce claim of the proofs it receives \(RFC 9449 §8 and §9\). VerifyConfig.NonceSource makes VerifyClaims require a nonce from it. Implementations must be safe for concurrent use.
+
+```go
+type NonceSource interface {
+    // Nonce returns the nonce to send in the DPoP-Nonce header now: with
+    // every use_dpop_nonce error, and in any other response when the
+    // server wants the client to move to a new nonce early.
+    Nonce(ctx context.Context) (string, error)
+    // VerifyNonce returns nil when nonce is one that this source issued
+    // recently. It returns an error that errors.Is matches to
+    // ErrUseDPoPNonce when nonce is empty, unknown or stale, and any other
+    // error when it cannot decide; VerifyClaims rejects the proof in both
+    // cases.
+    VerifyNonce(ctx context.Context, nonce string) error
+}
+```
+
 <a name="ReplayCache"></a>
-## type [ReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L34-L42>)
+## type [ReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L57-L65>)
 
 ReplayCache records accepted DPoP proofs so that VerifyClaims can reject a second use of the same proof \(RFC 9449 §11.1\). Implementations must be safe for concurrent use; a shared store \(for example Redis SET NX with an expiry\) is needed when several server instances accept proofs for the same resource.
 
@@ -242,8 +465,46 @@ type ReplayCache interface {
 }
 ```
 
+<a name="ReplayStore"></a>
+## type [ReplayStore](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L145-L156>)
+
+ReplayStore is the one operation SharedReplayCache needs from a store that several server instances share.
+
+```go
+type ReplayStore interface {
+    // SetIfAbsent stores key with a time to live of ttl when key is absent
+    // or expired, and reports whether it stored it. Of concurrent calls for
+    // the same key, from any instance, at most one may return true. The
+    // store must keep the key for at least ttl: one with a coarser expiry
+    // rounds ttl up, and a Redis that evicts keys under memory pressure
+    // (a maxmemory-policy other than noeviction) lets replays through, so
+    // use noeviction, which makes a full store an error and rejects the
+    // proof, or a dedicated instance. With Redis it is SET key value NX PX
+    // ttl, which go-redis offers as SetNX.
+    SetIfAbsent(ctx context.Context, key string, ttl time.Duration) (bool, error)
+}
+```
+
+<a name="ReplayStoreFunc"></a>
+## type [ReplayStoreFunc](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L159>)
+
+ReplayStoreFunc adapts a function to ReplayStore.
+
+```go
+type ReplayStoreFunc func(ctx context.Context, key string, ttl time.Duration) (bool, error)
+```
+
+<a name="ReplayStoreFunc.SetIfAbsent"></a>
+### func \(ReplayStoreFunc\) [SetIfAbsent](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L162>)
+
+```go
+func (f ReplayStoreFunc) SetIfAbsent(ctx context.Context, key string, ttl time.Duration) (bool, error)
+```
+
+SetIfAbsent calls f.
+
 <a name="Result"></a>
-## type [Result](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L104-L112>)
+## type [Result](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L113-L121>)
 
 Result is returned from VerifyClaims
 
@@ -260,7 +521,7 @@ type Result struct {
 ```
 
 <a name="VerifyClaims"></a>
-### func [VerifyClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L143>)
+### func [VerifyClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L152>)
 
 ```go
 func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error)
@@ -269,22 +530,22 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 VerifyClaims is VerifyClaimsContext with context.Background\(\).
 
 <a name="VerifyClaimsContext"></a>
-### func [VerifyClaimsContext](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L157>)
+### func [VerifyClaimsContext](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L169>)
 
 ```go
 func VerifyClaimsContext(ctx context.Context, cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error)
 ```
 
-VerifyClaimsContext verifies DPoP proof phdr for a request with httpMethod and httpURI \(RFC 9449 §4.3\) and returns its claims, key and key thumbprint. The signature is verified with the embedded public jwk before any claim is used. htu is compared with httpURI after URI normalization \(scheme and host case\-insensitive, path case\-sensitive, query and fragment ignored\). When set, cfg.AccessToken requires a matching ath claim and must be paired with cfg.ExpectedThumbprint, which requires the proof key to match the access token cnf.jkt; cfg.ReplayCache records the proof after every other check passed, rejecting a replayed jti with ErrReplay. Without cfg.ReplayCache the caller is responsible for replay detection.
+VerifyClaimsContext verifies DPoP proof phdr for a request with httpMethod and httpURI \(RFC 9449 §4.3\) and returns its claims, key and key thumbprint. The signature is verified with the embedded public jwk before any claim is used. htu is compared with httpURI after URI normalization \(scheme and host case\-insensitive, path case\-sensitive, query and fragment ignored\). When set, cfg.AccessToken requires a matching ath claim and must be paired with cfg.ExpectedThumbprint, which requires the proof key to match the access token cnf.jkt; cfg.NonceSource or cfg.ExpectedNonce requires a server\-provided nonce, rejecting a missing, unknown or stale one with an error that errors.Is matches to ErrUseDPoPNonce; cfg.ReplayCache records the proof after every other check passed, rejecting a replayed jti with ErrReplay. Without cfg.ReplayCache the caller is responsible for replay detection.
 
 <a name="VerifyRequestClaims"></a>
-### func [VerifyRequestClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L126>)
+### func [VerifyRequestClaims](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L135>)
 
 ```go
 func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error)
 ```
 
-VerifyRequestClaims verifies the DPoP proof of an HTTP request received by a server; see VerifyClaims. The htu claim is compared with the request URI built from cfg.ExternalURL, or else from the request URL and Host \(https when the URL has no scheme\), without query and fragment. The request context is passed to cfg.ReplayCache.
+VerifyRequestClaims verifies the DPoP proof of an HTTP request received by a server; see VerifyClaims. The htu claim is compared with the request URI built from cfg.ExternalURL, or else from the request URL and Host \(https when the URL has no scheme\), without query and fragment. The request context is passed to cfg.NonceSource and cfg.ReplayCache.
 
 <details><summary>Example</summary>
 <p>
@@ -346,6 +607,60 @@ dpop: proof rejected: dpop: proof replayed
 </p>
 </details>
 
+<a name="SharedReplayCache"></a>
+## type [SharedReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L185-L189>)
+
+SharedReplayCache is a ReplayCache over a ReplayStore, for servers that run several instances: a proof accepted by one instance is a replay for all of them. Each Add is one SetIfAbsent with a relative time to live, from TimeNowFn to expiresAt, which the store counts on its own clock: the clock of the store does not matter, and the clocks of the instances need to agree within ClockSkew. A store error rejects the proof \(fail closed\).
+
+```go
+type SharedReplayCache struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewSharedReplayCache"></a>
+### func [NewSharedReplayCache](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L197>)
+
+```go
+func NewSharedReplayCache(store ReplayStore, cfg SharedReplayCacheConfig) (*SharedReplayCache, error)
+```
+
+NewSharedReplayCache returns a SharedReplayCache that records proofs in store. A go\-redis client fits ReplayStore with ReplayStoreFunc:
+
+```
+store := dpop.ReplayStoreFunc(func(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return rdb.SetNX(ctx, key, 1, ttl).Result()
+})
+```
+
+<a name="SharedReplayCache.Add"></a>
+### func \(\*SharedReplayCache\) [Add](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L214>)
+
+```go
+func (c *SharedReplayCache) Add(ctx context.Context, key string, expiresAt time.Time) error
+```
+
+Add records key through expiresAt plus the clock skew, inclusive; see ReplayCache. The time to live is one nanosecond longer than that, rounded up to the millisecond, and at least one millisecond.
+
+<a name="SharedReplayCacheConfig"></a>
+## type [SharedReplayCacheConfig](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/replay.go#L167-L177>)
+
+SharedReplayCacheConfig configures NewSharedReplayCache.
+
+```go
+type SharedReplayCacheConfig struct {
+    // KeyPrefix is put before every key, to keep the entries apart from
+    // other data in the store; empty means DefaultReplayKeyPrefix. Servers
+    // that accept proofs for different resources may share one prefix: the
+    // key is scoped by the proof key thumbprint and jti, not the resource.
+    KeyPrefix string
+    // ClockSkew is added to the time to live of every key, so that an
+    // instance whose clock is behind still finds the key while it accepts
+    // the proof; zero means DefaultReplayClockSkew. It must not be negative.
+    ClockSkew time.Duration
+}
+```
+
 <a name="Signer"></a>
 ## type [Signer](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/dpop.go#L43-L48>)
 
@@ -370,7 +685,7 @@ func NewSigner(s crypto.Signer) (Signer, error)
 NewSigner creates a DPoP signer that can generate DPoP headers for a request.
 
 <a name="TokenInfo"></a>
-## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L424-L432>)
+## type [TokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L446-L454>)
 
 TokenInfo is returned from GetTokenInfo
 
@@ -387,7 +702,7 @@ type TokenInfo struct {
 ```
 
 <a name="GetTokenInfo"></a>
-### func [GetTokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L435>)
+### func [GetTokenInfo](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L457>)
 
 ```go
 func GetTokenInfo(t string) *TokenInfo
@@ -396,7 +711,7 @@ func GetTokenInfo(t string) *TokenInfo
 GetTokenInfo returns token info, if it's JWT or nil otherwise
 
 <a name="VerifyConfig"></a>
-## type [VerifyConfig](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L22-L56>)
+## type [VerifyConfig](<https://github.com/effective-security/xpki/blob/main/jwt/dpop/verify.go#L22-L65>)
 
 VerifyConfig expresses the possible options for validating a JWT
 
@@ -408,8 +723,17 @@ type VerifyConfig struct {
     ExpectedSubject string
     // ExpectedAudience validates that the aud claim of a JWT contains this value
     ExpectedAudience string
-    // ExpectedNonce validates that the nonce claim of a JWT contains this value
+    // ExpectedNonce validates that the nonce claim of a JWT contains this
+    // value; a mismatch is an error that errors.Is matches to
+    // ErrUseDPoPNonce. It cannot be set together with NonceSource.
     ExpectedNonce string
+    // NonceSource, when set, requires every proof to carry a nonce claim
+    // that the source issued recently (RFC 9449 §8 and §9). A missing,
+    // unknown or stale nonce is an error that errors.Is matches to
+    // ErrUseDPoPNonce: answer it with NonceSource.Nonce in the DPoP-Nonce
+    // header and the ErrorUseDPoPNonce error code. Share one source among
+    // all requests, and among all instances through its configuration.
+    NonceSource NonceSource
     // EnableQuery specifies to get `dpop` header from the QueryString
     EnableQuery bool
 

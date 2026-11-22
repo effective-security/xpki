@@ -5,8 +5,10 @@
 // token "cnf.jkt" claim.
 //
 // Verification is opt-in beyond the proof itself. Set VerifyConfig.ReplayCache
-// (NewMemoryReplayCache for one process, or a shared store) to reject a
-// replayed jti; without it replay detection is the caller's job. At a
+// to reject a replayed jti: NewMemoryReplayCache for one process, or
+// NewSharedReplayCache over a store that all instances of the server share,
+// such as Redis (SET NX with an expiry); without it replay detection is the
+// caller's job. At a
 // protected resource set both AccessToken, to require a matching "ath"
 // claim, and ExpectedThumbprint, to the token "cnf.jkt"; these are
 // per-request values, so set them on a copy of a shared config. Set
@@ -20,6 +22,22 @@
 //		ExpectedThumbprint: cnfJKT,
 //	}
 //	res, err := dpop.VerifyRequestClaims(cfg, req)
+//
+// Set VerifyConfig.NonceSource to require server-provided nonces (RFC 9449
+// §8 and §9), which bound the age of a proof by the server's clock and stop
+// proofs generated in advance. NewHMACNonceSource needs no store: every
+// instance with the same secrets, label and rotation issues and accepts the
+// same nonces. A proof
+// without a recent nonce fails with an error that errors.Is matches to
+// ErrUseDPoPNonce; the server answers it with NonceSource.Nonce in the
+// NonceHTTPHeader (DPoP-Nonce) header, as an HTTP 400 error with the code
+// ErrorUseDPoPNonce from an authorization server or an HTTP 401 with
+// UseDPoPNonceChallenge from a resource server, and the client retries with
+// map[string]any{dpop.ClaimNonce: nonce} as the ForRequest extra claims.
+// A server may also send a new nonce in any other response, for example
+// when NonceSource.Nonce differs from the nonce claim of the proof it just
+// accepted, which saves clients the use_dpop_nonce round trip when the nonce
+// changes; responses that carry one should not be cached.
 //
 // A proof can be signed with an ML-DSA key (NewSigner with any crypto.Signer
 // whose public key is an *mldsa.PublicKey): RFC 9964 algorithms are accepted,
