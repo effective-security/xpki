@@ -5,12 +5,11 @@ import (
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
-	"io"
 
 	"github.com/cockroachdb/errors"
-	"golang.org/x/crypto/hkdf"
 )
 
 // Parameters of the provider returned by NewSymmetric. They document the
@@ -38,6 +37,9 @@ const (
 	// 2^32 per key, so that the probability of a nonce collision stays
 	// below 2^-32.
 	SymmetricMaxMessagesPerKey uint64 = 1 << 32
+
+	// symmetricKeySize is the size in bytes of the AES-256 key HKDF derives.
+	symmetricKeySize = 32
 )
 
 type symProvider struct {
@@ -54,22 +56,20 @@ type symProvider struct {
 // so blobs protected under it are readable by every provider created from
 // it. The size of secret is not checked. See the package documentation for
 // the per-secret usage limits and rotation guidance.
+//
+// NewSymmetric returns an error in a process run with GODEBUG=fips140=only,
+// which refuses GCM with caller-chosen nonces (XPKI-132).
 func NewSymmetric(secret []byte) (Provider, error) {
-	// Underlying hash function for HMAC.
-	hash := sha256.New
-
-	hkdf := hkdf.New(hash, secret, nil, nil)
-
-	// AES-256
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(hkdf, key); err != nil {
-		return nil, errors.WithStack(err)
+	key, err := hkdf.Key(sha256.New, secret, nil, "", symmetricKeySize)
+	if err != nil {
+		return nil, errors.WithMessage(err, "unable to derive key")
 	}
 
 	c, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
+	// XPKI-132: cipher.NewGCM fails under GODEBUG=fips140=only.
 	gcm, err := cipher.NewGCM(c)
 	if err != nil {
 		return nil, errors.WithStack(err)

@@ -10,7 +10,7 @@ import (
 	"github.com/effective-security/xpki/v2/certutil"
 	"github.com/effective-security/xpki/v2/csr"
 	"github.com/effective-security/xpki/v2/x/print"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // CsrCmd is the parent for CSR command

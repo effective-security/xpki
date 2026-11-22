@@ -13,7 +13,7 @@ import (
 	"github.com/effective-security/xpki/v2/csr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestKeyRequest(t *testing.T) {

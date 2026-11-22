@@ -45,11 +45,12 @@ implementation easier; record larger contract work in [ROADMAP.md](ROADMAP.md).
 
 ## Batch queue
 
-No batch is open. New findings get a batch here with the columns below when
-they are recorded in FINDINGS.md:
+New findings get a batch here with the columns below when they are recorded
+in FINDINGS.md:
 
-| Batch | Owner | Findings (package portion where split) | Priority / score | Regression risk | Decision |
-| ----- | ----- | -------------------------------------- | ---------------- | --------------- | -------- |
+| Batch | Owner          | Findings (package portion where split) | Priority / score          | Regression risk                                                                                                                                                                                                                                       | Decision |
+| ----- | -------------- | -------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| DP2   | dataprotection | XPKI-132                               | P3 / LOW correctness (13) | Low: the blob layout stays the same, and `TestNewSymmetricKnownAnswer` pins the key. `Unprotect` of a blob shorter than 12 bytes would report the authentication error instead of `invalid data: less than nonce size`; `TestNewSymmetricFIPS140Only` must expect success | None     |
 
 Conventions that carry over to the next batches:
 

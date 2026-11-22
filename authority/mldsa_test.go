@@ -20,8 +20,8 @@ import (
 	"github.com/effective-security/xpki/v2/oid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/crypto/ocsp"
-	"gopkg.in/yaml.v3"
 )
 
 const (

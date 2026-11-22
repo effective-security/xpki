@@ -114,7 +114,7 @@ type Provider interface {
 ```
 
 <a name="NewSymmetric"></a>
-### func [NewSymmetric](<https://github.com/effective-security/xpki/blob/main/dataprotection/symmetric.go#L57>)
+### func [NewSymmetric](<https://github.com/effective-security/xpki/blob/main/dataprotection/symmetric.go#L62>)
 
 ```go
 func NewSymmetric(secret []byte) (Provider, error)
@@ -123,6 +123,8 @@ func NewSymmetric(secret []byte) (Provider, error)
 NewSymmetric returns a Provider based on AES\-256\-GCM with a key derived from secret by HKDF\-SHA256 \(no salt, no info\).
 
 secret must be high\-entropy key material, at least SymmetricMinSecretSize bytes from crypto/rand or the output of a memory\-hard password KDF; HKDF does not harden a passphrase. The same secret always derives the same key, so blobs protected under it are readable by every provider created from it. The size of secret is not checked. See the package documentation for the per\-secret usage limits and rotation guidance.
+
+NewSymmetric returns an error in a process run with GODEBUG=fips140=only, which refuses GCM with caller\-chosen nonces \(XPKI\-132\).
 
 <details><summary>Example</summary>
 <p>
