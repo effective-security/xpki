@@ -34,9 +34,9 @@ is deliberately not started, `Done` shipped in the named version.
 | 5    | JWKS client hardening                                                                                  | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 6    | PKCS#11 session management                                                                             | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 7    | [certutil bundler concurrency](#7-certutil-bundler-concurrency)                                        | Open                                                                                   |
-| 8    | [Dependency hygiene](#8-dependency-hygiene)                                                            | See 8.1 and 8.2                                                                        |
-| 8.1  | Replace `gopkg.in/yaml.v3`                                                                             | Open                                                                                   |
-| 8.2  | Move to `crypto/hkdf`                                                                                  | Open                                                                                   |
+| 8    | Dependency hygiene                                                                                     | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
+| 8.1  | Replace `gopkg.in/yaml.v3`                                                                             | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
+| 8.2  | Move to `crypto/hkdf`                                                                                  | Done (v2.0, [release notes](Documentation/RELEASE_NOTES_2.0.md))                       |
 | 9    | [dataprotection: versioned blobs and key rotation](#9-dataprotection-versioned-blobs-and-key-rotation) | Open                                                                                   |
 | 10   | [Tooling and CI](#10-tooling-and-ci)                                                                   | See 10.1                                                                               |
 | 10.1 | Regenerate `cmd/*/README.md` from `--help`                                                             | Open                                                                                   |
@@ -105,13 +105,6 @@ still fetches once). Encrypted PKCS#8 supports PBES2 with
 PBKDF2 and AES-CBC only; scrypt and PBES1 are not planned unless a caller
 needs them. Drop legacy RFC 1423 PEM decryption
 (`x509.DecryptPEMBlock`) once callers have migrated to PKCS#8.
-
-## 8. Dependency hygiene
-
-- **8.1** `gopkg.in/yaml.v3` is archived; `go.yaml.in/yaml/v3` is already an
-  indirect dependency. Switch the four direct importers in one change.
-- **8.2** `golang.org/x/crypto/hkdf` in `dataprotection` can move to
-  `crypto/hkdf`.
 
 ## 9. dataprotection: versioned blobs and key rotation
 

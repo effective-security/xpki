@@ -13,7 +13,9 @@ a CA or CSR key take `ctx`. `certutil.VerifyOCSPResponder` checks that an
 OCSP response comes from a responder the CA authorized (roadmap item 11).
 `jwt.RemoteKeySet` gives fetched JWKS keys a lifetime and refreshes them
 before it ends, so keys an issuer removes stop being accepted (roadmap item
-5).
+5). `cryptoprov`, `crypto11` and `hsm-tool` decode YAML with the maintained
+`go.yaml.in/yaml/v3`, and `dataprotection` derives its key with the standard
+library `crypto/hkdf` (roadmap item 8).
 
 It is a **breaking** release for every client: the module path is
 `github.com/effective-security/xpki/v2`. v1 continues on the `release-v1`
@@ -357,6 +359,33 @@ not available: the service does not offer it for HSM keys, see "Constraints".
   issuer's subject and is byte for byte the one `ocsp.CreateRequest` builds.
   Clients change nothing.
 
+## Dependencies
+
+Roadmap item 8. Clients change nothing.
+
+- **YAML** (8.1): `cryptoprov` and `crypto11` (token configuration) and
+  `hsm-tool csr` (the request file) decode YAML with `go.yaml.in/yaml/v3`
+  v3.0.6, the maintained continuation of the archived `gopkg.in/yaml.v3`
+  v3.0.1, and so do the tests. Its exported API is a superset of the old one,
+  and the `csr` types `OID` and `Duration` keep their `UnmarshalYAML`, which
+  both libraries call. The newer parser fixes bugs; one of them turns a panic
+  on an unhashable merge key into an error. `gopkg.in/yaml.v3` stays in
+  `go.mod` as an indirect dependency: `authority`, `jwt` and
+  `jwt/oauth2client` load their configuration through
+  `github.com/effective-security/x/configloader`, which still imports it.
+  Removing it needs a release of that module.
+- **HKDF** (8.2): `dataprotection.NewSymmetric` derives its key with
+  `crypto/hkdf` (`hkdf.Key`) instead of `golang.org/x/crypto/hkdf`. The key
+  is the same: `TestNewSymmetricKnownAnswer` pins it to RFC 5869 test case 3
+  and passes on the previous commit too, so blobs protected by earlier
+  releases stay readable. In a process run with `GODEBUG=fips140=only`, a
+  secret shorter than 112 bits made `NewSymmetric` panic inside
+  `x/crypto/hkdf`; it now returns `unable to derive key: crypto/hkdf: use of
+  keys shorter than 112 bits is not allowed in FIPS 140-only mode`. The
+  provider still cannot be used in that mode, because `cipher.NewGCM`
+  refuses caller-chosen nonces there (XPKI-132). `golang.org/x/crypto` stays
+  a dependency for `cryptobyte` and `ocsp`.
+
 ## Performance
 
 `BenchmarkListKeys` in `awskmscrypto`, the successor of the v1
@@ -615,3 +644,11 @@ greater of `Age` and that apparent age (RFC 9111 §4.2.3), and such a
 response gets the 5-minute minimum. The tests run against a local
 `httptest` server with a manual clock; no real identity provider was
 used.
+
+Dependency hygiene (roadmap item 8), run on 2026-11-22 with Go 1.27.4,
+SoftHSM 2.6.1 and both `local-kms` 3.11.7 containers: `make covtest` passes
+every package, 93.1% total (8103 of 8703 statements); `make lint` (0 issues,
+no vulnerabilities) and `make test RACE=true` pass. `TestNewSymmetricKnownAnswer`
+passed on the previous commit as well, and fails when the HKDF salt or info
+is changed. On the previous commit `TestNewSymmetricFIPS140Only` failed with
+the `x/crypto/hkdf` panic.

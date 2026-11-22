@@ -9,7 +9,7 @@ fixed, remove it from this file and `PLAN.md`, and summarize it in the
 release notes of the next version (`Documentation/RELEASE_NOTES_<version>.md`).
 A finding spanning several packages stays here until every portion is fixed.
 IDs are never reused; gaps are fixed or removed findings. The next free ID is
-**XPKI-132**. Findings fixed in v1.0 are listed in
+**XPKI-133**. Findings fixed in v1.0 are listed in
 [`Documentation/RELEASE_NOTES_1.0.md`](Documentation/RELEASE_NOTES_1.0.md);
 their full records are in git history. XPKI-126 became roadmap item 11, done in v2.0
 ([`Documentation/RELEASE_NOTES_2.0.md`](Documentation/RELEASE_NOTES_2.0.md)), and XPKI-127 and
@@ -37,10 +37,11 @@ symbol name is the stable reference.
 
 ## Index
 
-| ID  | Package | Location | Title | Severity | Status |
-| --- | ------- | -------- | ----- | -------- | ------ |
+| ID       | Package        | Location                      | Title                                                                                                                                                                                                                                                                          | Severity    | Status |
+| -------- | -------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ------ |
+| XPKI-132 | dataprotection | `symmetric.go` `NewSymmetric` | Returns an error in a process run with `GODEBUG=fips140=only`: `cipher.NewGCM` refuses caller-chosen nonces there. `cipher.NewGCMWithRandomNonce` is allowed and writes the same `nonce \|\| ciphertext \|\| tag` blob (Go 1.27 source). Found with roadmap item 8.2 (2026-11-22) | correctness | Open   |
 
-No finding is open. Every finding of the 2026-09-20 audit (XPKI-001..125) is
+Every finding of the 2026-09-20 audit (XPKI-001..125) is
 fixed and summarized in
 [`Documentation/RELEASE_NOTES_1.0.md`](Documentation/RELEASE_NOTES_1.0.md).
 Larger follow-up work is in [ROADMAP.md](ROADMAP.md).

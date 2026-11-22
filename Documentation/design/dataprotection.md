@@ -7,7 +7,7 @@ service: session state, opaque access tokens (`jwt/accesstoken`), cached
 secrets. It offers one interface, `Provider`, with a symmetric
 implementation (`NewSymmetric`) and two helpers that protect and unprotect
 JSON objects as base64url strings. It depends only on the standard library
-and `golang.org/x/crypto/hkdf`; `jwt/accesstoken` is its in-repo consumer.
+(`crypto/hkdf` since v2.0); `jwt/accesstoken` is its in-repo consumer.
 
 ## Core abstractions
 
@@ -62,6 +62,10 @@ flowchart LR
 Pure unit tests: round trips, tampering, wrong secret, short blobs;
 `symmetric_limits_test.go` checks the exported constants against the
 AEAD; `example_test.go` compiles the documented usage.
+`TestNewSymmetricKnownAnswer` pins the derived key to RFC 5869 A.3, so a
+change of the HKDF implementation cannot make older blobs unreadable, and
+`TestNewSymmetricFIPS140Only` re-executes the test binary with
+`GODEBUG=fips140=only`, where `NewSymmetric` returns an error (XPKI-132).
 
 ## Post-quantum readiness
 

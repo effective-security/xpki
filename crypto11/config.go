@@ -8,7 +8,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/effective-security/xlog"
 	pkcs11 "github.com/miekg/pkcs11"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 var logger = xlog.NewPackageLogger("github.com/effective-security/xpki", "crypto11")

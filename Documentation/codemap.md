@@ -164,6 +164,11 @@ parsing, TLS key-pair loading and AES-GCM helpers.
 - Config location `""` or `"inmem"` maps to manufacturer `inmem`; `.json` suffix
   selects JSON, otherwise YAML. JSON keys: `Manufacturer, Model, Path, TokenSerial,
 TokenLabel, Pin, Attributes`; YAML keys are snake_case.
+- YAML is decoded with `go.yaml.in/yaml/v3` here, in `crypto11` and in
+  `hsm-tool csr` (v2.0, roadmap 8.1). `authority`, `jwt` and
+  `jwt/oauth2client` load their configuration through
+  `effective-security/x/configloader`, which still imports the archived
+  `gopkg.in/yaml.v3`; that keeps it in `go.mod` as an indirect dependency.
 - `Provider` does not embed `KeyManager`, `TokenManager` or `Close`;
   type-assert when needed. Every provider of this module is a `KeyManager`;
   only `crypto11` is a `TokenManager`.
@@ -1635,7 +1640,12 @@ and parallel unique-unknown kids.
   random-IV bound) of less than 2^36−32 bytes each. `doc.go` states the
   limits, `symmetric_limits_test.go` checks the constants against the AEAD
   and `example_test.go` generates the secret with `crypto/rand` (XPKI-083,
-  fixed). The KDF and blob format are unchanged.
+  fixed). The KDF and blob format are unchanged since v1.0: the key comes from
+  the standard library `crypto/hkdf` (`hkdf.Key`, v2.0, roadmap 8.2), and
+  `TestNewSymmetricKnownAnswer` pins it to RFC 5869 A.3 so that older blobs
+  stay readable. Under `GODEBUG=fips140=only` `NewSymmetric` returns an error
+  and does not panic (XPKI-132: `cipher.NewGCM` is refused there);
+  `TestNewSymmetricFIPS140Only` re-executes the test binary in that mode.
 
 Tests are pure except `keys_test.go` writing under `os.TempDir()`.
 `dpop/mldsa_test.go` covers proofs from an ML-DSA provider key with the token
