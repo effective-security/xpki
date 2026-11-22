@@ -15,7 +15,9 @@ OCSP response comes from a responder the CA authorized (roadmap item 11).
 before it ends, so keys an issuer removes stop being accepted (roadmap item
 5). `cryptoprov`, `crypto11` and `hsm-tool` decode YAML with the maintained
 `go.yaml.in/yaml/v3`, and `dataprotection` derives its key with the standard
-library `crypto/hkdf` (roadmap item 8).
+library `crypto/hkdf` (roadmap item 8). `jwt/dpop` detects replayed proofs
+across the instances of a server through a store they share, and issues and
+checks server nonces (roadmap item 4).
 
 It is a **breaking** release for every client: the module path is
 `github.com/effective-security/xpki/v2`. v1 continues on the `release-v1`
@@ -272,6 +274,52 @@ not available: the service does not offer it for HSM keys, see "Constraints".
     stale_if_error: 24h # "0s" rejects tokens once the keys expire and a fetch fails
   ```
 
+- **DPoP replay cache shared by several instances** (roadmap item 4.1).
+  `dpop.NewSharedReplayCache(store, cfg)` is a `ReplayCache` over a
+  `ReplayStore`, whose one method `SetIfAbsent(ctx, key, ttl)` is Redis
+  `SET key value NX PX ttl`: a proof that one instance accepted is a replay
+  (`ErrReplay`) for all of them. The time to live runs to the last instant
+  the verifier accepts the proof, plus `ClockSkew` (default 1 minute, the
+  clock difference allowed between the instances), that instant included,
+  rounded up to the millisecond; keys start with `KeyPrefix` (default `dpop:jti:`). A store
+  error rejects the proof. The store must keep each key for its whole time
+  to live: a Redis that evicts keys under memory pressure lets replays
+  through, so use `maxmemory-policy noeviction` or a dedicated instance. The
+  module has no Redis dependency; a go-redis client is one
+  `ReplayStoreFunc`:
+
+  ```go
+  store := dpop.ReplayStoreFunc(func(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+  	return rdb.SetNX(ctx, key, 1, ttl).Result()
+  })
+  cache, err := dpop.NewSharedReplayCache(store, dpop.SharedReplayCacheConfig{})
+  ```
+
+- **DPoP server nonces** (roadmap item 4.2, RFC 9449 §8 and §9). With
+  `VerifyConfig.NonceSource` set, every proof must carry a nonce that the
+  source issued recently. A missing, unknown or stale nonce is an error that
+  `errors.Is` matches to `dpop.ErrUseDPoPNonce`, and the replay cache does
+  not record that proof. The server answers it with `NonceSource.Nonce` in
+  the `DPoP-Nonce` header (`dpop.NonceHTTPHeader`): an authorization server
+  with an HTTP 400 error whose code is `use_dpop_nonce`
+  (`dpop.ErrorUseDPoPNonce`), a resource server with an HTTP 401 and
+  `WWW-Authenticate: <dpop.UseDPoPNonceChallenge>`. The client signs a new
+  proof with `map[string]any{dpop.ClaimNonce: nonce}` and keeps that nonce
+  until the server sends another, which it may do in any response.
+  `dpop.NewHMACNonceSource` needs no store: a nonce is the number of a time
+  window (`Rotation`, default 5 minutes, 1 second to 1 hour) authenticated
+  with HMAC-SHA256 under secrets that every instance shares, with the same
+  `Label` and `Rotation`. It is accepted in its window and
+  the next, and a nonce of the window after the current one is accepted
+  early, for instances whose clocks run ahead. The first secret issues and
+  every secret verifies, so secrets rotate without rejecting the nonces in
+  use, and `Label` keeps apart the nonces of an authorization server and a
+  resource server that share secrets. The nonce bounds the age of a proof by
+  the server's clock; `iat` and `exp` are still checked. An `ExpectedNonce`
+  mismatch now matches `ErrUseDPoPNonce` as well, with its message
+  unchanged (`dpop: invalid nonce`); `ExpectedNonce` and `NonceSource`
+  together are a configuration error.
+
 - **Paged, filtered listings.** `ListKeysRequest` has `PageSize`, `PageToken`,
   `Filter` (`Usage`, `Types`, `Label`, `LabelPrefix`, `Tags`, `States`) and
   `Fields`. `AllKeys(ctx, km, req)` iterates over every page. A page can be
@@ -527,6 +575,13 @@ v1 path; check the diff for one outside an import block.
 - A script that reads `xpki-tool cert validate --revocation` or `ocsp fetch`
   output sees `ERROR: invalid OCSP response: …` where it saw a status for a
   responder its CA did not authorize.
+- A DPoP server with several instances that relies on replay detection
+  replaces `NewMemoryReplayCache` with `NewSharedReplayCache` over the store
+  its instances share. A server that turns `NonceSource` on rejects every
+  proof without a nonce, so its clients must answer `use_dpop_nonce` by
+  signing again with the nonce of the `DPoP-Nonce` header; the DPoP clients
+  of porto (`retriable`) and the trustyca CLI call `dpop.ForRequest` without
+  a nonce today.
 - A service that verifies tokens against a `jwks_uri` (`jwt.NewParser` or
   `NewRemoteKeySet`) must reach it at least once per cache lifetime, and
   within 24 hours of an expiry while it fails. One that cannot sets
@@ -652,3 +707,25 @@ no vulnerabilities) and `make test RACE=true` pass. `TestNewSymmetricKnownAnswer
 passed on the previous commit as well, and fails when the HKDF salt or info
 is changed. On the previous commit `TestNewSymmetricFIPS140Only` failed with
 the `x/crypto/hkdf` panic.
+
+DPoP replay cache and server nonces (roadmap item 4), run on 2026-11-22 with
+Go 1.27.4, SoftHSM 2.6.1 and both `local-kms` 3.11.7 containers: `make
+covtest` passes every package, 93.2% total (8180 of 8780 statements; the new
+code is fully covered); `make lint` (0 issues) and `make test RACE=true`
+pass, and the new `jwt/dpop` tests passed three more times under the race
+detector at `-cpu 1,4`. `SharedReplayCache` ran against a real Redis 8.2 in a
+throwaway container through the go-redis v9.23.0 sample above: the second
+instance saw the replay, the key had a TTL of 11 minutes for a proof accepted
+for 10, a 150 ms TTL went out as `PX` and expired on time, and an unreachable
+Redis rejected the proof. The nonce format is pinned by a known answer
+computed independently of the implementation. An independent review found a
+time to live that wrapped around to 1 ms for a huge `ClockSkew` (now
+saturated), panics on zero-value sources and caches (now errors), rotations
+missing from the nonce MAC (now included), and test gaps; each fix has a test
+that fails when the fix is reverted. The pull request review found that a
+time to live of whole milliseconds let a store drop the key at the instant
+an instance exactly `ClockSkew` behind still accepted the proof; the time to
+live is now one nanosecond longer before it is rounded up, and
+`TestSharedReplayCache_ClockSkewBoundary`, which accepted the replay before
+the fix, checks that instant with two clocks. No real client or server
+(porto, trustyca) was run against the change.

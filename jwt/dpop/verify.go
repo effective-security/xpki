@@ -26,8 +26,17 @@ type VerifyConfig struct {
 	ExpectedSubject string
 	// ExpectedAudience validates that the aud claim of a JWT contains this value
 	ExpectedAudience string
-	// ExpectedNonce validates that the nonce claim of a JWT contains this value
+	// ExpectedNonce validates that the nonce claim of a JWT contains this
+	// value; a mismatch is an error that errors.Is matches to
+	// ErrUseDPoPNonce. It cannot be set together with NonceSource.
 	ExpectedNonce string
+	// NonceSource, when set, requires every proof to carry a nonce claim
+	// that the source issued recently (RFC 9449 §8 and §9). A missing,
+	// unknown or stale nonce is an error that errors.Is matches to
+	// ErrUseDPoPNonce: answer it with NonceSource.Nonce in the DPoP-Nonce
+	// header and the ErrorUseDPoPNonce error code. Share one source among
+	// all requests, and among all instances through its configuration.
+	NonceSource NonceSource
 	// EnableQuery specifies to get `dpop` header from the QueryString
 	EnableQuery bool
 
@@ -122,7 +131,7 @@ type proofClaims struct {
 // by a server; see VerifyClaims. The htu claim is compared with the request
 // URI built from cfg.ExternalURL, or else from the request URL and Host
 // (https when the URL has no scheme), without query and fragment. The
-// request context is passed to cfg.ReplayCache.
+// request context is passed to cfg.NonceSource and cfg.ReplayCache.
 func VerifyRequestClaims(cfg VerifyConfig, req *http.Request) (*Result, error) {
 	phdr := req.Header.Get(HTTPHeader)
 	if phdr == "" && cfg.EnableQuery {
@@ -151,13 +160,19 @@ func VerifyClaims(cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, 
 // (scheme and host case-insensitive, path case-sensitive, query and fragment
 // ignored). When set, cfg.AccessToken requires a matching ath claim and must
 // be paired with cfg.ExpectedThumbprint, which requires the proof key to match
-// the access token cnf.jkt; cfg.ReplayCache records the proof after every other check
-// passed, rejecting a replayed jti with ErrReplay. Without cfg.ReplayCache the
-// caller is responsible for replay detection.
+// the access token cnf.jkt; cfg.NonceSource or cfg.ExpectedNonce requires a
+// server-provided nonce, rejecting a missing, unknown or stale one with an
+// error that errors.Is matches to ErrUseDPoPNonce; cfg.ReplayCache records
+// the proof after every other check passed, rejecting a replayed jti with
+// ErrReplay. Without cfg.ReplayCache the caller is responsible for replay
+// detection.
 func VerifyClaimsContext(ctx context.Context, cfg VerifyConfig, phdr, httpMethod, httpURI string) (*Result, error) {
 	// anyone holding the token can compute ath; only cnf.jkt binds the key
 	if cfg.AccessToken != "" && cfg.ExpectedThumbprint == "" {
 		return nil, errors.New("dpop: ExpectedThumbprint is required with AccessToken")
+	}
+	if cfg.ExpectedNonce != "" && cfg.NonceSource != nil {
+		return nil, errors.New("dpop: ExpectedNonce and NonceSource are mutually exclusive")
 	}
 	headers, err := proofHeaders(phdr)
 	if err != nil {
@@ -241,8 +256,15 @@ func VerifyClaimsContext(ctx context.Context, cfg VerifyConfig, phdr, httpMethod
 	if cfg.ExpectedAudience != "" && !claims.Audience.Contains(cfg.ExpectedAudience) {
 		return nil, errors.Errorf("dpop: invalid audience")
 	}
-	if cfg.ExpectedNonce != "" && claims.Nonce != cfg.ExpectedNonce {
-		return nil, errors.Errorf("dpop: invalid nonce")
+	if cfg.NonceSource != nil {
+		if err = cfg.NonceSource.VerifyNonce(ctx, claims.Nonce); err != nil {
+			if errors.Is(err, ErrUseDPoPNonce) {
+				return nil, err
+			}
+			return nil, errors.WithMessage(err, "dpop: unable to verify nonce")
+		}
+	} else if cfg.ExpectedNonce != "" && claims.Nonce != cfg.ExpectedNonce {
+		return nil, newNonceError("dpop: invalid nonce")
 	}
 	if cfg.AccessToken != "" {
 		if pc.AccessTokenHash == "" {
