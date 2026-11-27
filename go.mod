@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.21
 	github.com/aws/aws-sdk-go-v2/service/kms v1.63.0
 	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.42.0
-	github.com/aws/smithy-go v1.28.9
+	github.com/aws/smithy-go v1.28.10
 	github.com/cockroachdb/errors v1.14.0
 	github.com/effective-security/metrics v0.10.160
 	github.com/effective-security/x v1.0.112
